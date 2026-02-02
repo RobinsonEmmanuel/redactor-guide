@@ -1,16 +1,5 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "cd apps/web && npm install && npm run build",
-  "devCommand": "cd apps/web && npm run dev",
   "installCommand": "npm install",
-  "framework": "nextjs",
-  "outputDirectory": "apps/web/.next",
-  "env": {
-    "API_REGION_LOVERS": "@api_region_lovers"
-  },
-  "build": {
-    "env": {
-      "API_REGION_LOVERS": "@api_region_lovers"
-    }
-  }
+  "outputDirectory": "apps/web/.next"
 }

@@ -28,6 +28,10 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [ingestionLoading, setIngestionLoading] = useState(false);
+  const [ingestionDone, setIngestionDone] = useState(false);
+  const [ingestionCount, setIngestionCount] = useState<number | null>(null);
+  const [ingestionError, setIngestionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (guide) {
@@ -122,6 +126,89 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
       });
     } finally {
       setTesting(false);
+    }
+  };
+
+  const launchIngestion = async () => {
+    if (!formData.wpConfig.siteUrl || !formData.wpConfig.jwtToken || !formData.slug) {
+      setIngestionError('Renseignez l\'URL WordPress, le jeton JWT et le slug.');
+      return;
+    }
+    setIngestionLoading(true);
+    setIngestionError(null);
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+    const payload = {
+      siteId: formData.slug,
+      destinationIds: formData.destinations,
+      siteUrl: formData.wpConfig.siteUrl,
+      jwtToken: formData.wpConfig.jwtToken,
+    };
+
+    try {
+      // 1) Tenter la file d’attente (enqueue)
+      const enqueueRes = await fetch(`${apiUrl}/api/v1/ingest/enqueue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+      const enqueueData = await enqueueRes.json().catch(() => ({}));
+
+      if (enqueueRes.status === 202 && enqueueData.jobId) {
+        // Queue active : poll du statut jusqu’à completed/failed
+        const jobId = enqueueData.jobId;
+        const pollIntervalMs = 2500;
+        const maxAttempts = 600; // ~25 min max
+        let attempts = 0;
+        while (attempts < maxAttempts) {
+          await new Promise((r) => setTimeout(r, pollIntervalMs));
+          const statusRes = await fetch(`${apiUrl}/api/v1/ingest/status/${jobId}`, { credentials: 'include' });
+          const statusData = await statusRes.json().catch(() => ({}));
+          if (statusData.status === 'completed') {
+            setIngestionDone(true);
+            setIngestionCount(statusData.result?.count ?? 0);
+            setIngestionLoading(false);
+            return;
+          }
+          if (statusData.status === 'failed') {
+            setIngestionError(statusData.error || 'Ingestion échouée');
+            setIngestionLoading(false);
+            return;
+          }
+          attempts += 1;
+        }
+        setIngestionError('Délai dépassé : la récupération prend trop de temps.');
+        setIngestionLoading(false);
+        return;
+      }
+
+      if (enqueueRes.status === 503) {
+        // Queue non dispo : fallback sur ingestion synchrone
+        const syncRes = await fetch(`${apiUrl}/api/v1/ingest`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(payload),
+        });
+        const syncData = await syncRes.json().catch(() => ({}));
+        if (!syncRes.ok) {
+          setIngestionError(syncData.error || `Erreur ${syncRes.status}`);
+          setIngestionLoading(false);
+          return;
+        }
+        setIngestionDone(true);
+        setIngestionCount(syncData.count ?? 0);
+        setIngestionLoading(false);
+        return;
+      }
+
+      if (!enqueueRes.ok) {
+        setIngestionError(enqueueData.error || enqueueData.message || `Erreur ${enqueueRes.status}`);
+      }
+    } catch (err) {
+      setIngestionError(err instanceof Error ? err.message : 'Erreur réseau');
+    } finally {
+      setIngestionLoading(false);
     }
   };
 
@@ -359,6 +446,36 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
           </div>
         </div>
 
+        {/* Récupération des articles WordPress */}
+        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-1">
+            Récupération des articles
+          </h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Récupérez le HTML brut (français) et les URL par langue avant de créer le guide. Environ 272 articles × 9 langues.
+          </p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={launchIngestion}
+              disabled={ingestionLoading || !formData.wpConfig.siteUrl || !formData.wpConfig.jwtToken || !formData.slug}
+              className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+            >
+              {ingestionLoading ? 'Récupération en cours...' : 'Récupérer les articles WordPress'}
+            </button>
+            {ingestionDone && ingestionCount != null && (
+              <span className="text-sm text-green-700 bg-green-50 px-3 py-2 rounded-lg border border-green-200">
+                {ingestionCount} article(s) ingéré(s). Vous pouvez créer le guide.
+              </span>
+            )}
+            {ingestionError && (
+              <span className="text-sm text-red-700 bg-red-50 px-3 py-2 rounded-lg border border-red-200">
+                {ingestionError}
+              </span>
+            )}
+          </div>
+        </div>
+
         {/* Actions */}
         <div className="flex items-center justify-end gap-3">
           <button
@@ -370,7 +487,7 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
           </button>
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || (!isEditing && !ingestionDone)}
             className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? 'Enregistrement...' : isEditing ? 'Mettre à jour' : 'Créer le guide'}

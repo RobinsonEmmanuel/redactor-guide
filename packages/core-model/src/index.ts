@@ -15,3 +15,6 @@ export * from './schemas/site.schema';
 
 // Prompt schemas
 export * from './schemas/prompt.schema';
+
+// Article raw (ingestion WordPress)
+export * from './schemas/article-raw.schema';

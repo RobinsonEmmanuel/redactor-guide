@@ -59,12 +59,13 @@ export async function createServer(db: Db, _port: number) {
   // Routes API
   await fastify.register(
     async (fastify) => {
-      // Routes guides
       await fastify.register(
         (await import('./routes/guides.routes')).guidesRoutes
       );
+      await fastify.register(
+        (await import('./routes/ingest.routes')).ingestRoutes
+      );
 
-      // Route de test pour les destinations
       fastify.get('/destinations', async () => {
         const destinations = await db.collection('destinations').find().toArray();
         return { destinations };

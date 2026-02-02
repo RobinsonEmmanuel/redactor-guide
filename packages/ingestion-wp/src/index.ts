@@ -6,3 +6,4 @@
 
 export * from './services/wordpress-ingestion.service';
 export * from './schemas/wordpress-api.schema';
+export * from './utils/html.utils';

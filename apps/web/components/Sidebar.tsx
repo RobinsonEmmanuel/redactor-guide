@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { 
   BookOpenIcon, 
   Cog6ToothIcon,
@@ -54,16 +55,52 @@ export default function Sidebar() {
 
       {/* User info */}
       <div className="p-4 border-t border-slate-700">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-slate-600 rounded-full flex items-center justify-center text-xs font-semibold">
-            ER
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">Emmanuel R.</p>
-            <p className="text-xs text-slate-400">Administrateur</p>
-          </div>
-        </div>
+        <UserInfo />
       </div>
     </aside>
+  );
+}
+
+function UserInfo() {
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const { getCurrentUser, logout } = require('@/lib/auth');
+      const currentUser = getCurrentUser();
+      setUser(currentUser);
+    }
+  }, []);
+
+  const handleLogout = () => {
+    const { logout } = require('@/lib/auth');
+    logout();
+  };
+
+  if (!user) return null;
+
+  const initials = user.email
+    ?.split('@')[0]
+    ?.substring(0, 2)
+    ?.toUpperCase() || 'ER';
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-2">
+        <div className="w-8 h-8 bg-slate-600 rounded-full flex items-center justify-center text-xs font-semibold">
+          {initials}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">{user.email}</p>
+          <p className="text-xs text-slate-400 capitalize">{user.role}</p>
+        </div>
+      </div>
+      <button
+        onClick={handleLogout}
+        className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-slate-700/50 rounded-lg transition-colors"
+      >
+        Déconnexion
+      </button>
+    </div>
   );
 }

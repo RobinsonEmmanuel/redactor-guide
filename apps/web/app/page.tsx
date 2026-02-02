@@ -1,13 +1,32 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { isAuthenticated, storeTokens } from '@/lib/auth';
 import Sidebar from '@/components/Sidebar';
 import GuidesList from '@/components/GuidesList';
 import GuideForm from '@/components/GuideForm';
 
 export default function Home() {
+  const router = useRouter();
   const [selectedGuide, setSelectedGuide] = useState<any>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    
+    // Vérifier l'authentification côté client
+    if (!isAuthenticated()) {
+      router.push('/login');
+    }
+    
+    // Synchroniser le token avec les cookies pour le middleware
+    const token = localStorage.getItem('accessToken');
+    if (token) {
+      document.cookie = `accessToken=${token}; path=/; max-age=86400`;
+    }
+  }, [router]);
 
   const handleCreateGuide = () => {
     setSelectedGuide(null);
@@ -23,6 +42,14 @@ export default function Home() {
     setIsFormOpen(false);
     setSelectedGuide(null);
   };
+
+  if (!mounted) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-gray-500">Chargement...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen">

@@ -36,7 +36,41 @@ export async function guidesRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Guide non trouvé' });
       }
       
-      return { guide };
+      return guide;
+    } catch (error) {
+      return reply.status(400).send({ error: 'ID invalide' });
+    }
+  });
+
+  // Articles récupérés pour un guide
+  fastify.get('/guides/:id/articles', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const db = request.server.container.db;
+    
+    try {
+      // Récupérer le guide pour obtenir le slug (siteId)
+      const guide = await db.collection('guides').findOne({ _id: new ObjectId(id) });
+      
+      if (!guide) {
+        return reply.status(404).send({ error: 'Guide non trouvé' });
+      }
+
+      // Récupérer les articles avec ce siteId
+      const articles = await db
+        .collection('articles_raw')
+        .find({ site_id: guide.slug })
+        .project({
+          _id: 1,
+          title: 1,
+          wpml_urls: 1,
+          categories: 1,
+          tags: 1,
+          updated_at: 1,
+        })
+        .sort({ updated_at: -1 })
+        .toArray();
+      
+      return { articles };
     } catch (error) {
       return reply.status(400).send({ error: 'ID invalide' });
     }

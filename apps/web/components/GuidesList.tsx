@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { PlusIcon, PencilIcon, TrashIcon, BookOpenIcon } from '@heroicons/react/24/outline';
 
 interface Guide {
@@ -23,6 +24,7 @@ interface GuidesListProps {
 }
 
 export default function GuidesList({ onCreateGuide, onEditGuide }: GuidesListProps) {
+  const router = useRouter();
   const [guides, setGuides] = useState<Guide[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -164,7 +166,11 @@ export default function GuidesList({ onCreateGuide, onEditGuide }: GuidesListPro
             </thead>
             <tbody className="divide-y divide-gray-200">
               {guides.map((guide) => (
-                <tr key={guide._id} className="hover:bg-gray-50">
+                <tr
+                  key={guide._id}
+                  onClick={() => router.push(`/guides/${guide._id}`)}
+                  className="hover:bg-gray-50 cursor-pointer"
+                >
                   <td className="px-6 py-4">
                     <div>
                       <div className="font-medium text-gray-900">{guide.name}</div>
@@ -198,14 +204,20 @@ export default function GuidesList({ onCreateGuide, onEditGuide }: GuidesListPro
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button
-                        onClick={() => onEditGuide(guide)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEditGuide(guide);
+                        }}
                         className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                         title="Modifier"
                       >
                         <PencilIcon className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleDelete(guide._id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(guide._id);
+                        }}
                         className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                         title="Supprimer"
                       >

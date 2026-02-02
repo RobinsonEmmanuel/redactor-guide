@@ -26,12 +26,6 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
   });
 
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [ingestionLoading, setIngestionLoading] = useState(false);
-  const [ingestionDone, setIngestionDone] = useState(false);
-  const [ingestionCount, setIngestionCount] = useState<number | null>(null);
-  const [ingestionError, setIngestionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (guide) {
@@ -82,136 +76,6 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
     }
   };
 
-  const testWordPressConnection = async () => {
-    if (!formData.wpConfig.siteUrl || !formData.wpConfig.jwtToken) {
-      setTestResult({
-        success: false,
-        message: 'Veuillez renseigner l\'URL et le jeton JWT'
-      });
-      return;
-    }
-
-    setTesting(true);
-    setTestResult(null);
-
-    try {
-      console.log('🔍 [WP TEST] Test de connexion WordPress...', formData.wpConfig.siteUrl);
-      
-      // Appeler l'API WordPress pour vérifier le JWT
-      const response = await fetch(`${formData.wpConfig.siteUrl}/wp-json/wp/v2/posts?per_page=1`, {
-        headers: {
-          'Authorization': `Bearer ${formData.wpConfig.jwtToken}`,
-        },
-      });
-
-      console.log('🔍 [WP TEST] Réponse:', response.status);
-
-      if (response.ok) {
-        setTestResult({
-          success: true,
-          message: '✅ Connexion réussie ! Le jeton JWT est valide.'
-        });
-      } else {
-        const errorText = await response.text();
-        setTestResult({
-          success: false,
-          message: `❌ Erreur ${response.status}: ${errorText || 'Jeton invalide'}`
-        });
-      }
-    } catch (error) {
-      console.error('❌ [WP TEST] Erreur:', error);
-      setTestResult({
-        success: false,
-        message: '❌ Impossible de se connecter au site WordPress. Vérifiez l\'URL.'
-      });
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const launchIngestion = async () => {
-    if (!formData.wpConfig.siteUrl || !formData.wpConfig.jwtToken || !formData.slug) {
-      setIngestionError('Renseignez l\'URL WordPress, le jeton JWT et le slug.');
-      return;
-    }
-    setIngestionLoading(true);
-    setIngestionError(null);
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-    const payload = {
-      siteId: formData.slug,
-      destinationIds: formData.destinations,
-      siteUrl: formData.wpConfig.siteUrl,
-      jwtToken: formData.wpConfig.jwtToken,
-    };
-
-    try {
-      // 1) Tenter la file d’attente (enqueue)
-      const enqueueRes = await fetch(`${apiUrl}/api/v1/ingest/enqueue`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(payload),
-      });
-      const enqueueData = await enqueueRes.json().catch(() => ({}));
-
-      if (enqueueRes.status === 202 && enqueueData.jobId) {
-        // Queue active : poll du statut jusqu’à completed/failed
-        const jobId = enqueueData.jobId;
-        const pollIntervalMs = 2500;
-        const maxAttempts = 600; // ~25 min max
-        let attempts = 0;
-        while (attempts < maxAttempts) {
-          await new Promise((r) => setTimeout(r, pollIntervalMs));
-          const statusRes = await fetch(`${apiUrl}/api/v1/ingest/status/${jobId}`, { credentials: 'include' });
-          const statusData = await statusRes.json().catch(() => ({}));
-          if (statusData.status === 'completed') {
-            setIngestionDone(true);
-            setIngestionCount(statusData.result?.count ?? 0);
-            setIngestionLoading(false);
-            return;
-          }
-          if (statusData.status === 'failed') {
-            setIngestionError(statusData.error || 'Ingestion échouée');
-            setIngestionLoading(false);
-            return;
-          }
-          attempts += 1;
-        }
-        setIngestionError('Délai dépassé : la récupération prend trop de temps.');
-        setIngestionLoading(false);
-        return;
-      }
-
-      if (enqueueRes.status === 503) {
-        // Queue non dispo : fallback sur ingestion synchrone
-        const syncRes = await fetch(`${apiUrl}/api/v1/ingest`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(payload),
-        });
-        const syncData = await syncRes.json().catch(() => ({}));
-        if (!syncRes.ok) {
-          setIngestionError(syncData.error || `Erreur ${syncRes.status}`);
-          setIngestionLoading(false);
-          return;
-        }
-        setIngestionDone(true);
-        setIngestionCount(syncData.count ?? 0);
-        setIngestionLoading(false);
-        return;
-      }
-
-      if (!enqueueRes.ok) {
-        setIngestionError(enqueueData.error || enqueueData.message || `Erreur ${enqueueRes.status}`);
-      }
-    } catch (err) {
-      setIngestionError(err instanceof Error ? err.message : 'Erreur réseau');
-    } finally {
-      setIngestionLoading(false);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -235,7 +99,6 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
 
       if (response.ok) {
         onClose();
-        // Rafraîchir la liste
         window.location.reload();
       } else {
         alert('Erreur lors de l\'enregistrement');
@@ -286,14 +149,14 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
                 value={formData.name}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                placeholder="Guide Paris 2025"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Guide Paris 2024"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Slug
+                Slug *
               </label>
               <input
                 type="text"
@@ -301,8 +164,8 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
                 value={formData.slug}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-gray-50"
-                placeholder="guide-paris-2025"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="guide-paris-2024"
               />
             </div>
 
@@ -316,9 +179,7 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
                 value={formData.year}
                 onChange={handleChange}
                 required
-                min="2020"
-                max="2100"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
 
@@ -331,9 +192,7 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
                 name="version"
                 value={formData.version}
                 onChange={handleChange}
-                required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                placeholder="1.0.0"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
 
@@ -345,14 +204,17 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
                 name="language"
                 value={formData.language}
                 onChange={handleChange}
-                required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="fr">Français</option>
-                <option value="en">Anglais</option>
-                <option value="de">Allemand</option>
-                <option value="it">Italien</option>
-                <option value="es">Espagnol</option>
+                <option value="en">English</option>
+                <option value="de">Deutsch</option>
+                <option value="es">Español</option>
+                <option value="it">Italiano</option>
+                <option value="pt">Português</option>
+                <option value="nl">Nederlands</option>
+                <option value="pl">Polski</option>
+                <option value="ru">Русский</option>
               </select>
             </div>
 
@@ -364,13 +226,11 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
                 name="status"
                 value={formData.status}
                 onChange={handleChange}
-                required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="draft">Brouillon</option>
                 <option value="in_progress">En cours</option>
-                <option value="review">En revue</option>
-                <option value="ready">Prêt</option>
+                <option value="review">En révision</option>
                 <option value="published">Publié</option>
               </select>
             </div>
@@ -379,12 +239,9 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
 
         {/* Configuration WordPress */}
         <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-1">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">
             Configuration WordPress
           </h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Configurez la source WordPress et l'authentification JWT
-          </p>
 
           <div className="space-y-4">
             <div>
@@ -397,87 +254,36 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
                 value={formData.wpConfig.siteUrl}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                placeholder="https://example.com"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="https://votre-site.com"
               />
-              <p className="mt-1 text-xs text-gray-500">
-                L'URL complète du site WordPress (avec https://)
+              <p className="mt-1 text-sm text-gray-500">
+                URL complète du site WordPress (avec https://)
               </p>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Jeton JWT (JWT Authentication) *
+                Token JWT WordPress *
               </label>
               <textarea
                 name="wpConfig.jwtToken"
                 value={formData.wpConfig.jwtToken}
                 onChange={handleChange}
                 required
-                rows={4}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono text-sm"
+                rows={3}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
                 placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
               />
-              <p className="mt-1 text-xs text-gray-500">
-                Jeton généré par le plugin JWT Authentication for WP REST API
+              <p className="mt-1 text-sm text-gray-500">
+                Token d'authentification JWT pour accéder à l'API REST WordPress
               </p>
-              <div className="mt-3 flex items-start gap-3 flex-wrap">
-                <button
-                  type="button"
-                  onClick={testWordPressConnection}
-                  disabled={testing || !formData.wpConfig.siteUrl || !formData.wpConfig.jwtToken}
-                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                >
-                  {testing ? 'Test en cours...' : 'Tester la connexion'}
-                </button>
-                {testResult && (
-                  <span
-                    className={`flex-1 min-w-0 px-4 py-2 rounded-lg text-sm ${
-                      testResult.success
-                        ? 'bg-green-50 text-green-700 border border-green-200'
-                        : 'bg-red-50 text-red-700 border border-red-200'
-                    }`}
-                  >
-                    {testResult.message}
-                  </span>
-                )}
-              </div>
             </div>
           </div>
         </div>
 
-        {/* Récupération des articles WordPress */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-1">
-            Récupération des articles
-          </h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Récupérez le HTML brut (français) et les URL par langue avant de créer le guide. Environ 272 articles × 9 langues.
-          </p>
-          <div className="flex items-center gap-3 flex-wrap">
-            <button
-              type="button"
-              onClick={launchIngestion}
-              disabled={ingestionLoading || !formData.wpConfig.siteUrl || !formData.wpConfig.jwtToken || !formData.slug}
-              className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-            >
-              {ingestionLoading ? 'Récupération en cours...' : 'Récupérer les articles WordPress'}
-            </button>
-            {ingestionDone && ingestionCount != null && (
-              <span className="text-sm text-green-700 bg-green-50 px-3 py-2 rounded-lg border border-green-200">
-                {ingestionCount} article(s) ingéré(s). Vous pouvez créer le guide.
-              </span>
-            )}
-            {ingestionError && (
-              <span className="text-sm text-red-700 bg-red-50 px-3 py-2 rounded-lg border border-red-200">
-                {ingestionError}
-              </span>
-            )}
-          </div>
-        </div>
-
         {/* Actions */}
-        <div className="flex items-center justify-end gap-3">
+        <div className="flex gap-4">
           <button
             type="button"
             onClick={onClose}
@@ -487,10 +293,10 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
           </button>
           <button
             type="submit"
-            disabled={saving || (!isEditing && !ingestionDone)}
-            className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={saving}
+            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
           >
-            {saving ? 'Enregistrement...' : isEditing ? 'Mettre à jour' : 'Créer le guide'}
+            {saving ? 'Enregistrement...' : (isEditing ? 'Mettre à jour' : 'Créer le guide')}
           </button>
         </div>
       </form>

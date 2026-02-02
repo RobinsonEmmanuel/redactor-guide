@@ -1,0 +1,32 @@
+{
+  "name": "redactor-guide",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Outil interne de génération de guides touristiques",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:api": "npm run dev --workspace=apps/api",
+    "dev:web": "npm run dev --workspace=apps/web",
+    "build": "turbo run build",
+    "build:api": "npm run build --workspace=apps/api",
+    "build:web": "npm run build --workspace=apps/web",
+    "start": "npm run start --workspace=apps/api",
+    "start:production": "node apps/api/dist/index.js",
+    "clean": "turbo run clean",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "turbo": "^1.12.4",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}

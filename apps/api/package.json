@@ -1,0 +1,33 @@
+{
+  "name": "@redactor-guide/api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "API principale du générateur de guides",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@redactor-guide/ai-services": "*",
+    "@redactor-guide/core-model": "*",
+    "@redactor-guide/exporters": "*",
+    "@redactor-guide/guide-builder": "*",
+    "@redactor-guide/ingestion-wp": "*",
+    "@redactor-guide/validators": "*",
+    "ajv": "^6.12.6",
+    "dotenv": "^16.4.1",
+    "mongodb": "^6.3.0",
+    "pino-pretty": "^13.1.3",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.30",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}

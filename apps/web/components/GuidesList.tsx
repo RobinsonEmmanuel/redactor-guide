@@ -33,7 +33,9 @@ export default function GuidesList({ onCreateGuide, onEditGuide }: GuidesListPro
   const fetchGuides = async () => {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-      const response = await fetch(`${apiUrl}/api/v1/guides`);
+      const response = await fetch(`${apiUrl}/api/v1/guides`, {
+        credentials: 'include',
+      });
       const data = await response.json();
       setGuides(data.guides || []);
     } catch (error) {
@@ -50,6 +52,7 @@ export default function GuidesList({ onCreateGuide, onEditGuide }: GuidesListPro
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
       await fetch(`${apiUrl}/api/v1/guides/${id}`, {
         method: 'DELETE',
+        credentials: 'include',
       });
       fetchGuides();
     } catch (error) {

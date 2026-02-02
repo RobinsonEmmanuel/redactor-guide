@@ -93,6 +93,7 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify(formData),
       });
 

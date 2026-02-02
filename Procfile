@@ -1,1 +1,1 @@
-web: npm run start:production
+web: node apps/api/dist/index.js

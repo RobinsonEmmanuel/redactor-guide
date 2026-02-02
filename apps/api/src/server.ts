@@ -48,7 +48,12 @@ export async function createServer(db: Db, _port: number) {
 
   // Activer CORS pour le frontend
   await fastify.register(import('@fastify/cors'), {
-    origin: true, // En production, spécifier les domaines autorisés
+    origin: [
+      'http://localhost:3001', // Dev local
+      'https://*.vercel.app', // Vercel previews
+      /^https:\/\/.*\.vercel\.app$/, // Vercel regex pattern
+    ],
+    credentials: true,
   });
 
   // Routes API

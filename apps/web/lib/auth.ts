@@ -77,12 +77,21 @@ export function isTokenExpired(token: string): boolean {
 }
 
 /**
- * Stocker les tokens
+ * Stocker les tokens (localStorage + cookies pour le middleware)
  */
 export function storeTokens(auth: AuthResponse): void {
   if (typeof window !== 'undefined') {
+    console.log('💾 [AUTH] Stockage tokens...');
+    
+    // Stocker dans localStorage
     localStorage.setItem('accessToken', auth.accessToken);
     localStorage.setItem('refreshToken', auth.refreshToken);
+    
+    // Stocker aussi dans les cookies pour le middleware
+    document.cookie = `accessToken=${auth.accessToken}; path=/; max-age=86400; secure; samesite=lax`;
+    document.cookie = `refreshToken=${auth.refreshToken}; path=/; max-age=2592000; secure; samesite=lax`;
+    
+    console.log('✅ [AUTH] Tokens stockés (localStorage + cookies)');
   }
 }
 

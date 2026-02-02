@@ -26,6 +26,8 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
   });
 
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
     if (guide) {
@@ -73,6 +75,53 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '');
       setFormData(prev => ({ ...prev, slug }));
+    }
+  };
+
+  const testWordPressConnection = async () => {
+    if (!formData.wpConfig.siteUrl || !formData.wpConfig.jwtToken) {
+      setTestResult({
+        success: false,
+        message: 'Veuillez renseigner l\'URL et le jeton JWT'
+      });
+      return;
+    }
+
+    setTesting(true);
+    setTestResult(null);
+
+    try {
+      console.log('🔍 [WP TEST] Test de connexion WordPress...', formData.wpConfig.siteUrl);
+      
+      // Appeler l'API WordPress pour vérifier le JWT
+      const response = await fetch(`${formData.wpConfig.siteUrl}/wp-json/wp/v2/posts?per_page=1`, {
+        headers: {
+          'Authorization': `Bearer ${formData.wpConfig.jwtToken}`,
+        },
+      });
+
+      console.log('🔍 [WP TEST] Réponse:', response.status);
+
+      if (response.ok) {
+        setTestResult({
+          success: true,
+          message: '✅ Connexion réussie ! Le jeton JWT est valide.'
+        });
+      } else {
+        const errorText = await response.text();
+        setTestResult({
+          success: false,
+          message: `❌ Erreur ${response.status}: ${errorText || 'Jeton invalide'}`
+        });
+      }
+    } catch (error) {
+      console.error('❌ [WP TEST] Erreur:', error);
+      setTestResult({
+        success: false,
+        message: '❌ Impossible de se connecter au site WordPress. Vérifiez l\'URL.'
+      });
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -285,6 +334,27 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
               <p className="mt-1 text-xs text-gray-500">
                 Jeton généré par le plugin JWT Authentication for WP REST API
               </p>
+              <div className="mt-3 flex items-start gap-3 flex-wrap">
+                <button
+                  type="button"
+                  onClick={testWordPressConnection}
+                  disabled={testing || !formData.wpConfig.siteUrl || !formData.wpConfig.jwtToken}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                >
+                  {testing ? 'Test en cours...' : 'Tester la connexion'}
+                </button>
+                {testResult && (
+                  <span
+                    className={`flex-1 min-w-0 px-4 py-2 rounded-lg text-sm ${
+                      testResult.success
+                        ? 'bg-green-50 text-green-700 border border-green-200'
+                        : 'bg-red-50 text-red-700 border border-red-200'
+                    }`}
+                  >
+                    {testResult.message}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>

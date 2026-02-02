@@ -18,7 +18,7 @@ const CreateGuideSchema = z.object({
 
 export async function guidesRoutes(fastify: FastifyInstance) {
   // Liste des guides
-  fastify.get('/guides', async (request, reply) => {
+  fastify.get('/guides', async (request) => {
     const db = request.server.container.db;
     const guides = await db.collection('guides').find().sort({ year: -1 }).toArray();
     return { guides };

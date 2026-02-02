@@ -5,7 +5,7 @@ import { DIContainer } from './di/container';
 /**
  * Créer et configurer le serveur Fastify
  */
-export async function createServer(db: Db, port: number) {
+export async function createServer(db: Db, _port: number) {
   const fastify = Fastify({
     logger: true,
   });

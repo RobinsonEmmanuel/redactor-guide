@@ -1,8 +1,7 @@
 /**
  * Service d'authentification avec Region Lovers API
+ * La clé API est gérée côté serveur via API Routes
  */
-
-const API_URL = 'https://api-prod.regionlovers.ai';
 
 export interface LoginCredentials {
   email: string;
@@ -21,21 +20,20 @@ export interface User {
 }
 
 /**
- * Se connecter via Region Lovers API
+ * Se connecter via Region Lovers API (via notre proxy API Route)
  */
 export async function login(credentials: LoginCredentials): Promise<AuthResponse> {
-  const response = await fetch(`${API_URL}/auth/login`, {
+  const response = await fetch('/api/auth/login', {
     method: 'POST',
     headers: {
-      'accept': '*/*',
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(credentials),
   });
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(error || 'Échec de la connexion');
+    const errorData = await response.json().catch(() => ({ error: 'Échec de la connexion' }));
+    throw new Error(errorData.error || 'Échec de la connexion');
   }
 
   return response.json();

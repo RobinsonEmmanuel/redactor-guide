@@ -13,14 +13,21 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('🔐 [LOGIN] Formulaire soumis', { email });
     setError('');
     setLoading(true);
 
     try {
+      console.log('🔐 [LOGIN] Appel login API...');
       const authResponse = await login({ email, password });
+      console.log('✅ [LOGIN] Réponse reçue', { hasToken: !!authResponse.accessToken });
+      
       storeTokens(authResponse);
+      console.log('✅ [LOGIN] Tokens stockés, redirection vers /');
+      
       router.push('/');
     } catch (err) {
+      console.error('❌ [LOGIN] Erreur:', err);
       setError(err instanceof Error ? err.message : 'Erreur de connexion');
     } finally {
       setLoading(false);

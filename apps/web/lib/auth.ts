@@ -23,6 +23,8 @@ export interface User {
  * Se connecter via Region Lovers API (via notre proxy API Route)
  */
 export async function login(credentials: LoginCredentials): Promise<AuthResponse> {
+  console.log('📡 [AUTH] Envoi requête vers /api/auth/login');
+  
   const response = await fetch('/api/auth/login', {
     method: 'POST',
     headers: {
@@ -31,12 +33,17 @@ export async function login(credentials: LoginCredentials): Promise<AuthResponse
     body: JSON.stringify(credentials),
   });
 
+  console.log('📡 [AUTH] Réponse reçue, status:', response.status);
+
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ error: 'Échec de la connexion' }));
+    console.error('❌ [AUTH] Erreur réponse:', errorData);
     throw new Error(errorData.error || 'Échec de la connexion');
   }
 
-  return response.json();
+  const data = await response.json();
+  console.log('✅ [AUTH] Login réussi');
+  return data;
 }
 
 /**

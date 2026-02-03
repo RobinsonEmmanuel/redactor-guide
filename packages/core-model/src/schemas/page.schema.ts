@@ -76,6 +76,9 @@ export const PageSchema = z.object({
   /** Commentaire interne (non exporté) */
   commentaire_interne: z.string().optional(),
   
+  /** Contenu rédactionnel (champs du template remplis) */
+  content: z.record(z.string(), z.any()).optional(),
+  
   /** Date de création */
   created_at: z.union([z.string(), z.date()]).optional(),
   

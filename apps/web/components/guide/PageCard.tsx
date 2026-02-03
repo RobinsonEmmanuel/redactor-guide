@@ -2,7 +2,7 @@
 
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { PencilIcon, TrashIcon, Bars3Icon } from '@heroicons/react/24/outline';
+import { PencilIcon, TrashIcon, Bars3Icon, DocumentTextIcon } from '@heroicons/react/24/outline';
 
 interface Page {
   _id: string;
@@ -18,6 +18,7 @@ interface PageCardProps {
   page: Page;
   onEdit: () => void;
   onDelete: () => void;
+  onOpenContent: () => void;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -44,7 +45,7 @@ const STATUS_LABELS: Record<string, string> = {
   non_conforme: 'Non conforme',
 };
 
-export default function PageCard({ page, onEdit, onDelete }: PageCardProps) {
+export default function PageCard({ page, onEdit, onDelete, onOpenContent }: PageCardProps) {
   const {
     attributes,
     listeners,
@@ -71,9 +72,21 @@ export default function PageCard({ page, onEdit, onDelete }: PageCardProps) {
     >
       {/* Miniature */}
       <div className="h-32 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center relative">
+        {/* Numéro de page */}
         <div className="absolute top-2 left-2 bg-white rounded px-2 py-1 text-xs font-bold text-gray-700">
           {page.ordre}
         </div>
+        
+        {/* Pastille de statut */}
+        <div className={`absolute top-2 right-2 w-3 h-3 rounded-full border-2 border-white shadow-md ${
+          page.statut_editorial === 'validee' ? 'bg-green-500' :
+          page.statut_editorial === 'relue' ? 'bg-yellow-500' :
+          page.statut_editorial === 'generee_ia' ? 'bg-blue-500' :
+          page.statut_editorial === 'non_conforme' ? 'bg-red-500' :
+          'bg-gray-400'
+        }`} title={statusLabel} />
+        
+        {/* Drag handle */}
         <div
           className="cursor-grab active:cursor-grabbing p-2 hover:bg-white/50 rounded"
           {...attributes}
@@ -81,6 +94,8 @@ export default function PageCard({ page, onEdit, onDelete }: PageCardProps) {
         >
           <Bars3Icon className="h-6 w-6 text-gray-400" />
         </div>
+        
+        {/* Template badge */}
         {page.template_name && (
           <div className="absolute bottom-2 right-2 bg-blue-600 text-white text-xs px-2 py-1 rounded font-mono">
             {page.template_name}
@@ -111,15 +126,24 @@ export default function PageCard({ page, onEdit, onDelete }: PageCardProps) {
         {/* Actions */}
         <div className="flex gap-2 pt-2 border-t border-gray-100">
           <button
+            onClick={onOpenContent}
+            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-green-600 hover:bg-green-50 rounded transition-colors"
+            title="Rédiger le contenu"
+          >
+            <DocumentTextIcon className="h-3.5 w-3.5" />
+            Rédiger
+          </button>
+          <button
             onClick={onEdit}
-            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded transition-colors"
+            className="flex items-center justify-center px-2 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded transition-colors"
+            title="Modifier les infos"
           >
             <PencilIcon className="h-3.5 w-3.5" />
-            Modifier
           </button>
           <button
             onClick={onDelete}
             className="flex items-center justify-center px-2 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 rounded transition-colors"
+            title="Supprimer"
           >
             <TrashIcon className="h-3.5 w-3.5" />
           </button>

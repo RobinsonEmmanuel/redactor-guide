@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, closestCenter, DragEndEvent, DragOverEvent, PointerSensor, useSensor, useSensors, useDroppable } from '@dnd-kit/core';
 import { arrayMove, SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
-import { PlusIcon } from '@heroicons/react/24/outline';
+import { nanoid } from 'nanoid';
 import PageCard from './PageCard';
 import PageModal from './PageModal';
+import TemplatePalette from './TemplatePalette';
+import ContentEditorModal from './ContentEditorModal';
 
 interface Page {
   _id: string;
@@ -28,9 +30,13 @@ interface CheminDeFerTabProps {
 
 export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminDeFerTabProps) {
   const [pages, setPages] = useState<Page[]>([]);
+  const [templates, setTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingPage, setEditingPage] = useState<Page | null>(null);
+  const [showContentModal, setShowContentModal] = useState(false);
+  const [editingContent, setEditingContent] = useState<any>(null);
+  const [currentPageContent, setCurrentPageContent] = useState<Record<string, any>>({});
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -41,12 +47,27 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   );
 
   useEffect(() => {
+    loadTemplates();
     if (cheminDeFer) {
       loadPages();
     } else {
       setLoading(false);
     }
   }, [cheminDeFer]);
+
+  const loadTemplates = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/templates`, {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTemplates(data);
+      }
+    } catch (err) {
+      console.error('Erreur chargement templates:', err);
+    }
+  };
 
   const loadPages = async () => {
     try {
@@ -67,9 +88,20 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
 
+    // Drag d'un template vers la grille
+    if (active.data.current?.type === 'template' && over?.id === 'chemin-de-fer-grid') {
+      const template = active.data.current.template;
+      await handleCreatePageFromTemplate(template);
+      return;
+    }
+
+    // Réorganisation des pages existantes
     if (over && active.id !== over.id) {
       const oldIndex = pages.findIndex((p) => p._id === active.id);
       const newIndex = pages.findIndex((p) => p._id === over.id);
+      
+      if (oldIndex === -1 || newIndex === -1) return;
+      
       const newPages = arrayMove(pages, oldIndex, newIndex);
 
       // Mettre à jour les numéros d'ordre
@@ -92,15 +124,82 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         });
       } catch (err) {
         console.error('Erreur réorganisation:', err);
-        // Recharger en cas d'erreur
         loadPages();
       }
     }
   };
 
-  const handleAddPage = () => {
-    setEditingPage(null);
-    setShowModal(true);
+  const handleCreatePageFromTemplate = async (template: any) => {
+    try {
+      const pageData = {
+        page_id: nanoid(10),
+        titre: `Nouvelle page ${template.name}`,
+        template_id: template._id,
+        type_de_page: '',
+        statut_editorial: 'draft',
+        ordre: pages.length + 1,
+      };
+
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(pageData),
+      });
+
+      if (res.ok) {
+        loadPages();
+      }
+    } catch (err) {
+      console.error('Erreur création page depuis template:', err);
+    }
+  };
+
+  const handleOpenContent = async (page: Page) => {
+    setEditingContent(page);
+    
+    // Charger le contenu existant
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}/content`,
+        { credentials: 'include' }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentPageContent(data.content || {});
+      } else {
+        setCurrentPageContent({});
+      }
+    } catch (err) {
+      console.error('Erreur chargement contenu:', err);
+      setCurrentPageContent({});
+    }
+    
+    setShowContentModal(true);
+  };
+
+  const handleSaveContent = async (content: Record<string, any>) => {
+    if (!editingContent) return;
+
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${editingContent._id}/content`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ content }),
+        }
+      );
+
+      if (res.ok) {
+        setShowContentModal(false);
+        // Optionnel : mettre à jour le statut de la page
+        loadPages();
+      }
+    } catch (err) {
+      console.error('Erreur sauvegarde contenu:', err);
+    }
   };
 
   const handleEditPage = (page: Page) => {
@@ -178,60 +277,41 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   }
 
   return (
-    <div>
-      {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-gray-900">Chemin de fer</h2>
-          <p className="text-sm text-gray-600 mt-1">
-            {pages.length} page{pages.length > 1 ? 's' : ''}
-          </p>
+    <div className="flex h-[calc(100vh-16rem)] gap-4">
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        {/* Colonne gauche : Palette de templates */}
+        <div className="w-1/5 flex-shrink-0">
+          <TemplatePalette templates={templates} />
         </div>
-        <button
-          onClick={handleAddPage}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <PlusIcon className="h-5 w-5" />
-          Ajouter une page
-        </button>
-      </div>
 
-      {/* Grille de pages */}
-      {pages.length === 0 ? (
-        <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-          <p className="text-gray-500 mb-4">Aucune page dans le chemin de fer</p>
-          <button
-            onClick={handleAddPage}
-            className="text-blue-600 hover:text-blue-700 font-medium"
-          >
-            Créer la première page
-          </button>
-        </div>
-      ) : (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext
-            items={pages.map((p) => p._id)}
-            strategy={rectSortingStrategy}
-          >
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {pages.map((page) => (
-                <PageCard
-                  key={page._id}
-                  page={page}
-                  onEdit={() => handleEditPage(page)}
-                  onDelete={() => handleDeletePage(page._id)}
-                />
-              ))}
+        {/* Colonne centrale : Grille du chemin de fer */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Header */}
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">Chemin de fer</h2>
+              <p className="text-sm text-gray-600 mt-1">
+                {pages.length} page{pages.length > 1 ? 's' : ''}
+              </p>
             </div>
-          </SortableContext>
-        </DndContext>
-      )}
+          </div>
 
-      {/* Modal */}
+          {/* Grille de pages */}
+          <CheminDeFerGrid
+            pages={pages}
+            onEdit={handleEditPage}
+            onDelete={handleDeletePage}
+            onOpenContent={handleOpenContent}
+            isEmpty={pages.length === 0}
+          />
+        </div>
+      </DndContext>
+
+      {/* Modales */}
       {showModal && (
         <PageModal
           page={editingPage}
@@ -240,6 +320,70 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
           apiUrl={apiUrl}
           guideId={guideId}
         />
+      )}
+
+      {showContentModal && editingContent && (
+        <ContentEditorModal
+          page={editingContent}
+          template={templates.find((t) => t._id === editingContent.template_id) || null}
+          content={currentPageContent}
+          onClose={() => setShowContentModal(false)}
+          onSave={handleSaveContent}
+        />
+      )}
+    </div>
+  );
+}
+
+// Composant Droppable Grid
+function CheminDeFerGrid({
+  pages,
+  onEdit,
+  onDelete,
+  onOpenContent,
+  isEmpty,
+}: {
+  pages: Page[];
+  onEdit: (page: Page) => void;
+  onDelete: (pageId: string) => void;
+  onOpenContent: (page: Page) => void;
+  isEmpty: boolean;
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: 'chemin-de-fer-grid',
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex-1 overflow-auto bg-white rounded-lg border-2 transition-colors ${
+        isOver ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+      }`}
+    >
+      {isEmpty ? (
+        <div className="h-full flex items-center justify-center">
+          <div className="text-center py-12">
+            <p className="text-gray-500 mb-2">Glissez un template ici pour créer une page</p>
+            <p className="text-sm text-gray-400">ou utilisez le bouton "Ajouter une page"</p>
+          </div>
+        </div>
+      ) : (
+        <SortableContext
+          items={pages.map((p) => p._id)}
+          strategy={rectSortingStrategy}
+        >
+          <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            {pages.map((page) => (
+              <PageCard
+                key={page._id}
+                page={page}
+                onEdit={() => onEdit(page)}
+                onDelete={() => onDelete(page._id)}
+                onOpenContent={() => onOpenContent(page)}
+              />
+            ))}
+          </div>
+        </SortableContext>
       )}
     </div>
   );

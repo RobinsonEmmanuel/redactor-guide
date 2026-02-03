@@ -298,4 +298,74 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       }
     }
   );
+
+  /**
+   * GET /guides/:guideId/chemin-de-fer/pages/:pageId/content
+   * Récupère le contenu rédactionnel d'une page
+   */
+  fastify.get<{ Params: { guideId: string; pageId: string } }>(
+    '/guides/:guideId/chemin-de-fer/pages/:pageId/content',
+    async (request, reply) => {
+      try {
+        const db = request.server.container.db;
+        const { pageId } = request.params;
+
+        if (!ObjectId.isValid(pageId)) {
+          return reply.status(400).send({ error: 'Page ID invalide' });
+        }
+
+        const page = await db.collection('pages').findOne({ _id: new ObjectId(pageId) });
+
+        if (!page) {
+          return reply.status(404).send({ error: 'Page non trouvée' });
+        }
+
+        return reply.send({ content: page.content || {} });
+      } catch (error) {
+        request.log.error(error);
+        return reply.status(500).send({ error: 'Erreur lors de la récupération du contenu' });
+      }
+    }
+  );
+
+  /**
+   * PUT /guides/:guideId/chemin-de-fer/pages/:pageId/content
+   * Met à jour le contenu rédactionnel d'une page
+   */
+  fastify.put<{ Params: { guideId: string; pageId: string }; Body: { content: Record<string, any> } }>(
+    '/guides/:guideId/chemin-de-fer/pages/:pageId/content',
+    async (request, reply) => {
+      try {
+        const db = request.server.container.db;
+        const { pageId } = request.params;
+        const { content } = request.body;
+
+        if (!ObjectId.isValid(pageId)) {
+          return reply.status(400).send({ error: 'Page ID invalide' });
+        }
+
+        const now = new Date().toISOString();
+
+        const result = await db.collection('pages').findOneAndUpdate(
+          { _id: new ObjectId(pageId) },
+          {
+            $set: {
+              content,
+              updated_at: now,
+            },
+          },
+          { returnDocument: 'after' }
+        );
+
+        if (!result) {
+          return reply.status(404).send({ error: 'Page non trouvée' });
+        }
+
+        return reply.send({ success: true, content: result.content });
+      } catch (error) {
+        request.log.error(error);
+        return reply.status(500).send({ error: 'Erreur lors de la sauvegarde du contenu' });
+      }
+    }
+  );
 }

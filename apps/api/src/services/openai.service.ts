@@ -58,8 +58,30 @@ export class OpenAIService {
 
       console.log(`✅ Réponse OpenAI reçue (${content.length} caractères)`);
 
+      // Nettoyer le contenu (enlever markdown, espaces, etc.)
+      let cleanedContent = content.trim();
+      
+      // Enlever les balises markdown JSON si présentes
+      if (cleanedContent.startsWith('```json')) {
+        cleanedContent = cleanedContent.replace(/^```json\s*/i, '').replace(/\s*```\s*$/i, '');
+      } else if (cleanedContent.startsWith('```')) {
+        cleanedContent = cleanedContent.replace(/^```\s*/i, '').replace(/\s*```\s*$/i, '');
+      }
+      
+      cleanedContent = cleanedContent.trim();
+      
+      // Log des premiers et derniers caractères pour debug
+      console.log(`📝 Contenu nettoyé - Début: "${cleanedContent.substring(0, 100)}..."`);
+      console.log(`📝 Contenu nettoyé - Fin: "...${cleanedContent.substring(cleanedContent.length - 100)}"`);
+
       // Parser le JSON de la réponse
-      return JSON.parse(content);
+      try {
+        return JSON.parse(cleanedContent);
+      } catch (parseError: any) {
+        console.error('❌ Erreur parsing JSON:', parseError.message);
+        console.error('📄 Contenu complet reçu:', content);
+        throw new Error(`Erreur parsing JSON: ${parseError.message}`);
+      }
     } catch (error: any) {
       console.error('❌ Erreur OpenAI:', error.message);
       if (error.response) {

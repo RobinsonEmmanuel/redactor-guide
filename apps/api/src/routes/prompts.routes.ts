@@ -74,7 +74,7 @@ export async function promptsRoutes(fastify: FastifyInstance) {
         prompts: PROMPTS.map((p) => ({ intent: p.intent, nom: p.prompt_nom })),
       });
     } catch (error) {
-      request.log.error('Erreur seed prompts:', error);
+      request.log.error({ error }, 'Erreur seed prompts');
       return reply.status(500).send({ 
         error: 'Erreur lors de la création des prompts',
         details: error instanceof Error ? error.message : String(error)

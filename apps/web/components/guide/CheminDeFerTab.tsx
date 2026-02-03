@@ -8,6 +8,7 @@ import PageCard from './PageCard';
 import PageModal from './PageModal';
 import TemplatePalette from './TemplatePalette';
 import ContentEditorModal from './ContentEditorModal';
+import SommaireProposal from './SommaireProposal';
 
 interface Page {
   _id: string;
@@ -284,12 +285,12 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         onDragEnd={handleDragEnd}
       >
         {/* Colonne gauche : Palette de templates */}
-        <div className="w-1/5 flex-shrink-0">
+        <div className="w-72 flex-shrink-0">
           <TemplatePalette templates={templates} />
         </div>
 
         {/* Colonne centrale : Grille du chemin de fer */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           {/* Header */}
           <div className="mb-4 flex items-center justify-between">
             <div>
@@ -308,6 +309,11 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
             onOpenContent={handleOpenContent}
             isEmpty={pages.length === 0}
           />
+        </div>
+
+        {/* Colonne droite : Proposition de sommaire IA */}
+        <div className="w-96 flex-shrink-0">
+          <SommaireProposal guideId={guideId} apiUrl={apiUrl} />
         </div>
       </DndContext>
 

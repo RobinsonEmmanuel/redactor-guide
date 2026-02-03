@@ -368,4 +368,79 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       }
     }
   );
+
+  /**
+   * POST /guides/:guideId/chemin-de-fer/generate-sommaire
+   * Lancer la génération automatique du sommaire via IA
+   */
+  fastify.post('/guides/:guideId/chemin-de-fer/generate-sommaire', async (request, reply) => {
+    const { guideId } = request.params as { guideId: string };
+    const db = request.server.container.db;
+
+    // Vérifier que le guide existe
+    const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+    if (!guide) {
+      return reply.code(404).send({ error: 'Guide non trouvé' });
+    }
+
+    // Vérifier qu'il y a des articles
+    const articlesCount = await db.collection('articles_raw').countDocuments({ guide_id: guideId });
+    if (articlesCount === 0) {
+      return reply.code(400).send({ error: 'Aucun article WordPress récupéré pour ce guide' });
+    }
+
+    // Vérifier qu'une destination est définie
+    if (!guide.destination) {
+      return reply.code(400).send({ error: 'Aucune destination définie pour ce guide' });
+    }
+
+    try {
+      // Import dynamique des services
+      const { OpenAIService } = await import('../services/openai.service');
+      const { SommaireGeneratorService } = await import('../services/sommaire-generator.service');
+
+      const openaiApiKey = process.env.OPENAI_API_KEY;
+      if (!openaiApiKey) {
+        return reply.code(500).send({ error: 'OPENAI_API_KEY non configurée' });
+      }
+
+      const openaiService = new OpenAIService({
+        apiKey: openaiApiKey,
+        model: 'gpt-4o-mini',
+      });
+
+      const sommaireGenerator = new SommaireGeneratorService({
+        db,
+        openaiService,
+      });
+
+      // Générer le sommaire (asynchrone)
+      const proposal = await sommaireGenerator.generateSommaire(guideId);
+
+      return {
+        success: true,
+        proposal,
+      };
+    } catch (error: any) {
+      console.error('Erreur génération sommaire:', error);
+      return reply.code(500).send({ error: error.message || 'Erreur lors de la génération' });
+    }
+  });
+
+  /**
+   * GET /guides/:guideId/chemin-de-fer/sommaire-proposal
+   * Récupérer la dernière proposition de sommaire générée
+   */
+  fastify.get('/guides/:guideId/chemin-de-fer/sommaire-proposal', async (request, reply) => {
+    const { guideId } = request.params as { guideId: string };
+    const db = request.server.container.db;
+
+    const proposal = await db.collection('sommaire_proposals').findOne({ guide_id: guideId });
+    
+    if (!proposal) {
+      return reply.code(404).send({ error: 'Aucune proposition de sommaire trouvée' });
+    }
+
+    return { proposal: proposal.proposal, created_at: proposal.created_at, status: proposal.status };
+  });
 }

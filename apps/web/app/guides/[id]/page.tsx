@@ -265,7 +265,7 @@ export default function GuideDetailPage() {
                   </div>
                   
                   <div className="grid grid-cols-3 gap-2 text-sm">
-                    {languages.map((lang) => {
+                    {languages.map((lang: string) => {
                       const url = article.urls_by_lang?.[lang];
                       return (
                         <div key={lang} className="flex items-center gap-2">

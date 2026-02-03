@@ -238,6 +238,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
           onClose={() => setShowModal(false)}
           onSave={handleSavePage}
           apiUrl={apiUrl}
+          guideId={guideId}
         />
       )}
     </div>

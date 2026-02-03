@@ -11,11 +11,18 @@ interface Template {
   fields: any[];
 }
 
+interface WordPressArticle {
+  _id: string;
+  titre: string;
+  url_francais: string;
+}
+
 interface PageModalProps {
   page: any | null;
   onClose: () => void;
   onSave: (data: any) => void;
   apiUrl: string;
+  guideId: string;
 }
 
 const PAGE_TYPES = [
@@ -41,8 +48,11 @@ const PAGE_STATUS = [
   { value: 'non_conforme', label: 'Non conforme' },
 ];
 
-export default function PageModal({ page, onClose, onSave, apiUrl }: PageModalProps) {
+export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: PageModalProps) {
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [articles, setArticles] = useState<WordPressArticle[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
   const [formData, setFormData] = useState({
     page_id: page?.page_id || nanoid(10),
     titre: page?.titre || '',
@@ -55,7 +65,8 @@ export default function PageModal({ page, onClose, onSave, apiUrl }: PageModalPr
 
   useEffect(() => {
     loadTemplates();
-  }, []);
+    loadArticles();
+  }, [guideId]);
 
   const loadTemplates = async () => {
     try {
@@ -69,6 +80,30 @@ export default function PageModal({ page, onClose, onSave, apiUrl }: PageModalPr
     } catch (err) {
       console.error('Erreur chargement templates:', err);
     }
+  };
+
+  const loadArticles = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/articles`, {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setArticles(data);
+      }
+    } catch (err) {
+      console.error('Erreur chargement articles:', err);
+    }
+  };
+
+  const filteredArticles = articles.filter((article) =>
+    article.titre.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const handleSelectArticle = (article: WordPressArticle) => {
+    setFormData({ ...formData, url_source: article.url_francais });
+    setSearchQuery(article.titre);
+    setShowDropdown(false);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -175,20 +210,70 @@ export default function PageModal({ page, onClose, onSave, apiUrl }: PageModalPr
             </select>
           </div>
 
-          {/* URL source */}
-          <div>
+          {/* URL source - Autocomplete */}
+          <div className="relative">
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              URL source (optionnel)
+              Article WordPress source (optionnel)
             </label>
             <input
-              type="url"
-              value={formData.url_source}
-              onChange={(e) => setFormData({ ...formData, url_source: e.target.value })}
+              type="text"
+              value={searchQuery || formData.url_source}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setShowDropdown(true);
+              }}
+              onFocus={() => setShowDropdown(true)}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="https://..."
+              placeholder="Rechercher un article ou saisir une URL..."
             />
+            
+            {/* Dropdown */}
+            {showDropdown && searchQuery && filteredArticles.length > 0 && (
+              <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                {filteredArticles.map((article) => (
+                  <button
+                    key={article._id}
+                    type="button"
+                    onClick={() => handleSelectArticle(article)}
+                    className="w-full px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                  >
+                    <div className="font-medium text-gray-900">{article.titre}</div>
+                    <div className="text-xs text-gray-500 mt-1 truncate">{article.url_francais}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {formData.url_source && (
+              <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="text-xs font-medium text-blue-900 mb-1">URL sélectionnée :</div>
+                    <a
+                      href={formData.url_source}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-600 hover:underline break-all"
+                    >
+                      {formData.url_source}
+                    </a>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData({ ...formData, url_source: '' });
+                      setSearchQuery('');
+                    }}
+                    className="ml-2 text-blue-400 hover:text-blue-600"
+                  >
+                    <XMarkIcon className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+
             <p className="mt-1 text-xs text-gray-500">
-              Lien vers l'article WordPress source
+              Recherchez parmi {articles.length} articles WordPress importés
             </p>
           </div>
 

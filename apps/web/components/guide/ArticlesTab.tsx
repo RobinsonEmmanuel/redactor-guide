@@ -19,9 +19,10 @@ interface ArticlesTabProps {
   guideId: string;
   guide: any;
   apiUrl: string;
+  onArticlesImported?: () => void;
 }
 
-export default function ArticlesTab({ guideId, guide, apiUrl }: ArticlesTabProps) {
+export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported }: ArticlesTabProps) {
   const router = useRouter();
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(false);
@@ -94,7 +95,8 @@ export default function ArticlesTab({ guideId, guide, apiUrl }: ArticlesTabProps
             if (statusData.status === 'completed') {
               setIngestionStatus('Récupération terminée !');
               setIngesting(false);
-              loadArticles();
+              await loadArticles();
+              onArticlesImported?.();
               return;
             } else if (statusData.status === 'failed') {
               setIngestionError(statusData.error || 'Erreur lors de la récupération');

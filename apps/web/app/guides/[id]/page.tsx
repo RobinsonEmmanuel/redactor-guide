@@ -14,12 +14,15 @@ export default function GuideDetailPage() {
 
   const [guide, setGuide] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'articles' | 'chemin-de-fer'>('chemin-de-fer');
+  const [activeTab, setActiveTab] = useState<'articles' | 'chemin-de-fer'>('articles');
+  const [articlesCount, setArticlesCount] = useState<number>(0);
+  const [hasCheckedArticles, setHasCheckedArticles] = useState(false);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
   useEffect(() => {
     loadGuide();
+    checkArticles();
   }, [guideId]);
 
   const loadGuide = async () => {
@@ -35,6 +38,22 @@ export default function GuideDetailPage() {
       console.error('Erreur chargement guide:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const checkArticles = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/articles`, {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setArticlesCount(data.length);
+        setHasCheckedArticles(true);
+      }
+    } catch (err) {
+      console.error('Erreur vérification articles:', err);
+      setHasCheckedArticles(true);
     }
   };
 
@@ -54,9 +73,16 @@ export default function GuideDetailPage() {
     );
   }
 
+  const canAccessCheminDeFer = articlesCount > 0;
+
   const tabs = [
-    { id: 'chemin-de-fer', label: 'Chemin de fer', count: guide.chemin_de_fer?.nombre_pages || 0 },
-    { id: 'articles', label: 'Articles WordPress', count: null },
+    { id: 'articles', label: 'Articles WordPress', count: articlesCount },
+    { 
+      id: 'chemin-de-fer', 
+      label: 'Chemin de fer', 
+      count: guide?.chemin_de_fer?.nombre_pages || 0,
+      disabled: !canAccessCheminDeFer 
+    },
   ];
 
   return (
@@ -88,16 +114,24 @@ export default function GuideDetailPage() {
             {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => !tab.disabled && setActiveTab(tab.id as any)}
+                disabled={tab.disabled}
                 className={`pb-4 px-2 text-sm font-medium transition-colors relative ${
-                  activeTab === tab.id
+                  tab.disabled
+                    ? 'text-gray-400 cursor-not-allowed opacity-50'
+                    : activeTab === tab.id
                     ? 'text-blue-600 border-b-2 border-blue-600'
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
+                title={tab.disabled ? 'Récupérez d\'abord les articles WordPress' : ''}
               >
                 {tab.label}
-                {tab.count !== null && (
-                  <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-700">
+                {tab.count !== null && tab.count !== undefined && (
+                  <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
+                    tab.disabled 
+                      ? 'bg-gray-100 text-gray-400' 
+                      : 'bg-gray-100 text-gray-700'
+                  }`}>
                     {tab.count}
                   </span>
                 )}
@@ -109,10 +143,26 @@ export default function GuideDetailPage() {
         {/* Tab Content */}
         <div className="p-8">
           {activeTab === 'articles' && (
-            <ArticlesTab guideId={guideId} guide={guide} apiUrl={apiUrl} />
+            <ArticlesTab guideId={guideId} guide={guide} apiUrl={apiUrl} onArticlesImported={checkArticles} />
           )}
-          {activeTab === 'chemin-de-fer' && (
+          {activeTab === 'chemin-de-fer' && canAccessCheminDeFer && (
             <CheminDeFerTab guideId={guideId} cheminDeFer={guide.chemin_de_fer} apiUrl={apiUrl} />
+          )}
+          {activeTab === 'chemin-de-fer' && !canAccessCheminDeFer && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+              <div className="text-yellow-800 font-medium mb-2">
+                📝 Récupération des articles WordPress requise
+              </div>
+              <p className="text-yellow-700 text-sm mb-4">
+                Pour créer le chemin de fer, vous devez d'abord récupérer les articles WordPress de ce guide.
+              </p>
+              <button
+                onClick={() => setActiveTab('articles')}
+                className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+              >
+                Aller aux articles WordPress
+              </button>
+            </div>
           )}
         </div>
       </main>

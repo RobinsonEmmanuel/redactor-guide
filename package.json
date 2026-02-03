@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "dotenv": "^17.2.3",
     "turbo": "^1.12.4",
     "typescript": "^5.3.3"
   },

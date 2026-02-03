@@ -13,6 +13,9 @@ export const ArticleRawSchema = z.object({
   slug: z.string(),
   title: z.string(),
   html_brut: z.string(),
+  
+  /** Version Markdown du contenu (pour aide IA à la rédaction) */
+  markdown: z.string().optional(),
 
   categories: z.array(z.string()).default([]),
   tags: z.array(z.string()).default([]),

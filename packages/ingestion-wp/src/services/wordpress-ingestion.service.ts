@@ -9,6 +9,7 @@ import {
   type WordPressMedia,
 } from '../schemas/wordpress-api.schema';
 import { extractImageUrls } from '../utils/html.utils';
+import { htmlToMarkdown } from '../utils/markdown.utils';
 
 /**
  * Interface du service d'ingestion WordPress
@@ -328,6 +329,9 @@ export class WordPressIngestionService implements IWordPressIngestionService {
         // Extraire les URLs des images du HTML
         const htmlContent = frPost.content?.rendered ?? '';
         const imageUrls = extractImageUrls(htmlContent);
+        
+        // Convertir le HTML en Markdown pour l'aide IA
+        const markdown = htmlToMarkdown(htmlContent);
 
         const raw: Omit<ArticleRaw, '_id'> = {
           site_id: siteId,
@@ -335,6 +339,7 @@ export class WordPressIngestionService implements IWordPressIngestionService {
           slug: frPost.slug,
           title: frPost.title?.rendered ?? '',
           html_brut: htmlContent,
+          markdown: markdown,
           categories: categoryNames,
           tags: tagNames,
           urls_by_lang: urlsByLang,

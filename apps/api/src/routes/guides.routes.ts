@@ -68,6 +68,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
           images: 1,
           categories: 1,
           tags: 1,
+          markdown: 1,
           updated_at: 1,
         })
         .sort({ updated_at: -1 })

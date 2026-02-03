@@ -12,6 +12,7 @@ interface ArticleDetail {
   slug: string;
   title: string;
   html_brut: string;
+  markdown?: string;
   categories: string[];
   tags: string[];
   urls_by_lang: Record<string, string>;
@@ -160,6 +161,28 @@ export default function ArticleDetailPage() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Markdown (pour aide IA) */}
+        {article.markdown && (
+          <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Markdown (pour aide IA)
+              </h2>
+              <span className="text-sm text-gray-500">
+                {article.markdown.length.toLocaleString()} caractères
+              </span>
+            </div>
+            <div className="bg-gray-50 p-4 rounded-lg overflow-x-auto">
+              <pre className="text-sm text-gray-700 whitespace-pre-wrap break-words font-mono">
+                {article.markdown}
+              </pre>
+            </div>
+            <p className="mt-3 text-xs text-gray-500">
+              ✨ Version structurée du contenu (titres, listes, emphases) pour une meilleure compréhension par l'IA
+            </p>
           </div>
         )}
 

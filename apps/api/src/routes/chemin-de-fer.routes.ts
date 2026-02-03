@@ -407,6 +407,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       const openaiService = new OpenAIService({
         apiKey: openaiApiKey,
         model: 'gpt-5-mini-2025-08-07',
+        reasoningEffort: 'medium', // Raisonnement modéré pour équilibre qualité/coût
       });
 
       const sommaireGenerator = new SommaireGeneratorService({

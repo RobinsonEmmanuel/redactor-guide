@@ -1,4 +1,4 @@
-import { Db } from 'mongodb';
+import { Db, ObjectId } from 'mongodb';
 import { OpenAIService } from './openai.service';
 
 export interface SommaireGeneratorConfig {
@@ -57,7 +57,7 @@ export class SommaireGeneratorService {
     console.log(`🚀 Génération sommaire pour guide ${guideId}`);
 
     // 1. Charger le guide
-    const guide = await this.db.collection('guides').findOne({ _id: guideId } as any);
+    const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(guideId) });
     if (!guide) {
       throw new Error('Guide non trouvé');
     }

@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm install
+        
+      - name: Build core-model
+        run: npm run build --workspace=@redactor-guide/core-model
+        
+      - name: Build ingestion-wp
+        run: npm run build --workspace=@redactor-guide/ingestion-wp
+        
+      - name: Build API
+        run: npm run build --workspace=@redactor-guide/api
+        
+      - name: Build Frontend
+        run: npm run build --workspace=@redactor-guide/web
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:3000

@@ -93,7 +93,7 @@ export default function GuideDetailPage() {
       if (enqueueRes.status === 202 && enqueueData.jobId) {
         // Queue active : poll
         const jobId = enqueueData.jobId;
-        setIngestionStatus('En file d'attente...');
+        setIngestionStatus("En file d'attente...");
         const pollIntervalMs = 2500;
         const maxAttempts = 600;
         let attempts = 0;

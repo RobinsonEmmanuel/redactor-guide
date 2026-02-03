@@ -23,7 +23,7 @@ export class OpenAIService {
    * Appeler OpenAI avec un prompt et récupérer une réponse JSON
    * Utilise l'API Responses pour GPT-5-mini avec raisonnement
    */
-  async generateJSON(prompt: string, maxOutputTokens: number = 4000): Promise<any> {
+  async generateJSON(prompt: string, maxOutputTokens: number = 12000): Promise<any> {
     try {
       console.log(`🤖 Appel OpenAI - Modèle: ${this.model}, Max tokens: ${maxOutputTokens}, Reasoning: ${this.reasoningEffort}`);
       

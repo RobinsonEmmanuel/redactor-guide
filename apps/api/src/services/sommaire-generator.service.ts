@@ -173,7 +173,7 @@ export class SommaireGeneratorService {
       LISTE_ARTICLES_STRUCTURÉE: listeArticles,
     });
 
-    return await this.openaiService.generateJSON(prompt);
+    return await this.openaiService.generateJSON(prompt, 12000);
   }
 
   /**
@@ -195,7 +195,7 @@ export class SommaireGeneratorService {
       LISTE_ARTICLES_POI: listeArticles,
     });
 
-    return await this.openaiService.generateJSON(prompt);
+    return await this.openaiService.generateJSON(prompt, 12000);
   }
 
   /**
@@ -216,7 +216,7 @@ export class SommaireGeneratorService {
       POIS: poisJson,
     });
 
-    return await this.openaiService.generateJSON(prompt);
+    return await this.openaiService.generateJSON(prompt, 12000);
   }
 
   /**

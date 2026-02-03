@@ -9,25 +9,25 @@ export interface OpenAIConfig {
 export class OpenAIService {
   private client: OpenAI;
   private model: string;
-  private reasoningEffort: 'low' | 'medium' | 'high';
 
   constructor(config: OpenAIConfig) {
     this.client = new OpenAI({
       apiKey: config.apiKey,
     });
-    this.model = config.model || 'gpt-5-mini-2025-08-07';
-    this.reasoningEffort = config.reasoningEffort || 'medium';
+    this.model = config.model || 'gpt-4o-mini'; // Modèle standard qui fonctionne
   }
 
   /**
    * Appeler OpenAI avec un prompt et récupérer une réponse JSON
-   * Utilise la nouvelle Responses API pour GPT-5
+   * Utilise l'API Chat Completions standard
    */
   async generateJSON(prompt: string, maxOutputTokens: number = 4000): Promise<any> {
     try {
-      const response = await this.client.responses.create({
+      console.log(`🤖 Appel OpenAI - Modèle: ${this.model}, Max tokens: ${maxOutputTokens}`);
+      
+      const response = await this.client.chat.completions.create({
         model: this.model,
-        input: [
+        messages: [
           {
             role: 'system',
             content: 'Tu es un assistant qui répond UNIQUEMENT en JSON valide, sans markdown ni formatage.',
@@ -37,21 +37,26 @@ export class OpenAIService {
             content: prompt,
           },
         ],
-        reasoning: {
-          effort: this.reasoningEffort,
-        },
-        max_output_tokens: maxOutputTokens,
+        max_tokens: maxOutputTokens,
+        temperature: 0.7,
+        response_format: { type: 'json_object' }, // Force la réponse JSON
       });
 
-      const content = response.output_text;
+      const content = response.choices[0]?.message?.content;
       if (!content) {
+        console.error('Réponse OpenAI vide:', JSON.stringify(response, null, 2));
         throw new Error('Aucune réponse de OpenAI');
       }
+
+      console.log(`✅ Réponse OpenAI reçue (${content.length} caractères)`);
 
       // Parser le JSON de la réponse
       return JSON.parse(content);
     } catch (error: any) {
-      console.error('Erreur OpenAI:', error);
+      console.error('❌ Erreur OpenAI:', error.message);
+      if (error.response) {
+        console.error('Détails erreur API:', error.response.data);
+      }
       throw new Error(`Erreur lors de l\'appel à OpenAI: ${error.message}`);
     }
   }

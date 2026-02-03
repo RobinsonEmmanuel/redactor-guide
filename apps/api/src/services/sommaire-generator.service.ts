@@ -128,7 +128,7 @@ export class SommaireGeneratorService {
       .collection('articles_raw')
       .find({ 
         site_id: site._id.toString(),
-        categories: destination, // Catégorie = destination
+        categories: { $in: [destination] }, // Catégories contient la destination
       })
       .toArray();
 

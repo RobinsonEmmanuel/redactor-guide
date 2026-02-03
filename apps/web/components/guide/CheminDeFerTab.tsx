@@ -6,7 +6,7 @@ import { arrayMove, SortableContext, rectSortingStrategy } from '@dnd-kit/sortab
 import { nanoid } from 'nanoid';
 import PageCard from './PageCard';
 import PageModal from './PageModal';
-import TemplatePalette from './TemplatePalette';
+import { TemplatePaletteItem } from './TemplatePalette';
 import ContentEditorModal from './ContentEditorModal';
 import SommaireProposal from './SommaireProposal';
 
@@ -278,42 +278,55 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   }
 
   return (
-    <div className="flex h-[calc(100vh-16rem)] gap-4">
+    <div className="flex flex-col h-[calc(100vh-16rem)] gap-4">
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragEnd={handleDragEnd}
       >
-        {/* Colonne gauche : Palette de templates */}
-        <div className="w-72 flex-shrink-0">
-          <TemplatePalette templates={templates} />
+        {/* Ligne du haut : Palette de templates */}
+        <div className="h-48 flex-shrink-0 overflow-y-auto border-b border-gray-200 pb-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Templates disponibles</h3>
+          <div className="grid grid-cols-4 gap-3">
+            {templates.map((template) => (
+              <div
+                key={template._id}
+                className="cursor-grab active:cursor-grabbing"
+              >
+                <TemplatePaletteItem template={template} />
+              </div>
+            ))}
+          </div>
         </div>
 
-        {/* Colonne centrale : Grille du chemin de fer */}
-        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-          {/* Header */}
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">Chemin de fer</h2>
-              <p className="text-sm text-gray-600 mt-1">
-                {pages.length} page{pages.length > 1 ? 's' : ''}
-              </p>
-            </div>
+        {/* Ligne du bas : 2 colonnes */}
+        <div className="flex-1 flex gap-4 overflow-hidden">
+          {/* Colonne gauche : Proposition de sommaire IA */}
+          <div className="w-96 flex-shrink-0">
+            <SommaireProposal guideId={guideId} apiUrl={apiUrl} />
           </div>
 
-          {/* Grille de pages */}
-          <CheminDeFerGrid
-            pages={pages}
-            onEdit={handleEditPage}
-            onDelete={handleDeletePage}
-            onOpenContent={handleOpenContent}
-            isEmpty={pages.length === 0}
-          />
-        </div>
+          {/* Colonne droite : Grille du chemin de fer (plus d'espace) */}
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+            {/* Header */}
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">Chemin de fer</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  {pages.length} page{pages.length > 1 ? 's' : ''}
+                </p>
+              </div>
+            </div>
 
-        {/* Colonne droite : Proposition de sommaire IA */}
-        <div className="w-96 flex-shrink-0">
-          <SommaireProposal guideId={guideId} apiUrl={apiUrl} />
+            {/* Grille de pages */}
+            <CheminDeFerGrid
+              pages={pages}
+              onEdit={handleEditPage}
+              onDelete={handleDeletePage}
+              onOpenContent={handleOpenContent}
+              isEmpty={pages.length === 0}
+            />
+          </div>
         </div>
       </DndContext>
 

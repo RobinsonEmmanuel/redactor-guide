@@ -14,7 +14,7 @@ interface TemplatePaletteItemProps {
   template: Template;
 }
 
-function TemplatePaletteItem({ template }: TemplatePaletteItemProps) {
+export function TemplatePaletteItem({ template }: TemplatePaletteItemProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `template-${template._id}`,
     data: { type: 'template', template },

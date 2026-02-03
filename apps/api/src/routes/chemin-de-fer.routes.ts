@@ -399,10 +399,10 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: 'Site WordPress non trouvé dans la base' });
     }
 
-    // Vérifier qu'il y a des articles pour ce site
+    // Vérifier qu'il y a des articles pour ce site avec cette destination
     const articlesCount = await db.collection('articles_raw').countDocuments({ 
       site_id: site._id.toString(),
-      categories: guide.destination, // Filtrés par destination
+      categories: { $in: [guide.destination] }, // Catégories contient la destination
     });
     
     if (articlesCount === 0) {

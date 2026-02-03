@@ -1,12 +1,13 @@
 import { Db, Collection } from 'mongodb';
-import { Prompt, PromptSchema } from '@redactor-guide/core-model';
+import type { Prompt } from '@redactor-guide/core-model';
+import { PromptSchema } from '@redactor-guide/core-model';
 
 /**
  * Interface du service de prompts
  */
 export interface IPromptService {
-  getPromptByKey(key: string): Promise<Prompt | null>;
-  renderPrompt(promptKey: string, variables: Record<string, string>): Promise<string>;
+  getPromptByIntent(intent: string, pageType?: string, langue?: string): Promise<Prompt | null>;
+  renderPrompt(promptOrKey: Prompt | string, variables: Record<string, string>): Promise<string>;
 }
 
 /**
@@ -29,19 +30,47 @@ export class PromptService implements IPromptService {
   }
 
   /**
-   * Récupérer un prompt par sa clé
+   * Récupérer un prompt par son intent (avec résolution fallback)
    */
-  async getPromptByKey(key: string): Promise<Prompt | null> {
+  async getPromptByIntent(
+    intent: string,
+    pageType?: string,
+    langue: string = 'fr'
+  ): Promise<Prompt | null> {
+    const cacheKey = `${intent}-${pageType || 'none'}-${langue}`;
+    
     // Vérifier le cache
-    if (this.cache.has(key)) {
-      return this.cache.get(key)!;
+    if (this.cache.has(cacheKey)) {
+      return this.cache.get(cacheKey)!;
     }
 
-    // Récupérer depuis la base
-    const prompt = await this.promptsCollection.findOne({
-      key,
-      isActive: true,
-    });
+    // Stratégie de résolution avec fallback
+    // 1. intent + page_type + langue
+    let prompt = await this.promptsCollection.findOne({
+      intent: intent as any,
+      page_type: pageType as any,
+      langue_source: langue,
+      actif: true,
+    } as any);
+
+    // 2. intent + langue
+    if (!prompt && pageType) {
+      prompt = await this.promptsCollection.findOne({
+        intent: intent as any,
+        page_type: { $exists: false },
+        langue_source: langue,
+        actif: true,
+      } as any);
+    }
+
+    // 3. intent + langue par défaut (fr)
+    if (!prompt && langue !== 'fr') {
+      prompt = await this.promptsCollection.findOne({
+        intent: intent as any,
+        langue_source: 'fr',
+        actif: true,
+      } as any);
+    }
 
     if (!prompt) {
       return null;
@@ -51,34 +80,34 @@ export class PromptService implements IPromptService {
     const validatedPrompt = PromptSchema.parse(prompt);
 
     // Mettre en cache
-    this.cache.set(key, validatedPrompt);
+    this.cache.set(cacheKey, validatedPrompt);
 
     return validatedPrompt;
   }
 
   /**
    * Rendre un template de prompt avec les variables
+   * Accepte soit un objet Prompt, soit une clé de prompt (pour compatibilité)
    */
   async renderPrompt(
-    promptKey: string,
+    promptOrKey: Prompt | string,
     variables: Record<string, string>
   ): Promise<string> {
-    const prompt = await this.getPromptByKey(promptKey);
+    let prompt: Prompt;
 
-    if (!prompt) {
-      throw new Error(`Prompt avec la clé "${promptKey}" introuvable`);
+    // Si c'est une string, c'est une clé legacy
+    if (typeof promptOrKey === 'string') {
+      const foundPrompt = await this.getPromptByIntent(promptOrKey);
+      if (!foundPrompt) {
+        throw new Error(`Prompt avec la clé "${promptOrKey}" introuvable`);
+      }
+      prompt = foundPrompt;
+    } else {
+      prompt = promptOrKey;
     }
 
-    // Vérifier que toutes les variables requises sont fournies
-    const missingVars = prompt.variables.filter((v) => !(v in variables));
-    if (missingVars.length > 0) {
-      throw new Error(
-        `Variables manquantes pour le prompt "${promptKey}": ${missingVars.join(', ')}`
-      );
-    }
-
-    // Remplacer les variables dans le template
-    let rendered = prompt.template;
+    // Remplacer les variables dans le texte_prompt
+    let rendered = prompt.texte_prompt;
     for (const [key, value] of Object.entries(variables)) {
       const regex = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g');
       rendered = rendered.replace(regex, value);

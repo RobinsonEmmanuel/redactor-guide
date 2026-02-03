@@ -7,6 +7,9 @@ export const WordPressPostSchema = z.object({
   id: z.number(),
   date: z.string(),
   date_gmt: z.string(),
+  guid: z.object({
+    rendered: z.string(),
+  }),
   modified: z.string(),
   modified_gmt: z.string(),
   slug: z.string(),

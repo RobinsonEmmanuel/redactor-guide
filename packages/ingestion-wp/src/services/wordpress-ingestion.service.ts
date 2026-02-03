@@ -194,6 +194,12 @@ export class WordPressIngestionService implements IWordPressIngestionService {
   /**
    * Ingère les articles WordPress (FR + URLs WPML) dans articles_raw.
    * Aucune transformation éditoriale.
+   * 
+   * Stratégie multi-langue :
+   * 1. Récupère tous les articles pour chaque langue (fr, en, de, es, it, pt, nl, pl, ru)
+   * 2. Groupe par `guid` (qui pointe toujours vers l'URL FR pour les traductions WPML)
+   * 3. Construit `urls_by_lang` en mappant les `link` de chaque langue
+   * 4. Stocke UN SEUL article par guid (version FR) avec toutes les URLs
    */
   async ingestArticlesToRaw(
     siteId: string,
@@ -211,70 +217,106 @@ export class WordPressIngestionService implements IWordPressIngestionService {
     const categoriesMap = await this.fetchCategoriesMap(siteUrl, jwtToken);
     const tagsMap = await this.fetchTagsMap(siteUrl, jwtToken);
 
-    let page = 1;
-    const perPage = 50;
-    let hasMore = true;
+    const languages = ['fr', 'en', 'de', 'es', 'it', 'pt', 'nl', 'pl', 'ru'];
 
-    while (hasMore) {
-      const posts = await this.fetchPostsWithAuth(siteUrl, jwtToken, {
-        page,
-        perPage,
-        status: 'publish',
-        language: 'fr',
-      });
+    // Map<guid, Map<lang, post>> pour grouper les traductions
+    const articlesByGuid = new Map<string, Map<string, WordPressPost>>();
 
-      if (posts.length === 0) break;
+    // 1. Récupérer tous les articles pour chaque langue
+    console.log(`Récupération des articles pour ${languages.length} langues...`);
+    for (const lang of languages) {
+      console.log(`  -> Langue: ${lang}`);
+      let page = 1;
+      const perPage = 50;
+      let hasMore = true;
+      let langCount = 0;
 
-      for (const post of posts) {
+      while (hasMore) {
         try {
-          const categoryNames = (post.categories ?? [])
-            .map((id) => categoriesMap.get(id))
-            .filter((n): n is string => n != null);
-          const tagNames = (post.tags ?? [])
-            .map((id) => tagsMap.get(id))
-            .filter((n): n is string => n != null);
+          const posts = await this.fetchPostsWithAuth(siteUrl, jwtToken, {
+            page,
+            perPage,
+            status: 'publish',
+            language: lang,
+          });
 
-          const urlsByLang: Record<string, string> = {};
-          urlsByLang.fr = post.link;
-          if (post.wpml_translations) {
-            for (const t of post.wpml_translations) {
-              if (t.locale && t.href) urlsByLang[t.locale] = t.href;
+          if (posts.length === 0) break;
+
+          for (const post of posts) {
+            const guid = post.guid?.rendered ?? '';
+            if (!guid) continue;
+
+            if (!articlesByGuid.has(guid)) {
+              articlesByGuid.set(guid, new Map());
             }
+            articlesByGuid.get(guid)!.set(lang, post);
+            langCount++;
           }
 
-          // Extraire les URLs des images du HTML
-          const htmlContent = post.content?.rendered ?? '';
-          const imageUrls = extractImageUrls(htmlContent);
-
-          const raw: Omit<ArticleRaw, '_id'> = {
-            site_id: siteId,
-            destination_ids: destinationIds,
-            slug: post.slug,
-            title: post.title?.rendered ?? '',
-            html_brut: htmlContent,
-            categories: categoryNames,
-            tags: tagNames,
-            urls_by_lang: urlsByLang,
-            images: imageUrls,
-            updated_at: post.modified ?? post.date,
-          };
-
-          ArticleRawSchema.parse(raw);
-
-          await this.articlesRawCollection.updateOne(
-            { site_id: siteId, slug: post.slug },
-            { $set: { ...raw, updated_at: new Date(post.modified || post.date) } },
-            { upsert: true }
-          );
-          count++;
+          page++;
+          hasMore = posts.length === perPage;
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          errors.push(`Post ${post.slug}: ${msg}`);
+          errors.push(`Erreur récupération ${lang} page ${page}: ${err instanceof Error ? err.message : String(err)}`);
+          break;
         }
       }
+      console.log(`     ${langCount} articles trouvés`);
+    }
 
-      page++;
-      hasMore = posts.length === perPage;
+    console.log(`Total: ${articlesByGuid.size} articles uniques (groupés par guid)`);
+
+    // 2. Pour chaque groupe d'articles (par guid), créer un ArticleRaw
+    for (const [guid, postsByLang] of articlesByGuid.entries()) {
+      try {
+        // Utiliser la version FR comme référence
+        const frPost = postsByLang.get('fr');
+        if (!frPost) {
+          errors.push(`Pas de version FR pour guid: ${guid}`);
+          continue;
+        }
+
+        // Construire urls_by_lang en mappant les links de chaque langue
+        const urlsByLang: Record<string, string> = {};
+        for (const [lang, post] of postsByLang.entries()) {
+          urlsByLang[lang] = post.link;
+        }
+
+        const categoryNames = (frPost.categories ?? [])
+          .map((id) => categoriesMap.get(id))
+          .filter((n): n is string => n != null);
+        const tagNames = (frPost.tags ?? [])
+          .map((id) => tagsMap.get(id))
+          .filter((n): n is string => n != null);
+
+        // Extraire les URLs des images du HTML
+        const htmlContent = frPost.content?.rendered ?? '';
+        const imageUrls = extractImageUrls(htmlContent);
+
+        const raw: Omit<ArticleRaw, '_id'> = {
+          site_id: siteId,
+          destination_ids: destinationIds,
+          slug: frPost.slug,
+          title: frPost.title?.rendered ?? '',
+          html_brut: htmlContent,
+          categories: categoryNames,
+          tags: tagNames,
+          urls_by_lang: urlsByLang,
+          images: imageUrls,
+          updated_at: frPost.modified ?? frPost.date,
+        };
+
+        ArticleRawSchema.parse(raw);
+
+        await this.articlesRawCollection.updateOne(
+          { site_id: siteId, slug: frPost.slug },
+          { $set: { ...raw, updated_at: new Date(frPost.modified || frPost.date) } },
+          { upsert: true }
+        );
+        count++;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`GUID ${guid.substring(0, 50)}: ${msg}`);
+      }
     }
 
     return { count, errors };

@@ -173,7 +173,8 @@ export default function GuideDetailPage() {
     );
   }
 
-  const languages = ['fr', 'en', 'de', 'es', 'it', 'pt', 'nl', 'pl', 'ru'];
+  // Utiliser les langues configurées dans le guide, ou par défaut toutes les langues
+  const languages = guide?.availableLanguages || ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl'];
 
   return (
     <div className="flex h-screen">

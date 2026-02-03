@@ -81,7 +81,7 @@ export async function ingestRoutes(fastify: FastifyInstance) {
       });
 
       const runUrl = workerUrl.replace(/\/$/, '') + '/api/v1/ingest/run';
-      const res = await fetch(`https://qstash.upstash.io/v2/publish/${encodeURIComponent(runUrl)}`, {
+      const res = await fetch(`https://qstash.upstash.io/v2/publish/${runUrl}`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,

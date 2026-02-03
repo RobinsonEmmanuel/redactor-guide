@@ -17,7 +17,7 @@ export type GuideStatus = z.infer<typeof GuideStatusEnum>;
 /**
  * Langues supportées par WPML
  */
-export const LanguageEnum = z.enum(['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl']);
+export const LanguageEnum = z.enum(['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl']);
 
 export type Language = z.infer<typeof LanguageEnum>;
 
@@ -32,7 +32,7 @@ export const LANGUAGE_LABELS: Record<Language, string> = {
   da: 'Danois',
   sv: 'Suédois',
   en: 'Anglais',
-  pt: 'Portugais',
+  'pt-pt': 'Portugais',
   nl: 'Néerlandais',
 };
 
@@ -52,7 +52,7 @@ export const GuideSchema = z.object({
   language: LanguageEnum,
   
   // Langues disponibles pour la récupération des articles
-  availableLanguages: z.array(LanguageEnum).default(['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl']),
+  availableLanguages: z.array(LanguageEnum).default(['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl']),
   
   // Destinations incluses
   destinations: z.array(z.string()).min(1, 'Au moins une destination requise'),

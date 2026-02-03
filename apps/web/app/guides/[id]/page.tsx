@@ -80,7 +80,7 @@ export default function GuideDetailPage() {
       destinationIds: guide.destinations || [],
       siteUrl: guide.wpConfig.siteUrl,
       jwtToken: guide.wpConfig.jwtToken,
-      languages: guide.availableLanguages || ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl'],
+      languages: guide.availableLanguages || ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'],
     };
 
     try {
@@ -174,7 +174,7 @@ export default function GuideDetailPage() {
   }
 
   // Utiliser les langues configurées dans le guide, ou par défaut toutes les langues
-  const languages = guide?.availableLanguages || ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl'];
+  const languages = guide?.availableLanguages || ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'];
 
   return (
     <div className="flex h-screen">

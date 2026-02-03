@@ -7,8 +7,8 @@ const CreateGuideSchema = z.object({
   slug: z.string().min(1),
   year: z.number().int().min(2020).max(2100),
   version: z.string(),
-  language: z.enum(['fr', 'en', 'de', 'it', 'es', 'pt', 'nl', 'da', 'sv']),
-  availableLanguages: z.array(z.string()).default(['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl']),
+  language: z.enum(['fr', 'en', 'de', 'it', 'es', 'pt-pt', 'nl', 'da', 'sv']),
+  availableLanguages: z.array(z.string()).default(['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl']),
   status: z.enum(['draft', 'in_progress', 'review', 'ready', 'published', 'archived']),
   destinations: z.array(z.string()).default([]),
   wpConfig: z.object({

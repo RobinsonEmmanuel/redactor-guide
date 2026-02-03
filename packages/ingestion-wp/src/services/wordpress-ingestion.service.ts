@@ -221,7 +221,7 @@ export class WordPressIngestionService implements IWordPressIngestionService {
     // Utiliser les langues fournies ou par défaut toutes les langues
     const targetLanguages = languages && languages.length > 0 
       ? languages 
-      : ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl'];
+      : ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'];
 
     // Map<url_fr, Map<lang, post>> pour grouper les traductions
     // La clé est l'URL FR (soit le link de l'article FR, soit le guid des traductions)

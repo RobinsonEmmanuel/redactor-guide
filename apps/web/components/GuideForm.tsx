@@ -17,7 +17,7 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
     year: new Date().getFullYear(),
     version: '1.0.0',
     language: 'fr',
-    availableLanguages: ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl'] as string[],
+    availableLanguages: ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'] as string[],
     status: 'draft',
     destinations: [] as string[],
     wpConfig: {
@@ -39,7 +39,7 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
         year: guide.year || new Date().getFullYear(),
         version: guide.version || '1.0.0',
         language: guide.language || 'fr',
-        availableLanguages: guide.availableLanguages || ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl'],
+        availableLanguages: guide.availableLanguages || ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'],
         status: guide.status || 'draft',
         destinations: guide.destinations || [],
         wpConfig: {
@@ -111,7 +111,7 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
     { code: 'da', label: 'Danois' },
     { code: 'sv', label: 'Suédois' },
     { code: 'en', label: 'Anglais' },
-    { code: 'pt', label: 'Portugais' },
+    { code: 'pt-pt', label: 'Portugais' },
     { code: 'nl', label: 'Néerlandais' },
   ];
 

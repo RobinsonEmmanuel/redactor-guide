@@ -401,15 +401,18 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Code langue (ex: pl, ru, zh)
+                    Code langue WPML *
                   </label>
                   <input
                     type="text"
                     value={customLanguage.code}
                     onChange={(e) => setCustomLanguage(prev => ({ ...prev, code: e.target.value.toLowerCase() }))}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="pl"
+                    placeholder="pl ou pt-pt"
                   />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Utilisez le code exact de WPML (ex: pl, ru, zh-hans, pt-pt)
+                  </p>
                 </div>
 
                 <div>

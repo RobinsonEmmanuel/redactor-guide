@@ -13,7 +13,7 @@ export class OpenAIService {
     this.client = new OpenAI({
       apiKey: config.apiKey,
     });
-    this.model = config.model || 'gpt-4o-mini';
+    this.model = config.model || 'gpt-5-mini-2025-08-07';
   }
 
   /**

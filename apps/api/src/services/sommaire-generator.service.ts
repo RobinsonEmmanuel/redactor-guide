@@ -112,7 +112,7 @@ export class SommaireGeneratorService {
    */
   private async loadArticles(guideId: string, destination: string): Promise<ArticleForSommaire[]> {
     // Charger le guide pour récupérer le site_id
-    const guide = await this.db.collection('guides').findOne({ _id: guideId } as any);
+    const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(guideId) });
     if (!guide || !guide.wpConfig?.siteUrl) {
       throw new Error('Guide ou configuration WordPress manquante');
     }

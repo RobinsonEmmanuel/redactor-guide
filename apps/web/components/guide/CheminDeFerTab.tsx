@@ -335,7 +335,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   );
 }
 
-// Composant Droppable Grid
+// Composant Droppable Grid avec cases visibles
 function CheminDeFerGrid({
   pages,
   onEdit,
@@ -353,38 +353,83 @@ function CheminDeFerGrid({
     id: 'chemin-de-fer-grid',
   });
 
+  // Créer une grille avec des emplacements vides
+  const gridSize = Math.max(12, pages.length + 4); // Min 12, max actuel + 4 vides
+  const slots = Array.from({ length: gridSize }, (_, i) => {
+    const pageAtPosition = pages.find(p => p.ordre === i + 1);
+    return pageAtPosition || { isEmpty: true, ordre: i + 1 };
+  });
+
   return (
     <div
       ref={setNodeRef}
-      className={`flex-1 overflow-auto bg-white rounded-lg border-2 transition-colors ${
-        isOver ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+      className={`flex-1 overflow-auto rounded-lg border-2 transition-all ${
+        isOver 
+          ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-blue-100' 
+          : 'border-gray-300 bg-gradient-to-br from-gray-50 to-white'
       }`}
     >
-      {isEmpty ? (
-        <div className="h-full flex items-center justify-center">
-          <div className="text-center py-12">
-            <p className="text-gray-500 mb-2">Glissez un template ici pour créer une page</p>
-            <p className="text-sm text-gray-400">ou utilisez le bouton "Ajouter une page"</p>
+      <div className="p-4">
+        {/* Message d'aide si vide */}
+        {isEmpty && (
+          <div className="text-center py-6 mb-4 bg-blue-50 border-2 border-dashed border-blue-300 rounded-lg">
+            <p className="text-blue-700 font-medium mb-1">
+              🎯 Glissez un template dans une case pour créer une page
+            </p>
+            <p className="text-sm text-blue-600">
+              Les cases sont numérotées pour organiser votre chemin de fer
+            </p>
           </div>
-        </div>
-      ) : (
+        )}
+
+        {/* Grille avec emplacements visibles */}
         <SortableContext
           items={pages.map((p) => p._id)}
           strategy={rectSortingStrategy}
         >
-          <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {pages.map((page) => (
-              <PageCard
-                key={page._id}
-                page={page}
-                onEdit={() => onEdit(page)}
-                onDelete={() => onDelete(page._id)}
-                onOpenContent={() => onOpenContent(page)}
-              />
-            ))}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            {slots.map((slot: any) => {
+              if (slot.isEmpty) {
+                // Case vide
+                return (
+                  <div
+                    key={`empty-${slot.ordre}`}
+                    className={`relative bg-white rounded-lg border-2 border-dashed transition-all ${
+                      isOver 
+                        ? 'border-blue-400 bg-blue-50' 
+                        : 'border-gray-300 hover:border-blue-300 hover:bg-blue-50/50'
+                    }`}
+                    style={{ minHeight: '240px' }}
+                  >
+                    {/* Numéro de l'emplacement */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="text-center">
+                        <div className="text-6xl font-bold text-gray-200 mb-2">
+                          {slot.ordre}
+                        </div>
+                        <div className="text-xs text-gray-400 font-medium">
+                          Emplacement libre
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              } else {
+                // Case avec page
+                return (
+                  <PageCard
+                    key={slot._id}
+                    page={slot}
+                    onEdit={() => onEdit(slot)}
+                    onDelete={() => onDelete(slot._id)}
+                    onOpenContent={() => onOpenContent(slot)}
+                  />
+                );
+              }
+            })}
           </div>
         </SortableContext>
-      )}
+      </div>
     </div>
   );
 }

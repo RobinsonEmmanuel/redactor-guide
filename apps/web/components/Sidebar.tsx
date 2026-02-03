@@ -1,23 +1,29 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { 
   BookOpenIcon, 
   Cog6ToothIcon,
   ChartBarIcon,
   DocumentTextIcon,
   CloudArrowUpIcon,
+  Square3Stack3DIcon,
 } from '@heroicons/react/24/outline';
 
 const menuItems = [
-  { name: 'Guides', icon: BookOpenIcon, active: true },
-  { name: 'Destinations', icon: DocumentTextIcon, active: false },
-  { name: 'Exports', icon: CloudArrowUpIcon, active: false },
-  { name: 'Statistiques', icon: ChartBarIcon, active: false },
-  { name: 'Paramètres', icon: Cog6ToothIcon, active: false },
+  { name: 'Guides', icon: BookOpenIcon, href: '/guides' },
+  { name: 'Templates', icon: Square3Stack3DIcon, href: '/templates' },
+  { name: 'Destinations', icon: DocumentTextIcon, href: '#' },
+  { name: 'Exports', icon: CloudArrowUpIcon, href: '#' },
+  { name: 'Statistiques', icon: ChartBarIcon, href: '#' },
+  { name: 'Paramètres', icon: Cog6ToothIcon, href: '#' },
 ];
 
 export default function Sidebar() {
+  const pathname = usePathname();
+  const router = useRouter();
+
   return (
     <aside className="w-52 bg-[#1e293b] text-white flex flex-col">
       {/* Logo/Header */}
@@ -37,12 +43,17 @@ export default function Sidebar() {
       <nav className="flex-1 p-3 space-y-1">
         {menuItems.map((item) => {
           const Icon = item.icon;
+          const isActive = pathname.startsWith(item.href) && item.href !== '#';
           return (
             <button
               key={item.name}
+              onClick={() => item.href !== '#' && router.push(item.href)}
+              disabled={item.href === '#'}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                item.active
+                isActive
                   ? 'bg-orange-500 text-white'
+                  : item.href === '#'
+                  ? 'text-slate-500 cursor-not-allowed'
                   : 'text-slate-300 hover:bg-slate-700/50'
               }`}
             >

@@ -18,3 +18,6 @@ export * from './schemas/prompt.schema';
 
 // Article raw (ingestion WordPress)
 export * from './schemas/article-raw.schema';
+
+// Template schemas
+export * from './schemas/template.schema';

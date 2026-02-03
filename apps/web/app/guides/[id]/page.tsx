@@ -48,7 +48,7 @@ export default function GuideDetailPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        setArticlesCount(data.length);
+        setArticlesCount(data.articles?.length || 0);
         setHasCheckedArticles(true);
       }
     } catch (err) {

@@ -80,7 +80,7 @@ export default function GuideDetailPage() {
     { 
       id: 'chemin-de-fer', 
       label: 'Chemin de fer', 
-      count: guide?.chemin_de_fer?.nombre_pages || 0,
+      count: null, // Pas de compteur : 1 chemin de fer par guide
       disabled: !canAccessCheminDeFer 
     },
   ];

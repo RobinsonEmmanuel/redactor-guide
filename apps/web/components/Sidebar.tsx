@@ -9,11 +9,13 @@ import {
   DocumentTextIcon,
   CloudArrowUpIcon,
   Square3Stack3DIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
 
 const menuItems = [
   { name: 'Guides', icon: BookOpenIcon, href: '/guides' },
   { name: 'Templates', icon: Square3Stack3DIcon, href: '/templates' },
+  { name: 'Prompts', icon: SparklesIcon, href: '/prompts' },
   { name: 'Destinations', icon: DocumentTextIcon, href: '#' },
   { name: 'Exports', icon: CloudArrowUpIcon, href: '#' },
   { name: 'Statistiques', icon: ChartBarIcon, href: '#' },

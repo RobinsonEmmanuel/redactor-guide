@@ -27,3 +27,6 @@ export * from './schemas/page.schema';
 
 // Chemin de fer schemas
 export * from './schemas/chemin-de-fer.schema';
+
+// Prompt schemas
+export * from './schemas/prompt.schema';

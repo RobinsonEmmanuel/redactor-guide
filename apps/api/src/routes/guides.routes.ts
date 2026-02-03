@@ -10,7 +10,7 @@ const CreateGuideSchema = z.object({
   language: z.enum(['fr', 'en', 'de', 'it', 'es', 'pt-pt', 'nl', 'da', 'sv']),
   availableLanguages: z.array(z.string()).default(['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl']),
   status: z.enum(['draft', 'in_progress', 'review', 'ready', 'published', 'archived']),
-  destinations: z.array(z.string()).default([]),
+  destination: z.string().min(1), // 1 guide = 1 destination
   wpConfig: z.object({
     siteUrl: z.string().url(),
     jwtToken: z.string(),

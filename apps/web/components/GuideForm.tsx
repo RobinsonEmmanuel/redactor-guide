@@ -19,12 +19,14 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
     language: 'fr',
     availableLanguages: ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'] as string[],
     status: 'draft',
-    destinations: [] as string[],
+    destination: '', // 1 guide = 1 destination
     wpConfig: {
       siteUrl: '',
       jwtToken: '',
     },
   });
+
+  const [destinations, setDestinations] = useState<string[]>([]);
 
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [customLanguage, setCustomLanguage] = useState({ code: '', label: '' });
@@ -32,6 +34,7 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    loadDestinations();
     if (guide) {
       setFormData({
         name: guide.name || '',
@@ -41,7 +44,7 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
         language: guide.language || 'fr',
         availableLanguages: guide.availableLanguages || ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'],
         status: guide.status || 'draft',
-        destinations: guide.destinations || [],
+        destination: guide.destination || '',
         wpConfig: {
           siteUrl: guide.wpConfig?.siteUrl || '',
           jwtToken: guide.wpConfig?.jwtToken || '',
@@ -49,6 +52,21 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
       });
     }
   }, [guide]);
+
+  const loadDestinations = async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+      const res = await fetch(`${apiUrl}/api/v1/destinations`, {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDestinations(data.destinations || []);
+      }
+    } catch (err) {
+      console.error('Erreur chargement destinations:', err);
+    }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -206,6 +224,29 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="guide-paris-2024"
               />
+            </div>
+
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Destination *
+              </label>
+              <select
+                name="destination"
+                value={formData.destination}
+                onChange={handleChange}
+                required
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">Sélectionner une destination</option>
+                {destinations.map((dest) => (
+                  <option key={dest} value={dest}>
+                    {dest}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                🔍 Les articles WordPress seront automatiquement filtrés par cette catégorie
+              </p>
             </div>
 
             <div>

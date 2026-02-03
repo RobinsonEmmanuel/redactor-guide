@@ -25,15 +25,17 @@ interface ArticlesTabProps {
 export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported }: ArticlesTabProps) {
   const router = useRouter();
   const [articles, setArticles] = useState<Article[]>([]);
+  const [allArticles, setAllArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(false);
   const [ingesting, setIngesting] = useState(false);
   const [ingestionStatus, setIngestionStatus] = useState<string | null>(null);
   const [ingestionError, setIngestionError] = useState<string | null>(null);
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
+  const [filterByDestination, setFilterByDestination] = useState(true);
 
   useEffect(() => {
     loadArticles(1);
-  }, [guideId]);
+  }, [guideId, filterByDestination]);
 
   const loadArticles = async (page: number = pagination.page) => {
     setLoading(true);
@@ -44,8 +46,24 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
       );
       if (res.ok) {
         const data = await res.json();
-        setArticles(data.articles || []);
-        setPagination(data.pagination || { page: 1, limit: 20, total: 0, totalPages: 0 });
+        const fetchedArticles = data.articles || [];
+        setAllArticles(fetchedArticles);
+        
+        // Filtrer par destination si activé
+        const filtered = filterByDestination && guide?.destination
+          ? fetchedArticles.filter((article: Article) => 
+              article.categories?.some(cat => 
+                cat.toLowerCase() === guide.destination.toLowerCase()
+              )
+            )
+          : fetchedArticles;
+        
+        setArticles(filtered);
+        setPagination(prev => ({ 
+          ...prev,
+          total: data.pagination?.total || filtered.length,
+          totalPages: Math.ceil(filtered.length / prev.limit)
+        }));
       }
     } catch (err) {
       console.error('Erreur chargement articles:', err);
@@ -161,21 +179,50 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
   return (
     <div>
       {/* Actions */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-gray-900">Articles WordPress</h2>
-          <p className="text-sm text-gray-600 mt-1">
-            {pagination.total} articles récupérés
-          </p>
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">Articles WordPress</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              {pagination.total} article{pagination.total > 1 ? 's' : ''}
+              {filterByDestination && guide?.destination && (
+                <span className="ml-2 text-blue-600">
+                  (filtré par catégorie "{guide.destination}")
+                </span>
+              )}
+            </p>
+          </div>
+          <button
+            onClick={launchIngestion}
+            disabled={ingesting}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+          >
+            <ArrowPathIcon className={`h-5 w-5 ${ingesting ? 'animate-spin' : ''}`} />
+            {ingesting ? 'Récupération...' : 'Récupérer les articles'}
+          </button>
         </div>
-        <button
-          onClick={launchIngestion}
-          disabled={ingesting}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-        >
-          <ArrowPathIcon className={`h-5 w-5 ${ingesting ? 'animate-spin' : ''}`} />
-          {ingesting ? 'Récupération...' : 'Récupérer les articles'}
-        </button>
+
+        {/* Filtre destination */}
+        {guide?.destination && (
+          <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={filterByDestination}
+                onChange={(e) => setFilterByDestination(e.target.checked)}
+                className="rounded text-blue-600 focus:ring-2 focus:ring-blue-500"
+              />
+              <span className="text-sm text-blue-900 font-medium">
+                Afficher uniquement les articles de la destination "{guide.destination}"
+              </span>
+            </label>
+            {!filterByDestination && (
+              <span className="ml-auto text-xs text-blue-700">
+                ({allArticles.length} articles au total)
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Status */}

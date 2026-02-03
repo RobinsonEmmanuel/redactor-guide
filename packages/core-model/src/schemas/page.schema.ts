@@ -90,9 +90,11 @@ export type Page = z.infer<typeof PageSchema>;
 
 /**
  * Schéma pour créer une nouvelle page
+ * Note: chemin_de_fer_id est omis car calculé par l'API
  */
 export const CreatePageSchema = PageSchema.omit({
   _id: true,
+  chemin_de_fer_id: true,
   created_at: true,
   updated_at: true,
   template_name: true,

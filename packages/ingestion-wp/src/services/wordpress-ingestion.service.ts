@@ -219,8 +219,9 @@ export class WordPressIngestionService implements IWordPressIngestionService {
 
     const languages = ['fr', 'en', 'de', 'es', 'it', 'pt', 'nl', 'pl', 'ru'];
 
-    // Map<guid, Map<lang, post>> pour grouper les traductions
-    const articlesByGuid = new Map<string, Map<string, WordPressPost>>();
+    // Map<url_fr, Map<lang, post>> pour grouper les traductions
+    // La clé est l'URL FR (soit le link de l'article FR, soit le guid des traductions)
+    const articlesByFrUrl = new Map<string, Map<string, WordPressPost>>();
 
     // 1. Récupérer tous les articles pour chaque langue
     console.log(`Récupération des articles pour ${languages.length} langues...`);
@@ -246,10 +247,24 @@ export class WordPressIngestionService implements IWordPressIngestionService {
             const guid = post.guid?.rendered ?? '';
             if (!guid) continue;
 
-            if (!articlesByGuid.has(guid)) {
-              articlesByGuid.set(guid, new Map());
+            // Déterminer la clé de groupement (URL FR)
+            let frUrl: string;
+            if (lang === 'fr') {
+              // Pour les articles FR, la clé est leur propre link
+              frUrl = post.link;
+            } else {
+              // Pour les traductions, le guid pointe vers l'URL FR
+              // Si le guid est au format ?p=ID, on skip (article orphelin)
+              if (guid.includes('?p=')) {
+                continue;
+              }
+              frUrl = guid;
             }
-            articlesByGuid.get(guid)!.set(lang, post);
+
+            if (!articlesByFrUrl.has(frUrl)) {
+              articlesByFrUrl.set(frUrl, new Map());
+            }
+            articlesByFrUrl.get(frUrl)!.set(lang, post);
             langCount++;
           }
 
@@ -263,15 +278,15 @@ export class WordPressIngestionService implements IWordPressIngestionService {
       console.log(`     ${langCount} articles trouvés`);
     }
 
-    console.log(`Total: ${articlesByGuid.size} articles uniques (groupés par guid)`);
+    console.log(`Total: ${articlesByFrUrl.size} articles uniques (groupés par URL FR)`);
 
-    // 2. Pour chaque groupe d'articles (par guid), créer un ArticleRaw
-    for (const [guid, postsByLang] of articlesByGuid.entries()) {
+    // 2. Pour chaque groupe d'articles (par URL FR), créer un ArticleRaw
+    for (const [frUrl, postsByLang] of articlesByFrUrl.entries()) {
       try {
         // Utiliser la version FR comme référence
         const frPost = postsByLang.get('fr');
         if (!frPost) {
-          errors.push(`Pas de version FR pour guid: ${guid}`);
+          errors.push(`Pas de version FR pour URL: ${frUrl.substring(0, 60)}`);
           continue;
         }
 
@@ -315,7 +330,7 @@ export class WordPressIngestionService implements IWordPressIngestionService {
         count++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`GUID ${guid.substring(0, 50)}: ${msg}`);
+        errors.push(`URL FR ${frUrl.substring(0, 50)}: ${msg}`);
       }
     }
 

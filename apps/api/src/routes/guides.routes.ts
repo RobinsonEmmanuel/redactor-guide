@@ -37,7 +37,10 @@ export async function guidesRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Guide non trouvé' });
       }
       
-      return guide;
+      // Récupérer le chemin de fer associé
+      const cheminDeFer = await db.collection('chemins_de_fer').findOne({ guide_id: id });
+      
+      return { ...guide, chemin_de_fer: cheminDeFer };
     } catch (error) {
       return reply.status(400).send({ error: 'ID invalide' });
     }
@@ -87,10 +90,21 @@ export async function guidesRoutes(fastify: FastifyInstance) {
     try {
       const data = CreateGuideSchema.parse(request.body);
       
+      const now = new Date().toISOString();
       const result = await db.collection('guides').insertOne({
         ...data,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      // Créer automatiquement le chemin de fer associé
+      await db.collection('chemins_de_fer').insertOne({
+        guide_id: result.insertedId.toString(),
+        nom: data.name,
+        version: data.version,
+        nombre_pages: 0,
+        created_at: now,
+        updated_at: now,
       });
       
       return reply.status(201).send({

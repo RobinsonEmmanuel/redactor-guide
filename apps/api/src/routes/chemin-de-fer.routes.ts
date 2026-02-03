@@ -2,7 +2,6 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ObjectId } from 'mongodb';
 import {
-  CreateCheminDeFerSchema,
   UpdateCheminDeFerSchema,
   CreatePageSchema,
   UpdatePageSchema,
@@ -11,55 +10,37 @@ import {
 
 export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   /**
-   * GET /chemins-de-fer
-   * Liste tous les chemins de fer
+   * GET /guides/:guideId/chemin-de-fer
+   * Récupère le chemin de fer d'un guide avec ses pages
    */
-  fastify.get('/chemins-de-fer', async (request, reply) => {
+  fastify.get<{ Params: { guideId: string } }>('/guides/:guideId/chemin-de-fer', async (request, reply) => {
     try {
       const db = request.server.container.db;
-      const cheminsDeFer = await db
-        .collection('chemins_de_fer')
-        .find({})
-        .sort({ created_at: -1 })
-        .toArray();
+      const { guideId } = request.params;
 
-      return reply.send(cheminsDeFer);
-    } catch (error) {
-      request.log.error(error);
-      return reply.status(500).send({ error: 'Erreur lors de la récupération des chemins de fer' });
-    }
-  });
-
-  /**
-   * GET /chemins-de-fer/:id
-   * Récupère un chemin de fer avec ses pages
-   */
-  fastify.get<{ Params: { id: string } }>('/chemins-de-fer/:id', async (request, reply) => {
-    try {
-      const db = request.server.container.db;
-      const { id } = request.params;
-
-      if (!ObjectId.isValid(id)) {
-        return reply.status(400).send({ error: 'ID invalide' });
+      if (!ObjectId.isValid(guideId)) {
+        return reply.status(400).send({ error: 'Guide ID invalide' });
       }
 
-      const cheminDeFer = await db.collection('chemins_de_fer').findOne({ _id: new ObjectId(id) });
+      const cheminDeFer = await db.collection('chemins_de_fer').findOne({ guide_id: guideId });
 
       if (!cheminDeFer) {
         return reply.status(404).send({ error: 'Chemin de fer non trouvé' });
       }
 
+      const cheminDeFerId = cheminDeFer._id.toString();
+
       // Récupérer les pages du chemin de fer
       const pages = await db
         .collection('pages')
-        .find({ chemin_de_fer_id: id })
+        .find({ chemin_de_fer_id: cheminDeFerId })
         .sort({ ordre: 1 })
         .toArray();
 
       // Récupérer les sections
       const sections = await db
         .collection('sections')
-        .find({ chemin_de_fer_id: id })
+        .find({ chemin_de_fer_id: cheminDeFerId })
         .sort({ ordre: 1 })
         .toArray();
 
@@ -75,53 +56,23 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   });
 
   /**
-   * POST /chemins-de-fer
-   * Crée un nouveau chemin de fer
+   * PUT /guides/:guideId/chemin-de-fer
+   * Met à jour le chemin de fer d'un guide
    */
-  fastify.post<{ Body: unknown }>('/chemins-de-fer', async (request, reply) => {
+  fastify.put<{ Params: { guideId: string }; Body: unknown }>('/guides/:guideId/chemin-de-fer', async (request, reply) => {
     try {
       const db = request.server.container.db;
-      const body = CreateCheminDeFerSchema.parse(request.body);
+      const { guideId } = request.params;
 
-      const now = new Date().toISOString();
-      const cheminDeFer = {
-        ...body,
-        nombre_pages: 0,
-        created_at: now,
-        updated_at: now,
-      };
-
-      const result = await db.collection('chemins_de_fer').insertOne(cheminDeFer);
-      const created = await db.collection('chemins_de_fer').findOne({ _id: result.insertedId });
-
-      return reply.status(201).send(created);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return reply.status(400).send({ error: 'Validation échouée', details: error.errors });
-      }
-      request.log.error(error);
-      return reply.status(500).send({ error: 'Erreur lors de la création du chemin de fer' });
-    }
-  });
-
-  /**
-   * PUT /chemins-de-fer/:id
-   * Met à jour un chemin de fer
-   */
-  fastify.put<{ Params: { id: string }; Body: unknown }>('/chemins-de-fer/:id', async (request, reply) => {
-    try {
-      const db = request.server.container.db;
-      const { id } = request.params;
-
-      if (!ObjectId.isValid(id)) {
-        return reply.status(400).send({ error: 'ID invalide' });
+      if (!ObjectId.isValid(guideId)) {
+        return reply.status(400).send({ error: 'Guide ID invalide' });
       }
 
       const body = UpdateCheminDeFerSchema.parse(request.body);
       const now = new Date().toISOString();
 
       const result = await db.collection('chemins_de_fer').findOneAndUpdate(
-        { _id: new ObjectId(id) },
+        { guide_id: guideId },
         { $set: { ...body, updated_at: now } },
         { returnDocument: 'after' }
       );
@@ -141,47 +92,26 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   });
 
   /**
-   * DELETE /chemins-de-fer/:id
-   * Supprime un chemin de fer et toutes ses pages
+   * POST /guides/:guideId/chemin-de-fer/pages
+   * Ajoute une page au chemin de fer
    */
-  fastify.delete<{ Params: { id: string } }>('/chemins-de-fer/:id', async (request, reply) => {
+  fastify.post<{ Params: { guideId: string }; Body: unknown }>('/guides/:guideId/chemin-de-fer/pages', async (request, reply) => {
     try {
       const db = request.server.container.db;
-      const { id } = request.params;
+      const { guideId } = request.params;
+      const body = CreatePageSchema.parse(request.body);
 
-      if (!ObjectId.isValid(id)) {
-        return reply.status(400).send({ error: 'ID invalide' });
+      if (!ObjectId.isValid(guideId)) {
+        return reply.status(400).send({ error: 'Guide ID invalide' });
       }
 
-      // Supprimer les pages associées
-      await db.collection('pages').deleteMany({ chemin_de_fer_id: id });
-      
-      // Supprimer les sections associées
-      await db.collection('sections').deleteMany({ chemin_de_fer_id: id });
-
-      // Supprimer le chemin de fer
-      const result = await db.collection('chemins_de_fer').deleteOne({ _id: new ObjectId(id) });
-
-      if (result.deletedCount === 0) {
+      // Récupérer le chemin de fer
+      const cheminDeFer = await db.collection('chemins_de_fer').findOne({ guide_id: guideId });
+      if (!cheminDeFer) {
         return reply.status(404).send({ error: 'Chemin de fer non trouvé' });
       }
 
-      return reply.status(204).send();
-    } catch (error) {
-      request.log.error(error);
-      return reply.status(500).send({ error: 'Erreur lors de la suppression' });
-    }
-  });
-
-  /**
-   * POST /chemins-de-fer/:id/pages
-   * Ajoute une page au chemin de fer
-   */
-  fastify.post<{ Params: { id: string }; Body: unknown }>('/chemins-de-fer/:id/pages', async (request, reply) => {
-    try {
-      const db = request.server.container.db;
-      const { id } = request.params;
-      const body = CreatePageSchema.parse(request.body);
+      const cheminDeFerId = cheminDeFer._id.toString();
 
       // Vérifier que le template existe
       if (!ObjectId.isValid(body.template_id)) {
@@ -196,7 +126,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       const now = new Date().toISOString();
       const page = {
         ...body,
-        chemin_de_fer_id: id,
+        chemin_de_fer_id: cheminDeFerId,
         template_name: template.name,
         created_at: now,
         updated_at: now,
@@ -207,7 +137,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
 
       // Mettre à jour le compteur de pages
       await db.collection('chemins_de_fer').updateOne(
-        { _id: new ObjectId(id) },
+        { _id: cheminDeFer._id },
         { $inc: { nombre_pages: 1 }, $set: { updated_at: now } }
       );
 
@@ -222,11 +152,11 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   });
 
   /**
-   * PUT /chemins-de-fer/:id/pages/:pageId
+   * PUT /guides/:guideId/chemin-de-fer/pages/:pageId
    * Met à jour une page
    */
-  fastify.put<{ Params: { id: string; pageId: string }; Body: unknown }>(
-    '/chemins-de-fer/:id/pages/:pageId',
+  fastify.put<{ Params: { guideId: string; pageId: string }; Body: unknown }>(
+    '/guides/:guideId/chemin-de-fer/pages/:pageId',
     async (request, reply) => {
       try {
         const db = request.server.container.db;
@@ -261,15 +191,15 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   );
 
   /**
-   * DELETE /chemins-de-fer/:id/pages/:pageId
+   * DELETE /guides/:guideId/chemin-de-fer/pages/:pageId
    * Supprime une page
    */
-  fastify.delete<{ Params: { id: string; pageId: string } }>(
-    '/chemins-de-fer/:id/pages/:pageId',
+  fastify.delete<{ Params: { guideId: string; pageId: string } }>(
+    '/guides/:guideId/chemin-de-fer/pages/:pageId',
     async (request, reply) => {
       try {
         const db = request.server.container.db;
-        const { id, pageId } = request.params;
+        const { guideId, pageId } = request.params;
 
         if (!ObjectId.isValid(pageId)) {
           return reply.status(400).send({ error: 'Page ID invalide' });
@@ -284,7 +214,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         // Mettre à jour le compteur
         const now = new Date().toISOString();
         await db.collection('chemins_de_fer').updateOne(
-          { _id: new ObjectId(id) },
+          { guide_id: guideId },
           { $inc: { nombre_pages: -1 }, $set: { updated_at: now } }
         );
 
@@ -297,11 +227,11 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   );
 
   /**
-   * PUT /chemins-de-fer/:id/pages/reorder
+   * PUT /guides/:guideId/chemin-de-fer/pages/reorder
    * Réorganise les pages (drag-and-drop)
    */
-  fastify.put<{ Params: { id: string }; Body: { pages: Array<{ _id: string; ordre: number }> } }>(
-    '/chemins-de-fer/:id/pages/reorder',
+  fastify.put<{ Params: { guideId: string }; Body: { pages: Array<{ _id: string; ordre: number }> } }>(
+    '/guides/:guideId/chemin-de-fer/pages/reorder',
     async (request, reply) => {
       try {
         const db = request.server.container.db;
@@ -330,21 +260,27 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   );
 
   /**
-   * POST /chemins-de-fer/:id/sections
+   * POST /guides/:guideId/chemin-de-fer/sections
    * Ajoute une section
    */
-  fastify.post<{ Params: { id: string }; Body: unknown }>(
-    '/chemins-de-fer/:id/sections',
+  fastify.post<{ Params: { guideId: string }; Body: unknown }>(
+    '/guides/:guideId/chemin-de-fer/sections',
     async (request, reply) => {
       try {
         const db = request.server.container.db;
-        const { id } = request.params;
+        const { guideId } = request.params;
         const body = CreateSectionSchema.parse(request.body);
+
+        // Récupérer le chemin de fer
+        const cheminDeFer = await db.collection('chemins_de_fer').findOne({ guide_id: guideId });
+        if (!cheminDeFer) {
+          return reply.status(404).send({ error: 'Chemin de fer non trouvé' });
+        }
 
         const now = new Date().toISOString();
         const section = {
           ...body,
-          chemin_de_fer_id: id,
+          chemin_de_fer_id: cheminDeFer._id.toString(),
           created_at: now,
           updated_at: now,
         };

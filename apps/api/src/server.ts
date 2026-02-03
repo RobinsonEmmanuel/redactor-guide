@@ -53,6 +53,7 @@ export async function createServer(db: Db, _port: number) {
       'https://*.vercel.app', // Vercel previews
       /^https:\/\/.*\.vercel\.app$/, // Vercel regex pattern
     ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     credentials: true,
   });
 

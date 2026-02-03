@@ -58,6 +58,7 @@ export class WordPressIngestionService implements IWordPressIngestionService {
   private postsCollection: Collection;
   private mediaCollection: Collection;
   private articlesRawCollection: Collection;
+  private sitesCollection: Collection;
 
   constructor(
     private readonly db: Db,
@@ -66,6 +67,7 @@ export class WordPressIngestionService implements IWordPressIngestionService {
     this.postsCollection = this.db.collection('wordpress_posts');
     this.mediaCollection = this.db.collection('wordpress_media');
     this.articlesRawCollection = this.db.collection('articles_raw');
+    this.sitesCollection = this.db.collection('sites');
   }
 
   private async getWithAuth<T>(url: string, jwtToken: string): Promise<T> {
@@ -212,7 +214,25 @@ export class WordPressIngestionService implements IWordPressIngestionService {
     const errors: string[] = [];
     let count = 0;
 
-    // Supprimer les anciens articles de ce site avant de réingérer
+    // 1. Créer/mettre à jour le document dans la collection sites
+    await this.sitesCollection.updateOne(
+      { url: siteUrl },
+      {
+        $set: {
+          url: siteUrl,
+          _id: siteId,
+          name: new URL(siteUrl).hostname,
+          updated_at: new Date(),
+        },
+        $setOnInsert: {
+          created_at: new Date(),
+        },
+      },
+      { upsert: true }
+    );
+    console.log(`Site créé/mis à jour: ${siteUrl} (ID: ${siteId})`);
+
+    // 2. Supprimer les anciens articles de ce site avant de réingérer
     const deleteResult = await this.articlesRawCollection.deleteMany({ site_id: siteId });
     console.log(`Supprimé ${deleteResult.deletedCount} articles existants pour le site ${siteId}`);
 

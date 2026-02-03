@@ -261,6 +261,14 @@ export class WordPressIngestionService implements IWordPressIngestionService {
               frUrl = guid;
             }
 
+            // LOG DEBUG : afficher les 3 premiers articles de chaque langue pour debug
+            if (langCount < 3) {
+              console.log(`      [${lang}] Post "${post.title?.rendered?.substring(0, 40)}":`);
+              console.log(`        - GUID: ${guid}`);
+              console.log(`        - LINK: ${post.link}`);
+              console.log(`        - FR URL (clé): ${frUrl}`);
+            }
+
             if (!articlesByFrUrl.has(frUrl)) {
               articlesByFrUrl.set(frUrl, new Map());
             }
@@ -279,6 +287,16 @@ export class WordPressIngestionService implements IWordPressIngestionService {
     }
 
     console.log(`Total: ${articlesByFrUrl.size} articles uniques (groupés par URL FR)`);
+
+    // LOG DEBUG : afficher les langues disponibles pour les 3 premiers groupes
+    let debugCount = 0;
+    for (const [frUrl, postsByLang] of articlesByFrUrl.entries()) {
+      if (debugCount < 3) {
+        const langs = Array.from(postsByLang.keys()).join(', ');
+        console.log(`  Groupe ${debugCount + 1}: ${frUrl.substring(0, 60)} => [${langs}]`);
+        debugCount++;
+      }
+    }
 
     // 2. Pour chaque groupe d'articles (par URL FR), créer un ArticleRaw
     for (const [frUrl, postsByLang] of articlesByFrUrl.entries()) {

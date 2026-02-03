@@ -50,21 +50,33 @@ function ProposalCard({ id, type, title, description, icon: Icon, color }: any) 
       }
     : undefined;
 
+  const colorClasses = {
+    blue: 'border-blue-200 hover:border-blue-400 bg-blue-50/50',
+    green: 'border-green-200 hover:border-green-400 bg-green-50/50',
+    orange: 'border-orange-200 hover:border-orange-400 bg-orange-50/50',
+  };
+
+  const iconColorClasses = {
+    blue: 'bg-blue-100 text-blue-600',
+    green: 'bg-green-100 text-green-600',
+    orange: 'bg-orange-100 text-orange-600',
+  };
+
   return (
     <div
       ref={setNodeRef}
       style={style}
       {...listeners}
       {...attributes}
-      className={`p-4 bg-white border-2 border-${color}-200 rounded-lg shadow-sm hover:shadow-md cursor-grab active:cursor-grabbing transition-all`}
+      className={`p-3 bg-white border-2 rounded-lg cursor-grab active:cursor-grabbing transition-all hover:shadow-md ${colorClasses[color as keyof typeof colorClasses]}`}
     >
-      <div className="flex items-start gap-3">
-        <div className={`p-2 bg-${color}-100 rounded-lg flex-shrink-0`}>
-          <Icon className={`w-5 h-5 text-${color}-600`} />
+      <div className="flex items-start gap-2">
+        <div className={`p-1.5 rounded flex-shrink-0 ${iconColorClasses[color as keyof typeof iconColorClasses]}`}>
+          <Icon className="w-4 h-4" />
         </div>
         <div className="flex-1 min-w-0">
-          <h4 className="font-medium text-gray-900 text-sm truncate">{title}</h4>
-          <p className="text-xs text-gray-500 mt-1 line-clamp-2">{description}</p>
+          <h4 className="font-medium text-gray-900 text-xs line-clamp-1">{title}</h4>
+          <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{description}</p>
         </div>
       </div>
     </div>
@@ -124,15 +136,15 @@ export default function SommaireProposal({ guideId, apiUrl }: SommaireProposalPr
   });
 
   return (
-    <div className="h-full flex flex-col bg-gradient-to-br from-purple-50 to-blue-50 border-l border-gray-200">
+    <div className="h-full flex flex-col bg-gray-50 border border-gray-200 rounded-lg overflow-hidden">
       {/* Header */}
-      <div className="p-6 border-b border-gray-200 bg-white/80 backdrop-blur-sm">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="p-2 bg-purple-100 rounded-lg">
-            <SparklesIcon className="w-6 h-6 text-purple-600" />
+      <div className="p-4 border-b border-gray-200 bg-white">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="p-2 bg-blue-100 rounded-lg">
+            <SparklesIcon className="w-5 h-5 text-blue-600" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">Proposition IA</h3>
+            <h3 className="text-base font-semibold text-gray-900">Proposition IA</h3>
             <p className="text-xs text-gray-500">Générer le sommaire automatiquement</p>
           </div>
         </div>
@@ -140,36 +152,36 @@ export default function SommaireProposal({ guideId, apiUrl }: SommaireProposalPr
         <button
           onClick={generateSommaire}
           disabled={loading}
-          className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:from-purple-700 hover:to-blue-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all shadow-md hover:shadow-lg"
+          className="w-full mt-3 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
         >
           <ArrowPathIcon className={`h-5 w-5 ${loading ? 'animate-spin' : ''}`} />
           {loading ? 'Génération en cours...' : 'Générer le sommaire'}
         </button>
 
         {error && (
-          <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-xs text-red-800">{error}</p>
+          <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-800">
+            {error}
           </div>
         )}
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {!proposal && !loading && (
-          <div className="text-center py-12">
-            <SparklesIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <p className="text-sm text-gray-500">Cliquez sur "Générer le sommaire"</p>
-            <p className="text-xs text-gray-400 mt-2">
-              L'IA analysera vos articles WordPress et proposera une structure
+          <div className="text-center py-8">
+            <SparklesIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+            <p className="text-sm text-gray-600 font-medium">Générer le sommaire</p>
+            <p className="text-xs text-gray-400 mt-1">
+              L'IA analysera vos articles WordPress
             </p>
           </div>
         )}
 
         {loading && (
-          <div className="text-center py-12">
-            <ArrowPathIcon className="w-16 h-16 text-purple-600 mx-auto mb-4 animate-spin" />
+          <div className="text-center py-8">
+            <ArrowPathIcon className="w-12 h-12 text-blue-600 mx-auto mb-3 animate-spin" />
             <p className="text-sm text-gray-600 font-medium">Génération en cours...</p>
-            <p className="text-xs text-gray-400 mt-2">Cela peut prendre quelques minutes</p>
+            <p className="text-xs text-gray-400 mt-1">Quelques minutes d'attente</p>
           </div>
         )}
 
@@ -178,13 +190,13 @@ export default function SommaireProposal({ guideId, apiUrl }: SommaireProposalPr
             {/* Sections */}
             {proposal.sections && proposal.sections.length > 0 && (
               <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <RectangleStackIcon className="w-5 h-5 text-blue-600" />
-                  <h4 className="font-semibold text-gray-900 text-sm">
+                <div className="flex items-center gap-2 mb-2 px-2">
+                  <RectangleStackIcon className="w-4 h-4 text-blue-600" />
+                  <h4 className="font-semibold text-gray-700 text-xs uppercase tracking-wide">
                     Sections ({proposal.sections.length})
                   </h4>
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {proposal.sections.map((section) => (
                     <ProposalCard
                       key={section.section_id}
@@ -203,13 +215,13 @@ export default function SommaireProposal({ guideId, apiUrl }: SommaireProposalPr
             {/* POIs */}
             {proposal.pois && proposal.pois.length > 0 && (
               <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <MapPinIcon className="w-5 h-5 text-green-600" />
-                  <h4 className="font-semibold text-gray-900 text-sm">
-                    Lieux (POI) ({proposal.pois.length})
+                <div className="flex items-center gap-2 mb-2 px-2">
+                  <MapPinIcon className="w-4 h-4 text-green-600" />
+                  <h4 className="font-semibold text-gray-700 text-xs uppercase tracking-wide">
+                    Lieux ({proposal.pois.length})
                   </h4>
                 </div>
-                <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
                   {proposal.pois.map((poi) => (
                     <ProposalCard
                       key={poi.poi_id}
@@ -228,13 +240,13 @@ export default function SommaireProposal({ guideId, apiUrl }: SommaireProposalPr
             {/* Inspirations */}
             {proposal.inspirations && proposal.inspirations.length > 0 && (
               <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <LightBulbIcon className="w-5 h-5 text-amber-600" />
-                  <h4 className="font-semibold text-gray-900 text-sm">
-                    Pages inspiration ({proposal.inspirations.length})
+                <div className="flex items-center gap-2 mb-2 px-2">
+                  <LightBulbIcon className="w-4 h-4 text-orange-600" />
+                  <h4 className="font-semibold text-gray-700 text-xs uppercase tracking-wide">
+                    Inspiration ({proposal.inspirations.length})
                   </h4>
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {proposal.inspirations.map((inspiration) => (
                     <ProposalCard
                       key={inspiration.theme_id}
@@ -243,7 +255,7 @@ export default function SommaireProposal({ guideId, apiUrl }: SommaireProposalPr
                       title={inspiration.titre}
                       description={inspiration.angle_editorial}
                       icon={LightBulbIcon}
-                      color="amber"
+                      color="orange"
                     />
                   ))}
                 </div>
@@ -255,9 +267,9 @@ export default function SommaireProposal({ guideId, apiUrl }: SommaireProposalPr
 
       {/* Footer */}
       {proposal && (
-        <div className="p-4 border-t border-gray-200 bg-white/80">
-          <p className="text-xs text-gray-500 text-center">
-            💡 Glissez-déposez les cards dans le chemin de fer
+        <div className="p-3 border-t border-gray-200 bg-white">
+          <p className="text-xs text-gray-500 text-center font-medium">
+            🖱️ Glissez les cards dans le chemin de fer
           </p>
         </div>
       )}

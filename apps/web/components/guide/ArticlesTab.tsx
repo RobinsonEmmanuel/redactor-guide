@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowPathIcon, EyeIcon } from '@heroicons/react/24/outline';
+import { ArrowPathIcon, EyeIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 
 interface Article {
   _id: string;
@@ -29,25 +29,35 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
   const [ingesting, setIngesting] = useState(false);
   const [ingestionStatus, setIngestionStatus] = useState<string | null>(null);
   const [ingestionError, setIngestionError] = useState<string | null>(null);
+  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
 
   useEffect(() => {
-    loadArticles();
+    loadArticles(1);
   }, [guideId]);
 
-  const loadArticles = async () => {
+  const loadArticles = async (page: number = pagination.page) => {
     setLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/articles`, {
-        credentials: 'include',
-      });
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/articles?page=${page}&limit=${pagination.limit}`,
+        { credentials: 'include' }
+      );
       if (res.ok) {
         const data = await res.json();
         setArticles(data.articles || []);
+        setPagination(data.pagination || { page: 1, limit: 20, total: 0, totalPages: 0 });
       }
     } catch (err) {
       console.error('Erreur chargement articles:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= pagination.totalPages) {
+      loadArticles(newPage);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -155,7 +165,7 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
         <div>
           <h2 className="text-xl font-semibold text-gray-900">Articles WordPress</h2>
           <p className="text-sm text-gray-600 mt-1">
-            {articles.length} articles récupérés
+            {pagination.total} articles récupérés
           </p>
         </div>
         <button
@@ -241,6 +251,64 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
               ))}
             </tbody>
           </table>
+
+          {/* Pagination */}
+          {pagination.totalPages > 1 && (
+            <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+              <div className="text-sm text-gray-700">
+                Affichage {((pagination.page - 1) * pagination.limit) + 1} à{' '}
+                {Math.min(pagination.page * pagination.limit, pagination.total)} sur {pagination.total}
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handlePageChange(pagination.page - 1)}
+                  disabled={pagination.page === 1}
+                  className="px-3 py-1 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeftIcon className="h-4 w-4" />
+                </button>
+
+                {/* Numéros de page */}
+                <div className="flex gap-1">
+                  {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (pagination.totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (pagination.page <= 3) {
+                      pageNum = i + 1;
+                    } else if (pagination.page >= pagination.totalPages - 2) {
+                      pageNum = pagination.totalPages - 4 + i;
+                    } else {
+                      pageNum = pagination.page - 2 + i;
+                    }
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => handlePageChange(pageNum)}
+                        className={`px-3 py-1 rounded-lg text-sm font-medium ${
+                          pagination.page === pageNum
+                            ? 'bg-blue-600 text-white'
+                            : 'text-gray-700 hover:bg-gray-50 border border-gray-300'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button
+                  onClick={() => handlePageChange(pagination.page + 1)}
+                  disabled={pagination.page === pagination.totalPages}
+                  className="px-3 py-1 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ChevronRightIcon className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

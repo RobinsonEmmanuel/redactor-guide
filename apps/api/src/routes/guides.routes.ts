@@ -46,9 +46,10 @@ export async function guidesRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // Articles récupérés pour un guide
+  // Articles récupérés pour un guide (avec pagination)
   fastify.get('/guides/:id/articles', async (request, reply) => {
     const { id } = request.params as { id: string };
+    const { page = '1', limit = '20' } = request.query as { page?: string; limit?: string };
     const db = request.server.container.db;
     
     try {
@@ -59,10 +60,19 @@ export async function guidesRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Guide non trouvé' });
       }
 
-      // Récupérer les articles avec ce siteId
+      const pageNum = Math.max(1, parseInt(page, 10));
+      const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10))); // Max 100 par page
+      const skip = (pageNum - 1) * limitNum;
+
+      const query = { site_id: guide.slug };
+
+      // Compter le total (avec cache si possible)
+      const total = await db.collection('articles_raw').countDocuments(query);
+
+      // Récupérer les articles paginés
       const articles = await db
         .collection('articles_raw')
-        .find({ site_id: guide.slug })
+        .find(query)
         .project({
           _id: 1,
           title: 1,
@@ -75,9 +85,19 @@ export async function guidesRoutes(fastify: FastifyInstance) {
           updated_at: 1,
         })
         .sort({ updated_at: -1 })
+        .skip(skip)
+        .limit(limitNum)
         .toArray();
       
-      return { articles };
+      return { 
+        articles,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages: Math.ceil(total / limitNum),
+        }
+      };
     } catch (error) {
       return reply.status(400).send({ error: 'ID invalide' });
     }

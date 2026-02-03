@@ -8,6 +8,7 @@ const IngestBodySchema = z.object({
   destinationIds: z.array(z.string()).default([]),
   siteUrl: z.string().url(),
   jwtToken: z.string().min(1, 'jwtToken requis'),
+  languages: z.array(z.string()).default(['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl']),
 });
 
 const INGEST_JOBS = 'ingest_jobs';
@@ -29,7 +30,8 @@ export async function ingestRoutes(fastify: FastifyInstance) {
         body.siteId,
         body.destinationIds,
         body.siteUrl,
-        body.jwtToken
+        body.jwtToken,
+        body.languages
       );
 
       return reply.status(200).send({
@@ -75,6 +77,7 @@ export async function ingestRoutes(fastify: FastifyInstance) {
         destinationIds: body.destinationIds,
         siteUrl: body.siteUrl,
         jwtToken: body.jwtToken,
+        languages: body.languages,
         status: 'queued',
         createdAt: now,
         updatedAt: now,
@@ -94,6 +97,7 @@ export async function ingestRoutes(fastify: FastifyInstance) {
           destinationIds: body.destinationIds,
           siteUrl: body.siteUrl,
           jwtToken: body.jwtToken,
+          languages: body.languages,
         }),
       });
       if (!res.ok) {
@@ -169,7 +173,8 @@ export async function ingestRoutes(fastify: FastifyInstance) {
         ingestPayload.siteId,
         ingestPayload.destinationIds,
         ingestPayload.siteUrl,
-        ingestPayload.jwtToken
+        ingestPayload.jwtToken,
+        ingestPayload.languages
       );
 
       await db.collection(INGEST_JOBS).updateOne(

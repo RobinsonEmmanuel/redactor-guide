@@ -205,7 +205,8 @@ export class WordPressIngestionService implements IWordPressIngestionService {
     siteId: string,
     destinationIds: string[],
     siteUrl: string,
-    jwtToken: string
+    jwtToken: string,
+    languages?: string[]
   ): Promise<IngestArticlesResult> {
     const errors: string[] = [];
     let count = 0;
@@ -217,15 +218,18 @@ export class WordPressIngestionService implements IWordPressIngestionService {
     const categoriesMap = await this.fetchCategoriesMap(siteUrl, jwtToken);
     const tagsMap = await this.fetchTagsMap(siteUrl, jwtToken);
 
-    const languages = ['fr', 'en', 'de', 'es', 'it', 'pt', 'nl', 'pl', 'ru'];
+    // Utiliser les langues fournies ou par défaut toutes les langues
+    const targetLanguages = languages && languages.length > 0 
+      ? languages 
+      : ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl'];
 
     // Map<url_fr, Map<lang, post>> pour grouper les traductions
     // La clé est l'URL FR (soit le link de l'article FR, soit le guid des traductions)
     const articlesByFrUrl = new Map<string, Map<string, WordPressPost>>();
 
     // 1. Récupérer tous les articles pour chaque langue
-    console.log(`Récupération des articles pour ${languages.length} langues...`);
-    for (const lang of languages) {
+    console.log(`Récupération des articles pour ${targetLanguages.length} langues: ${targetLanguages.join(', ')}`);
+    for (const lang of targetLanguages) {
       console.log(`  -> Langue: ${lang}`);
       let page = 1;
       const perPage = 50;

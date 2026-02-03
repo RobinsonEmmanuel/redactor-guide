@@ -17,6 +17,7 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
     year: new Date().getFullYear(),
     version: '1.0.0',
     language: 'fr',
+    availableLanguages: ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl'] as string[],
     status: 'draft',
     destinations: [] as string[],
     wpConfig: {
@@ -24,6 +25,9 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
       jwtToken: '',
     },
   });
+
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [customLanguage, setCustomLanguage] = useState({ code: '', label: '' });
 
   const [saving, setSaving] = useState(false);
 
@@ -35,6 +39,7 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
         year: guide.year || new Date().getFullYear(),
         version: guide.version || '1.0.0',
         language: guide.language || 'fr',
+        availableLanguages: guide.availableLanguages || ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl'],
         status: guide.status || 'draft',
         destinations: guide.destinations || [],
         wpConfig: {
@@ -75,6 +80,40 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
       setFormData(prev => ({ ...prev, slug }));
     }
   };
+
+  const handleLanguageToggle = (langCode: string) => {
+    setFormData(prev => {
+      const isSelected = prev.availableLanguages.includes(langCode);
+      const newLanguages = isSelected
+        ? prev.availableLanguages.filter(l => l !== langCode)
+        : [...prev.availableLanguages, langCode];
+      
+      return { ...prev, availableLanguages: newLanguages };
+    });
+  };
+
+  const handleAddCustomLanguage = () => {
+    if (customLanguage.code && !formData.availableLanguages.includes(customLanguage.code)) {
+      setFormData(prev => ({
+        ...prev,
+        availableLanguages: [...prev.availableLanguages, customLanguage.code],
+      }));
+      setCustomLanguage({ code: '', label: '' });
+      setShowLanguageModal(false);
+    }
+  };
+
+  const defaultLanguages = [
+    { code: 'fr', label: 'Français (source)' },
+    { code: 'it', label: 'Italien' },
+    { code: 'es', label: 'Espagnol' },
+    { code: 'de', label: 'Allemand' },
+    { code: 'da', label: 'Danois' },
+    { code: 'sv', label: 'Suédois' },
+    { code: 'en', label: 'Anglais' },
+    { code: 'pt', label: 'Portugais' },
+    { code: 'nl', label: 'Néerlandais' },
+  ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -281,6 +320,135 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
             </div>
           </div>
         </div>
+
+        {/* Langues disponibles */}
+        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">
+                Langues à récupérer
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Sélectionnez les langues disponibles sur votre site WordPress
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowLanguageModal(true)}
+              className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              + Ajouter une langue
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            {defaultLanguages.map(lang => (
+              <label
+                key={lang.code}
+                className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  checked={formData.availableLanguages.includes(lang.code)}
+                  onChange={() => handleLanguageToggle(lang.code)}
+                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700">{lang.label}</span>
+              </label>
+            ))}
+            
+            {formData.availableLanguages
+              .filter(code => !defaultLanguages.some(l => l.code === code))
+              .map(code => (
+                <label
+                  key={code}
+                  className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={true}
+                    onChange={() => handleLanguageToggle(code)}
+                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">{code.toUpperCase()}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleLanguageToggle(code);
+                    }}
+                    className="ml-auto text-red-600 hover:text-red-700"
+                  >
+                    ×
+                  </button>
+                </label>
+              ))}
+          </div>
+
+          <p className="mt-3 text-xs text-gray-500">
+            {formData.availableLanguages.length} langue(s) sélectionnée(s)
+          </p>
+        </div>
+
+        {/* Modale Ajouter langue */}
+        {showLanguageModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                Ajouter une langue personnalisée
+              </h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Code langue (ex: pl, ru, zh)
+                  </label>
+                  <input
+                    type="text"
+                    value={customLanguage.code}
+                    onChange={(e) => setCustomLanguage(prev => ({ ...prev, code: e.target.value.toLowerCase() }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="pl"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Nom de la langue (optionnel)
+                  </label>
+                  <input
+                    type="text"
+                    value={customLanguage.label}
+                    onChange={(e) => setCustomLanguage(prev => ({ ...prev, label: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Polski"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowLanguageModal(false);
+                    setCustomLanguage({ code: '', label: '' });
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddCustomLanguage}
+                  disabled={!customLanguage.code}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                >
+                  Ajouter
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Actions */}
         <div className="flex gap-4">

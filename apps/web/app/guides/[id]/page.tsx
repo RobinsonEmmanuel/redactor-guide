@@ -80,6 +80,7 @@ export default function GuideDetailPage() {
       destinationIds: guide.destinations || [],
       siteUrl: guide.wpConfig.siteUrl,
       jwtToken: guide.wpConfig.jwtToken,
+      languages: guide.availableLanguages || ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl'],
     };
 
     try {

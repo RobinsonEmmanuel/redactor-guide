@@ -21,3 +21,9 @@ export * from './schemas/article-raw.schema';
 
 // Template schemas
 export * from './schemas/template.schema';
+
+// Page schemas
+export * from './schemas/page.schema';
+
+// Chemin de fer schemas
+export * from './schemas/chemin-de-fer.schema';

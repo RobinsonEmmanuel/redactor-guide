@@ -7,7 +7,8 @@ const CreateGuideSchema = z.object({
   slug: z.string().min(1),
   year: z.number().int().min(2020).max(2100),
   version: z.string(),
-  language: z.enum(['fr', 'en', 'de', 'it', 'es', 'pt', 'nl']),
+  language: z.enum(['fr', 'en', 'de', 'it', 'es', 'pt', 'nl', 'da', 'sv']),
+  availableLanguages: z.array(z.string()).default(['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl']),
   status: z.enum(['draft', 'in_progress', 'review', 'ready', 'published', 'archived']),
   destinations: z.array(z.string()).default([]),
   wpConfig: z.object({
@@ -62,7 +63,9 @@ export async function guidesRoutes(fastify: FastifyInstance) {
         .project({
           _id: 1,
           title: 1,
-          wpml_urls: 1,
+          slug: 1,
+          urls_by_lang: 1,
+          images: 1,
           categories: 1,
           tags: 1,
           updated_at: 1,

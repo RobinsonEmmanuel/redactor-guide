@@ -71,6 +71,20 @@ export async function createServer(db: Db, _port: number) {
         const destinations = await db.collection('destinations').find().toArray();
         return { destinations };
       });
+
+      // Détail d'un article
+      fastify.get<{ Params: { id: string } }>('/articles/:id', async (request, reply) => {
+        const { id } = request.params;
+        try {
+          const article = await db.collection('articles_raw').findOne({ _id: new (await import('mongodb')).ObjectId(id) });
+          if (!article) {
+            return reply.status(404).send({ error: 'Article non trouvé' });
+          }
+          return article;
+        } catch (error) {
+          return reply.status(400).send({ error: 'ID invalide' });
+        }
+      });
     },
     { prefix: '/api/v1' }
   );

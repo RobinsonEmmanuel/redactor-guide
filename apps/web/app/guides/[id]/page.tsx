@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeftIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, ArrowPathIcon, EyeIcon } from '@heroicons/react/24/outline';
 import Sidebar from '@/components/Sidebar';
 
 interface Article {
   _id: string;
   title: string;
-  wpml_urls: Record<string, string>;
+  slug: string;
+  urls_by_lang: Record<string, string>;
+  images?: string[];
   categories?: string[];
   tags?: string[];
   updated_at: string;
@@ -249,11 +251,20 @@ export default function GuideDetailPage() {
             <div className="space-y-4">
               {articles.map((article) => (
                 <div key={article._id} className="border border-gray-200 rounded-lg p-4">
-                  <h3 className="font-semibold text-gray-900 mb-3">{article.title}</h3>
+                  <div className="flex items-start justify-between mb-3">
+                    <h3 className="font-semibold text-gray-900 flex-1">{article.title}</h3>
+                    <button
+                      onClick={() => router.push(`/guides/${guideId}/articles/${article._id}`)}
+                      className="flex items-center gap-1 px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    >
+                      <EyeIcon className="w-4 h-4" />
+                      Voir détails
+                    </button>
+                  </div>
                   
                   <div className="grid grid-cols-3 gap-2 text-sm">
                     {languages.map((lang) => {
-                      const url = article.wpml_urls?.[lang];
+                      const url = article.urls_by_lang?.[lang];
                       return (
                         <div key={lang} className="flex items-center gap-2">
                           <span className="font-mono text-gray-500 uppercase text-xs w-6">{lang}:</span>
@@ -273,6 +284,12 @@ export default function GuideDetailPage() {
                       );
                     })}
                   </div>
+
+                  {article.images && article.images.length > 0 && (
+                    <div className="mt-3 text-xs text-gray-600">
+                      <span className="font-medium">{article.images.length} image(s)</span>
+                    </div>
+                  )}
 
                   {(article.categories?.length || article.tags?.length) ? (
                     <div className="mt-3 flex gap-4 text-xs">

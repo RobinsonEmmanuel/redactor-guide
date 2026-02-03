@@ -26,3 +26,25 @@ export function stripHtmlToText(html: string): string {
       .trim()
   );
 }
+
+/**
+ * Extrait toutes les URLs d'images du HTML.
+ * Cherche les balises <img> et extrait les attributs src.
+ */
+export function extractImageUrls(html: string): string[] {
+  if (!html || typeof html !== 'string') return [];
+
+  const urls: string[] = [];
+  const imgRegex = /<img[^>]+src=["']([^"']+)["']/gi;
+  let match;
+
+  while ((match = imgRegex.exec(html)) !== null) {
+    const url = match[1];
+    if (url && url.startsWith('http')) {
+      urls.push(url);
+    }
+  }
+
+  // Retourner URLs uniques
+  return Array.from(new Set(urls));
+}

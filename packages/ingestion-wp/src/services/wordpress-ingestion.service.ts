@@ -8,6 +8,7 @@ import {
   type WordPressPost,
   type WordPressMedia,
 } from '../schemas/wordpress-api.schema';
+import { extractImageUrls } from '../utils/html.utils';
 
 /**
  * Interface du service d'ingestion WordPress
@@ -203,6 +204,10 @@ export class WordPressIngestionService implements IWordPressIngestionService {
     const errors: string[] = [];
     let count = 0;
 
+    // Supprimer les anciens articles de ce site avant de réingérer
+    const deleteResult = await this.articlesRawCollection.deleteMany({ site_id: siteId });
+    console.log(`Supprimé ${deleteResult.deletedCount} articles existants pour le site ${siteId}`);
+
     const categoriesMap = await this.fetchCategoriesMap(siteUrl, jwtToken);
     const tagsMap = await this.fetchTagsMap(siteUrl, jwtToken);
 
@@ -237,15 +242,20 @@ export class WordPressIngestionService implements IWordPressIngestionService {
             }
           }
 
+          // Extraire les URLs des images du HTML
+          const htmlContent = post.content?.rendered ?? '';
+          const imageUrls = extractImageUrls(htmlContent);
+
           const raw: Omit<ArticleRaw, '_id'> = {
             site_id: siteId,
             destination_ids: destinationIds,
             slug: post.slug,
             title: post.title?.rendered ?? '',
-            html_brut: post.content?.rendered ?? '',
+            html_brut: htmlContent,
             categories: categoryNames,
             tags: tagNames,
             urls_by_lang: urlsByLang,
+            images: imageUrls,
             updated_at: post.modified ?? post.date,
           };
 

@@ -75,6 +75,9 @@ export async function createServer(db: Db, _port: number) {
       await fastify.register(
         (await import('./routes/prompts.routes')).promptsRoutes
       );
+      await fastify.register(
+        (await import('./routes/debug.routes')).debugRoutes
+      );
 
       fastify.get('/destinations', async () => {
         const destinations = await db.collection('destinations').find().toArray();

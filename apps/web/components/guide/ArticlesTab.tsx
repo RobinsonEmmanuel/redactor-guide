@@ -24,7 +24,7 @@ interface ArticlesTabProps {
 
 export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported }: ArticlesTabProps) {
   const router = useRouter();
-  const [articles, setArticles] = useState<Article[]>([]);
+  const [displayedArticles, setDisplayedArticles] = useState<Article[]>([]);
   const [allArticles, setAllArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(false);
   const [ingesting, setIngesting] = useState(false);
@@ -34,36 +34,24 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
   const [filterByDestination, setFilterByDestination] = useState(true);
 
   useEffect(() => {
-    loadArticles(1);
-  }, [guideId, filterByDestination]);
+    loadAllArticles();
+  }, [guideId]);
 
-  const loadArticles = async (page: number = pagination.page) => {
+  useEffect(() => {
+    applyFilterAndPagination();
+  }, [allArticles, filterByDestination, pagination.page]);
+
+  const loadAllArticles = async () => {
     setLoading(true);
     try {
+      // Récupérer TOUS les articles en une seule fois (sans pagination)
       const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/articles?page=${page}&limit=${pagination.limit}`,
+        `${apiUrl}/api/v1/guides/${guideId}/articles?page=1&limit=1000`,
         { credentials: 'include' }
       );
       if (res.ok) {
         const data = await res.json();
-        const fetchedArticles = data.articles || [];
-        setAllArticles(fetchedArticles);
-        
-        // Filtrer par destination si activé
-        const filtered = filterByDestination && guide?.destination
-          ? fetchedArticles.filter((article: Article) => 
-              article.categories?.some(cat => 
-                cat.toLowerCase() === guide.destination.toLowerCase()
-              )
-            )
-          : fetchedArticles;
-        
-        setArticles(filtered);
-        setPagination(prev => ({ 
-          ...prev,
-          total: data.pagination?.total || filtered.length,
-          totalPages: Math.ceil(filtered.length / prev.limit)
-        }));
+        setAllArticles(data.articles || []);
       }
     } catch (err) {
       console.error('Erreur chargement articles:', err);
@@ -72,9 +60,34 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
     }
   };
 
+  const applyFilterAndPagination = () => {
+    // 1. Filtrer par destination si activé
+    const filtered = filterByDestination && guide?.destination
+      ? allArticles.filter((article: Article) => 
+          article.categories?.some(cat => 
+            cat.toLowerCase() === guide.destination.toLowerCase()
+          )
+        )
+      : allArticles;
+    
+    // 2. Calculer la pagination sur les articles filtrés
+    const totalFiltered = filtered.length;
+    const totalPages = Math.ceil(totalFiltered / pagination.limit);
+    const startIndex = (pagination.page - 1) * pagination.limit;
+    const endIndex = startIndex + pagination.limit;
+    const paginatedArticles = filtered.slice(startIndex, endIndex);
+    
+    setDisplayedArticles(paginatedArticles);
+    setPagination(prev => ({ 
+      ...prev,
+      total: totalFiltered,
+      totalPages: totalPages
+    }));
+  };
+
   const handlePageChange = (newPage: number) => {
     if (newPage >= 1 && newPage <= pagination.totalPages) {
-      loadArticles(newPage);
+      setPagination(prev => ({ ...prev, page: newPage }));
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
@@ -123,7 +136,7 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
             if (statusData.status === 'completed') {
               setIngestionStatus('Récupération terminée !');
               setIngesting(false);
-              await loadArticles();
+              await loadAllArticles();
               onArticlesImported?.();
               return;
             } else if (statusData.status === 'failed') {
@@ -160,7 +173,7 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
         if (ingestRes.ok) {
           const data = await ingestRes.json();
           setIngestionStatus(`Récupération terminée ! ${data.totalArticles || 0} articles`);
-          loadArticles();
+          loadAllArticles();
         } else {
           const errorData = await ingestRes.json().catch(() => ({}));
           setIngestionError(errorData.error || 'Erreur lors de la récupération');
@@ -241,9 +254,13 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
       {/* Liste des articles */}
       {loading ? (
         <div className="text-center py-12 text-gray-500">Chargement...</div>
-      ) : articles.length === 0 ? (
+      ) : displayedArticles.length === 0 && allArticles.length === 0 ? (
         <div className="text-center py-12 text-gray-500">
           Aucun article. Cliquez sur "Récupérer les articles" pour démarrer.
+        </div>
+      ) : displayedArticles.length === 0 ? (
+        <div className="text-center py-12 text-gray-500">
+          Aucun article ne correspond au filtre "{guide?.destination}".
         </div>
       ) : (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -264,7 +281,7 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {articles.map((article) => (
+              {displayedArticles.map((article) => (
                 <tr key={article._id} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
                     <div className="text-sm font-medium text-gray-900">{article.title}</div>

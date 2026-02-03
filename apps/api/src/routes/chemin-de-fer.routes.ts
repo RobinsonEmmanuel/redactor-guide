@@ -383,15 +383,32 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       return reply.code(404).send({ error: 'Guide non trouvé' });
     }
 
-    // Vérifier qu'il y a des articles
-    const articlesCount = await db.collection('articles_raw').countDocuments({ guide_id: guideId });
-    if (articlesCount === 0) {
-      return reply.code(400).send({ error: 'Aucun article WordPress récupéré pour ce guide' });
-    }
-
     // Vérifier qu'une destination est définie
     if (!guide.destination) {
       return reply.code(400).send({ error: 'Aucune destination définie pour ce guide' });
+    }
+
+    // Vérifier qu'il y a un site WordPress configuré
+    if (!guide.wpConfig?.siteUrl) {
+      return reply.code(400).send({ error: 'Aucun site WordPress configuré pour ce guide' });
+    }
+
+    // Récupérer le site_id depuis la collection sites (via siteUrl)
+    const site = await db.collection('sites').findOne({ url: guide.wpConfig.siteUrl });
+    if (!site) {
+      return reply.code(400).send({ error: 'Site WordPress non trouvé dans la base' });
+    }
+
+    // Vérifier qu'il y a des articles pour ce site
+    const articlesCount = await db.collection('articles_raw').countDocuments({ 
+      site_id: site._id.toString(),
+      categories: guide.destination, // Filtrés par destination
+    });
+    
+    if (articlesCount === 0) {
+      return reply.code(400).send({ 
+        error: `Aucun article WordPress trouvé pour la destination "${guide.destination}"` 
+      });
     }
 
     try {

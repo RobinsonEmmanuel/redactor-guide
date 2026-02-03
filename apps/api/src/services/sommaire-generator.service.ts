@@ -111,21 +111,32 @@ export class SommaireGeneratorService {
    * Charger les articles WordPress filtrés par destination
    */
   private async loadArticles(guideId: string, destination: string): Promise<ArticleForSommaire[]> {
+    // Charger le guide pour récupérer le site_id
+    const guide = await this.db.collection('guides').findOne({ _id: guideId } as any);
+    if (!guide || !guide.wpConfig?.siteUrl) {
+      throw new Error('Guide ou configuration WordPress manquante');
+    }
+
+    // Récupérer le site_id
+    const site = await this.db.collection('sites').findOne({ url: guide.wpConfig.siteUrl });
+    if (!site) {
+      throw new Error('Site WordPress non trouvé');
+    }
+
+    // Charger les articles du site, filtrés par destination
     const articles = await this.db
       .collection('articles_raw')
-      .find({ guide_id: guideId })
+      .find({ 
+        site_id: site._id.toString(),
+        categories: destination, // Catégorie = destination
+      })
       .toArray();
 
-    // Filtrer par catégorie = destination
-    const filtered = articles.filter((article) =>
-      article.categories?.some((cat: string) => cat.toLowerCase() === destination.toLowerCase())
-    );
-
-    return filtered.map((article) => ({
+    return articles.map((article: any) => ({
       title: article.title,
       slug: article.slug,
       categories: article.categories || [],
-      url_francais: article.url_francais,
+      url_francais: article.urls_by_lang?.fr || '',
     }));
   }
 

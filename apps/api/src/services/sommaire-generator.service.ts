@@ -57,7 +57,7 @@ export class SommaireGeneratorService {
     console.log(`🚀 Génération sommaire pour guide ${guideId}`);
 
     // 1. Charger le guide
-    const guide = await this.db.collection('guides').findOne({ _id: guideId });
+    const guide = await this.db.collection('guides').findOne({ _id: guideId } as any);
     if (!guide) {
       throw new Error('Guide non trouvé');
     }

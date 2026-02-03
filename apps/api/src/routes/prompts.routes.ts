@@ -12,7 +12,7 @@ export async function promptsRoutes(fastify: FastifyInstance) {
    * POST /prompts/seed-sommaire
    * Créer les 3 prompts d'orchestration du sommaire (ADMIN)
    */
-  fastify.post('/prompts/seed-sommaire', async (request, reply) => {
+  fastify.post('/prompts/seed-sommaire', async (request) => {
     const db = request.server.container.db;
     const { nanoid } = await import('nanoid');
 

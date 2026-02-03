@@ -9,40 +9,48 @@ export interface OpenAIConfig {
 export class OpenAIService {
   private client: OpenAI;
   private model: string;
+  private reasoningEffort: 'low' | 'medium' | 'high';
 
   constructor(config: OpenAIConfig) {
     this.client = new OpenAI({
       apiKey: config.apiKey,
     });
-    this.model = config.model || 'gpt-4o-mini'; // Modèle standard qui fonctionne
+    this.model = config.model || 'gpt-5-mini';
+    this.reasoningEffort = config.reasoningEffort || 'medium';
   }
 
   /**
    * Appeler OpenAI avec un prompt et récupérer une réponse JSON
-   * Utilise l'API Chat Completions standard
+   * Utilise l'API Responses pour GPT-5-mini avec raisonnement
    */
   async generateJSON(prompt: string, maxOutputTokens: number = 4000): Promise<any> {
     try {
-      console.log(`🤖 Appel OpenAI - Modèle: ${this.model}, Max tokens: ${maxOutputTokens}`);
+      console.log(`🤖 Appel OpenAI - Modèle: ${this.model}, Max tokens: ${maxOutputTokens}, Reasoning: ${this.reasoningEffort}`);
       
-      const response = await this.client.chat.completions.create({
+      const response = await this.client.responses.create({
         model: this.model,
-        messages: [
-          {
-            role: 'system',
-            content: 'Tu es un assistant qui répond UNIQUEMENT en JSON valide, sans markdown ni formatage.',
-          },
+        reasoning: { effort: this.reasoningEffort },
+        max_output_tokens: maxOutputTokens,
+        input: [
           {
             role: 'user',
-            content: prompt,
-          },
-        ],
-        max_tokens: maxOutputTokens,
-        temperature: 0.7,
-        response_format: { type: 'json_object' }, // Force la réponse JSON
+            content: [
+              { 
+                type: 'input_text', 
+                text: `Tu es un assistant qui répond UNIQUEMENT en JSON valide, sans markdown ni formatage.\n\n${prompt}` 
+              }
+            ]
+          }
+        ]
       });
 
-      const content = response.choices[0]?.message?.content;
+      // Extraction correcte du texte selon la syntaxe GPT-5
+      const content = response.output
+        .flatMap((item: any) => item.content || [])
+        .filter((c: any) => c.type === 'output_text')
+        .map((c: any) => c.text)
+        .join('\n');
+
       if (!content) {
         console.error('Réponse OpenAI vide:', JSON.stringify(response, null, 2));
         throw new Error('Aucune réponse de OpenAI');

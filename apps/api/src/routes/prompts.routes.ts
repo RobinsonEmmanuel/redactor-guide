@@ -12,62 +12,74 @@ export async function promptsRoutes(fastify: FastifyInstance) {
    * POST /prompts/seed-sommaire
    * Créer les 3 prompts d'orchestration du sommaire (ADMIN)
    */
-  fastify.post('/prompts/seed-sommaire', async (request) => {
-    const db = request.server.container.db;
-    const { nanoid } = await import('nanoid');
+  fastify.post('/prompts/seed-sommaire', async (request, reply) => {
+    try {
+      const db = request.server.container.db;
+      
+      // Fonction pour générer un ID unique
+      const generateId = () => {
+        return `prompt_${Date.now()}_${Math.random().toString(36).substring(2, 12)}`;
+      };
 
-    const PROMPTS = [
-      {
-        prompt_id: `prompt_${nanoid(10)}`,
-        prompt_nom: 'Structure du guide - Définition des sections',
+        const PROMPTS = [
+        {
+          prompt_id: generateId(),
+          prompt_nom: 'Structure du guide - Définition des sections',
         intent: 'structure_sections',
         categories: ['sommaire', 'structure', 'sections'],
         langue_source: 'fr',
         texte_prompt: `Rôle :\nTu es un éditeur de guides touristiques expérimenté.\n\nContexte :\nJe prépare un guide numérique pour la destination {{DESTINATION}}.\nJ'ai récupéré tous les articles existants du site WordPress associé (titres, slugs, catégories, langue).\n\nObjectif :\nProposer la structure principale du guide sous forme de SECTIONS.\n\nContraintes :\n- Les sections doivent regrouper logiquement les articles existants.\n- Ne pas inventer de lieux ou de zones absentes des articles.\n- Chaque section doit être compréhensible pour un touriste.\n- Le guide doit rester lisible et non exhaustif.\n\nEntrée :\nVoici la liste des articles disponibles :\n{{LISTE_ARTICLES_STRUCTURÉE}}\n\nSortie attendue (JSON strict) :\n{\n  "sections": [\n    {\n      "section_id": "string",\n      "section_nom": "string",\n      "description_courte": "string (max 120 caractères)",\n      "articles_associes": ["slug1", "slug2"]\n    }\n  ]\n}\n\nRègles :\n- 4 à 10 sections maximum.\n- Ne pas proposer de sous-sections.\n- Rester cohérent avec un guide touristique grand public de qualité.`,
         version: '1.0.0',
         actif: true,
-      },
-      {
-        prompt_id: `prompt_${nanoid(10)}`,
-        prompt_nom: 'Sélection des POI (lieux)',
+        },
+        {
+          prompt_id: generateId(),
+          prompt_nom: 'Sélection des POI (lieux)',
         intent: 'selection_pois',
         categories: ['sommaire', 'poi', 'lieux'],
         langue_source: 'fr',
         texte_prompt: `Rôle :\nTu es un éditeur expert en sélection touristique.\n\nContexte :\nVoici les articles du site {{SITE}} pour la destination {{DESTINATION}}.\n\nObjectif :\nIdentifier les lieux (POI) qui doivent faire l'objet d'une page dédiée dans un guide.\n\nContraintes :\n- Sélectionner uniquement des lieux clairement identifiables.\n- Éviter les doublons ou variations du même lieu.\n- Ne pas être exhaustif : privilégier la pertinence touristique.\n- Couvrir différents types de lieux (culture, nature, ville, expérience).\n\nEntrée :\n{{LISTE_ARTICLES_POI}}\n\nSortie attendue (JSON strict) :\n{\n  "pois": [\n    {\n      "poi_id": "string",\n      "nom": "string",\n      "type": "string",\n      "article_source": "slug",\n      "raison_selection": "string (max 120 caractères)"\n    }\n  ]\n}\n\nRègles :\n- 20 à 100 POI maximum selon la destination.\n- Pas de texte marketing.\n- Raisons factuelles ou éditoriales.`,
         version: '1.0.0',
         actif: true,
-      },
-      {
-        prompt_id: `prompt_${nanoid(10)}`,
-        prompt_nom: 'Pages inspiration et profils',
+        },
+        {
+          prompt_id: generateId(),
+          prompt_nom: 'Pages inspiration et profils',
         intent: 'pages_inspiration',
         categories: ['sommaire', 'inspiration', 'transversal'],
         langue_source: 'fr',
         texte_prompt: `Rôle :\nTu es un éditeur senior chez Region Lovers.\n\nContexte :\nLe guide {{DESTINATION}} est structuré autour de sections et de lieux validés.\n\nObjectif :\nProposer des pages transversales d'inspiration ou de profils de voyageurs, apportant une lecture différente de la destination.\n\nContraintes :\n- Ne pas répéter les pages lieux.\n- Apporter une vision transversale (thème, ambiance, usage).\n- Rester attractif, mais informatif.\n- Être compatible avec une page unique par thème.\n\nEntrée :\n- Sections du guide : {{SECTIONS}}\n- Liste des POI : {{POIS}}\n- Connaissances générales sur la destination\n\nSortie attendue (JSON strict) :\n{\n  "inspirations": [\n    {\n      "theme_id": "string",\n      "titre": "string",\n      "angle_editorial": "string (max 120 caractères)",\n      "lieux_associes": ["poi_id1", "poi_id2"]\n    }\n  ]\n}\n\nRègles :\n- 3 à 6 pages inspiration maximum.\n- Aucun itinéraire.\n- Ton éditorial Region Lovers : informatif, agréable, non marketing.`,
-        version: '1.0.0',
-        actif: true,
-      },
-    ];
+          version: '1.0.0',
+          actif: true,
+        },
+      ];
 
-    // Supprimer anciens prompts
-    await db.collection('prompts').deleteMany({
-      intent: { $in: ['structure_sections', 'selection_pois', 'pages_inspiration'] },
-    });
+      // Supprimer anciens prompts
+      await db.collection('prompts').deleteMany({
+        intent: { $in: ['structure_sections', 'selection_pois', 'pages_inspiration'] },
+      });
 
-    // Insérer nouveaux prompts
-    const result = await db.collection('prompts').insertMany(
-      PROMPTS.map((p) => ({
-        ...p,
-        created_at: new Date(),
-        date_mise_a_jour: new Date(),
-      }))
-    );
+      // Insérer nouveaux prompts
+      const result = await db.collection('prompts').insertMany(
+        PROMPTS.map((p) => ({
+          ...p,
+          created_at: new Date(),
+          date_mise_a_jour: new Date(),
+        }))
+      );
 
-    return {
-      success: true,
-      count: result.insertedCount,
-      prompts: PROMPTS.map((p) => ({ intent: p.intent, nom: p.prompt_nom })),
-    };
+      return reply.status(200).send({
+        success: true,
+        count: result.insertedCount,
+        prompts: PROMPTS.map((p) => ({ intent: p.intent, nom: p.prompt_nom })),
+      });
+    } catch (error) {
+      request.log.error('Erreur seed prompts:', error);
+      return reply.status(500).send({ 
+        error: 'Erreur lors de la création des prompts',
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
   });
 
   /**

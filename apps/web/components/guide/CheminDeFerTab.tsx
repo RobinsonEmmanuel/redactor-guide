@@ -147,17 +147,23 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
 
     if (!over) return;
 
-    // Drag d'un template vers la grille
-    if (active.data.current?.type === 'template' && over?.id === 'chemin-de-fer-grid') {
+    // Extraire le numéro d'ordre si on droppe sur un emplacement vide spécifique
+    let targetOrder: number | null = null;
+    if (typeof over.id === 'string' && over.id.startsWith('empty-slot-')) {
+      targetOrder = parseInt(over.id.replace('empty-slot-', ''), 10);
+    }
+
+    // Drag d'un template vers un emplacement spécifique ou la grille
+    if (active.data.current?.type === 'template') {
       const template = active.data.current.template;
-      await handleCreatePageFromTemplate(template);
+      await handleCreatePageFromTemplate(template, targetOrder);
       return;
     }
 
-    // Drag d'une proposition IA vers la grille
-    if (active.data.current?.type === 'proposal' && over?.id === 'chemin-de-fer-grid') {
+    // Drag d'une proposition IA vers un emplacement spécifique ou la grille
+    if (active.data.current?.type === 'proposal') {
       const proposalData = active.data.current;
-      await handleCreatePageFromProposal(proposalData);
+      await handleCreatePageFromProposal(proposalData, targetOrder);
       return;
     }
 
@@ -195,7 +201,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     }
   };
 
-  const handleCreatePageFromTemplate = async (template: any) => {
+  const handleCreatePageFromTemplate = async (template: any, targetOrder: number | null = null) => {
     try {
       const pageData = {
         page_id: nanoid(10),
@@ -203,7 +209,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         template_id: template._id,
         type_de_page: '',
         statut_editorial: 'draft',
-        ordre: pages.length + 1,
+        ordre: targetOrder || pages.length + 1,
       };
 
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages`, {
@@ -221,7 +227,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     }
   };
 
-  const handleCreatePageFromProposal = async (proposalData: any) => {
+  const handleCreatePageFromProposal = async (proposalData: any, targetOrder: number | null = null) => {
     try {
       // Sélectionner un template par défaut (le premier disponible)
       const defaultTemplate = templates[0];
@@ -236,7 +242,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         template_id: defaultTemplate._id,
         type_de_page: proposalData.proposalType || '',
         statut_editorial: 'draft',
-        ordre: pages.length + 1,
+        ordre: targetOrder || pages.length + 1,
         section_id: proposalData.id,
       };
 
@@ -668,6 +674,43 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color }: a
   );
 }
 
+// Composant pour une case vide droppable
+function EmptySlot({ ordre, isGlobalOver }: { ordre: number; isGlobalOver: boolean }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `empty-slot-${ordre}`,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`relative bg-gray-50 rounded-lg border-2 border-dashed transition-all ${
+        isOver 
+          ? 'border-blue-500 bg-blue-200 scale-105' 
+          : isGlobalOver
+          ? 'border-blue-400 bg-blue-100'
+          : 'border-gray-300 hover:border-blue-300 hover:bg-blue-50'
+      }`}
+      style={{ minHeight: '180px' }}
+    >
+      {/* Numéro de l'emplacement */}
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="text-center">
+          <div className={`text-5xl font-black leading-none ${
+            isOver ? 'text-blue-600' : 'text-gray-300'
+          }`}>
+            {ordre}
+          </div>
+          <div className={`text-xs font-semibold mt-1 ${
+            isOver ? 'text-blue-700' : 'text-gray-400'
+          }`}>
+            {isOver ? 'Placer ici' : 'Libre'}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Composant Droppable Grid avec cases visibles
 function CheminDeFerGrid({
   pages,
@@ -700,11 +743,7 @@ function CheminDeFerGrid({
   return (
     <div
       ref={setNodeRef}
-      className={`rounded-lg border-2 transition-all min-h-full ${
-        isOver 
-          ? 'border-blue-500 bg-blue-50/50 shadow-lg' 
-          : 'border-gray-200 bg-white'
-      }`}
+      className="rounded-lg border-2 border-gray-200 bg-white transition-all min-h-full"
     >
       <div className="p-3">
         {/* Grille responsive optimisée pour plus de colonnes */}
@@ -715,29 +754,13 @@ function CheminDeFerGrid({
           <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3">
             {slots.map((slot: any) => {
               if (slot.isEmpty) {
-                // Case vide compacte
+                // Case vide droppable
                 return (
-                  <div
-                    key={`empty-${slot.ordre}`}
-                    className={`relative bg-gray-50 rounded-lg border-2 border-dashed transition-all ${
-                      isOver 
-                        ? 'border-blue-400 bg-blue-100' 
-                        : 'border-gray-300 hover:border-blue-300 hover:bg-blue-50'
-                    }`}
-                    style={{ minHeight: '180px' }}
-                  >
-                    {/* Numéro de l'emplacement */}
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="text-center">
-                        <div className="text-5xl font-black text-gray-300 leading-none">
-                          {slot.ordre}
-                        </div>
-                        <div className="text-xs text-gray-400 font-semibold mt-1">
-                          Libre
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <EmptySlot 
+                    key={`empty-${slot.ordre}`} 
+                    ordre={slot.ordre}
+                    isGlobalOver={isOver}
+                  />
                 );
               } else {
                 // Case avec page

@@ -17,7 +17,8 @@
     "start": "node apps/api/dist/index.js",
     "clean": "turbo run clean",
     "typecheck": "turbo run typecheck",
-    "lint": "turbo run lint"
+    "lint": "turbo run lint",
+    "seed:templates": "node seed-templates.js"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
@@ -28,5 +29,8 @@
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=9.0.0"
+  },
+  "dependencies": {
+    "mongodb": "^7.1.0"
   }
 }

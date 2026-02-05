@@ -89,79 +89,88 @@ export default function GuideDetailPage() {
     <div className="flex h-screen">
       <Sidebar />
 
-      <main className="flex-1 overflow-auto">
-        {/* Header */}
-        <div className="border-b border-gray-200 bg-white px-8 py-6">
-          <button
-            onClick={() => router.push('/guides')}
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
-          >
-            <ArrowLeftIcon className="h-5 w-5" />
-            Retour aux guides
-          </button>
-          
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">{guide.name}</h1>
-            <div className="mt-2 flex items-center gap-4 text-sm text-gray-600">
-              <span>Version {guide.year}</span>
-              <span>•</span>
-              <span className="capitalize">{guide.status}</span>
-            </div>
-          </div>
-
-          {/* Tabs */}
-          <div className="mt-6 flex gap-4 border-b border-gray-200">
-            {tabs.map((tab) => (
+      <main className="flex-1 overflow-auto flex flex-col">
+        {/* Header compact */}
+        <div className="border-b border-gray-200 bg-white px-6 py-3 flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
               <button
-                key={tab.id}
-                onClick={() => !tab.disabled && setActiveTab(tab.id as any)}
-                disabled={tab.disabled}
-                className={`pb-4 px-2 text-sm font-medium transition-colors relative ${
-                  tab.disabled
-                    ? 'text-gray-400 cursor-not-allowed opacity-50'
-                    : activeTab === tab.id
-                    ? 'text-blue-600 border-b-2 border-blue-600'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-                title={tab.disabled ? 'Récupérez d\'abord les articles WordPress' : ''}
+                onClick={() => router.push('/guides')}
+                className="flex items-center gap-1 text-gray-600 hover:text-gray-900"
               >
-                {tab.label}
-                {tab.count !== null && tab.count !== undefined && (
-                  <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
-                    tab.disabled 
-                      ? 'bg-gray-100 text-gray-400' 
-                      : 'bg-gray-100 text-gray-700'
-                  }`}>
-                    {tab.count}
-                  </span>
-                )}
+                <ArrowLeftIcon className="h-4 w-4" />
               </button>
-            ))}
+              
+              <div className="border-l border-gray-300 pl-4">
+                <h1 className="text-xl font-bold text-gray-900">{guide.name}</h1>
+                <div className="flex items-center gap-3 text-xs text-gray-600">
+                  <span>Version {guide.year}</span>
+                  <span>•</span>
+                  <span className="capitalize">{guide.status}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Tabs inline à droite */}
+            <div className="flex gap-2">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => !tab.disabled && setActiveTab(tab.id as any)}
+                  disabled={tab.disabled}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    tab.disabled
+                      ? 'text-gray-400 cursor-not-allowed opacity-50 bg-gray-50'
+                      : activeTab === tab.id
+                      ? 'text-white bg-blue-600'
+                      : 'text-gray-700 bg-gray-100 hover:bg-gray-200'
+                  }`}
+                  title={tab.disabled ? 'Récupérez d\'abord les articles WordPress' : ''}
+                >
+                  {tab.label}
+                  {tab.count !== null && tab.count !== undefined && (
+                    <span className={`ml-2 px-1.5 py-0.5 text-xs rounded ${
+                      tab.disabled 
+                        ? 'bg-gray-200 text-gray-400' 
+                        : activeTab === tab.id
+                        ? 'bg-blue-700 text-white'
+                        : 'bg-gray-200 text-gray-700'
+                    }`}>
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* Tab Content */}
-        <div className="p-8">
+        {/* Tab Content - prend tout l'espace restant */}
+        <div className="flex-1 overflow-hidden">
           {activeTab === 'articles' && (
-            <ArticlesTab guideId={guideId} guide={guide} apiUrl={apiUrl} onArticlesImported={checkArticles} />
+            <div className="h-full p-6">
+              <ArticlesTab guideId={guideId} guide={guide} apiUrl={apiUrl} onArticlesImported={checkArticles} />
+            </div>
           )}
           {activeTab === 'chemin-de-fer' && canAccessCheminDeFer && (
             <CheminDeFerTab guideId={guideId} cheminDeFer={guide.chemin_de_fer} apiUrl={apiUrl} />
           )}
           {activeTab === 'chemin-de-fer' && !canAccessCheminDeFer && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
-              <div className="text-yellow-800 font-medium mb-2">
-                📝 Récupération des articles WordPress requise
+            <div className="h-full flex items-center justify-center p-6">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center max-w-md">
+                <div className="text-yellow-800 font-medium mb-2">
+                  📝 Récupération des articles WordPress requise
+                </div>
+                <p className="text-yellow-700 text-sm mb-4">
+                  Pour créer le chemin de fer, vous devez d'abord récupérer les articles WordPress de ce guide.
+                </p>
+                <button
+                  onClick={() => setActiveTab('articles')}
+                  className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+                >
+                  Aller aux articles WordPress
+                </button>
               </div>
-              <p className="text-yellow-700 text-sm mb-4">
-                Pour créer le chemin de fer, vous devez d'abord récupérer les articles WordPress de ce guide.
-              </p>
-              <button
-                onClick={() => setActiveTab('articles')}
-                className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
-              >
-                Aller aux articles WordPress
-              </button>
             </div>
           )}
         </div>

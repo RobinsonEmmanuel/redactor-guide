@@ -1,14 +1,20 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { DndContext, closestCenter, DragEndEvent, DragOverEvent, PointerSensor, useSensor, useSensors, useDroppable } from '@dnd-kit/core';
+import { DndContext, closestCenter, DragEndEvent, DragOverEvent, PointerSensor, useSensor, useSensors, useDroppable, useDraggable, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
 import { nanoid } from 'nanoid';
 import PageCard from './PageCard';
 import PageModal from './PageModal';
-import { TemplatePaletteItem } from './TemplatePalette';
 import ContentEditorModal from './ContentEditorModal';
-import SommaireProposal from './SommaireProposal';
+import { 
+  DocumentTextIcon, 
+  SparklesIcon, 
+  ArrowPathIcon,
+  RectangleStackIcon,
+  MapPinIcon,
+  LightBulbIcon,
+} from '@heroicons/react/24/outline';
 
 interface Page {
   _id: string;
@@ -38,6 +44,12 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   const [showContentModal, setShowContentModal] = useState(false);
   const [editingContent, setEditingContent] = useState<any>(null);
   const [currentPageContent, setCurrentPageContent] = useState<Record<string, any>>({});
+  const [activeId, setActiveId] = useState<string | null>(null);
+  
+  // États pour les propositions IA
+  const [loadingProposal, setLoadingProposal] = useState(false);
+  const [proposal, setProposal] = useState<any>(null);
+  const [proposalError, setProposalError] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -49,6 +61,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
 
   useEffect(() => {
     loadTemplates();
+    loadExistingProposal();
     if (cheminDeFer) {
       loadPages();
     } else {
@@ -86,13 +99,65 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     }
   };
 
+  const loadExistingProposal = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/sommaire-proposal`, {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProposal(data.proposal);
+      }
+    } catch (err) {
+      console.log('Aucune proposition existante');
+    }
+  };
+
+  const generateSommaire = async () => {
+    setLoadingProposal(true);
+    setProposalError(null);
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/generate-sommaire`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setProposal(data.proposal);
+      } else {
+        const errorData = await res.json();
+        setProposalError(errorData.error || 'Erreur lors de la génération');
+      }
+    } catch (err) {
+      console.error('Erreur génération sommaire:', err);
+      setProposalError('Erreur lors de la génération du sommaire');
+    } finally {
+      setLoadingProposal(false);
+    }
+  };
+
+  const handleDragStart = (event: any) => {
+    setActiveId(event.active.id);
+  };
+
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
+    setActiveId(null);
+
+    if (!over) return;
 
     // Drag d'un template vers la grille
     if (active.data.current?.type === 'template' && over?.id === 'chemin-de-fer-grid') {
       const template = active.data.current.template;
       await handleCreatePageFromTemplate(template);
+      return;
+    }
+
+    // Drag d'une proposition IA vers la grille
+    if (active.data.current?.type === 'proposal' && over?.id === 'chemin-de-fer-grid') {
+      const proposalData = active.data.current;
+      await handleCreatePageFromProposal(proposalData);
       return;
     }
 
@@ -156,6 +221,40 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     }
   };
 
+  const handleCreatePageFromProposal = async (proposalData: any) => {
+    try {
+      // Sélectionner un template par défaut (le premier disponible)
+      const defaultTemplate = templates[0];
+      if (!defaultTemplate) {
+        alert('Aucun template disponible. Créez-en un d\'abord.');
+        return;
+      }
+
+      const pageData = {
+        page_id: nanoid(10),
+        titre: proposalData.title,
+        template_id: defaultTemplate._id,
+        type_de_page: proposalData.proposalType || '',
+        statut_editorial: 'draft',
+        ordre: pages.length + 1,
+        section_id: proposalData.id,
+      };
+
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(pageData),
+      });
+
+      if (res.ok) {
+        loadPages();
+      }
+    } catch (err) {
+      console.error('Erreur création page depuis proposition:', err);
+    }
+  };
+
   const handleOpenContent = async (page: Page) => {
     setEditingContent(page);
     
@@ -195,7 +294,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
 
       if (res.ok) {
         setShowContentModal(false);
-        // Optionnel : mettre à jour le statut de la page
         loadPages();
       }
     } catch (err) {
@@ -228,7 +326,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   const handleSavePage = async (pageData: any) => {
     try {
       if (editingPage) {
-        // Modifier
         const res = await fetch(
           `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${editingPage._id}`,
           {
@@ -244,7 +341,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
           setShowModal(false);
         }
       } else {
-        // Créer
         const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -278,47 +374,182 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-16rem)] gap-4">
+    <div className="flex h-full gap-0">
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        {/* Ligne du haut : Palette de templates */}
-        <div className="h-48 flex-shrink-0 overflow-y-auto border-b border-gray-200 pb-4">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">Templates disponibles</h3>
-          <div className="grid grid-cols-4 gap-3">
-            {templates.map((template) => (
-              <div
-                key={template._id}
-                className="cursor-grab active:cursor-grabbing"
-              >
-                <TemplatePaletteItem template={template} />
+        {/* COLONNE GAUCHE : Palette unifiée compacte */}
+        <div className="w-72 flex-shrink-0 bg-gradient-to-b from-gray-50 to-gray-100 border-r-2 border-gray-300 flex flex-col overflow-hidden">
+          {/* Section Templates - Plus compacte */}
+          <div className="flex-shrink-0 border-b border-gray-300 bg-white">
+            <div className="p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="p-1 bg-blue-100 rounded">
+                  <DocumentTextIcon className="w-4 h-4 text-blue-600" />
+                </div>
+                <h3 className="text-xs font-bold text-gray-900">Templates</h3>
               </div>
-            ))}
+              
+              <div className="grid grid-cols-2 gap-1.5">
+                {templates.length === 0 && (
+                  <div className="col-span-2 text-center py-4 px-2">
+                    <div className="text-gray-400 mb-1 text-xl">📝</div>
+                    <div className="text-xs text-gray-500">Aucun template</div>
+                  </div>
+                )}
+                {templates.map((template) => (
+                  <TemplatePaletteItemMini key={template._id} template={template} />
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Section Propositions IA - Plus compacte */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="p-3 border-b border-gray-300 bg-white flex-shrink-0">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="p-1 bg-purple-100 rounded">
+                    <SparklesIcon className="w-4 h-4 text-purple-600" />
+                  </div>
+                  <h3 className="text-xs font-bold text-gray-900">Propositions IA</h3>
+                </div>
+                <button
+                  onClick={generateSommaire}
+                  disabled={loadingProposal}
+                  className="flex items-center gap-1 px-2 py-1 bg-purple-600 text-white text-xs font-medium rounded hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ArrowPathIcon className={`h-3 w-3 ${loadingProposal ? 'animate-spin' : ''}`} />
+                  {loadingProposal ? 'Génération...' : 'Générer'}
+                </button>
+              </div>
+
+              {proposalError && (
+                <div className="mt-1 p-1.5 bg-red-50 border border-red-200 rounded text-xs text-red-800">
+                  {proposalError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-3">
+              {!proposal && !loadingProposal && (
+                <div className="text-center py-6">
+                  <SparklesIcon className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                  <p className="text-xs text-gray-500">Cliquez sur Générer</p>
+                </div>
+              )}
+
+              {loadingProposal && (
+                <div className="text-center py-6">
+                  <ArrowPathIcon className="w-8 h-8 text-purple-600 mx-auto mb-2 animate-spin" />
+                  <p className="text-xs text-gray-500">Génération...</p>
+                </div>
+              )}
+
+              {proposal && (
+                <>
+                  {/* Sections */}
+                  {proposal.sections && proposal.sections.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <RectangleStackIcon className="w-3 h-3 text-blue-600" />
+                        <h4 className="font-semibold text-gray-700 text-xs">
+                          Sections ({proposal.sections.length})
+                        </h4>
+                      </div>
+                      <div className="space-y-1">
+                        {proposal.sections.map((section: any) => (
+                          <ProposalCardMini
+                            key={section.section_id}
+                            id={section.section_id}
+                            type="section"
+                            title={section.section_nom}
+                            description={section.description_courte}
+                            icon={RectangleStackIcon}
+                            color="blue"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* POIs */}
+                  {proposal.pois && proposal.pois.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <MapPinIcon className="w-3 h-3 text-green-600" />
+                        <h4 className="font-semibold text-gray-700 text-xs">
+                          Lieux ({proposal.pois.length})
+                        </h4>
+                      </div>
+                      <div className="space-y-1">
+                        {proposal.pois.map((poi: any) => (
+                          <ProposalCardMini
+                            key={poi.poi_id}
+                            id={poi.poi_id}
+                            type="poi"
+                            title={poi.nom}
+                            description={`${poi.type}`}
+                            icon={MapPinIcon}
+                            color="green"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Inspirations */}
+                  {proposal.inspirations && proposal.inspirations.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <LightBulbIcon className="w-3 h-3 text-orange-600" />
+                        <h4 className="font-semibold text-gray-700 text-xs">
+                          Inspiration ({proposal.inspirations.length})
+                        </h4>
+                      </div>
+                      <div className="space-y-1">
+                        {proposal.inspirations.map((inspiration: any) => (
+                          <ProposalCardMini
+                            key={inspiration.theme_id}
+                            id={inspiration.theme_id}
+                            type="inspiration"
+                            title={inspiration.titre}
+                            description={inspiration.angle_editorial}
+                            icon={LightBulbIcon}
+                            color="orange"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Ligne du bas : 2 colonnes */}
-        <div className="flex-1 flex gap-4 overflow-hidden">
-          {/* Colonne gauche : Proposition de sommaire IA */}
-          <div className="w-96 flex-shrink-0">
-            <SommaireProposal guideId={guideId} apiUrl={apiUrl} />
-          </div>
-
-          {/* Colonne droite : Grille du chemin de fer (plus d'espace) */}
-          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-            {/* Header */}
-            <div className="mb-4 flex items-center justify-between">
+        {/* ZONE PRINCIPALE : Chemin de fer - Plus d'espace */}
+        <div className="flex-1 flex flex-col overflow-hidden bg-white">
+          {/* Header compact */}
+          <div className="px-4 py-2 border-b border-gray-200 bg-gray-50 flex-shrink-0">
+            <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-semibold text-gray-900">Chemin de fer</h2>
-                <p className="text-sm text-gray-600 mt-1">
-                  {pages.length} page{pages.length > 1 ? 's' : ''}
+                <h2 className="text-base font-bold text-gray-900">Chemin de fer</h2>
+                <p className="text-xs text-gray-500">
+                  {pages.length} page{pages.length !== 1 ? 's' : ''}
                 </p>
               </div>
+              <div className="text-xs text-gray-500">
+                💡 Glissez depuis la palette
+              </div>
             </div>
+          </div>
 
-            {/* Grille de pages */}
+          {/* Grille de pages - Maximum d'espace */}
+          <div className="flex-1 overflow-auto p-4">
             <CheminDeFerGrid
               pages={pages}
               onEdit={handleEditPage}
@@ -328,6 +559,15 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
             />
           </div>
         </div>
+
+        {/* Overlay pour le drag */}
+        <DragOverlay>
+          {activeId ? (
+            <div className="bg-white border-2 border-blue-500 rounded-lg p-3 shadow-2xl opacity-90">
+              <div className="text-sm font-medium text-gray-900">Déplacement...</div>
+            </div>
+          ) : null}
+        </DragOverlay>
       </DndContext>
 
       {/* Modales */}
@@ -354,6 +594,80 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   );
 }
 
+// Composant Template MINI pour la palette (grille 2 colonnes)
+function TemplatePaletteItemMini({ template }: { template: any }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `template-${template._id}`,
+    data: { type: 'template', template },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={`bg-white rounded border p-2 cursor-grab active:cursor-grabbing transition-all ${
+        isDragging 
+          ? 'opacity-50 scale-95 border-blue-500 shadow-lg' 
+          : 'border-blue-200 hover:border-blue-400 hover:shadow-sm'
+      }`}
+    >
+      <div className="flex items-center gap-1.5 mb-1">
+        <div className="p-0.5 bg-blue-100 rounded flex-shrink-0">
+          <DocumentTextIcon className="w-3 h-3 text-blue-600" />
+        </div>
+        <h4 className="font-bold text-gray-900 text-xs line-clamp-1 flex-1">{template.name}</h4>
+      </div>
+      <div className="text-xs text-blue-600 font-medium">
+        {template.fields?.length || 0} champs
+      </div>
+    </div>
+  );
+}
+
+// Composant Proposition IA MINI pour la palette
+function ProposalCardMini({ id, type, title, description, icon: Icon, color }: any) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `proposal-${type}-${id}`,
+    data: { type: 'proposal', proposalType: type, id, title, description },
+  });
+
+  const colorClasses = {
+    blue: 'border-blue-200 hover:border-blue-400 bg-blue-50/40',
+    green: 'border-green-200 hover:border-green-400 bg-green-50/40',
+    orange: 'border-orange-200 hover:border-orange-400 bg-orange-50/40',
+  };
+
+  const iconColorClasses = {
+    blue: 'bg-blue-100 text-blue-600',
+    green: 'bg-green-100 text-green-600',
+    orange: 'bg-orange-100 text-orange-600',
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={`p-1.5 bg-white border rounded cursor-grab active:cursor-grabbing transition-all ${
+        isDragging ? 'opacity-50 scale-95' : ''
+      } ${colorClasses[color as keyof typeof colorClasses]}`}
+    >
+      <div className="flex items-center gap-1.5">
+        <div className={`p-0.5 rounded flex-shrink-0 ${iconColorClasses[color as keyof typeof iconColorClasses]}`}>
+          <Icon className="w-3 h-3" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h4 className="font-medium text-gray-900 text-xs line-clamp-1">{title}</h4>
+          {description && (
+            <p className="text-xs text-gray-500 line-clamp-1">{description}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Composant Droppable Grid avec cases visibles
 function CheminDeFerGrid({
   pages,
@@ -372,8 +686,8 @@ function CheminDeFerGrid({
     id: 'chemin-de-fer-grid',
   });
 
-  // Créer une grille avec des emplacements vides
-  const gridSize = Math.max(12, pages.length + 4); // Min 12, max actuel + 4 vides
+  // Créer une grille avec moins d'emplacements vides pour optimiser l'espace
+  const gridSize = Math.max(12, pages.length + 4); // Min 12 emplacements
   const slots = Array.from({ length: gridSize }, (_, i) => {
     const pageAtPosition = pages.find(p => p.ordre === i + 1);
     return pageAtPosition || { isEmpty: true, ordre: i + 1 };
@@ -382,52 +696,53 @@ function CheminDeFerGrid({
   return (
     <div
       ref={setNodeRef}
-      className={`flex-1 overflow-auto rounded-lg border-2 transition-all ${
+      className={`rounded-lg border-2 transition-all min-h-full ${
         isOver 
-          ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-blue-100' 
-          : 'border-gray-300 bg-gradient-to-br from-gray-50 to-white'
+          ? 'border-blue-500 bg-blue-50/50 shadow-lg' 
+          : 'border-gray-200 bg-white'
       }`}
     >
-      <div className="p-4">
+      <div className="p-3">
         {/* Message d'aide si vide */}
         {isEmpty && (
-          <div className="text-center py-6 mb-4 bg-blue-50 border-2 border-dashed border-blue-300 rounded-lg">
-            <p className="text-blue-700 font-medium mb-1">
-              🎯 Glissez un template dans une case pour créer une page
+          <div className="text-center py-8 mb-4 bg-blue-50 border-2 border-dashed border-blue-300 rounded-lg">
+            <div className="text-4xl mb-2">🎯</div>
+            <p className="text-blue-800 font-bold mb-1 text-sm">
+              Composez votre chemin de fer
             </p>
-            <p className="text-sm text-blue-600">
-              Les cases sont numérotées pour organiser votre chemin de fer
+            <p className="text-xs text-blue-600">
+              Glissez des templates ou propositions IA
             </p>
           </div>
         )}
 
-        {/* Grille avec emplacements visibles */}
+        {/* Grille responsive optimisée pour plus de colonnes */}
         <SortableContext
           items={pages.map((p) => p._id)}
           strategy={rectSortingStrategy}
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+          <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3">
             {slots.map((slot: any) => {
               if (slot.isEmpty) {
-                // Case vide
+                // Case vide compacte
                 return (
                   <div
                     key={`empty-${slot.ordre}`}
-                    className={`relative bg-white rounded-lg border-2 border-dashed transition-all ${
+                    className={`relative bg-gray-50 rounded-lg border-2 border-dashed transition-all ${
                       isOver 
-                        ? 'border-blue-400 bg-blue-50' 
-                        : 'border-gray-300 hover:border-blue-300 hover:bg-blue-50/50'
+                        ? 'border-blue-400 bg-blue-100' 
+                        : 'border-gray-300 hover:border-blue-300 hover:bg-blue-50'
                     }`}
-                    style={{ minHeight: '240px' }}
+                    style={{ minHeight: '180px' }}
                   >
                     {/* Numéro de l'emplacement */}
                     <div className="absolute inset-0 flex items-center justify-center">
                       <div className="text-center">
-                        <div className="text-6xl font-bold text-gray-200 mb-2">
+                        <div className="text-5xl font-black text-gray-300 leading-none">
                           {slot.ordre}
                         </div>
-                        <div className="text-xs text-gray-400 font-medium">
-                          Emplacement libre
+                        <div className="text-xs text-gray-400 font-semibold mt-1">
+                          Libre
                         </div>
                       </div>
                     </div>

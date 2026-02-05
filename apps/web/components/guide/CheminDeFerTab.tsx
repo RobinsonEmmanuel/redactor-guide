@@ -686,8 +686,12 @@ function CheminDeFerGrid({
     id: 'chemin-de-fer-grid',
   });
 
-  // Créer une grille avec moins d'emplacements vides pour optimiser l'espace
-  const gridSize = Math.max(12, pages.length + 4); // Min 12 emplacements
+  // Grille pour 100-200 pages : afficher les pages existantes + emplacements vides jusqu'à 200
+  // Si moins de 50 pages, afficher 100 emplacements
+  // Si plus de 50, afficher jusqu'à 200 ou pages.length + 20
+  const targetSize = pages.length < 50 ? 100 : Math.min(200, pages.length + 20);
+  const gridSize = Math.max(targetSize, pages.length);
+  
   const slots = Array.from({ length: gridSize }, (_, i) => {
     const pageAtPosition = pages.find(p => p.ordre === i + 1);
     return pageAtPosition || { isEmpty: true, ordre: i + 1 };
@@ -703,19 +707,6 @@ function CheminDeFerGrid({
       }`}
     >
       <div className="p-3">
-        {/* Message d'aide si vide */}
-        {isEmpty && (
-          <div className="text-center py-8 mb-4 bg-blue-50 border-2 border-dashed border-blue-300 rounded-lg">
-            <div className="text-4xl mb-2">🎯</div>
-            <p className="text-blue-800 font-bold mb-1 text-sm">
-              Composez votre chemin de fer
-            </p>
-            <p className="text-xs text-blue-600">
-              Glissez des templates ou propositions IA
-            </p>
-          </div>
-        )}
-
         {/* Grille responsive optimisée pour plus de colonnes */}
         <SortableContext
           items={pages.map((p) => p._id)}

@@ -27,6 +27,7 @@ interface Page {
   statut_editorial?: string;
   section_id?: string;
   url_source?: string;
+  image_url?: string; // Image de l'article WordPress
 }
 
 interface CheminDeFerTabProps {

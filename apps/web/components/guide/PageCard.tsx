@@ -12,6 +12,8 @@ interface Page {
   ordre: number;
   type_de_page?: string;
   statut_editorial?: string;
+  url_source?: string;
+  image_url?: string; // Image de l'article WordPress
 }
 
 interface PageCardProps {
@@ -68,39 +70,55 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent }: Page
     <div
       ref={setNodeRef}
       style={style}
-      className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow"
+      className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow group"
     >
-      {/* Miniature */}
-      <div className="h-32 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center relative">
+      {/* Miniature avec image de fond si disponible */}
+      <div 
+        className="h-32 relative flex items-center justify-center"
+        style={{
+          backgroundImage: page.image_url ? `url(${page.image_url})` : undefined,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundColor: page.image_url ? undefined : '#f3f4f6',
+        }}
+      >
+        {/* Overlay sombre pour lisibilité */}
+        {page.image_url && <div className="absolute inset-0 bg-black/20" />}
+        
         {/* Numéro de page */}
-        <div className="absolute top-2 left-2 bg-white rounded px-2 py-1 text-xs font-bold text-gray-700">
+        <div className="absolute top-2 left-2 bg-white/95 backdrop-blur rounded px-2 py-1 text-xs font-bold text-gray-700 shadow-sm z-10">
           {page.ordre}
         </div>
         
-        {/* Pastille de statut */}
-        <div className={`absolute top-2 right-2 w-3 h-3 rounded-full border-2 border-white shadow-md ${
+        {/* Bouton supprimer (visible au hover) */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          className="absolute top-2 right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10 shadow-md"
+          title="Supprimer la page"
+        >
+          <TrashIcon className="h-3.5 w-3.5" />
+        </button>
+        
+        {/* Drag handle (centré, toujours visible) */}
+        <div
+          className="cursor-grab active:cursor-grabbing p-3 hover:bg-white/30 rounded-lg transition-colors backdrop-blur-sm z-10"
+          {...attributes}
+          {...listeners}
+        >
+          <Bars3Icon className={`h-6 w-6 ${page.image_url ? 'text-white drop-shadow-md' : 'text-gray-400'}`} />
+        </div>
+        
+        {/* Pastille de statut (bottom-left) */}
+        <div className={`absolute bottom-2 left-2 w-2.5 h-2.5 rounded-full border border-white shadow-md ${
           page.statut_editorial === 'validee' ? 'bg-green-500' :
           page.statut_editorial === 'relue' ? 'bg-yellow-500' :
           page.statut_editorial === 'generee_ia' ? 'bg-blue-500' :
           page.statut_editorial === 'non_conforme' ? 'bg-red-500' :
           'bg-gray-400'
         }`} title={statusLabel} />
-        
-        {/* Drag handle */}
-        <div
-          className="cursor-grab active:cursor-grabbing p-2 hover:bg-white/50 rounded"
-          {...attributes}
-          {...listeners}
-        >
-          <Bars3Icon className="h-6 w-6 text-gray-400" />
-        </div>
-        
-        {/* Template badge */}
-        {page.template_name && (
-          <div className="absolute bottom-2 right-2 bg-blue-600 text-white text-xs px-2 py-1 rounded font-mono">
-            {page.template_name}
-          </div>
-        )}
       </div>
 
       {/* Contenu */}
@@ -139,13 +157,6 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent }: Page
             title="Modifier les infos"
           >
             <PencilIcon className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={onDelete}
-            className="flex items-center justify-center px-2 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 rounded transition-colors"
-            title="Supprimer"
-          >
-            <TrashIcon className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>

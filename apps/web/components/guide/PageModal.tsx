@@ -99,7 +99,7 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
 
   const filteredArticles = Array.isArray(articles) 
     ? articles.filter((article) =>
-        article.titre.toLowerCase().includes(searchQuery.toLowerCase())
+        article?.titre?.toLowerCase().includes(searchQuery.toLowerCase())
       )
     : [];
 

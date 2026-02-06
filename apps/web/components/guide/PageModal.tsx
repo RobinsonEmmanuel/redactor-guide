@@ -117,7 +117,15 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
       return;
     }
 
-    onSave(formData);
+    // Nettoyer les champs vides (notamment url_source qui doit être une URL valide ou undefined)
+    const cleanedData = {
+      ...formData,
+      url_source: formData.url_source || undefined,
+      commentaire_interne: formData.commentaire_interne || undefined,
+      type_de_page: formData.type_de_page || undefined,
+    };
+
+    onSave(cleanedData);
   };
 
   return (

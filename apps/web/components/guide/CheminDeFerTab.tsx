@@ -168,13 +168,31 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
       return;
     }
 
-    // Réorganisation des pages existantes
-    if (over && active.id !== over.id) {
+    // Réorganisation des pages existantes (drag d'une page vers une autre page ou slot)
+    const activePage = pages.find((p) => p._id === active.id);
+    if (activePage && over && active.id !== over.id) {
+      // Trouver la position de la page active
       const oldIndex = pages.findIndex((p) => p._id === active.id);
-      const newIndex = pages.findIndex((p) => p._id === over.id);
+      if (oldIndex === -1) return;
+
+      let newIndex = -1;
       
-      if (oldIndex === -1 || newIndex === -1) return;
+      // Cas 1 : Drop sur une autre page existante
+      const targetPage = pages.find((p) => p._id === over.id);
+      if (targetPage) {
+        newIndex = pages.findIndex((p) => p._id === over.id);
+      }
       
+      // Cas 2 : Drop sur un emplacement vide
+      if (newIndex === -1 && typeof over.id === 'string' && over.id.startsWith('empty-slot-')) {
+        const targetOrdre = parseInt(over.id.replace('empty-slot-', ''), 10);
+        // Insérer à la position targetOrdre
+        newIndex = targetOrdre - 1; // ordre est 1-based, index est 0-based
+      }
+      
+      if (newIndex === -1 || newIndex === oldIndex) return;
+      
+      // Réorganiser
       const newPages = arrayMove(pages, oldIndex, newIndex);
 
       // Mettre à jour les numéros d'ordre
@@ -184,6 +202,8 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
       }));
 
       setPages(reorderedPages);
+      
+      console.log(`🔄 Déplacement page ${oldIndex + 1} → ${newIndex + 1}`);
 
       // Sauvegarder l'ordre
       try {
@@ -195,9 +215,10 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
             pages: reorderedPages.map((p) => ({ _id: p._id, ordre: p.ordre })),
           }),
         });
+        console.log('✅ Ordre sauvegardé');
       } catch (err) {
-        console.error('Erreur réorganisation:', err);
-        loadPages();
+        console.error('❌ Erreur réorganisation:', err);
+        loadPages(); // Recharger en cas d'erreur
       }
     }
   };
@@ -525,6 +546,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                             description={`${poi.type}`}
                             icon={MapPinIcon}
                             color="green"
+                            articleSlug={poi.article_source}
                           />
                         ))}
                       </div>
@@ -656,10 +678,10 @@ function TemplatePaletteItemMini({ template }: { template: any }) {
 }
 
 // Composant Proposition IA MINI pour la palette
-function ProposalCardMini({ id, type, title, description, icon: Icon, color }: any) {
+function ProposalCardMini({ id, type, title, description, icon: Icon, color, articleSlug }: any) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `proposal-${type}-${id}`,
-    data: { type: 'proposal', proposalType: type, id, title, description },
+    data: { type: 'proposal', proposalType: type, id, title, description, articleSlug },
   });
 
   const colorClasses = {

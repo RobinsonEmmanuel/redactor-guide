@@ -72,21 +72,23 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent }: Page
       style={style}
       className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow group"
     >
-      {/* Miniature avec image de fond si disponible */}
+      {/* Miniature avec image de fond si disponible - TOUTE LA ZONE EST DRAGGABLE */}
       <div 
-        className="h-32 relative flex items-center justify-center"
+        className="h-32 relative flex items-center justify-center cursor-grab active:cursor-grabbing"
         style={{
           backgroundImage: page.image_url ? `url(${page.image_url})` : undefined,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
           backgroundColor: page.image_url ? undefined : '#f3f4f6',
         }}
+        {...attributes}
+        {...listeners}
       >
         {/* Overlay sombre pour lisibilité */}
-        {page.image_url && <div className="absolute inset-0 bg-black/20" />}
+        {page.image_url && <div className="absolute inset-0 bg-black/20 pointer-events-none" />}
         
         {/* Numéro de page */}
-        <div className="absolute top-2 left-2 bg-white/95 backdrop-blur rounded px-2 py-1 text-xs font-bold text-gray-700 shadow-sm z-10">
+        <div className="absolute top-2 left-2 bg-white/95 backdrop-blur rounded px-2 py-1 text-xs font-bold text-gray-700 shadow-sm z-10 pointer-events-none">
           {page.ordre}
         </div>
         
@@ -96,23 +98,19 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent }: Page
             e.stopPropagation();
             onDelete();
           }}
-          className="absolute top-2 right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10 shadow-md"
+          className="absolute top-2 right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-20 shadow-md"
           title="Supprimer la page"
         >
           <TrashIcon className="h-3.5 w-3.5" />
         </button>
         
-        {/* Drag handle (centré, toujours visible) */}
-        <div
-          className="cursor-grab active:cursor-grabbing p-3 hover:bg-white/30 rounded-lg transition-colors backdrop-blur-sm z-10"
-          {...attributes}
-          {...listeners}
-        >
-          <Bars3Icon className={`h-6 w-6 ${page.image_url ? 'text-white drop-shadow-md' : 'text-gray-400'}`} />
+        {/* Icône drag (indicateur visuel au centre) */}
+        <div className="pointer-events-none">
+          <Bars3Icon className={`h-8 w-8 ${page.image_url ? 'text-white/70 drop-shadow-md' : 'text-gray-300'}`} />
         </div>
         
         {/* Pastille de statut (bottom-left) */}
-        <div className={`absolute bottom-2 left-2 w-2.5 h-2.5 rounded-full border border-white shadow-md ${
+        <div className={`absolute bottom-2 left-2 w-2.5 h-2.5 rounded-full border border-white shadow-md pointer-events-none ${
           page.statut_editorial === 'validee' ? 'bg-green-500' :
           page.statut_editorial === 'relue' ? 'bg-yellow-500' :
           page.statut_editorial === 'generee_ia' ? 'bg-blue-500' :

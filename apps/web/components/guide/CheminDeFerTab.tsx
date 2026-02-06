@@ -55,7 +55,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
 
   // États pour l'ajout multiple de pages
   const [showAddPagesModal, setShowAddPagesModal] = useState(false);
-  const [addingPages, setAddingPages] = useState(false);
+  const [additionalSlots, setAdditionalSlots] = useState(0);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -392,54 +392,15 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     }
   };
 
-  const handleAddMultiplePages = async (count: number) => {
-    if (count < 1 || count > 50) {
-      alert('Veuillez saisir un nombre entre 1 et 50');
+  const handleAddMultipleSlots = (count: number) => {
+    if (count < 1 || count > 100) {
+      alert('Veuillez saisir un nombre entre 1 et 100');
       return;
     }
 
-    setAddingPages(true);
-
-    try {
-      // Trouver le template par défaut
-      const defaultTemplate = templates.find((t) => t.name.toLowerCase().includes('défaut') || t.name.toLowerCase().includes('default'));
-      if (!defaultTemplate) {
-        alert('Aucun template par défaut trouvé. Veuillez en créer un.');
-        setAddingPages(false);
-        return;
-      }
-
-      // Créer les pages une par une
-      const startOrder = pages.length > 0 ? Math.max(...pages.map((p) => p.ordre)) + 1 : 1;
-
-      for (let i = 0; i < count; i++) {
-        const pageData = {
-          page_id: nanoid(10),
-          titre: `Page ${startOrder + i}`,
-          template_id: defaultTemplate._id,
-          ordre: startOrder + i,
-          statut_editorial: 'draft',
-          type_de_page: '',
-          url_source: '',
-          commentaire_interne: '',
-        };
-
-        await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(pageData),
-        });
-      }
-
-      await loadPages();
-      setShowAddPagesModal(false);
-    } catch (err) {
-      console.error('Erreur création pages:', err);
-      alert('Erreur lors de la création des pages');
-    } finally {
-      setAddingPages(false);
-    }
+    // Ajouter des emplacements vides à la grille
+    setAdditionalSlots(prev => prev + count);
+    setShowAddPagesModal(false);
   };
 
   const handleSavePage = async (pageData: any) => {
@@ -677,6 +638,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
               onOpenContent={handleOpenContent}
               isEmpty={pages.length === 0}
               onAddPages={() => setShowAddPagesModal(true)}
+              additionalSlots={additionalSlots}
             />
           </div>
         </div>
@@ -715,8 +677,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
       {showAddPagesModal && (
         <AddPagesModal
           onClose={() => setShowAddPagesModal(false)}
-          onConfirm={handleAddMultiplePages}
-          isLoading={addingPages}
+          onConfirm={handleAddMultipleSlots}
         />
       )}
     </div>
@@ -842,6 +803,7 @@ function CheminDeFerGrid({
   onOpenContent,
   isEmpty,
   onAddPages,
+  additionalSlots,
 }: {
   pages: Page[];
   onEdit: (page: Page) => void;
@@ -849,6 +811,7 @@ function CheminDeFerGrid({
   onOpenContent: (page: Page) => void;
   isEmpty: boolean;
   onAddPages: () => void;
+  additionalSlots: number;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: 'chemin-de-fer-grid',
@@ -857,8 +820,9 @@ function CheminDeFerGrid({
   // Grille pour 100-200 pages : afficher les pages existantes + emplacements vides jusqu'à 200
   // Si moins de 50 pages, afficher 100 emplacements
   // Si plus de 50, afficher jusqu'à 200 ou pages.length + 20
+  // + emplacements additionnels demandés par l'utilisateur
   const targetSize = pages.length < 50 ? 100 : Math.min(200, pages.length + 20);
-  const gridSize = Math.max(targetSize, pages.length);
+  const gridSize = Math.max(targetSize, pages.length) + additionalSlots;
   
   const slots = Array.from({ length: gridSize }, (_, i) => {
     const pageAtPosition = pages.find(p => p.ordre === i + 1);
@@ -923,27 +887,25 @@ function AddPagesCard({ onClick }: { onClick: () => void }) {
           <PlusIcon className="w-7 h-7 text-white" />
         </div>
         <div className="text-sm font-semibold text-green-700 group-hover:text-green-800">
-          Ajouter pages
+          Ajouter cases
         </div>
         <div className="text-xs text-green-600">
-          En masse
+          Vides
         </div>
       </div>
     </button>
   );
 }
 
-// Modale pour ajouter plusieurs pages
+// Modale pour ajouter plusieurs emplacements vides
 function AddPagesModal({ 
   onClose, 
   onConfirm, 
-  isLoading 
 }: { 
   onClose: () => void; 
   onConfirm: (count: number) => void; 
-  isLoading: boolean;
 }) {
-  const [count, setCount] = useState(10);
+  const [count, setCount] = useState(20);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -955,10 +917,9 @@ function AddPagesModal({
       <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">Ajouter plusieurs pages</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Ajouter des emplacements vides</h2>
           <button
             onClick={onClose}
-            disabled={isLoading}
             className="text-gray-400 hover:text-gray-600"
           >
             <span className="text-xl">×</span>
@@ -969,20 +930,19 @@ function AddPagesModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Nombre de pages à créer
+              Nombre d'emplacements à ajouter
             </label>
             <input
               type="number"
               min="1"
-              max="50"
+              max="100"
               value={count}
               onChange={(e) => setCount(parseInt(e.target.value) || 1)}
-              disabled={isLoading}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-center text-2xl font-bold"
               required
             />
             <p className="mt-2 text-xs text-gray-500">
-              Les pages seront créées avec le template par défaut et ajoutées à la suite
+              Des cases vides seront ajoutées à la fin de la grille. Tu pourras ensuite y glisser des templates ou propositions IA.
             </p>
           </div>
 
@@ -991,27 +951,16 @@ function AddPagesModal({
             <button
               type="button"
               onClick={onClose}
-              disabled={isLoading}
-              className="flex-1 px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+              className="flex-1 px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
             >
               Annuler
             </button>
             <button
               type="submit"
-              disabled={isLoading}
-              className="flex-1 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              className="flex-1 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
             >
-              {isLoading ? (
-                <>
-                  <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                  Création...
-                </>
-              ) : (
-                <>
-                  <PlusIcon className="w-4 h-4" />
-                  Créer {count} page{count > 1 ? 's' : ''}
-                </>
-              )}
+              <PlusIcon className="w-4 h-4" />
+              Ajouter {count} case{count > 1 ? 's' : ''}
             </button>
           </div>
         </form>

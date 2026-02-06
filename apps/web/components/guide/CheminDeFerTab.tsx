@@ -168,57 +168,70 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
       return;
     }
 
-    // Réorganisation des pages existantes (drag d'une page vers une autre page ou slot)
+    // Réorganisation des pages existantes (drag d'une page vers n'importe quel slot)
     const activePage = pages.find((p) => p._id === active.id);
     if (activePage && over && active.id !== over.id) {
-      // Trouver la position de la page active
-      const oldIndex = pages.findIndex((p) => p._id === active.id);
-      if (oldIndex === -1) return;
-
-      let newIndex = -1;
+      let targetOrdre: number | null = null;
       
-      // Cas 1 : Drop sur une autre page existante
+      // Cas 1 : Drop sur une autre page existante (échange)
       const targetPage = pages.find((p) => p._id === over.id);
       if (targetPage) {
-        newIndex = pages.findIndex((p) => p._id === over.id);
-      }
-      
-      // Cas 2 : Drop sur un emplacement vide
-      if (newIndex === -1 && typeof over.id === 'string' && over.id.startsWith('empty-slot-')) {
-        const targetOrdre = parseInt(over.id.replace('empty-slot-', ''), 10);
-        // Insérer à la position targetOrdre
-        newIndex = targetOrdre - 1; // ordre est 1-based, index est 0-based
-      }
-      
-      if (newIndex === -1 || newIndex === oldIndex) return;
-      
-      // Réorganiser
-      const newPages = arrayMove(pages, oldIndex, newIndex);
-
-      // Mettre à jour les numéros d'ordre
-      const reorderedPages = newPages.map((p, idx) => ({
-        ...p,
-        ordre: idx + 1,
-      }));
-
-      setPages(reorderedPages);
-      
-      console.log(`🔄 Déplacement page ${oldIndex + 1} → ${newIndex + 1}`);
-
-      // Sauvegarder l'ordre
-      try {
-        await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/reorder`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            pages: reorderedPages.map((p) => ({ _id: p._id, ordre: p.ordre })),
-          }),
+        targetOrdre = targetPage.ordre;
+        console.log(`🔄 Échange page ${activePage.ordre} ↔️ page ${targetOrdre}`);
+        
+        // Échanger les ordres
+        const updatedPages = pages.map((p) => {
+          if (p._id === activePage._id) return { ...p, ordre: targetOrdre! };
+          if (p._id === targetPage._id) return { ...p, ordre: activePage.ordre };
+          return p;
         });
-        console.log('✅ Ordre sauvegardé');
-      } catch (err) {
-        console.error('❌ Erreur réorganisation:', err);
-        loadPages(); // Recharger en cas d'erreur
+
+        setPages(updatedPages);
+
+        // Sauvegarder
+        try {
+          await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/reorder`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              pages: updatedPages.map((p) => ({ _id: p._id, ordre: p.ordre })),
+            }),
+          });
+          console.log('✅ Échange sauvegardé');
+        } catch (err) {
+          console.error('❌ Erreur échange:', err);
+          loadPages();
+        }
+        return;
+      }
+      
+      // Cas 2 : Drop sur un emplacement vide (déplacement libre)
+      if (typeof over.id === 'string' && over.id.startsWith('empty-slot-')) {
+        targetOrdre = parseInt(over.id.replace('empty-slot-', ''), 10);
+        console.log(`🔄 Déplacement page ${activePage.ordre} → position ${targetOrdre}`);
+        
+        // Simplement changer l'ordre de cette page
+        const updatedPages = pages.map((p) => {
+          if (p._id === activePage._id) return { ...p, ordre: targetOrdre! };
+          return p;
+        });
+
+        setPages(updatedPages);
+
+        // Sauvegarder
+        try {
+          await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${activePage._id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ ordre: targetOrdre }),
+          });
+          console.log(`✅ Page déplacée vers position ${targetOrdre}`);
+        } catch (err) {
+          console.error('❌ Erreur déplacement:', err);
+          loadPages();
+        }
       }
     }
   };

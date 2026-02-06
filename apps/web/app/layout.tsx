@@ -4,6 +4,9 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Redactor Guide - Administration',
   description: 'Gestion des guides touristiques',
+  icons: {
+    icon: '/favicon.svg',
+  },
 };
 
 export default function RootLayout({

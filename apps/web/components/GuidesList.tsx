@@ -11,7 +11,7 @@ interface Guide {
   version: string;
   language: string;
   status: string;
-  destinations: string[];
+  destination: string; // 1 guide = 1 destination
   wpConfig?: {
     siteUrl: string;
     jwtToken: string;
@@ -181,7 +181,7 @@ export default function GuidesList({ onCreateGuide, onEditGuide }: GuidesListPro
                     {guide.year}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">
-                    {guide.destinations?.length || 0} destination{(guide.destinations?.length || 0) > 1 ? 's' : ''}
+                    {guide.destination || 'Non définie'}
                   </td>
                   <td className="px-6 py-4">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(guide.status)}`}>

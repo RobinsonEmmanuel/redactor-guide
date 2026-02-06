@@ -247,9 +247,11 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         page_id: nanoid(10),
         titre: `Nouvelle page ${template.name}`,
         template_id: template._id,
-        type_de_page: '',
+        type_de_page: undefined, // ✅ undefined au lieu de ''
         statut_editorial: 'draft',
         ordre: targetOrder || pages.length + 1,
+        url_source: undefined, // ✅ undefined au lieu de manquant
+        commentaire_interne: undefined, // ✅ undefined au lieu de manquant
       };
 
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages`, {
@@ -261,9 +263,14 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
 
       if (res.ok) {
         loadPages();
+      } else {
+        const errorData = await res.json();
+        console.error('❌ Erreur création page depuis template:', errorData);
+        alert(`Erreur: ${errorData.error || 'Impossible de créer la page'}`);
       }
     } catch (err) {
       console.error('Erreur création page depuis template:', err);
+      alert('Erreur lors de la création de la page');
     }
   };
 

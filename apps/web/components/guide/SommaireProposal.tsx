@@ -37,10 +37,18 @@ interface SommaireProposalProps {
   apiUrl: string;
 }
 
-function ProposalCard({ id, type, title, description, icon: Icon, color }: any) {
+function ProposalCard({ id, type, title, description, icon: Icon, color, articleSlug, url }: any) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `proposal-${type}-${id}`,
-    data: { type, id, title, description },
+    data: { 
+      type: 'proposal', 
+      proposalType: type, 
+      id, 
+      title, 
+      description,
+      articleSlug, // Slug de l'article WordPress source (pour POI)
+      url,
+    },
   });
 
   const style = transform
@@ -231,6 +239,7 @@ export default function SommaireProposal({ guideId, apiUrl }: SommaireProposalPr
                       description={`${poi.type} — ${poi.raison_selection}`}
                       icon={MapPinIcon}
                       color="green"
+                      articleSlug={poi.article_source} // Slug de l'article WordPress
                     />
                   ))}
                 </div>

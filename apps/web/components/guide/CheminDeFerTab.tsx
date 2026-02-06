@@ -392,6 +392,56 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     }
   };
 
+  const handleAddMultiplePages = async (count: number) => {
+    if (count < 1 || count > 50) {
+      alert('Veuillez saisir un nombre entre 1 et 50');
+      return;
+    }
+
+    setAddingPages(true);
+
+    try {
+      // Trouver le template par défaut
+      const defaultTemplate = templates.find((t) => t.name.toLowerCase().includes('défaut') || t.name.toLowerCase().includes('default'));
+      if (!defaultTemplate) {
+        alert('Aucun template par défaut trouvé. Veuillez en créer un.');
+        setAddingPages(false);
+        return;
+      }
+
+      // Créer les pages une par une
+      const startOrder = pages.length > 0 ? Math.max(...pages.map((p) => p.ordre)) + 1 : 1;
+
+      for (let i = 0; i < count; i++) {
+        const pageData = {
+          page_id: nanoid(10),
+          titre: `Page ${startOrder + i}`,
+          template_id: defaultTemplate._id,
+          ordre: startOrder + i,
+          statut_editorial: 'draft',
+          type_de_page: '',
+          url_source: '',
+          commentaire_interne: '',
+        };
+
+        await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(pageData),
+        });
+      }
+
+      await loadPages();
+      setShowAddPagesModal(false);
+    } catch (err) {
+      console.error('Erreur création pages:', err);
+      alert('Erreur lors de la création des pages');
+    } finally {
+      setAddingPages(false);
+    }
+  };
+
   const handleSavePage = async (pageData: any) => {
     try {
       if (editingPage) {

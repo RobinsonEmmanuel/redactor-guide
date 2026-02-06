@@ -49,7 +49,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
   // Articles récupérés pour un guide (avec pagination)
   fastify.get('/guides/:id/articles', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { page = '1', limit = '20' } = request.query as { page?: string; limit?: string };
+    const { page = '1', limit = '20', slug } = request.query as { page?: string; limit?: string; slug?: string };
     const db = request.server.container.db;
     
     try {
@@ -64,7 +64,12 @@ export async function guidesRoutes(fastify: FastifyInstance) {
       const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10))); // Max 100 par page
       const skip = (pageNum - 1) * limitNum;
 
-      const query = { site_id: guide.slug };
+      const query: any = { site_id: guide.slug };
+      
+      // Si un slug spécifique est demandé (pour récupérer un article précis)
+      if (slug) {
+        query.slug = slug;
+      }
 
       // Compter le total (avec cache si possible)
       const total = await db.collection('articles_raw').countDocuments(query);

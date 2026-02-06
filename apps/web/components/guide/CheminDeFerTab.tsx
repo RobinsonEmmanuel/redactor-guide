@@ -276,8 +276,9 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         return;
       }
 
-      // Récupérer l'image de l'article WordPress si disponible (pour les POI)
+      // Récupérer l'image ET l'URL de l'article WordPress si disponible (pour les POI)
       let imageUrl: string | undefined;
+      let articleUrl: string | undefined;
       if (proposalData.proposalType === 'poi' && proposalData.articleSlug) {
         try {
           const articleRes = await fetch(
@@ -287,25 +288,47 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
           if (articleRes.ok) {
             const articleData = await articleRes.json();
             const article = articleData.articles?.[0];
-            if (article && article.images && article.images.length > 0) {
-              imageUrl = article.images[0]; // Première image de l'article
-              console.log(`📸 Image récupérée pour "${proposalData.title}": ${imageUrl}`);
+            if (article) {
+              // Récupérer l'image
+              if (article.images && article.images.length > 0) {
+                imageUrl = article.images[0];
+                console.log(`📸 Image récupérée pour "${proposalData.title}": ${imageUrl}`);
+              }
+              // Récupérer l'URL en français
+              if (article.url_francais) {
+                articleUrl = article.url_francais;
+                console.log(`🔗 URL source récupérée pour "${proposalData.title}": ${articleUrl}`);
+              }
             }
           }
         } catch (err) {
-          console.warn('Impossible de récupérer l\'image de l\'article:', err);
+          console.warn('Impossible de récupérer les données de l\'article:', err);
+        }
+      }
+
+      // Sélectionner le bon template en fonction du type de proposition
+      let selectedTemplate = defaultTemplate;
+      if (proposalData.proposalType === 'poi') {
+        // Chercher le template POI
+        const poiTemplate = templates.find((t) => 
+          t.name.toLowerCase().includes('poi') || 
+          t.name.toLowerCase().includes('point')
+        );
+        if (poiTemplate) {
+          selectedTemplate = poiTemplate;
+          console.log(`✅ Template POI sélectionné: ${selectedTemplate.name}`);
         }
       }
 
       const pageData = {
         page_id: nanoid(10),
         titre: proposalData.title,
-        template_id: defaultTemplate._id,
+        template_id: selectedTemplate._id, // Template POI pour les POI
         type_de_page: proposalData.proposalType || '',
         statut_editorial: 'draft',
         ordre: targetOrder || pages.length + 1,
         section_id: proposalData.id,
-        url_source: proposalData.url,
+        url_source: articleUrl || proposalData.url, // URL récupérée de l'article WordPress
         image_url: imageUrl, // Image de l'article WordPress
       };
 

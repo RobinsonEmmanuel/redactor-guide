@@ -84,21 +84,24 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
 
   const loadArticles = async () => {
     try {
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/articles`, {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/articles?limit=1000`, {
         credentials: 'include',
       });
       if (res.ok) {
         const data = await res.json();
-        setArticles(data);
+        setArticles(data.articles || []); // ✅ Extraire le tableau articles
       }
     } catch (err) {
       console.error('Erreur chargement articles:', err);
+      setArticles([]); // Fallback en cas d'erreur
     }
   };
 
-  const filteredArticles = articles.filter((article) =>
-    article.titre.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredArticles = Array.isArray(articles) 
+    ? articles.filter((article) =>
+        article.titre.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : [];
 
   const handleSelectArticle = (article: WordPressArticle) => {
     setFormData({ ...formData, url_source: article.url_francais });

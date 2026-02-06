@@ -14,6 +14,7 @@ import {
   RectangleStackIcon,
   MapPinIcon,
   LightBulbIcon,
+  PlusIcon,
 } from '@heroicons/react/24/outline';
 
 interface Page {
@@ -51,6 +52,10 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   const [loadingProposal, setLoadingProposal] = useState(false);
   const [proposal, setProposal] = useState<any>(null);
   const [proposalError, setProposalError] = useState<string | null>(null);
+
+  // États pour l'ajout multiple de pages
+  const [showAddPagesModal, setShowAddPagesModal] = useState(false);
+  const [addingPages, setAddingPages] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -621,6 +626,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
               onDelete={handleDeletePage}
               onOpenContent={handleOpenContent}
               isEmpty={pages.length === 0}
+              onAddPages={() => setShowAddPagesModal(true)}
             />
           </div>
         </div>
@@ -653,6 +659,14 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
           content={currentPageContent}
           onClose={() => setShowContentModal(false)}
           onSave={handleSaveContent}
+        />
+      )}
+
+      {showAddPagesModal && (
+        <AddPagesModal
+          onClose={() => setShowAddPagesModal(false)}
+          onConfirm={handleAddMultiplePages}
+          isLoading={addingPages}
         />
       )}
     </div>
@@ -777,12 +791,14 @@ function CheminDeFerGrid({
   onDelete,
   onOpenContent,
   isEmpty,
+  onAddPages,
 }: {
   pages: Page[];
   onEdit: (page: Page) => void;
   onDelete: (pageId: string) => void;
   onOpenContent: (page: Page) => void;
   isEmpty: boolean;
+  onAddPages: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: 'chemin-de-fer-grid',
@@ -834,8 +850,121 @@ function CheminDeFerGrid({
                 );
               }
             })}
+            
+            {/* Carte + pour ajouter plusieurs pages */}
+            <AddPagesCard onClick={onAddPages} />
           </div>
         </SortableContext>
+      </div>
+    </div>
+  );
+}
+
+// Composant Carte + pour ajouter plusieurs pages
+function AddPagesCard({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="relative bg-gradient-to-br from-green-50 to-green-100 rounded-lg border-2 border-dashed border-green-300 hover:border-green-500 hover:from-green-100 hover:to-green-200 transition-all cursor-pointer group"
+      style={{ minHeight: '180px' }}
+    >
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+        <div className="w-12 h-12 rounded-full bg-green-500 group-hover:bg-green-600 flex items-center justify-center transition-colors shadow-md">
+          <PlusIcon className="w-7 h-7 text-white" />
+        </div>
+        <div className="text-sm font-semibold text-green-700 group-hover:text-green-800">
+          Ajouter pages
+        </div>
+        <div className="text-xs text-green-600">
+          En masse
+        </div>
+      </div>
+    </button>
+  );
+}
+
+// Modale pour ajouter plusieurs pages
+function AddPagesModal({ 
+  onClose, 
+  onConfirm, 
+  isLoading 
+}: { 
+  onClose: () => void; 
+  onConfirm: (count: number) => void; 
+  isLoading: boolean;
+}) {
+  const [count, setCount] = useState(10);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onConfirm(count);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-900">Ajouter plusieurs pages</h2>
+          <button
+            onClick={onClose}
+            disabled={isLoading}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            <span className="text-xl">×</span>
+          </button>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Nombre de pages à créer
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="50"
+              value={count}
+              onChange={(e) => setCount(parseInt(e.target.value) || 1)}
+              disabled={isLoading}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-center text-2xl font-bold"
+              required
+            />
+            <p className="mt-2 text-xs text-gray-500">
+              Les pages seront créées avec le template par défaut et ajoutées à la suite
+            </p>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-3 pt-4 border-t border-gray-200">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isLoading}
+              className="flex-1 px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              Annuler
+            </button>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="flex-1 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {isLoading ? (
+                <>
+                  <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                  Création...
+                </>
+              ) : (
+                <>
+                  <PlusIcon className="w-4 h-4" />
+                  Créer {count} page{count > 1 ? 's' : ''}
+                </>
+              )}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

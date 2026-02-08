@@ -411,7 +411,12 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
 
         // Déclencher le worker via QStash
         const qstashToken = process.env.QSTASH_TOKEN;
-        const workerUrl = process.env.INGEST_WORKER_URL || process.env.RAILWAY_PUBLIC_DOMAIN || process.env.API_URL;
+        let workerUrl = process.env.INGEST_WORKER_URL || process.env.RAILWAY_PUBLIC_DOMAIN || process.env.API_URL;
+        
+        // Ajouter https:// si absent
+        if (workerUrl && !workerUrl.startsWith('http://') && !workerUrl.startsWith('https://')) {
+          workerUrl = `https://${workerUrl}`;
+        }
 
         console.log(`🔧 [Config] QSTASH_TOKEN: ${qstashToken ? '✅ présent' : '❌ manquant'}`);
         console.log(`🔧 [Config] workerUrl: ${workerUrl || '❌ manquant'}`);

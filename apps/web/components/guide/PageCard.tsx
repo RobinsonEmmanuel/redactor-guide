@@ -65,12 +65,34 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent }: Page
 
   const statusColor = STATUS_COLORS[page.statut_editorial || 'draft'];
   const statusLabel = STATUS_LABELS[page.statut_editorial || 'draft'];
+  
+  // Déterminer la bordure et l'effet selon le statut
+  const isGenerating = page.statut_editorial === 'en_attente';
+  const isGenerated = page.statut_editorial === 'generee_ia';
+  const isNonConforme = page.statut_editorial === 'non_conforme';
+  const isValidated = page.statut_editorial === 'validee';
+  
+  let cardBorderClass = 'border-gray-200';
+  let cardExtraClass = '';
+  
+  if (isGenerating) {
+    cardBorderClass = 'border-blue-300 shadow-blue-100';
+    cardExtraClass = 'animate-pulse-slow ring-2 ring-blue-200';
+  } else if (isNonConforme) {
+    cardBorderClass = 'border-red-300';
+    cardExtraClass = 'ring-1 ring-red-200';
+  } else if (isGenerated) {
+    cardBorderClass = 'border-blue-200';
+  } else if (isValidated) {
+    cardBorderClass = 'border-green-300';
+    cardExtraClass = 'ring-1 ring-green-100';
+  }
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow group"
+      className={`bg-white rounded-lg border overflow-hidden hover:shadow-lg transition-all group ${cardBorderClass} ${cardExtraClass}`}
     >
       {/* Miniature avec image de fond si disponible - TOUTE LA ZONE EST DRAGGABLE */}
       <div 
@@ -141,18 +163,76 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent }: Page
 
         {/* Actions */}
         <div className="flex gap-2 pt-2 border-t border-gray-100">
-          <button
-            onClick={onOpenContent}
-            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-green-600 hover:bg-green-50 rounded transition-colors"
-            title="Rédiger le contenu"
-          >
-            <DocumentTextIcon className="h-3.5 w-3.5" />
-            Rédiger
-          </button>
+          {/* Bouton Rédiger avec état visuel selon statut */}
+          {(() => {
+            const isGenerating = page.statut_editorial === 'en_attente';
+            const isGenerated = page.statut_editorial === 'generee_ia';
+            const isNonConforme = page.statut_editorial === 'non_conforme';
+            const hasContent = isGenerated || isNonConforme || page.statut_editorial === 'relue' || page.statut_editorial === 'validee';
+            
+            if (isGenerating) {
+              return (
+                <button
+                  onClick={onOpenContent}
+                  disabled
+                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded cursor-wait"
+                  title="Génération en cours..."
+                >
+                  <svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Génération...
+                </button>
+              );
+            }
+            
+            if (isNonConforme) {
+              return (
+                <button
+                  onClick={onOpenContent}
+                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 rounded transition-colors border border-red-200"
+                  title="Erreur de génération - Cliquez pour corriger"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  Corriger
+                </button>
+              );
+            }
+            
+            if (hasContent) {
+              return (
+                <button
+                  onClick={onOpenContent}
+                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-green-600 hover:bg-green-50 rounded transition-colors"
+                  title="Modifier le contenu généré"
+                >
+                  <DocumentTextIcon className="h-3.5 w-3.5" />
+                  Éditer
+                </button>
+              );
+            }
+            
+            return (
+              <button
+                onClick={onOpenContent}
+                className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                title="Rédiger le contenu"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                Rédiger
+              </button>
+            );
+          })()}
+          
           <button
             onClick={onEdit}
-            className="flex items-center justify-center px-2 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded transition-colors"
-            title="Modifier les infos"
+            className="flex items-center justify-center px-2 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 rounded transition-colors"
+            title="Modifier les paramètres"
           >
             <PencilIcon className="h-3.5 w-3.5" />
           </button>

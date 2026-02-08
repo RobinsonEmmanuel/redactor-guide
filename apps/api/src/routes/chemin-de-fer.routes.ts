@@ -403,7 +403,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           { _id: new ObjectId(pageId) },
           { 
             $set: { 
-              statut_editorial: 'generee_ia',
+              statut_editorial: 'en_attente', // ✅ En attente pendant la génération
               updated_at: new Date().toISOString() 
             } 
           }

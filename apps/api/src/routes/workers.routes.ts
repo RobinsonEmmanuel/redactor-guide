@@ -20,46 +20,57 @@ export async function workersRoutes(fastify: FastifyInstance) {
         throw new Error('OPENAI_API_KEY non configurée');
       }
 
-      // Générer le contenu via IA
+      // Générer le contenu via IA (avec retry automatique intégré)
       const redactionService = new PageRedactionService(db, openaiApiKey);
       const result = await redactionService.generatePageContent(guideId, pageId);
 
-      if (result.status === 'error') {
-        console.error(`❌ [WORKER] Erreur génération: ${result.error}`);
-        
-        // Marquer la page en erreur
-        await db.collection('pages').updateOne(
-          { _id: new ObjectId(pageId) },
-          { 
-            $set: { 
-              statut_editorial: 'non_conforme',
-              commentaire_interne: `Erreur IA: ${result.error}`,
-              updated_at: new Date().toISOString() 
-            } 
-          }
-        );
+      // Déterminer le statut éditorial selon le résultat
+      let statutEditorial = 'draft';
+      let commentaire: string | undefined;
 
-        return reply.status(500).send({ error: result.error });
+      if (result.status === 'success') {
+        statutEditorial = 'generee_ia';
+        commentaire = result.retryCount && result.retryCount > 0
+          ? `Généré avec succès après ${result.retryCount} tentative(s)`
+          : undefined;
+        console.log(`✅ [WORKER] Génération réussie après ${result.retryCount || 0} retry(s)`);
+      } else if (result.validationErrors && result.validationErrors.length > 0) {
+        // Validation échouée après retries
+        statutEditorial = 'non_conforme';
+        const failedFieldsSummary = result.validationErrors
+          .map((e) => `${e.field} (${e.errors.length} erreur(s))`)
+          .join(', ');
+        commentaire = `Validation échouée après ${result.retryCount || 0} tentative(s): ${failedFieldsSummary}`;
+        console.error(`❌ [WORKER] Validation non conforme:`, commentaire);
+      } else {
+        // Autre erreur
+        statutEditorial = 'non_conforme';
+        commentaire = `Erreur IA: ${result.error || 'Erreur inconnue'}`;
+        console.error(`❌ [WORKER] Erreur génération:`, commentaire);
       }
 
-      // Sauvegarder le contenu généré
+      // Sauvegarder le contenu généré (même si validation échoue, pour permettre édition manuelle)
       await db.collection('pages').updateOne(
         { _id: new ObjectId(pageId) },
         { 
           $set: { 
             content: result.content,
-            statut_editorial: 'generee_ia',
+            statut_editorial: statutEditorial,
+            ...(commentaire && { commentaire_interne: commentaire }),
             updated_at: new Date().toISOString() 
           } 
         }
       );
 
-      console.log(`✅ [WORKER] Contenu généré et sauvegardé pour page ${pageId}`);
+      console.log(`✅ [WORKER] Contenu sauvegardé pour page ${pageId} (statut: ${statutEditorial})`);
 
       return reply.send({ 
-        success: true, 
+        success: result.status === 'success', 
         pageId,
-        fieldsGenerated: Object.keys(result.content).length
+        fieldsGenerated: Object.keys(result.content).length,
+        statutEditorial,
+        retryCount: result.retryCount || 0,
+        validationErrors: result.validationErrors
       });
     } catch (error: any) {
       console.error(`❌ [WORKER] Erreur fatale:`, error);

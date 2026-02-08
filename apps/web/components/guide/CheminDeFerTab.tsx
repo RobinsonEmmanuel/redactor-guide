@@ -356,7 +356,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         page_id: nanoid(10),
         titre: proposalData.title,
         template_id: selectedTemplate._id, // Template POI pour les POI
-        type_de_page: proposalData.type || proposalData.proposalType || undefined, // ✅ undefined au lieu de ''
+        type_de_page: proposalData.poiType || undefined, // ✅ Utiliser poiType (musée, plage, etc.) pour les POI
         statut_editorial: 'draft',
         ordre: targetOrder || pages.length + 1,
         section_id: proposalData.id,
@@ -699,6 +699,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                               color="green"
                               articleSlug={poi.article_source}
                               autresArticlesMentions={poi.autres_articles_mentions}
+                              poiType={poi.type}
                             />
                           ))}
                         </div>
@@ -867,7 +868,7 @@ function TemplatePaletteItemMini({ template }: { template: any }) {
 }
 
 // Composant Proposition IA MINI pour la palette
-function ProposalCardMini({ id, type, title, description, icon: Icon, color, articleSlug, autresArticlesMentions }: any) {
+function ProposalCardMini({ id, type, title, description, icon: Icon, color, articleSlug, autresArticlesMentions, poiType }: any) {
   const [showOthers, setShowOthers] = useState(false);
   
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -879,7 +880,8 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color, art
       title, 
       description, 
       articleSlug,
-      autresArticlesMentions 
+      autresArticlesMentions,
+      poiType // ✅ Ajouter le type du POI (musée, plage, etc.)
     },
   });
 

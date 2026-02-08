@@ -10,6 +10,7 @@ interface TemplateField {
   name: string;
   label?: string;
   description?: string;
+  ai_instructions?: string; // ✅ Ajout
   order: number;
   max_chars?: number;
   list_size?: number;
@@ -103,6 +104,24 @@ export default function SortableFieldItem({
               rows={2}
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
+          </div>
+
+          {/* Instructions IA */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-2">
+              <span className="text-purple-600">🤖</span>
+              Instructions pour l'IA (optionnel)
+            </label>
+            <textarea
+              value={field.ai_instructions || ''}
+              onChange={(e) => onChange({ ai_instructions: e.target.value })}
+              placeholder="Ex: Générer un titre court et accrocheur à partir du titre de l'article WordPress, maximum 60 caractères..."
+              rows={3}
+              className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-purple-50/30"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Guide l'IA pour remplir automatiquement ce champ à partir des articles WordPress
+            </p>
           </div>
 
           {/* Options spécifiques */}

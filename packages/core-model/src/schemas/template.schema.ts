@@ -37,6 +37,9 @@ export const TemplateFieldSchema = z.object({
   /** Description ou note pour ce champ (optionnel) */
   description: z.string().optional(),
   
+  /** Instructions pour l'IA lors du remplissage automatique (optionnel) */
+  ai_instructions: z.string().optional(),
+  
   /** Position dans le template (ordre d'affichage) */
   order: z.number().int().min(0),
   

@@ -15,6 +15,7 @@ interface TemplateField {
   name: string;
   label?: string;
   description?: string;
+  ai_instructions?: string; // ✅ Ajout
   order: number;
   max_chars?: number;
   list_size?: number;

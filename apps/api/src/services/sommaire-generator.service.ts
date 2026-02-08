@@ -116,8 +116,8 @@ export class SommaireGeneratorService {
       const inspirationsResult = await this.generateInspirations(
         promptInspirations,
         destination,
-        sections,
-        pois
+        sections || [],
+        pois || []
       );
       console.log(`✅ ${inspirationsResult.inspirations.length} pages inspiration générées`);
       proposal.inspirations = inspirationsResult.inspirations;
@@ -240,8 +240,9 @@ export class SommaireGeneratorService {
 
   /**
    * Sauvegarder la proposition de sommaire
+   * (Méthode privée, utilisée par chemin-de-fer.routes.ts pour fusionner les parties)
    */
-  private async saveProposal(guideId: string, proposal: SommaireProposal): Promise<void> {
+  async saveProposal(guideId: string, proposal: SommaireProposal): Promise<void> {
     await this.db.collection('sommaire_proposals').updateOne(
       { guide_id: guideId },
       {

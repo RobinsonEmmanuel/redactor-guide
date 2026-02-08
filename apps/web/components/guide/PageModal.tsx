@@ -36,6 +36,18 @@ const PAGE_TYPES = [
   { value: 'conseil', label: 'Conseil' },
 ];
 
+const POI_TYPES = [
+  { value: 'musée', label: 'Musée' },
+  { value: 'site_culturel', label: 'Site culturel' },
+  { value: 'village', label: 'Village' },
+  { value: 'ville', label: 'Ville' },
+  { value: 'plage', label: 'Plage' },
+  { value: 'site_naturel', label: 'Site naturel' },
+  { value: 'panorama', label: 'Panorama' },
+  { value: 'quartier', label: 'Quartier' },
+  { value: 'autre', label: 'Autre' },
+];
+
 const PAGE_STATUS = [
   { value: 'draft', label: 'Brouillon' },
   { value: 'generee_ia', label: 'Générée par IA' },
@@ -184,23 +196,40 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
             </p>
           </div>
 
-          {/* Type de page */}
+          {/* Type de page / Type de POI */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Type de page
-            </label>
-            <select
-              value={formData.type_de_page}
-              onChange={(e) => setFormData({ ...formData, type_de_page: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">Aucun type spécifique</option>
-              {PAGE_TYPES.map((type) => (
-                <option key={type.value} value={type.value}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
+            {(() => {
+              const selectedTemplate = templates.find(t => t._id === formData.template_id);
+              const isPoiTemplate = selectedTemplate?.name.toLowerCase().includes('poi') || 
+                                   selectedTemplate?.name.toLowerCase().includes('point');
+              const typesList = isPoiTemplate ? POI_TYPES : PAGE_TYPES;
+              const label = isPoiTemplate ? 'Type de POI' : 'Type de page';
+              
+              return (
+                <>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {label}
+                  </label>
+                  <select
+                    value={formData.type_de_page}
+                    onChange={(e) => setFormData({ ...formData, type_de_page: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">{isPoiTemplate ? 'Sélectionner un type' : 'Aucun type spécifique'}</option>
+                    {typesList.map((type) => (
+                      <option key={type.value} value={type.value}>
+                        {type.label}
+                      </option>
+                    ))}
+                  </select>
+                  {isPoiTemplate && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Type de point d'intérêt (musée, plage, village, etc.)
+                    </p>
+                  )}
+                </>
+              );
+            })()}
           </div>
 
           {/* Statut */}

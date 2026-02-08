@@ -301,9 +301,9 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                 imageUrl = article.images[0];
                 console.log(`📸 Image récupérée pour "${proposalData.title}": ${imageUrl}`);
               }
-              // Récupérer l'URL en français
-              if (article.url_francais) {
-                articleUrl = article.url_francais;
+              // Récupérer l'URL en français (structure correcte: urls_by_lang.fr)
+              if (article.urls_by_lang?.fr) {
+                articleUrl = article.urls_by_lang.fr;
                 console.log(`🔗 URL source récupérée pour "${proposalData.title}": ${articleUrl}`);
               }
             }
@@ -331,13 +331,20 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         page_id: nanoid(10),
         titre: proposalData.title,
         template_id: selectedTemplate._id, // Template POI pour les POI
-        type_de_page: proposalData.proposalType || '',
+        type_de_page: proposalData.type || proposalData.proposalType || '', // ✅ Utiliser le type du POI (musée, plage, etc.)
         statut_editorial: 'draft',
         ordre: targetOrder || pages.length + 1,
         section_id: proposalData.id,
         url_source: articleUrl || proposalData.url, // URL récupérée de l'article WordPress
         image_url: imageUrl, // Image de l'article WordPress
       };
+
+      console.log('📄 Données page POI:', {
+        titre: pageData.titre,
+        type_de_page: pageData.type_de_page,
+        url_source: pageData.url_source,
+        has_image: !!pageData.image_url
+      });
 
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages`, {
         method: 'POST',

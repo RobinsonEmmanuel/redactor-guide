@@ -68,14 +68,27 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
   
   // Extraire le type POI et les autres mentions du commentaire interne
   const extractPoiData = (commentaire: string) => {
-    if (!commentaire) return { poiType: '', otherMentions: [] };
+    if (!commentaire) return { poiType: '', otherMentions: [], userComment: '' };
     
     const poiTypeMatch = commentaire.match(/Type POI:\s*([^\|]+)/);
     const mentionsMatch = commentaire.match(/Autres mentions:\s*(.+)/);
     
+    // Nettoyer le commentaire pour ne garder que les notes utilisateur
+    let userComment = commentaire;
+    if (poiTypeMatch) {
+      userComment = userComment.replace(/Type POI:\s*[^\|]+\s*\|\s*/, '');
+      userComment = userComment.replace(/Type POI:\s*[^\|]+/, '');
+    }
+    if (mentionsMatch) {
+      userComment = userComment.replace(/\s*\|\s*Autres mentions:\s*.+/, '');
+      userComment = userComment.replace(/Autres mentions:\s*.+/, '');
+    }
+    userComment = userComment.trim();
+    
     return {
       poiType: poiTypeMatch ? poiTypeMatch[1].trim() : '',
-      otherMentions: mentionsMatch ? mentionsMatch[1].split(',').map(s => s.trim()) : []
+      otherMentions: mentionsMatch ? mentionsMatch[1].split(',').map(s => s.trim()) : [],
+      userComment: userComment || ''
     };
   };
   
@@ -89,7 +102,7 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
     poi_type_extracted: extractedData.poiType, // ✅ Type POI extrait
     statut_editorial: page?.statut_editorial || 'draft',
     url_source: page?.url_source || '',
-    commentaire_interne: page?.commentaire_interne || '',
+    commentaire_interne: extractedData.userComment, // ✅ Commentaire nettoyé (sans métadonnées POI)
     other_mentions: extractedData.otherMentions, // ✅ Autres mentions extraites
   });
 
@@ -153,18 +166,27 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
                          selectedTemplate?.name.toLowerCase().includes('point');
     
     let reconstructedComment = '';
+    
+    // Pour les POI, reconstruire avec les métadonnées
     if (isPoiTemplate && formData.poi_type_extracted) {
       reconstructedComment = `Type POI: ${formData.poi_type_extracted}`;
       if (formData.other_mentions && formData.other_mentions.length > 0) {
         reconstructedComment += ` | Autres mentions: ${formData.other_mentions.join(', ')}`;
       }
+      // Ajouter les notes utilisateur si présentes
+      if (formData.commentaire_interne) {
+        reconstructedComment += ` | ${formData.commentaire_interne}`;
+      }
+    } else {
+      // Pour les autres types de page, garder le commentaire tel quel
+      reconstructedComment = formData.commentaire_interne;
     }
 
     // Nettoyer les champs vides (notamment url_source qui doit être une URL valide ou undefined)
     const cleanedData = {
       ...formData,
       url_source: formData.url_source || undefined,
-      commentaire_interne: reconstructedComment || formData.commentaire_interne || undefined,
+      commentaire_interne: reconstructedComment || undefined,
       type_de_page: formData.type_de_page || undefined,
       // Retirer les champs UI uniquement
       poi_type_extracted: undefined,

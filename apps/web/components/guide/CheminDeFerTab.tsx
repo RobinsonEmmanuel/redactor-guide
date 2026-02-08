@@ -457,6 +457,41 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     }
   };
 
+  const handleClearAllPages = async () => {
+    if (pages.length === 0) {
+      alert('Le chemin de fer est déjà vide.');
+      return;
+    }
+
+    const confirmMessage = `⚠️ ATTENTION : Vous allez supprimer TOUTES les ${pages.length} page${pages.length !== 1 ? 's' : ''} du chemin de fer.\n\nCette action est irréversible.\n\nÊtes-vous sûr de vouloir continuer ?`;
+    
+    if (!confirm(confirmMessage)) return;
+
+    // Double confirmation pour éviter les suppressions accidentelles
+    const doubleConfirm = confirm(`Dernière confirmation : Supprimer définitivement les ${pages.length} page${pages.length !== 1 ? 's' : ''} ?`);
+    if (!doubleConfirm) return;
+
+    try {
+      // Supprimer toutes les pages en parallèle
+      const deletePromises = pages.map((page) =>
+        fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        })
+      );
+
+      await Promise.all(deletePromises);
+      
+      console.log(`✅ ${pages.length} page${pages.length !== 1 ? 's' : ''} supprimée${pages.length !== 1 ? 's' : ''}`);
+      alert(`✅ Chemin de fer vidé avec succès (${pages.length} page${pages.length !== 1 ? 's' : ''} supprimée${pages.length !== 1 ? 's' : ''})`);
+      
+      loadPages();
+    } catch (err) {
+      console.error('Erreur suppression en masse:', err);
+      alert('❌ Erreur lors de la suppression des pages');
+    }
+  };
+
   const handleAddMultipleSlots = (count: number) => {
     if (count < 1 || count > 100) {
       alert('Veuillez saisir un nombre entre 1 et 100');
@@ -723,8 +758,22 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                   {pages.length} page{pages.length !== 1 ? 's' : ''}
                 </p>
               </div>
-              <div className="text-xs text-gray-500">
-                💡 Glissez depuis la palette
+              <div className="flex items-center gap-3">
+                <div className="text-xs text-gray-500">
+                  💡 Glissez depuis la palette
+                </div>
+                {pages.length > 0 && (
+                  <button
+                    onClick={handleClearAllPages}
+                    className="px-3 py-1.5 text-xs font-medium text-red-600 hover:text-white border border-red-300 hover:bg-red-600 rounded-md transition-colors flex items-center gap-1.5"
+                    title="Vider le chemin de fer (supprimer toutes les pages)"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Vider tout
+                  </button>
+                )}
               </div>
             </div>
           </div>

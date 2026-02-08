@@ -356,15 +356,18 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         page_id: nanoid(10),
         titre: proposalData.title,
         template_id: selectedTemplate._id, // Template POI pour les POI
-        type_de_page: proposalData.poiType || undefined, // ✅ Utiliser poiType (musée, plage, etc.) pour les POI
+        type_de_page: proposalData.proposalType === 'poi' ? 'poi' : proposalData.proposalType, // ✅ Utiliser 'poi' pour les POI (PageTypeEnum)
         statut_editorial: 'draft',
         ordre: targetOrder || pages.length + 1,
         section_id: proposalData.id,
-        url_source: articleUrl || proposalData.url || undefined, // ✅ undefined si pas d'URL
-        image_url: imageUrl || undefined, // ✅ undefined si pas d'image
-        commentaire_interne: proposalData.autresArticlesMentions && proposalData.autresArticlesMentions.length > 0
-          ? `Autres mentions: ${proposalData.autresArticlesMentions.join(', ')}`
-          : undefined,
+        url_source: articleUrl || proposalData.url || undefined,
+        image_url: imageUrl || undefined,
+        commentaire_interne: [
+          proposalData.poiType ? `Type POI: ${proposalData.poiType}` : null, // ✅ Type du POI dans commentaire
+          proposalData.autresArticlesMentions && proposalData.autresArticlesMentions.length > 0
+            ? `Autres mentions: ${proposalData.autresArticlesMentions.join(', ')}`
+            : null,
+        ].filter(Boolean).join(' | ') || undefined,
       };
 
       console.log('📄 Données page POI complètes:', pageData);
@@ -381,7 +384,15 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
       } else {
         const errorData = await res.json();
         console.error('❌ Erreur création page POI:', errorData);
-        alert(`Erreur: ${errorData.error || 'Impossible de créer la page'}`);
+        console.error('📋 Détails validation:', JSON.stringify(errorData.details, null, 2));
+        
+        let errorMessage = `Erreur: ${errorData.error || 'Impossible de créer la page'}`;
+        if (errorData.details && errorData.details.length > 0) {
+          errorMessage += '\n\nDétails:\n' + errorData.details.map((d: any) => 
+            `- ${d.path?.join('.') || 'unknown'}: ${d.message}`
+          ).join('\n');
+        }
+        alert(errorMessage);
       }
     } catch (err) {
       console.error('Erreur création page depuis proposition:', err);

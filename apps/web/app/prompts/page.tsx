@@ -36,6 +36,10 @@ const INTENT_LABELS: Record<string, string> = {
   reformulation: 'Reformulation',
   correction: 'Correction',
   enrichissement: 'Enrichissement',
+  structure_sections: 'Structure sections (sommaire)',
+  selection_pois: 'Sélection POI (sommaire)',
+  pages_inspiration: 'Pages inspiration (sommaire)',
+  regles_ecriture: '📖 Règles d\'écriture',
 };
 
 const INTENT_COLORS: Record<string, string> = {
@@ -48,6 +52,17 @@ const INTENT_COLORS: Record<string, string> = {
   reformulation: 'bg-yellow-100 text-yellow-700',
   correction: 'bg-red-100 text-red-700',
   enrichissement: 'bg-teal-100 text-teal-700',
+  structure_sections: 'bg-cyan-100 text-cyan-700',
+  selection_pois: 'bg-emerald-100 text-emerald-700',
+  pages_inspiration: 'bg-violet-100 text-violet-700',
+  regles_ecriture: 'bg-slate-100 text-slate-700 border-2 border-slate-300', // Distinguished style
+};
+
+// Helper pour identifier les références
+const isReference = (prompt: Prompt) => {
+  return prompt.categories?.includes('editorial') || 
+         prompt.categories?.includes('guidelines') ||
+         prompt.intent === 'regles_ecriture';
 };
 
 export default function PromptsPage() {

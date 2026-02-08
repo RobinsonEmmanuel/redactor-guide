@@ -413,35 +413,56 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         const qstashToken = process.env.QSTASH_TOKEN;
         const workerUrl = process.env.INGEST_WORKER_URL || process.env.RAILWAY_PUBLIC_DOMAIN || process.env.API_URL;
 
+        console.log(`🔧 [Config] QSTASH_TOKEN: ${qstashToken ? '✅ présent' : '❌ manquant'}`);
+        console.log(`🔧 [Config] workerUrl: ${workerUrl || '❌ manquant'}`);
+
         if (qstashToken && workerUrl) {
           // Worker asynchrone via QStash
           const fullWorkerUrl = `${workerUrl}/api/v1/workers/generate-page-content`;
           
           console.log(`📤 [QStash] Envoi job vers ${fullWorkerUrl}`);
           
-          const qstashResponse = await fetch(`https://qstash.upstash.io/v2/publish/${encodeURIComponent(fullWorkerUrl)}`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${qstashToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ guideId, pageId }),
-          });
+          try {
+            const qstashResponse = await fetch(`https://qstash.upstash.io/v2/publish/${encodeURIComponent(fullWorkerUrl)}`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${qstashToken}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ guideId, pageId }),
+            });
 
-          if (!qstashResponse.ok) {
-            const qstashError = await qstashResponse.text();
-            console.error('❌ [QStash] Erreur:', qstashError);
-            throw new Error(`QStash error: ${qstashError}`);
+            if (!qstashResponse.ok) {
+              const qstashError = await qstashResponse.text();
+              console.error('❌ [QStash] Erreur:', qstashError);
+              
+              // Remettre le statut à draft en cas d'erreur
+              await db.collection('pages').updateOne(
+                { _id: new ObjectId(pageId) },
+                { 
+                  $set: { 
+                    statut_editorial: 'non_conforme',
+                    commentaire_interne: `Erreur QStash: ${qstashError}`,
+                    updated_at: new Date().toISOString() 
+                  } 
+                }
+              );
+              
+              throw new Error(`QStash error: ${qstashError}`);
+            }
+
+            console.log(`✅ [QStash] Job envoyé avec succès`);
+
+            return reply.send({ 
+              success: true, 
+              message: 'Rédaction IA lancée en arrière-plan',
+              pageId,
+              async: true
+            });
+          } catch (qstashErr: any) {
+            console.error('❌ [QStash] Exception:', qstashErr);
+            throw qstashErr;
           }
-
-          console.log(`✅ [QStash] Job envoyé avec succès`);
-
-          return reply.send({ 
-            success: true, 
-            message: 'Rédaction IA lancée en arrière-plan',
-            pageId,
-            async: true
-          });
         } else {
           // Fallback : génération synchrone (pour développement)
           const { PageRedactionService } = await import('../services/page-redaction.service');
@@ -477,10 +498,29 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           });
         }
       } catch (error: any) {
+        console.error('❌ [generate-content] Erreur:', error);
         request.log.error(error);
+        
+        // Remettre le statut à non_conforme en cas d'erreur
+        try {
+          await db.collection('pages').updateOne(
+            { _id: new ObjectId(pageId) },
+            { 
+              $set: { 
+                statut_editorial: 'non_conforme',
+                commentaire_interne: `Erreur API: ${error.message}`,
+                updated_at: new Date().toISOString() 
+              } 
+            }
+          );
+        } catch (dbErr) {
+          console.error('❌ Erreur mise à jour statut:', dbErr);
+        }
+        
         return reply.status(500).send({ 
           error: 'Erreur lors de la génération du contenu',
-          details: error.message 
+          details: error.message,
+          stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
       }
     }

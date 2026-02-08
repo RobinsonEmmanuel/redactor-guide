@@ -81,13 +81,15 @@ export default function ContentEditorModal({
           // Génération synchrone (dev) : contenu immédiat
           setFormData(data.content);
           alert('✅ Contenu généré avec succès !');
-        } else {
+        } else if (data.async) {
           // Génération asynchrone (prod) : via worker
           alert('🤖 Génération IA lancée (avec analyse images) ! Le contenu sera disponible dans quelques secondes. Rechargez la page.');
           onClose();
         }
       } else {
-        setError(data.error || 'Erreur lors de la génération');
+        const errorMsg = data.details ? `${data.error}\n\nDétails: ${data.details}` : data.error;
+        setError(errorMsg);
+        console.error('Erreur serveur:', data);
       }
     } catch (err: any) {
       console.error('Erreur génération:', err);

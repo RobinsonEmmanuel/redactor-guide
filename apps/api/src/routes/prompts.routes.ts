@@ -42,10 +42,87 @@ export async function promptsRoutes(fastify: FastifyInstance) {
         version: '1.0.0',
         actif: true,
         },
-        {
-          prompt_id: generateId(),
-          prompt_nom: 'Pages inspiration et profils',
-        intent: 'pages_inspiration',
+      {
+        prompt_id: generateId(),
+        prompt_nom: 'Rédaction automatique de page',
+        intent: 'redaction_page',
+        categories: ['redaction', 'ia', 'contenu'],
+        langue_source: 'fr',
+        texte_prompt: `Rôle :
+Tu es un rédacteur expert travaillant pour Region Lovers, un éditeur de guides touristiques de qualité.
+
+Contexte :
+Tu dois rédiger le contenu d'une page de guide touristique à partir d'un article WordPress existant.
+La page utilise un template avec des champs structurés.
+
+Règles d'écriture Region Lovers :
+{{REGLES_REGION_LOVERS}}
+
+Article WordPress source :
+{{ARTICLE_WORDPRESS}}
+
+Template et instructions :
+{{TEMPLATE_INSTRUCTIONS}}
+
+Objectif :
+Remplir TOUS les champs du template en respectant :
+1. Les instructions IA spécifiques à chaque champ
+2. Les calibres (nombre de caractères max)
+3. Les règles d'écriture Region Lovers
+4. UNIQUEMENT les informations présentes dans l'article WordPress source
+5. Ne JAMAIS inventer d'informations
+
+Contraintes strictes :
+- Respecter impérativement les calibres de chaque champ
+- Ton informatif et agréable (pas marketing)
+- Syntaxe correcte et fluide
+- Si une information n'est pas dans l'article : mettre une chaîne vide ""
+
+Sortie attendue (JSON strict) :
+{
+  "champ_1": "contenu du champ 1",
+  "champ_2": "contenu du champ 2",
+  ...
+}
+
+Important : Retourne UNIQUEMENT le JSON, sans texte avant ou après.`,
+        version: '1.0.0',
+        actif: true,
+      },
+      {
+        prompt_id: generateId(),
+        prompt_nom: 'Règles d\'écriture Region Lovers',
+        intent: 'regles_ecriture',
+        categories: ['editorial', 'guidelines'],
+        langue_source: 'fr',
+        texte_prompt: `# Règles d'écriture Region Lovers
+
+## Ton éditorial
+- Informatif et agréable à lire
+- Éviter le ton marketing ou publicitaire
+- Privilégier les faits et l'expérience concrète
+- S'adresser au lecteur avec "vous" (vouvoiement)
+
+## Style
+- Phrases courtes et claires
+- Vocabulaire accessible mais précis
+- Pas de superlatifs excessifs
+- Éviter les clichés touristiques
+
+## Contenu
+- Informations pratiques et concrètes
+- Contexte historique/culturel quand pertinent
+- Conseils basés sur l'expérience
+- Précision des détails (horaires, tarifs, durées)
+
+## Structure
+- Intro accrocheuse mais factuelle
+- Paragraphes courts (3-4 lignes max)
+- Points clés mis en avant
+- Conclusion avec conseil pratique`,
+        version: '1.0.0',
+        actif: true,
+      },
         categories: ['sommaire', 'inspiration', 'transversal'],
         langue_source: 'fr',
         texte_prompt: `Rôle :\nTu es un éditeur senior chez Region Lovers.\n\nContexte :\nLe guide {{DESTINATION}} est structuré autour de sections et de lieux validés.\n\nObjectif :\nProposer des pages transversales d'inspiration ou de profils de voyageurs, apportant une lecture différente de la destination.\n\nContraintes :\n- Ne pas répéter les pages lieux.\n- Apporter une vision transversale (thème, ambiance, usage).\n- Rester attractif, mais informatif.\n- Être compatible avec une page unique par thème.\n\nEntrée :\n- Sections du guide : {{SECTIONS}}\n- Liste des POI : {{POIS}}\n- Connaissances générales sur la destination\n\nSortie attendue (JSON strict) :\n{\n  "inspirations": [\n    {\n      "theme_id": "string",\n      "titre": "string",\n      "angle_editorial": "string (max 120 caractères)",\n      "lieux_associes": ["poi_id1", "poi_id2"]\n    }\n  ]\n}\n\nRègles :\n- 3 à 6 pages inspiration maximum.\n- Aucun itinéraire.\n- Ton éditorial Region Lovers : informatif, agréable, non marketing.`,
@@ -56,7 +133,7 @@ export async function promptsRoutes(fastify: FastifyInstance) {
 
       // Supprimer anciens prompts
       await db.collection('prompts').deleteMany({
-        intent: { $in: ['structure_sections', 'selection_pois', 'pages_inspiration'] },
+        intent: { $in: ['structure_sections', 'selection_pois', 'pages_inspiration', 'redaction_page', 'regles_ecriture'] },
       });
 
       // Insérer nouveaux prompts

@@ -370,6 +370,115 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * POST /guides/:guideId/chemin-de-fer/pages/:pageId/generate-content
+   * Lancer la rédaction automatique d'une page via IA (worker)
+   */
+  fastify.post<{ Params: { guideId: string; pageId: string } }>(
+    '/guides/:guideId/chemin-de-fer/pages/:pageId/generate-content',
+    async (request, reply) => {
+      const { guideId, pageId } = request.params;
+      const db = request.server.container.db;
+
+      try {
+        // Vérifier que la page existe
+        if (!ObjectId.isValid(pageId)) {
+          return reply.status(400).send({ error: 'Page ID invalide' });
+        }
+
+        const page = await db.collection('pages').findOne({ _id: new ObjectId(pageId) });
+        if (!page) {
+          return reply.status(404).send({ error: 'Page non trouvée' });
+        }
+
+        // Vérifier qu'il y a une URL source
+        if (!page.url_source) {
+          return reply.status(400).send({ 
+            error: 'Aucun article WordPress source associé à cette page',
+            details: 'Veuillez d\'abord associer un article WordPress à cette page via ses paramètres.'
+          });
+        }
+
+        // Marquer la page comme "en cours de génération"
+        await db.collection('pages').updateOne(
+          { _id: new ObjectId(pageId) },
+          { 
+            $set: { 
+              statut_editorial: 'generee_ia',
+              updated_at: new Date().toISOString() 
+            } 
+          }
+        );
+
+        // Déclencher le worker via QStash
+        const qstashUrl = process.env.QSTASH_URL;
+        const qstashToken = process.env.QSTASH_TOKEN;
+
+        if (qstashUrl && qstashToken) {
+          // Worker asynchrone via QStash
+          const workerUrl = `${process.env.RAILWAY_PUBLIC_DOMAIN || process.env.API_URL}/api/v1/workers/generate-page-content`;
+          
+          await fetch(qstashUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${qstashToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              destination: workerUrl,
+              body: JSON.stringify({ guideId, pageId }),
+            }),
+          });
+
+          return reply.send({ 
+            success: true, 
+            message: 'Rédaction IA lancée en arrière-plan',
+            pageId 
+          });
+        } else {
+          // Fallback : génération synchrone (pour développement)
+          const { PageRedactionService } = await import('../services/page-redaction.service');
+          const openaiApiKey = process.env.OPENAI_API_KEY;
+          
+          if (!openaiApiKey) {
+            return reply.status(500).send({ error: 'OPENAI_API_KEY non configurée' });
+          }
+
+          const redactionService = new PageRedactionService(db, openaiApiKey);
+          const result = await redactionService.generatePageContent(guideId, pageId);
+
+          if (result.status === 'error') {
+            return reply.status(500).send({ error: result.error });
+          }
+
+          // Sauvegarder le contenu généré
+          await db.collection('pages').updateOne(
+            { _id: new ObjectId(pageId) },
+            { 
+              $set: { 
+                content: result.content,
+                statut_editorial: 'generee_ia',
+                updated_at: new Date().toISOString() 
+              } 
+            }
+          );
+
+          return reply.send({ 
+            success: true, 
+            content: result.content,
+            message: 'Contenu généré avec succès'
+          });
+        }
+      } catch (error: any) {
+        request.log.error(error);
+        return reply.status(500).send({ 
+          error: 'Erreur lors de la génération du contenu',
+          details: error.message 
+        });
+      }
+    }
+  );
+
+  /**
    * POST /guides/:guideId/chemin-de-fer/generate-sommaire
    * Lancer la génération automatique du sommaire via IA
    */

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { XMarkIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, SparklesIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 
 interface Template {
   _id: string;
@@ -14,7 +14,8 @@ interface TemplateField {
   type: 'titre' | 'texte' | 'image' | 'lien' | 'meta' | 'liste';
   label: string;
   description?: string;
-  maxCharacters?: number;
+  ai_instructions?: string;
+  max_chars?: number;
 }
 
 interface Page {
@@ -23,6 +24,7 @@ interface Page {
   titre: string;
   template_id: string;
   ordre: number;
+  url_source?: string;
 }
 
 interface ContentEditorModalProps {
@@ -31,6 +33,8 @@ interface ContentEditorModalProps {
   content: Record<string, any>;
   onClose: () => void;
   onSave: (content: Record<string, any>) => void;
+  guideId: string; // ✅ Ajout
+  apiUrl: string;  // ✅ Ajout
 }
 
 export default function ContentEditorModal({
@@ -39,12 +43,57 @@ export default function ContentEditorModal({
   content,
   onClose,
   onSave,
+  guideId,
+  apiUrl,
 }: ContentEditorModalProps) {
   const [formData, setFormData] = useState<Record<string, any>>(content || {});
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setFormData(content || {});
   }, [content]);
+
+  const handleGenerateContent = async () => {
+    if (!page.url_source) {
+      setError('Aucun article WordPress source associé à cette page');
+      return;
+    }
+
+    setGenerating(true);
+    setError(null);
+
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}/generate-content`,
+        {
+          method: 'POST',
+          credentials: 'include',
+        }
+      );
+
+      const data = await res.json();
+
+      if (res.ok) {
+        if (data.content) {
+          // Génération synchrone (dev) : contenu immédiat
+          setFormData(data.content);
+          alert('✅ Contenu généré avec succès !');
+        } else {
+          // Génération asynchrone (prod) : via worker
+          alert('🤖 Génération IA lancée ! Le contenu sera disponible dans quelques secondes. Rechargez la page.');
+          onClose();
+        }
+      } else {
+        setError(data.error || 'Erreur lors de la génération');
+      }
+    } catch (err: any) {
+      console.error('Erreur génération:', err);
+      setError('Erreur lors de la génération du contenu');
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,11 +159,11 @@ export default function ContentEditorModal({
               onChange={(e) => handleFieldChange(field.name, e.target.value)}
               rows={4}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              maxLength={field.maxCharacters}
+              maxLength={field.max_chars}
             />
-            {field.maxCharacters && (
+            {field.max_chars && (
               <div className="mt-1 text-right">
-                {getCharacterCount(field.name, field.maxCharacters)}
+                {getCharacterCount(field.name, field.max_chars)}
               </div>
             )}
           </div>
@@ -185,11 +234,11 @@ export default function ContentEditorModal({
               onChange={(e) => handleFieldChange(field.name, e.target.value)}
               placeholder="Valeur courte et normée"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              maxLength={field.maxCharacters || 50}
+              maxLength={field.max_chars || 50}
             />
-            {field.maxCharacters && (
+            {field.max_chars && (
               <div className="mt-1 text-right">
-                {getCharacterCount(field.name, field.maxCharacters)}
+                {getCharacterCount(field.name, field.max_chars)}
               </div>
             )}
           </div>
@@ -238,19 +287,53 @@ export default function ContentEditorModal({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 flex items-center justify-between text-white">
-          <div>
-            <h2 className="text-xl font-semibold">Rédaction de la page</h2>
-            <p className="text-sm text-blue-100 mt-1">
-              {page.titre} • Template : {template.name}
-            </p>
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 text-white">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-xl font-semibold">Rédaction de la page</h2>
+              <p className="text-sm text-blue-100 mt-1">
+                {page.titre} • Template : {template.name}
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="text-white hover:text-blue-100 transition-colors"
+            >
+              <XMarkIcon className="h-6 w-6" />
+            </button>
           </div>
+
+          {/* Bouton génération IA */}
           <button
-            onClick={onClose}
-            className="text-white hover:text-blue-100 transition-colors"
+            type="button"
+            onClick={handleGenerateContent}
+            disabled={generating || !page.url_source}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <XMarkIcon className="h-6 w-6" />
+            {generating ? (
+              <>
+                <ArrowPathIcon className="h-5 w-5 animate-spin" />
+                Génération en cours...
+              </>
+            ) : (
+              <>
+                <SparklesIcon className="h-5 w-5" />
+                🤖 Générer le contenu automatiquement
+              </>
+            )}
           </button>
+
+          {!page.url_source && (
+            <p className="text-xs text-white/70 mt-2 text-center">
+              Aucun article WordPress source associé
+            </p>
+          )}
+
+          {error && (
+            <div className="mt-2 p-2 bg-red-500/20 border border-red-300/30 rounded text-xs text-white">
+              {error}
+            </div>
+          )}
         </div>
 
         {/* Content */}

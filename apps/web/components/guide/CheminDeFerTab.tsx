@@ -701,6 +701,8 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
           content={currentPageContent}
           onClose={() => setShowContentModal(false)}
           onSave={handleSaveContent}
+          guideId={guideId}
+          apiUrl={apiUrl}
         />
       )}
 

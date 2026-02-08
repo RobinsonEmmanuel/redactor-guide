@@ -11,6 +11,17 @@ interface TemplateField {
   label?: string;
   description?: string;
   ai_instructions?: string; // ✅ Ajout
+  validation?: {
+    required?: boolean;
+    max_length?: number;
+    min_length?: number;
+    sentence_count?: number;
+    forbidden_words?: string[];
+    forbidden_patterns?: string[];
+    forbidden_temporal_terms?: string[];
+    messages?: Record<string, string>;
+    severity?: 'error' | 'warning';
+  };
   order: number;
   max_chars?: number;
   list_size?: number;
@@ -121,6 +132,44 @@ export default function SortableFieldItem({
             />
             <p className="mt-1 text-xs text-gray-500">
               Guide l'IA pour remplir automatiquement ce champ à partir des articles WordPress
+            </p>
+          </div>
+
+          {/* Règles de validation */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-2">
+              <span className="text-red-600">🛡️</span>
+              Règles de validation (JSON optionnel)
+            </label>
+            <textarea
+              value={field.validation ? JSON.stringify(field.validation, null, 2) : ''}
+              onChange={(e) => {
+                try {
+                  const parsed = e.target.value.trim() ? JSON.parse(e.target.value) : undefined;
+                  onChange({ validation: parsed });
+                } catch (err) {
+                  // Invalid JSON, don't update yet
+                }
+              }}
+              placeholder={`{
+  "required": true,
+  "max_length": 120,
+  "min_length": 30,
+  "sentence_count": 1,
+  "forbidden_words": ["incontournable", "magnifique"],
+  "forbidden_patterns": [":"],
+  "forbidden_temporal_terms": ["aujourd'hui", "actuellement"],
+  "messages": {
+    "required": "Ce champ est obligatoire",
+    "max_length": "Maximum 120 caractères"
+  },
+  "severity": "error"
+}`}
+              rows={8}
+              className="w-full px-3 py-2 text-xs font-mono border border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent bg-red-50/20"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Validation automatique lors de la saisie (erreurs ou warnings selon severity)
             </p>
           </div>
 

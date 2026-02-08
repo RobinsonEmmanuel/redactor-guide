@@ -15,6 +15,40 @@ export const TemplateFieldTypeEnum = z.enum([
 export type TemplateFieldType = z.infer<typeof TemplateFieldTypeEnum>;
 
 /**
+ * Schéma pour les règles de validation d'un champ
+ */
+export const FieldValidationSchema = z.object({
+  /** Champ obligatoire ou non */
+  required: z.boolean().optional(),
+  
+  /** Longueur maximale (caractères) */
+  max_length: z.number().int().positive().optional(),
+  
+  /** Longueur minimale (caractères) */
+  min_length: z.number().int().positive().optional(),
+  
+  /** Nombre de phrases attendu (pour texte) */
+  sentence_count: z.number().int().positive().optional(),
+  
+  /** Mots interdits (vocabulaire promotionnel, etc.) */
+  forbidden_words: z.array(z.string()).optional(),
+  
+  /** Patterns interdits (regex ou texte simple) */
+  forbidden_patterns: z.array(z.string()).optional(),
+  
+  /** Termes temporels interdits */
+  forbidden_temporal_terms: z.array(z.string()).optional(),
+  
+  /** Messages d'erreur personnalisés */
+  messages: z.record(z.string(), z.string()).optional(),
+  
+  /** Sévérité (error = bloquant, warning = avertissement) */
+  severity: z.enum(['error', 'warning']).default('error'),
+});
+
+export type FieldValidation = z.infer<typeof FieldValidationSchema>;
+
+/**
  * Schéma pour un champ de template
  * Le nom du champ suit la convention : <TEMPLATE>_<TYPE>_<INDEX>
  */
@@ -39,6 +73,9 @@ export const TemplateFieldSchema = z.object({
   
   /** Instructions pour l'IA lors du remplissage automatique (optionnel) */
   ai_instructions: z.string().optional(),
+  
+  /** Règles de validation du champ (optionnel) */
+  validation: FieldValidationSchema.optional(),
   
   /** Position dans le template (ordre d'affichage) */
   order: z.number().int().min(0),

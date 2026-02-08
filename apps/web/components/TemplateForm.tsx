@@ -16,6 +16,17 @@ interface TemplateField {
   label?: string;
   description?: string;
   ai_instructions?: string; // ✅ Ajout
+  validation?: {
+    required?: boolean;
+    max_length?: number;
+    min_length?: number;
+    sentence_count?: number;
+    forbidden_words?: string[];
+    forbidden_patterns?: string[];
+    forbidden_temporal_terms?: string[];
+    messages?: Record<string, string>;
+    severity?: 'error' | 'warning';
+  };
   order: number;
   max_chars?: number;
   list_size?: number;

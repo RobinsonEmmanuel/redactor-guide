@@ -337,13 +337,17 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         section_id: proposalData.id,
         url_source: articleUrl || proposalData.url, // URL récupérée de l'article WordPress
         image_url: imageUrl, // Image de l'article WordPress
+        commentaire_interne: proposalData.autresArticlesMentions && proposalData.autresArticlesMentions.length > 0
+          ? `Autres mentions: ${proposalData.autresArticlesMentions.join(', ')}`
+          : undefined,
       };
 
       console.log('📄 Données page POI:', {
         titre: pageData.titre,
         type_de_page: pageData.type_de_page,
         url_source: pageData.url_source,
-        has_image: !!pageData.image_url
+        has_image: !!pageData.image_url,
+        autres_mentions: proposalData.autresArticlesMentions?.length || 0,
       });
 
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages`, {
@@ -613,6 +617,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                             icon={MapPinIcon}
                             color="green"
                             articleSlug={poi.article_source}
+                            autresArticlesMentions={poi.autres_articles_mentions}
                           />
                         ))}
                       </div>
@@ -755,10 +760,20 @@ function TemplatePaletteItemMini({ template }: { template: any }) {
 }
 
 // Composant Proposition IA MINI pour la palette
-function ProposalCardMini({ id, type, title, description, icon: Icon, color, articleSlug }: any) {
+function ProposalCardMini({ id, type, title, description, icon: Icon, color, articleSlug, autresArticlesMentions }: any) {
+  const [showOthers, setShowOthers] = useState(false);
+  
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `proposal-${type}-${id}`,
-    data: { type: 'proposal', proposalType: type, id, title, description, articleSlug },
+    data: { 
+      type: 'proposal', 
+      proposalType: type, 
+      id, 
+      title, 
+      description, 
+      articleSlug,
+      autresArticlesMentions 
+    },
   });
 
   const colorClasses = {
@@ -773,26 +788,73 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color, art
     orange: 'bg-orange-100 text-orange-600',
   };
 
+  const hasOtherArticles = autresArticlesMentions && autresArticlesMentions.length > 0;
+
   return (
-    <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      className={`p-1.5 bg-white border rounded cursor-grab active:cursor-grabbing transition-all ${
-        isDragging ? 'opacity-50 scale-95' : ''
-      } ${colorClasses[color as keyof typeof colorClasses]}`}
-    >
-      <div className="flex items-center gap-1.5">
-        <div className={`p-0.5 rounded flex-shrink-0 ${iconColorClasses[color as keyof typeof iconColorClasses]}`}>
-          <Icon className="w-3 h-3" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <h4 className="font-medium text-gray-900 text-xs line-clamp-1">{title}</h4>
-          {description && (
-            <p className="text-xs text-gray-500 line-clamp-1">{description}</p>
+    <div className="relative">
+      <div
+        ref={setNodeRef}
+        {...listeners}
+        {...attributes}
+        className={`p-1.5 bg-white border rounded cursor-grab active:cursor-grabbing transition-all ${
+          isDragging ? 'opacity-50 scale-95' : ''
+        } ${colorClasses[color as keyof typeof colorClasses]}`}
+      >
+        <div className="flex items-center gap-1.5">
+          <div className={`p-0.5 rounded flex-shrink-0 ${iconColorClasses[color as keyof typeof iconColorClasses]}`}>
+            <Icon className="w-3 h-3" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h4 className="font-medium text-gray-900 text-xs line-clamp-1">{title}</h4>
+            {description && (
+              <p className="text-xs text-gray-500 line-clamp-1">{description}</p>
+            )}
+          </div>
+          {hasOtherArticles && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowOthers(!showOthers);
+              }}
+              className="flex-shrink-0 text-xs text-gray-400 hover:text-gray-600 font-medium"
+              title={`${autresArticlesMentions.length} autre(s) article(s)`}
+            >
+              +{autresArticlesMentions.length}
+            </button>
           )}
         </div>
       </div>
+      
+      {/* Dropdown avec les autres articles */}
+      {showOthers && hasOtherArticles && (
+        <div className="absolute z-50 mt-1 left-0 right-0 bg-white border border-gray-300 rounded-lg shadow-lg p-2 text-xs">
+          <div className="font-medium text-gray-700 mb-1 flex items-center justify-between">
+            <span>Autres articles ({autresArticlesMentions.length})</span>
+            <button
+              onClick={() => setShowOthers(false)}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="space-y-1">
+            {autresArticlesMentions.map((slug: string, idx: number) => (
+              <a
+                key={idx}
+                href={`#article-${slug}`}
+                className="block text-blue-600 hover:text-blue-800 hover:underline truncate"
+                title={slug}
+              >
+                📄 {slug}
+              </a>
+            ))}
+          </div>
+          <div className="mt-2 pt-2 border-t border-gray-200 text-gray-500">
+            ℹ️ L'article principal est utilisé pour l'analyse photo
+          </div>
+        </div>
+      )}
     </div>
   );
 }

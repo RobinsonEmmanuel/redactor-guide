@@ -65,14 +65,32 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
   const [articles, setArticles] = useState<WordPressArticle[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
+  
+  // Extraire le type POI et les autres mentions du commentaire interne
+  const extractPoiData = (commentaire: string) => {
+    if (!commentaire) return { poiType: '', otherMentions: [] };
+    
+    const poiTypeMatch = commentaire.match(/Type POI:\s*([^\|]+)/);
+    const mentionsMatch = commentaire.match(/Autres mentions:\s*(.+)/);
+    
+    return {
+      poiType: poiTypeMatch ? poiTypeMatch[1].trim() : '',
+      otherMentions: mentionsMatch ? mentionsMatch[1].split(',').map(s => s.trim()) : []
+    };
+  };
+  
+  const extractedData = extractPoiData(page?.commentaire_interne || '');
+  
   const [formData, setFormData] = useState({
     page_id: page?.page_id || nanoid(10),
     titre: page?.titre || '',
     template_id: page?.template_id || '',
     type_de_page: page?.type_de_page || '',
+    poi_type_extracted: extractedData.poiType, // ✅ Type POI extrait
     statut_editorial: page?.statut_editorial || 'draft',
     url_source: page?.url_source || '',
     commentaire_interne: page?.commentaire_interne || '',
+    other_mentions: extractedData.otherMentions, // ✅ Autres mentions extraites
   });
 
   useEffect(() => {
@@ -129,12 +147,28 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
       return;
     }
 
+    // Reconstruire le commentaire interne avec le type POI et les mentions
+    const selectedTemplate = templates.find(t => t._id === formData.template_id);
+    const isPoiTemplate = selectedTemplate?.name.toLowerCase().includes('poi') || 
+                         selectedTemplate?.name.toLowerCase().includes('point');
+    
+    let reconstructedComment = '';
+    if (isPoiTemplate && formData.poi_type_extracted) {
+      reconstructedComment = `Type POI: ${formData.poi_type_extracted}`;
+      if (formData.other_mentions && formData.other_mentions.length > 0) {
+        reconstructedComment += ` | Autres mentions: ${formData.other_mentions.join(', ')}`;
+      }
+    }
+
     // Nettoyer les champs vides (notamment url_source qui doit être une URL valide ou undefined)
     const cleanedData = {
       ...formData,
       url_source: formData.url_source || undefined,
-      commentaire_interne: formData.commentaire_interne || undefined,
+      commentaire_interne: reconstructedComment || formData.commentaire_interne || undefined,
       type_de_page: formData.type_de_page || undefined,
+      // Retirer les champs UI uniquement
+      poi_type_extracted: undefined,
+      other_mentions: undefined,
     };
 
     onSave(cleanedData);
@@ -202,31 +236,51 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
               const selectedTemplate = templates.find(t => t._id === formData.template_id);
               const isPoiTemplate = selectedTemplate?.name.toLowerCase().includes('poi') || 
                                    selectedTemplate?.name.toLowerCase().includes('point');
-              const typesList = isPoiTemplate ? POI_TYPES : PAGE_TYPES;
-              const label = isPoiTemplate ? 'Type de POI' : 'Type de page';
               
+              // Si c'est un POI template, afficher le type POI extrait du commentaire
+              if (isPoiTemplate) {
+                return (
+                  <>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Type de POI
+                    </label>
+                    <select
+                      value={formData.poi_type_extracted}
+                      onChange={(e) => setFormData({ ...formData, poi_type_extracted: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="">Sélectionner un type</option>
+                      {POI_TYPES.map((type) => (
+                        <option key={type.value} value={type.value}>
+                          {type.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Type de point d'intérêt (musée, plage, village, etc.)
+                    </p>
+                  </>
+                );
+              }
+              
+              // Sinon, afficher le type de page standard
               return (
                 <>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {label}
+                    Type de page
                   </label>
                   <select
                     value={formData.type_de_page}
                     onChange={(e) => setFormData({ ...formData, type_de_page: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    <option value="">{isPoiTemplate ? 'Sélectionner un type' : 'Aucun type spécifique'}</option>
-                    {typesList.map((type) => (
+                    <option value="">Aucun type spécifique</option>
+                    {PAGE_TYPES.map((type) => (
                       <option key={type.value} value={type.value}>
                         {type.label}
                       </option>
                     ))}
                   </select>
-                  {isPoiTemplate && (
-                    <p className="mt-1 text-xs text-gray-500">
-                      Type de point d'intérêt (musée, plage, village, etc.)
-                    </p>
-                  )}
                 </>
               );
             })()}
@@ -316,6 +370,51 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
               Recherchez parmi {articles.length} articles WordPress importés
             </p>
           </div>
+
+          {/* Autres mentions (POI) */}
+          {formData.other_mentions && formData.other_mentions.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Autres articles mentionnant ce POI
+              </label>
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <div className="flex items-start gap-2 mb-2">
+                  <svg className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-amber-900 mb-2">
+                      Ce POI est également mentionné dans {formData.other_mentions.length} autre{formData.other_mentions.length > 1 ? 's' : ''} article{formData.other_mentions.length > 1 ? 's' : ''} :
+                    </p>
+                    <div className="space-y-1.5">
+                      {formData.other_mentions.map((slug: string, index: number) => {
+                        const article = articles.find(a => a.url_francais?.includes(slug));
+                        const url = article?.url_francais || `https://canarias-lovers.com/${slug}`;
+                        const title = article?.titre || slug;
+                        
+                        return (
+                          <a
+                            key={index}
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 p-2 bg-white border border-amber-200 rounded hover:bg-amber-50 hover:border-amber-300 transition-colors group"
+                          >
+                            <svg className="w-4 h-4 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                            <span className="text-sm text-amber-900 group-hover:underline flex-1 line-clamp-1">
+                              {title}
+                            </span>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Commentaire */}
           <div>

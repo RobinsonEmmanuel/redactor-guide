@@ -13,6 +13,10 @@ export const PromptIntentEnum = z.enum([
   'reformulation',
   'correction',
   'enrichissement',
+  'structure_sections',
+  'selection_pois',
+  'pages_inspiration',
+  'regles_ecriture',
 ]);
 
 export type PromptIntent = z.infer<typeof PromptIntentEnum>;
@@ -119,6 +123,10 @@ export const PROMPT_INTENT_LABELS: Record<PromptIntent, string> = {
   reformulation: 'Reformulation',
   correction: 'Correction',
   enrichissement: 'Enrichissement',
+  structure_sections: 'Structure du guide (sections)',
+  selection_pois: 'Sélection des POI (lieux)',
+  pages_inspiration: 'Pages inspiration',
+  regles_ecriture: 'Règles d\'écriture',
 };
 
 /**
@@ -134,4 +142,8 @@ export const PROMPT_INTENT_COLORS: Record<PromptIntent, string> = {
   reformulation: 'bg-yellow-100 text-yellow-700',
   correction: 'bg-red-100 text-red-700',
   enrichissement: 'bg-teal-100 text-teal-700',
+  structure_sections: 'bg-cyan-100 text-cyan-700',
+  selection_pois: 'bg-emerald-100 text-emerald-700',
+  pages_inspiration: 'bg-violet-100 text-violet-700',
+  regles_ecriture: 'bg-slate-100 text-slate-700',
 };

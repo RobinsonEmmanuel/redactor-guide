@@ -26,7 +26,7 @@ export class PageRedactionService {
   /**
    * Générer le contenu d'une page via IA
    */
-  async generatePageContent(guideId: string, pageId: string): Promise<RedactionResult> {
+  async generatePageContent(_guideId: string, pageId: string): Promise<RedactionResult> {
     try {
       console.log(`🚀 Démarrage rédaction IA pour page ${pageId}`);
 

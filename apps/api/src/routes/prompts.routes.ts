@@ -123,13 +123,17 @@ Important : Retourne UNIQUEMENT le JSON, sans texte avant ou après.`,
         version: '1.0.0',
         actif: true,
       },
+      {
+        prompt_id: generateId(),
+        prompt_nom: 'Pages inspiration et profils',
+        intent: 'pages_inspiration',
         categories: ['sommaire', 'inspiration', 'transversal'],
         langue_source: 'fr',
         texte_prompt: `Rôle :\nTu es un éditeur senior chez Region Lovers.\n\nContexte :\nLe guide {{DESTINATION}} est structuré autour de sections et de lieux validés.\n\nObjectif :\nProposer des pages transversales d'inspiration ou de profils de voyageurs, apportant une lecture différente de la destination.\n\nContraintes :\n- Ne pas répéter les pages lieux.\n- Apporter une vision transversale (thème, ambiance, usage).\n- Rester attractif, mais informatif.\n- Être compatible avec une page unique par thème.\n\nEntrée :\n- Sections du guide : {{SECTIONS}}\n- Liste des POI : {{POIS}}\n- Connaissances générales sur la destination\n\nSortie attendue (JSON strict) :\n{\n  "inspirations": [\n    {\n      "theme_id": "string",\n      "titre": "string",\n      "angle_editorial": "string (max 120 caractères)",\n      "lieux_associes": ["poi_id1", "poi_id2"]\n    }\n  ]\n}\n\nRègles :\n- 3 à 6 pages inspiration maximum.\n- Aucun itinéraire.\n- Ton éditorial Region Lovers : informatif, agréable, non marketing.`,
-          version: '1.0.0',
-          actif: true,
-        },
-      ];
+        version: '1.0.0',
+        actif: true,
+      },
+    ];
 
       // Supprimer anciens prompts
       await db.collection('prompts').deleteMany({

@@ -1,5 +1,5 @@
 import { Db, Collection } from 'mongodb';
-import { ArticleRawSchema, type ArticleRaw } from '@redactor-guide/core-model';
+import { ArticleRawSchema, type ArticleRaw, type ImageAnalysis } from '@redactor-guide/core-model';
 import {
   WordPressPostSchema,
   WordPressMediaSchema,
@@ -10,7 +10,6 @@ import {
 } from '../schemas/wordpress-api.schema';
 import { extractImageUrls } from '../utils/html.utils';
 import { htmlToMarkdown } from '../utils/markdown.utils';
-import type { ImageAnalysis } from '../../../../apps/api/src/services/image-analysis.service';
 
 /**
  * Interface du service d'ingestion WordPress

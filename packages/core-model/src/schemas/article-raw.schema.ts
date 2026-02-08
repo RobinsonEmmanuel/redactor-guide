@@ -26,6 +26,20 @@ export const ImageAnalysisSchema = z.object({
 export type ImageAnalysis = z.infer<typeof ImageAnalysisSchema>;
 
 /**
+ * Critères de sélection d'image
+ */
+export interface SelectionCriteria {
+  preferGlobalView?: boolean;
+  minClarityScore?: number;
+  minCompositionScore?: number;
+  minReadabilityScore?: number;
+  avoidTextOverlay?: boolean;
+  avoidGraphicEffects?: boolean;
+  preferIconicView?: boolean;
+  minRelevance?: 'faible' | 'moyenne' | 'forte';
+}
+
+/**
  * Schéma pour un article brut ingéré depuis WordPress (collection articles_raw).
  * Aucune transformation éditoriale.
  */

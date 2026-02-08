@@ -1,35 +1,7 @@
 import OpenAI from 'openai';
+import type { ImageAnalysis, SelectionCriteria } from '@redactor-guide/core-model';
 
-export interface ImageAnalysis {
-  url: string;
-  analysis: {
-    shows_entire_site: boolean;
-    shows_detail: boolean;
-    detail_type: 'architecture' | 'nature' | 'intérieur' | 'paysage' | 'usage' | 'symbole' | 'indéterminé';
-    is_iconic_view: boolean;
-    is_contextual: boolean;
-    visual_clarity_score: number;
-    composition_quality_score: number;
-    lighting_quality_score: number;
-    readability_small_screen_score: number;
-    has_text_overlay: boolean;
-    has_graphic_effects: boolean;
-    editorial_relevance: 'faible' | 'moyenne' | 'forte';
-    analysis_summary: string;
-  };
-  analyzed_at: string;
-}
-
-export interface SelectionCriteria {
-  preferGlobalView?: boolean;
-  minClarityScore?: number;
-  minCompositionScore?: number;
-  minReadabilityScore?: number;
-  avoidTextOverlay?: boolean;
-  avoidGraphicEffects?: boolean;
-  preferIconicView?: boolean;
-  minRelevance?: 'faible' | 'moyenne' | 'forte';
-}
+export type { ImageAnalysis, SelectionCriteria };
 
 /**
  * Service pour analyser les images d'articles avec OpenAI Vision

@@ -64,6 +64,8 @@ export default function ContentEditorModal({
     setError(null);
 
     try {
+      console.log('🤖 Lancement génération contenu (analyse images incluse)...');
+      
       const res = await fetch(
         `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}/generate-content`,
         {
@@ -81,7 +83,7 @@ export default function ContentEditorModal({
           alert('✅ Contenu généré avec succès !');
         } else {
           // Génération asynchrone (prod) : via worker
-          alert('🤖 Génération IA lancée ! Le contenu sera disponible dans quelques secondes. Rechargez la page.');
+          alert('🤖 Génération IA lancée (avec analyse images) ! Le contenu sera disponible dans quelques secondes. Rechargez la page.');
           onClose();
         }
       } else {

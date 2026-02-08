@@ -53,7 +53,6 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
   const [articles, setArticles] = useState<WordPressArticle[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
-  const [analyzingImages, setAnalyzingImages] = useState(false);
   const [formData, setFormData] = useState({
     page_id: page?.page_id || nanoid(10),
     titre: page?.titre || '',
@@ -104,38 +103,10 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
       )
     : [];
 
-  const handleSelectArticle = async (article: WordPressArticle) => {
+  const handleSelectArticle = (article: WordPressArticle) => {
     setFormData({ ...formData, url_source: article.url_francais });
     setSearchQuery(article.titre);
     setShowDropdown(false);
-
-    // Lancer l'analyse des images automatiquement
-    setAnalyzingImages(true);
-    try {
-      console.log(`📸 Lancement analyse images pour: ${article.titre}`);
-      const res = await fetch(`${apiUrl}/api/v1/images/analyze-article`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ articleUrl: article.url_francais }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.alreadyAnalyzed) {
-          console.log(`✅ Images déjà analysées (${data.imagesCount} images)`);
-        } else {
-          console.log(`✅ ${data.imagesCount} images analysées avec succès`);
-        }
-      } else {
-        const error = await res.json();
-        console.warn(`⚠️ Erreur analyse images: ${error.error || 'Erreur inconnue'}`);
-      }
-    } catch (err) {
-      console.error('❌ Erreur analyse images:', err);
-    } finally {
-      setAnalyzingImages(false);
-    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -297,15 +268,6 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
                     >
                       {formData.url_source}
                     </a>
-                    {analyzingImages && (
-                      <div className="mt-2 flex items-center gap-2 text-xs text-purple-600">
-                        <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        Analyse des images en cours...
-                      </div>
-                    )}
                   </div>
                   <button
                     type="button"

@@ -57,11 +57,14 @@ export class PageRedactionService {
         throw new Error('Article WordPress source non trouvé');
       }
 
-      // 4. Charger les prompts
+      // 4. Analyser les images si nécessaire
+      await this.ensureImagesAnalyzed(article);
+
+      // 5. Charger les prompts
       const promptRedaction = await this.loadPrompt('redaction_page');
       const promptRegles = await this.loadPrompt('regles_ecriture');
 
-      // 5. Générer avec retry automatique
+      // 6. Générer avec retry automatique
       const result = await this.generateWithRetry(
         template,
         article,
@@ -77,6 +80,64 @@ export class PageRedactionService {
         status: 'error',
         error: error.message,
       };
+    }
+  }
+
+  /**
+   * S'assure que les images d'un article sont analysées
+   * Si pas d'analyse, lance l'analyse automatiquement
+   */
+  private async ensureImagesAnalyzed(article: any): Promise<void> {
+    // Vérifier si déjà analysé
+    if (article.images_analysis && article.images_analysis.length > 0) {
+      console.log(`✅ Images déjà analysées (${article.images_analysis.length} images)`);
+      return;
+    }
+
+    // Pas d'images à analyser
+    if (!article.images || article.images.length === 0) {
+      console.log('ℹ️ Aucune image à analyser');
+      return;
+    }
+
+    console.log(`📸 Lancement analyse de ${article.images.length} images...`);
+
+    try {
+      // Charger le prompt d'analyse
+      const promptDoc = await this.db.collection('prompts').findOne({
+        intent: 'analyse_image',
+        actif: true,
+      });
+
+      if (!promptDoc) {
+        console.warn('⚠️ Prompt analyse_image introuvable, skip analyse');
+        return;
+      }
+
+      // Analyser les images
+      const analyses = await this.imageAnalysisService.analyzeImages(
+        article.images,
+        promptDoc.texte_prompt as string
+      );
+
+      // Sauvegarder les analyses
+      await this.db.collection('articles_raw').updateOne(
+        { _id: article._id },
+        {
+          $set: {
+            images_analysis: analyses,
+            images_analyzed_at: new Date().toISOString(),
+          },
+        }
+      );
+
+      // Mettre à jour l'article en mémoire
+      article.images_analysis = analyses;
+
+      console.log(`✅ ${analyses.length} images analysées et sauvegardées`);
+    } catch (error: any) {
+      console.error('❌ Erreur analyse images:', error.message);
+      // Ne pas bloquer la génération si l'analyse échoue
     }
   }
 

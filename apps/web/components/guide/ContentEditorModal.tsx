@@ -135,11 +135,11 @@ export default function ContentEditorModal({
               value={fieldValue}
               onChange={(e) => handleFieldChange(field.name, e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              maxLength={field.maxCharacters}
+              maxLength={field.max_chars}
             />
-            {field.maxCharacters && (
+            {field.max_chars && (
               <div className="mt-1 text-right">
-                {getCharacterCount(field.name, field.maxCharacters)}
+                {getCharacterCount(field.name, field.max_chars)}
               </div>
             )}
           </div>

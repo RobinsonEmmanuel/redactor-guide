@@ -1,6 +1,7 @@
 import { Db, ObjectId } from 'mongodb';
 import { OpenAIService } from './openai.service';
 import { FieldValidatorService, ValidationError } from './field-validator.service';
+import { ImageAnalysisService, SelectionCriteria } from './image-analysis.service';
 
 export interface RedactionRequest {
   guideId: string;
@@ -18,6 +19,7 @@ export interface RedactionResult {
 export class PageRedactionService {
   private openaiService: OpenAIService;
   private validatorService: FieldValidatorService;
+  private imageAnalysisService: ImageAnalysisService;
   private readonly MAX_RETRIES = 3;
 
   constructor(private readonly db: Db, openaiApiKey: string) {
@@ -27,6 +29,7 @@ export class PageRedactionService {
       reasoningEffort: 'medium',
     });
     this.validatorService = new FieldValidatorService();
+    this.imageAnalysisService = new ImageAnalysisService(openaiApiKey);
   }
 
   /**
@@ -330,10 +333,10 @@ INSTRUCTIONS STRICTES :
   private formatArticle(article: any): string {
     const parts = [
       `Titre: ${article.title || 'N/A'}`,
-      `URL: ${article.url_francais || 'N/A'}`,
+      `URL: ${article.urls_by_lang?.fr || 'N/A'}`,
       '',
       `Contenu HTML:`,
-      article.html_raw || '',
+      article.html_brut || '',
     ];
 
     if (article.categories && article.categories.length > 0) {
@@ -344,6 +347,32 @@ INSTRUCTIONS STRICTES :
       parts.unshift(`Tags: ${article.tags.join(', ')}`);
     }
 
+    // Ajouter les images disponibles
+    if (article.images && article.images.length > 0) {
+      parts.push('');
+      parts.push(`Images disponibles (${article.images.length}):`);
+      article.images.forEach((img: string, idx: number) => {
+        parts.push(`  ${idx + 1}. ${img}`);
+      });
+    }
+
     return parts.join('\n');
+  }
+
+  /**
+   * Sélectionne la meilleure image pour un article selon des critères
+   */
+  selectBestImage(article: any, criteria?: SelectionCriteria): string | null {
+    if (!article.images_analysis || article.images_analysis.length === 0) {
+      // Pas d'analyse, retourner la première image
+      return article.images?.[0] || null;
+    }
+
+    const bestImage = this.imageAnalysisService.selectBestImage(
+      article.images_analysis,
+      criteria
+    );
+
+    return bestImage?.url || null;
   }
 }

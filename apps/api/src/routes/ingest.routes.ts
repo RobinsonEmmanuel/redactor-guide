@@ -9,6 +9,7 @@ const IngestBodySchema = z.object({
   siteUrl: z.string().url(),
   jwtToken: z.string().min(1, 'jwtToken requis'),
   languages: z.array(z.string()).default(['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl']),
+  analyzeImages: z.boolean().default(false),
 });
 
 const INGEST_JOBS = 'ingest_jobs';
@@ -26,12 +27,30 @@ export async function ingestRoutes(fastify: FastifyInstance) {
       const body = IngestBodySchema.parse(request.body);
       const wpService = fastify.container.getWordPressIngestionService();
 
+      // Charger le prompt d'analyse si demandé
+      let analysisPrompt: string | undefined;
+      if (body.analyzeImages) {
+        const promptDoc = await db.collection('prompts').findOne({
+          intent: 'analyse_image',
+          actif: true,
+        });
+        if (!promptDoc) {
+          return reply.status(400).send({
+            error: 'Prompt analyse_image introuvable',
+            message: 'Veuillez créer un prompt avec intent "analyse_image" et actif=true',
+          });
+        }
+        analysisPrompt = promptDoc.texte_prompt as string;
+      }
+
       const result = await wpService.ingestArticlesToRaw(
         body.siteId,
         body.destinationIds,
         body.siteUrl,
         body.jwtToken,
-        body.languages
+        body.languages,
+        analysisPrompt,
+        body.analyzeImages
       );
 
       return reply.status(200).send({
@@ -78,6 +97,7 @@ export async function ingestRoutes(fastify: FastifyInstance) {
         siteUrl: body.siteUrl,
         jwtToken: body.jwtToken,
         languages: body.languages,
+        analyzeImages: body.analyzeImages,
         status: 'queued',
         createdAt: now,
         updatedAt: now,
@@ -98,6 +118,7 @@ export async function ingestRoutes(fastify: FastifyInstance) {
           siteUrl: body.siteUrl,
           jwtToken: body.jwtToken,
           languages: body.languages,
+          analyzeImages: body.analyzeImages,
         }),
       });
       if (!res.ok) {

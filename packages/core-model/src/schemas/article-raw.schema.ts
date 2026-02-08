@@ -1,6 +1,31 @@
 import { z } from 'zod';
 
 /**
+ * Schéma pour l'analyse d'une image
+ */
+export const ImageAnalysisSchema = z.object({
+  url: z.string().url(),
+  analysis: z.object({
+    shows_entire_site: z.boolean(),
+    shows_detail: z.boolean(),
+    detail_type: z.enum(['architecture', 'nature', 'intérieur', 'paysage', 'usage', 'symbole', 'indéterminé']),
+    is_iconic_view: z.boolean(),
+    is_contextual: z.boolean(),
+    visual_clarity_score: z.number().min(0).max(1),
+    composition_quality_score: z.number().min(0).max(1),
+    lighting_quality_score: z.number().min(0).max(1),
+    readability_small_screen_score: z.number().min(0).max(1),
+    has_text_overlay: z.boolean(),
+    has_graphic_effects: z.boolean(),
+    editorial_relevance: z.enum(['faible', 'moyenne', 'forte']),
+    analysis_summary: z.string(),
+  }),
+  analyzed_at: z.string(),
+});
+
+export type ImageAnalysis = z.infer<typeof ImageAnalysisSchema>;
+
+/**
  * Schéma pour un article brut ingéré depuis WordPress (collection articles_raw).
  * Aucune transformation éditoriale.
  */
@@ -25,6 +50,9 @@ export const ArticleRawSchema = z.object({
 
   /** URLs des images extraites du HTML */
   images: z.array(z.string().url()).default([]),
+
+  /** Analyses des images (optionnel, généré par OpenAI Vision) */
+  images_analysis: z.array(ImageAnalysisSchema).optional(),
 
   /** Dernière mise à jour côté WordPress (ISO string ou Date) */
   updated_at: z.union([z.string(), z.date()]),

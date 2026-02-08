@@ -10,6 +10,7 @@ import {
 } from '../schemas/wordpress-api.schema';
 import { extractImageUrls } from '../utils/html.utils';
 import { htmlToMarkdown } from '../utils/markdown.utils';
+import type { ImageAnalysis } from '../../../../apps/api/src/services/image-analysis.service';
 
 /**
  * Interface du service d'ingestion WordPress
@@ -25,7 +26,10 @@ export interface IWordPressIngestionService {
     siteId: string,
     destinationIds: string[],
     siteUrl: string,
-    jwtToken: string
+    jwtToken: string,
+    languages?: string[],
+    analysisPrompt?: string,
+    analyzeImages?: boolean
   ): Promise<IngestArticlesResult>;
 }
 
@@ -59,6 +63,7 @@ export class WordPressIngestionService implements IWordPressIngestionService {
   private mediaCollection: Collection;
   private articlesRawCollection: Collection;
   private sitesCollection: Collection;
+  private imageAnalysisCallback?: (imageUrls: string[], analysisPrompt: string) => Promise<ImageAnalysis[]>;
 
   constructor(
     private readonly db: Db,
@@ -68,6 +73,16 @@ export class WordPressIngestionService implements IWordPressIngestionService {
     this.mediaCollection = this.db.collection('wordpress_media');
     this.articlesRawCollection = this.db.collection('articles_raw');
     this.sitesCollection = this.db.collection('sites');
+  }
+
+  /**
+   * Définir le callback pour l'analyse d'images
+   * Utilisé par le conteneur DI pour injecter le service d'analyse
+   */
+  setImageAnalysisCallback(
+    callback: (imageUrls: string[], analysisPrompt: string) => Promise<ImageAnalysis[]>
+  ): void {
+    this.imageAnalysisCallback = callback;
   }
 
   private async getWithAuth<T>(url: string, jwtToken: string): Promise<T> {
@@ -203,13 +218,16 @@ export class WordPressIngestionService implements IWordPressIngestionService {
    * 2. Groupe par `guid` (qui pointe toujours vers l'URL FR pour les traductions WPML)
    * 3. Construit `urls_by_lang` en mappant les `link` de chaque langue
    * 4. Stocke UN SEUL article par guid (version FR) avec toutes les URLs
+   * 5. Optionnel : analyse les images avec OpenAI Vision
    */
   async ingestArticlesToRaw(
     siteId: string,
     destinationIds: string[],
     siteUrl: string,
     jwtToken: string,
-    languages?: string[]
+    languages?: string[],
+    analysisPrompt?: string,
+    analyzeImages: boolean = false
   ): Promise<IngestArticlesResult> {
     const errors: string[] = [];
     let count = 0;
@@ -353,6 +371,20 @@ export class WordPressIngestionService implements IWordPressIngestionService {
         // Convertir le HTML en Markdown pour l'aide IA
         const markdown = htmlToMarkdown(htmlContent);
 
+        // Analyser les images si demandé
+        let imagesAnalysis: ImageAnalysis[] = [];
+        if (analyzeImages && analysisPrompt && imageUrls.length > 0 && this.imageAnalysisCallback) {
+          console.log(`📸 Analyse de ${imageUrls.length} images pour "${frPost.title?.rendered?.substring(0, 40)}"`);
+          try {
+            imagesAnalysis = await this.imageAnalysisCallback(imageUrls, analysisPrompt);
+            console.log(`✅ ${imagesAnalysis.length} images analysées`);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`⚠️ Erreur analyse images: ${msg}`);
+            errors.push(`Erreur analyse images pour "${frPost.title?.rendered}": ${msg}`);
+          }
+        }
+
         const raw: Omit<ArticleRaw, '_id'> = {
           site_id: siteId,
           destination_ids: destinationIds,
@@ -364,6 +396,7 @@ export class WordPressIngestionService implements IWordPressIngestionService {
           tags: tagNames,
           urls_by_lang: urlsByLang,
           images: imageUrls,
+          ...(imagesAnalysis.length > 0 && { images_analysis: imagesAnalysis }),
           updated_at: frPost.modified ?? frPost.date,
         };
 

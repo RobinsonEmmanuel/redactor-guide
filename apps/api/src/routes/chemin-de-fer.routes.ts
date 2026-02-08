@@ -481,10 +481,25 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   /**
    * POST /guides/:guideId/chemin-de-fer/generate-sommaire
    * Lancer la génération automatique du sommaire via IA
+   * Query params: ?parts=sections,pois,inspirations (optionnel, défaut: toutes les parties)
    */
   fastify.post('/guides/:guideId/chemin-de-fer/generate-sommaire', async (request, reply) => {
     const { guideId } = request.params as { guideId: string };
+    const { parts } = request.query as { parts?: string };
     const db = request.server.container.db;
+
+    // Parser les parties à générer
+    const requestedParts = parts ? parts.split(',').map(p => p.trim()) : ['sections', 'pois', 'inspirations'];
+    const validParts = ['sections', 'pois', 'inspirations'];
+    const partsToGenerate = requestedParts.filter(p => validParts.includes(p));
+
+    if (partsToGenerate.length === 0) {
+      return reply.code(400).send({ 
+        error: 'Parties invalides. Valeurs possibles: sections, pois, inspirations' 
+      });
+    }
+
+    console.log(`📋 Génération sommaire - Parties demandées: ${partsToGenerate.join(', ')}`);
 
     // Vérifier que le guide existe
     const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
@@ -541,12 +556,40 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         openaiService,
       });
 
-      // Générer le sommaire (asynchrone)
-      const proposal = await sommaireGenerator.generateSommaire(guideId);
+      // Récupérer la proposition existante si elle existe
+      const existingProposal = await db.collection('sommaire_proposals').findOne({ guide_id: guideId });
+      const baseProposal = existingProposal?.proposal || {};
+
+      // Générer uniquement les parties demandées
+      const proposal = await sommaireGenerator.generateSommaire(guideId, partsToGenerate);
+
+      // Fusionner avec la proposition existante
+      const mergedProposal = {
+        ...baseProposal,
+        ...proposal,
+      };
+
+      // Sauvegarder la proposition fusionnée
+      await db.collection('sommaire_proposals').updateOne(
+        { guide_id: guideId },
+        {
+          $set: {
+            proposal: mergedProposal,
+            updated_at: new Date().toISOString(),
+            parts_generated: partsToGenerate,
+          },
+          $setOnInsert: {
+            created_at: new Date().toISOString(),
+            status: 'generated',
+          },
+        },
+        { upsert: true }
+      );
 
       return {
         success: true,
-        proposal,
+        proposal: mergedProposal,
+        parts_generated: partsToGenerate,
       };
     } catch (error: any) {
       console.error('Erreur génération sommaire:', error);

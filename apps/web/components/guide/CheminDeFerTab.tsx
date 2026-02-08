@@ -544,7 +544,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                   className="flex items-center gap-1 px-2 py-1 bg-purple-600 text-white text-xs font-medium rounded hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                 >
                   <ArrowPathIcon className={`h-3 w-3 ${loadingProposal ? 'animate-spin' : ''}`} />
-                  {loadingProposal ? 'Génération...' : 'Générer'}
+                  {loadingProposal ? 'Génération...' : 'Tout générer'}
                 </button>
               </div>
 
@@ -559,7 +559,8 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
               {!proposal && !loadingProposal && (
                 <div className="text-center py-6">
                   <SparklesIcon className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-                  <p className="text-xs text-gray-500">Cliquez sur Générer</p>
+                  <p className="text-xs text-gray-500">Cliquez sur "Tout générer"</p>
+                  <p className="text-xs text-gray-400 mt-1">ou générez par partie ci-dessous</p>
                 </div>
               )}
 
@@ -573,81 +574,114 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
               {proposal && (
                 <>
                   {/* Sections */}
-                  {proposal.sections && proposal.sections.length > 0 && (
+                  {(proposal.sections && proposal.sections.length > 0) || !loadingProposal ? (
                     <div>
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <RectangleStackIcon className="w-3 h-3 text-blue-600" />
-                        <h4 className="font-semibold text-gray-700 text-xs">
-                          Sections ({proposal.sections.length})
-                        </h4>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <RectangleStackIcon className="w-3 h-3 text-blue-600" />
+                          <h4 className="font-semibold text-gray-700 text-xs">
+                            Sections {proposal.sections ? `(${proposal.sections.length})` : ''}
+                          </h4>
+                        </div>
+                        <button
+                          onClick={() => handleGeneratePartial(['sections'])}
+                          disabled={loadingProposal}
+                          className="text-xs text-blue-600 hover:text-blue-800 hover:underline disabled:opacity-50"
+                        >
+                          🔄 Regénérer
+                        </button>
                       </div>
-                      <div className="space-y-1">
-                        {proposal.sections.map((section: any) => (
-                          <ProposalCardMini
-                            key={section.section_id}
-                            id={section.section_id}
-                            type="section"
-                            title={section.section_nom}
-                            description={section.description_courte}
-                            icon={RectangleStackIcon}
-                            color="blue"
-                          />
-                        ))}
-                      </div>
+                      {proposal.sections && proposal.sections.length > 0 && (
+                        <div className="space-y-1">
+                          {proposal.sections.map((section: any) => (
+                            <ProposalCardMini
+                              key={section.section_id}
+                              id={section.section_id}
+                              type="section"
+                              title={section.section_nom}
+                              description={section.description_courte}
+                              icon={RectangleStackIcon}
+                              color="blue"
+                            />
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
+                  ) : null}
 
                   {/* POIs */}
-                  {proposal.pois && proposal.pois.length > 0 && (
+                  {(proposal.pois && proposal.pois.length > 0) || !loadingProposal ? (
                     <div>
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <MapPinIcon className="w-3 h-3 text-green-600" />
-                        <h4 className="font-semibold text-gray-700 text-xs">
-                          Lieux ({proposal.pois.length})
-                        </h4>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <MapPinIcon className="w-3 h-3 text-green-600" />
+                          <h4 className="font-semibold text-gray-700 text-xs">
+                            Lieux {proposal.pois ? `(${proposal.pois.length})` : ''}
+                          </h4>
+                        </div>
+                        <button
+                          onClick={() => handleGeneratePartial(['pois'])}
+                          disabled={loadingProposal}
+                          className="text-xs text-green-600 hover:text-green-800 hover:underline disabled:opacity-50"
+                        >
+                          🔄 Regénérer
+                        </button>
                       </div>
-                      <div className="space-y-1">
-                        {proposal.pois.map((poi: any) => (
-                          <ProposalCardMini
-                            key={poi.poi_id}
-                            id={poi.poi_id}
-                            type="poi"
-                            title={poi.nom}
-                            description={`${poi.type}`}
-                            icon={MapPinIcon}
-                            color="green"
-                            articleSlug={poi.article_source}
-                            autresArticlesMentions={poi.autres_articles_mentions}
-                          />
-                        ))}
-                      </div>
+                      {proposal.pois && proposal.pois.length > 0 && (
+                        <div className="space-y-1">
+                          {proposal.pois.map((poi: any) => (
+                            <ProposalCardMini
+                              key={poi.poi_id}
+                              id={poi.poi_id}
+                              type="poi"
+                              title={poi.nom}
+                              description={`${poi.type}`}
+                              icon={MapPinIcon}
+                              color="green"
+                              articleSlug={poi.article_source}
+                              autresArticlesMentions={poi.autres_articles_mentions}
+                            />
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
+                  ) : null}
 
                   {/* Inspirations */}
-                  {proposal.inspirations && proposal.inspirations.length > 0 && (
+                  {(proposal.inspirations && proposal.inspirations.length > 0) || !loadingProposal ? (
                     <div>
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <LightBulbIcon className="w-3 h-3 text-orange-600" />
-                        <h4 className="font-semibold text-gray-700 text-xs">
-                          Inspiration ({proposal.inspirations.length})
-                        </h4>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <LightBulbIcon className="w-3 h-3 text-orange-600" />
+                          <h4 className="font-semibold text-gray-700 text-xs">
+                            Inspiration {proposal.inspirations ? `(${proposal.inspirations.length})` : ''}
+                          </h4>
+                        </div>
+                        <button
+                          onClick={() => handleGeneratePartial(['inspirations'])}
+                          disabled={loadingProposal}
+                          className="text-xs text-orange-600 hover:text-orange-800 hover:underline disabled:opacity-50"
+                        >
+                          🔄 Regénérer
+                        </button>
                       </div>
-                      <div className="space-y-1">
-                        {proposal.inspirations.map((inspiration: any) => (
-                          <ProposalCardMini
-                            key={inspiration.theme_id}
-                            id={inspiration.theme_id}
-                            type="inspiration"
-                            title={inspiration.titre}
-                            description={inspiration.angle_editorial}
-                            icon={LightBulbIcon}
-                            color="orange"
-                          />
-                        ))}
-                      </div>
+                      {proposal.inspirations && proposal.inspirations.length > 0 && (
+                        <div className="space-y-1">
+                          {proposal.inspirations.map((inspiration: any) => (
+                            <ProposalCardMini
+                              key={inspiration.theme_id}
+                              id={inspiration.theme_id}
+                              type="inspiration"
+                              title={inspiration.titre}
+                              description={inspiration.angle_editorial}
+                              icon={LightBulbIcon}
+                              color="orange"
+                            />
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
+                  ) : null}
                 </>
               )}
             </div>

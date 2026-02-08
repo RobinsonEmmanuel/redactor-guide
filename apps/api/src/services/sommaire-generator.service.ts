@@ -51,10 +51,15 @@ export class SommaireGeneratorService {
   }
 
   /**
-   * Générer le sommaire complet pour un guide
+   * Générer le sommaire (complet ou parties spécifiques)
+   * @param guideId ID du guide
+   * @param parts Parties à générer (défaut: toutes)
    */
-  async generateSommaire(guideId: string): Promise<SommaireProposal> {
-    console.log(`🚀 Génération sommaire pour guide ${guideId}`);
+  async generateSommaire(
+    guideId: string, 
+    parts: string[] = ['sections', 'pois', 'inspirations']
+  ): Promise<Partial<SommaireProposal>> {
+    console.log(`🚀 Génération sommaire pour guide ${guideId} - Parties: ${parts.join(', ')}`);
 
     // 1. Charger le guide
     const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(guideId) });
@@ -69,40 +74,54 @@ export class SommaireGeneratorService {
     const articles = await this.loadArticles(guideId, destination);
     console.log(`📚 ${articles.length} articles chargés`);
 
-    // 3. Charger les prompts
-    const promptSections = await this.loadPrompt('structure_sections');
-    const promptPOIs = await this.loadPrompt('selection_pois');
-    const promptInspirations = await this.loadPrompt('pages_inspiration');
+    const proposal: Partial<SommaireProposal> = {};
 
-    // 4. Étape A — Générer les sections
-    console.log('🔹 Étape A : Génération des sections');
-    const sectionsResult = await this.generateSections(promptSections, destination, articles);
-    console.log(`✅ ${sectionsResult.sections.length} sections générées`);
+    // 3. Générer les sections si demandé
+    if (parts.includes('sections')) {
+      console.log('🔹 Étape A : Génération des sections');
+      const promptSections = await this.loadPrompt('structure_sections');
+      const sectionsResult = await this.generateSections(promptSections, destination, articles);
+      console.log(`✅ ${sectionsResult.sections.length} sections générées`);
+      proposal.sections = sectionsResult.sections;
+    }
 
-    // 5. Étape B — Sélectionner les POIs
-    console.log('🔹 Étape B : Sélection des POIs');
-    const poisResult = await this.generatePOIs(promptPOIs, destination, siteUrl, articles);
-    console.log(`✅ ${poisResult.pois.length} POIs sélectionnés`);
+    // 4. Générer les POIs si demandé
+    if (parts.includes('pois')) {
+      console.log('🔹 Étape B : Sélection des POIs');
+      const promptPOIs = await this.loadPrompt('selection_pois');
+      const poisResult = await this.generatePOIs(promptPOIs, destination, siteUrl, articles);
+      console.log(`✅ ${poisResult.pois.length} POIs sélectionnés`);
+      proposal.pois = poisResult.pois;
+    }
 
-    // 6. Étape C — Générer les pages inspiration
-    console.log('🔹 Étape C : Génération des pages inspiration');
-    const inspirationsResult = await this.generateInspirations(
-      promptInspirations,
-      destination,
-      sectionsResult.sections,
-      poisResult.pois
-    );
-    console.log(`✅ ${inspirationsResult.inspirations.length} pages inspiration générées`);
+    // 5. Générer les inspirations si demandé
+    if (parts.includes('inspirations')) {
+      console.log('🔹 Étape C : Génération des pages inspiration');
+      
+      // Récupérer sections et POIs (de la base si pas générés maintenant)
+      let sections = proposal.sections;
+      let pois = proposal.pois;
 
-    // 7. Combiner les résultats
-    const proposal: SommaireProposal = {
-      sections: sectionsResult.sections,
-      pois: poisResult.pois,
-      inspirations: inspirationsResult.inspirations,
-    };
+      if (!sections) {
+        const existingProposal = await this.db.collection('sommaire_proposals').findOne({ guide_id: guideId });
+        sections = existingProposal?.proposal?.sections || [];
+      }
 
-    // 8. Sauvegarder la proposition
-    await this.saveProposal(guideId, proposal);
+      if (!pois) {
+        const existingProposal = await this.db.collection('sommaire_proposals').findOne({ guide_id: guideId });
+        pois = existingProposal?.proposal?.pois || [];
+      }
+
+      const promptInspirations = await this.loadPrompt('pages_inspiration');
+      const inspirationsResult = await this.generateInspirations(
+        promptInspirations,
+        destination,
+        sections,
+        pois
+      );
+      console.log(`✅ ${inspirationsResult.inspirations.length} pages inspiration générées`);
+      proposal.inspirations = inspirationsResult.inspirations;
+    }
 
     return proposal;
   }

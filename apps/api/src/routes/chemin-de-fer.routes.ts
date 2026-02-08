@@ -410,29 +410,37 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         );
 
         // Déclencher le worker via QStash
-        const qstashUrl = process.env.QSTASH_URL;
         const qstashToken = process.env.QSTASH_TOKEN;
+        const workerUrl = process.env.INGEST_WORKER_URL || process.env.RAILWAY_PUBLIC_DOMAIN || process.env.API_URL;
 
-        if (qstashUrl && qstashToken) {
+        if (qstashToken && workerUrl) {
           // Worker asynchrone via QStash
-          const workerUrl = `${process.env.RAILWAY_PUBLIC_DOMAIN || process.env.API_URL}/api/v1/workers/generate-page-content`;
+          const fullWorkerUrl = `${workerUrl}/api/v1/workers/generate-page-content`;
           
-          await fetch(qstashUrl, {
+          console.log(`📤 [QStash] Envoi job vers ${fullWorkerUrl}`);
+          
+          const qstashResponse = await fetch(`https://qstash.upstash.io/v2/publish/${encodeURIComponent(fullWorkerUrl)}`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${qstashToken}`,
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-              destination: workerUrl,
-              body: JSON.stringify({ guideId, pageId }),
-            }),
+            body: JSON.stringify({ guideId, pageId }),
           });
+
+          if (!qstashResponse.ok) {
+            const qstashError = await qstashResponse.text();
+            console.error('❌ [QStash] Erreur:', qstashError);
+            throw new Error(`QStash error: ${qstashError}`);
+          }
+
+          console.log(`✅ [QStash] Job envoyé avec succès`);
 
           return reply.send({ 
             success: true, 
             message: 'Rédaction IA lancée en arrière-plan',
-            pageId 
+            pageId,
+            async: true
           });
         } else {
           // Fallback : génération synchrone (pour développement)
@@ -472,6 +480,54 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         request.log.error(error);
         return reply.status(500).send({ 
           error: 'Erreur lors de la génération du contenu',
+          details: error.message 
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /guides/:guideId/chemin-de-fer/pages/:pageId/image-analysis
+   * Récupérer les analyses d'images de l'article WordPress source
+   */
+  fastify.get<{ Params: { guideId: string; pageId: string } }>(
+    '/guides/:guideId/chemin-de-fer/pages/:pageId/image-analysis',
+    async (request, reply) => {
+      const { pageId } = request.params;
+      const db = request.server.container.db;
+
+      try {
+        if (!ObjectId.isValid(pageId)) {
+          return reply.status(400).send({ error: 'Page ID invalide' });
+        }
+
+        const page = await db.collection('pages').findOne({ _id: new ObjectId(pageId) });
+        if (!page) {
+          return reply.status(404).send({ error: 'Page non trouvée' });
+        }
+
+        if (!page.url_source) {
+          return reply.status(404).send({ error: 'Aucune URL source pour cette page' });
+        }
+
+        // Récupérer l'article WordPress correspondant
+        const article = await db.collection('articles_raw').findOne({ 
+          'urls_by_lang.fr': page.url_source 
+        });
+
+        if (!article) {
+          return reply.status(404).send({ error: 'Article WordPress non trouvé' });
+        }
+
+        return reply.send({
+          images: article.images || [],
+          images_analysis: article.images_analysis || [],
+          analyzed: (article.images_analysis && article.images_analysis.length > 0) || false
+        });
+      } catch (error: any) {
+        request.log.error(error);
+        return reply.status(500).send({ 
+          error: 'Erreur lors de la récupération des analyses',
           details: error.message 
         });
       }

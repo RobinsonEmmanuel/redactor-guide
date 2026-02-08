@@ -292,9 +292,16 @@ export default function PromptsPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${INTENT_COLORS[prompt.intent] || 'bg-gray-100 text-gray-700'}`}>
-                          {INTENT_LABELS[prompt.intent] || prompt.intent}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${INTENT_COLORS[prompt.intent] || 'bg-gray-100 text-gray-700'}`}>
+                            {INTENT_LABELS[prompt.intent] || prompt.intent}
+                          </span>
+                          {isReference(prompt) && (
+                            <span className="px-2 py-0.5 text-xs font-medium rounded bg-amber-100 text-amber-700 border border-amber-300">
+                              📖 Référence
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900">
                         {prompt.page_type || <span className="text-gray-400">—</span>}

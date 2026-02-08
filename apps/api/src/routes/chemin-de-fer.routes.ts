@@ -428,11 +428,12 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           console.log(`📤 [QStash] Envoi job vers ${fullWorkerUrl}`);
           
           try {
-            const qstashResponse = await fetch(`https://qstash.upstash.io/v2/publish/${encodeURIComponent(fullWorkerUrl)}`, {
+            const qstashResponse = await fetch(`https://qstash.upstash.io/v2/publish`, {
               method: 'POST',
               headers: {
                 'Authorization': `Bearer ${qstashToken}`,
                 'Content-Type': 'application/json',
+                'Upstash-Forward-Url': fullWorkerUrl, // ✅ URL dans le header au lieu du path
               },
               body: JSON.stringify({ guideId, pageId }),
             });

@@ -356,24 +356,18 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         page_id: nanoid(10),
         titre: proposalData.title,
         template_id: selectedTemplate._id, // Template POI pour les POI
-        type_de_page: proposalData.type || proposalData.proposalType || '', // ✅ Utiliser le type du POI (musée, plage, etc.)
+        type_de_page: proposalData.type || proposalData.proposalType || undefined, // ✅ undefined au lieu de ''
         statut_editorial: 'draft',
         ordre: targetOrder || pages.length + 1,
         section_id: proposalData.id,
-        url_source: articleUrl || proposalData.url, // URL récupérée de l'article WordPress
-        image_url: imageUrl, // Image de l'article WordPress
+        url_source: articleUrl || proposalData.url || undefined, // ✅ undefined si pas d'URL
+        image_url: imageUrl || undefined, // ✅ undefined si pas d'image
         commentaire_interne: proposalData.autresArticlesMentions && proposalData.autresArticlesMentions.length > 0
           ? `Autres mentions: ${proposalData.autresArticlesMentions.join(', ')}`
           : undefined,
       };
 
-      console.log('📄 Données page POI:', {
-        titre: pageData.titre,
-        type_de_page: pageData.type_de_page,
-        url_source: pageData.url_source,
-        has_image: !!pageData.image_url,
-        autres_mentions: proposalData.autresArticlesMentions?.length || 0,
-      });
+      console.log('📄 Données page POI complètes:', pageData);
 
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages`, {
         method: 'POST',
@@ -384,9 +378,14 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
 
       if (res.ok) {
         loadPages();
+      } else {
+        const errorData = await res.json();
+        console.error('❌ Erreur création page POI:', errorData);
+        alert(`Erreur: ${errorData.error || 'Impossible de créer la page'}`);
       }
     } catch (err) {
       console.error('Erreur création page depuis proposition:', err);
+      alert('Erreur lors de la création de la page');
     }
   };
 

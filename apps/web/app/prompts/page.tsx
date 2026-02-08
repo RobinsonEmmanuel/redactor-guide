@@ -54,6 +54,7 @@ export default function PromptsPage() {
   const router = useRouter();
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [loading, setLoading] = useState(true);
+  const [seeding, setSeeding] = useState(false);
   const [filterIntent, setFilterIntent] = useState('');
   const [filterActif, setFilterActif] = useState('');
 
@@ -62,6 +63,33 @@ export default function PromptsPage() {
   useEffect(() => {
     loadPrompts();
   }, [filterIntent, filterActif]);
+
+  const handleSeedPrompts = async () => {
+    if (!confirm('Créer/remplacer les prompts système (sommaire + rédaction) ?')) {
+      return;
+    }
+
+    setSeeding(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/prompts/seed-sommaire`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+
+      if (res.ok) {
+        alert('✅ Prompts système créés avec succès !');
+        loadPrompts();
+      } else {
+        const error = await res.json();
+        alert(`Erreur: ${error.error || 'Impossible de créer les prompts'}`);
+      }
+    } catch (err) {
+      console.error('Erreur seed prompts:', err);
+      alert('Erreur lors de la création des prompts');
+    } finally {
+      setSeeding(false);
+    }
+  };
 
   const loadPrompts = async () => {
     setLoading(true);
@@ -149,13 +177,22 @@ export default function PromptsPage() {
                 Gérez les prompts pour les différentes actions de l'IA
               </p>
             </div>
-            <button
-              onClick={() => router.push('/prompts/new')}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <PlusIcon className="h-5 w-5" />
-              Nouveau prompt
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={handleSeedPrompts}
+                disabled={seeding}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
+              >
+                {seeding ? '⏳ Création...' : '🌱 Créer prompts système'}
+              </button>
+              <button
+                onClick={() => router.push('/prompts/new')}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <PlusIcon className="h-5 w-5" />
+                Nouveau prompt
+              </button>
+            </div>
           </div>
 
           {/* Filtres */}

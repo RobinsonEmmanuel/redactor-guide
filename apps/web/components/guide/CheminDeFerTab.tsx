@@ -468,6 +468,33 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     }
   };
 
+  const handleResetPage = async (pageId: string) => {
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${pageId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          statut_editorial: 'draft',
+          commentaire_interne: undefined,
+          content: undefined,
+        }),
+      });
+
+      if (res.ok) {
+        console.log('✅ Page réinitialisée');
+        loadPages();
+      } else {
+        const errorData = await res.json();
+        console.error('❌ Erreur réinitialisation:', errorData);
+        alert(`Erreur: ${errorData.error || 'Impossible de réinitialiser'}`);
+      }
+    } catch (err) {
+      console.error('Erreur réinitialisation:', err);
+      alert('Erreur lors de la réinitialisation');
+    }
+  };
+
   const handleClearAllPages = async () => {
     if (pages.length === 0) {
       alert('Le chemin de fer est déjà vide.');
@@ -797,6 +824,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
               onEdit={handleEditPage}
               onDelete={handleDeletePage}
               onOpenContent={handleOpenContent}
+              onReset={handleResetPage}
               isEmpty={pages.length === 0}
               onAddPages={() => setShowAddPagesModal(true)}
               additionalSlots={additionalSlots}
@@ -1022,6 +1050,7 @@ function CheminDeFerGrid({
   onEdit,
   onDelete,
   onOpenContent,
+  onReset,
   isEmpty,
   onAddPages,
   additionalSlots,
@@ -1030,6 +1059,7 @@ function CheminDeFerGrid({
   onEdit: (page: Page) => void;
   onDelete: (pageId: string) => void;
   onOpenContent: (page: Page) => void;
+  onReset: (pageId: string) => void;
   isEmpty: boolean;
   onAddPages: () => void;
   additionalSlots: number;
@@ -1081,6 +1111,7 @@ function CheminDeFerGrid({
                     onEdit={() => onEdit(slot)}
                     onDelete={() => onDelete(slot._id)}
                     onOpenContent={() => onOpenContent(slot)}
+                    onReset={() => onReset(slot._id)}
                   />
                 );
               }

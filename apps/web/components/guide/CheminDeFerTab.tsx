@@ -143,6 +143,31 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     }
   };
 
+  const handleGeneratePartial = async (parts: string[]) => {
+    setLoadingProposal(true);
+    setProposalError(null);
+    try {
+      const partsQuery = parts.join(',');
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/generate-sommaire?parts=${partsQuery}`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setProposal(data.proposal);
+      } else {
+        const errorData = await res.json();
+        setProposalError(errorData.error || 'Erreur lors de la régénération');
+      }
+    } catch (err) {
+      console.error('Erreur régénération partielle:', err);
+      setProposalError('Erreur lors de la régénération');
+    } finally {
+      setLoadingProposal(false);
+    }
+  };
+
   const handleDragStart = (event: any) => {
     setActiveId(event.active.id);
   };

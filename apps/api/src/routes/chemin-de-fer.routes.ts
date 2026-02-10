@@ -565,10 +565,29 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           return reply.status(404).send({ error: 'Article WordPress non trouvé' });
         }
 
+        // Mapper les analyses vers le format attendu par le frontend (format plat)
+        const mappedAnalyses = (article.images_analysis || []).map((imgAnalysis: any, idx: number) => ({
+          image_id: `image_${idx}`,
+          url: imgAnalysis.url || '',
+          // Aplatir l'objet "analysis" vers le niveau racine
+          shows_entire_site: imgAnalysis.analysis?.shows_entire_site ?? false,
+          shows_detail: imgAnalysis.analysis?.shows_detail ?? false,
+          detail_type: imgAnalysis.analysis?.detail_type || 'indéterminé',
+          is_iconic_view: imgAnalysis.analysis?.is_iconic_view ?? false,
+          is_contextual: imgAnalysis.analysis?.is_contextual ?? false,
+          visual_clarity_score: imgAnalysis.analysis?.visual_clarity_score ?? 0,
+          composition_quality_score: imgAnalysis.analysis?.composition_quality_score ?? 0,
+          lighting_quality_score: imgAnalysis.analysis?.lighting_quality_score ?? 0,
+          readability_small_screen_score: imgAnalysis.analysis?.readability_small_screen_score ?? 0,
+          has_text_overlay: imgAnalysis.analysis?.has_text_overlay ?? false,
+          has_graphic_effects: imgAnalysis.analysis?.has_graphic_effects ?? false,
+          editorial_relevance: imgAnalysis.analysis?.editorial_relevance || 'faible',
+          analysis_summary: imgAnalysis.analysis?.analysis_summary || '',
+        }));
+
         return reply.send({
-          images: article.images || [],
-          images_analysis: article.images_analysis || [],
-          analyzed: (article.images_analysis && article.images_analysis.length > 0) || false
+          images: mappedAnalyses,
+          analyzed: mappedAnalyses.length > 0
         });
       } catch (error: any) {
         request.log.error(error);

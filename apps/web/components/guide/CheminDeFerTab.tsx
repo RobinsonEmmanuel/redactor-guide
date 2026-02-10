@@ -57,6 +57,10 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   const [showAddPagesModal, setShowAddPagesModal] = useState(false);
   const [additionalSlots, setAdditionalSlots] = useState(0);
 
+  // États pour le polling de génération en cours
+  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
+  const [generatingPageIds, setGeneratingPageIds] = useState<Set<string>>(new Set());
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -74,6 +78,68 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
       setLoading(false);
     }
   }, [cheminDeFer]);
+
+  // 🔄 Polling pour les pages en génération
+  useEffect(() => {
+    const pagesEnGeneration = pages.filter(p => p.statut_editorial === 'en_attente');
+    const pagesGenerees = pages.filter(p => 
+      p.statut_editorial === 'generee_ia' && 
+      generatingPageIds.has(p._id)
+    );
+    
+    // Notifier pour les pages terminées
+    if (pagesGenerees.length > 0) {
+      pagesGenerees.forEach(page => {
+        console.log(`✅ Page "${page.titre}" générée avec succès !`);
+        // Retirer de la liste des pages en génération
+        setGeneratingPageIds(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(page._id);
+          return newSet;
+        });
+      });
+      
+      // Toast simple
+      if (pagesGenerees.length === 1) {
+        alert(`✅ Page "${pagesGenerees[0].titre}" générée avec succès !`);
+      } else {
+        alert(`✅ ${pagesGenerees.length} pages générées avec succès !`);
+      }
+    }
+    
+    if (pagesEnGeneration.length > 0) {
+      // Démarrer le polling si pas déjà actif
+      if (!pollingInterval) {
+        console.log(`🔄 Polling activé pour ${pagesEnGeneration.length} page(s) en génération`);
+        
+        // Ajouter ces pages à la liste des pages en génération
+        setGeneratingPageIds(prev => {
+          const newSet = new Set(prev);
+          pagesEnGeneration.forEach(p => newSet.add(p._id));
+          return newSet;
+        });
+        
+        const interval = setInterval(() => {
+          loadPages(); // Recharger les pages
+        }, 3000); // Toutes les 3 secondes
+        setPollingInterval(interval);
+      }
+    } else {
+      // Arrêter le polling si plus de pages en génération
+      if (pollingInterval) {
+        console.log('✅ Polling arrêté, aucune génération en cours');
+        clearInterval(pollingInterval);
+        setPollingInterval(null);
+      }
+    }
+
+    // Nettoyage à la destruction du composant
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+    };
+  }, [pages]);
 
   const loadTemplates = async () => {
     try {
@@ -860,6 +926,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
           content={currentPageContent}
           onClose={() => setShowContentModal(false)}
           onSave={handleSaveContent}
+          onGenerationStarted={loadPages} // ✅ Recharger les pages immédiatement après lancement génération
           guideId={guideId}
           apiUrl={apiUrl}
         />

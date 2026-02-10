@@ -104,15 +104,27 @@ export class PageRedactionService {
 
     try {
       // Charger le prompt d'analyse
+      // Chercher par prompt_id OU par intent pour plus de flexibilité
+      console.log('🔍 Recherche du prompt analyse_image...');
       const promptDoc = await this.db.collection('prompts').findOne({
-        intent: 'analyse_image',
-        actif: true,
+        $or: [
+          { prompt_id: 'analyse_image', actif: true },
+          { intent: 'analyse_image', actif: true },
+        ],
       });
 
       if (!promptDoc) {
-        console.warn('⚠️ Prompt analyse_image introuvable, skip analyse');
+        console.warn('⚠️ Prompt analyse_image introuvable (cherché par prompt_id ou intent)');
+        // Compter combien de prompts existent en base pour debug
+        const totalPrompts = await this.db.collection('prompts').countDocuments();
+        const activePrompts = await this.db.collection('prompts').countDocuments({ actif: true });
+        console.warn(`   Base contient ${totalPrompts} prompt(s) total, ${activePrompts} actif(s)`);
+        console.warn('   → Skip analyse images');
         return;
       }
+
+      console.log(`✅ Prompt analyse_image trouvé (${promptDoc.prompt_nom || 'sans nom'})`);
+      console.log(`   Version: ${promptDoc.version || 'N/A'}, Intent: ${promptDoc.intent || 'N/A'}`);
 
       // Analyser les images
       const analyses = await this.imageAnalysisService.analyzeImages(
@@ -261,8 +273,10 @@ ${failedFields
 
 INSTRUCTIONS STRICTES :
 1. NE régénère QUE les champs en erreur ci-dessus
-2. Respecte IMPÉRATIVEMENT les règles de validation (longueur, mots interdits, etc.)
-3. Les autres champs sont déjà corrects, ne les modifie PAS`;
+2. Respecte IMPÉRATIVEMENT les règles de validation (longueur MIN et MAX, mots interdits, etc.)
+3. Pour les champs texte: viser 95% du calibre MAX pour être sûr de ne PAS dépasser
+4. Compte précisément les caractères, espaces compris, pour chaque champ
+5. Les autres champs sont déjà corrects, ne les modifie PAS`;
   }
 
   /**
@@ -327,7 +341,11 @@ INSTRUCTIONS STRICTES :
       }
 
       if (field.max_chars) {
-        parts.push(`Calibre MAX: ${field.max_chars} caractères (IMPÉRATIF)`);
+        parts.push(`⚠️ CALIBRAGE OBLIGATOIRE: ${field.max_chars} caractères MAXIMUM (ne JAMAIS dépasser, viser 95% du calibre)`);
+      }
+      
+      if (field.min_chars) {
+        parts.push(`⚠️ LONGUEUR MINIMUM: ${field.min_chars} caractères MINIMUM (OBLIGATOIRE)`);
       }
 
       if (field.ai_instructions) {
@@ -355,13 +373,13 @@ INSTRUCTIONS STRICTES :
     const rules: string[] = [];
 
     if (validation.required) {
-      rules.push('- Champ OBLIGATOIRE');
+      rules.push('- ⚠️ Champ OBLIGATOIRE');
     }
     if (validation.max_length) {
-      rules.push(`- Longueur MAX: ${validation.max_length} caractères`);
+      rules.push(`- ⚠️ LONGUEUR MAX: ${validation.max_length} caractères (NE JAMAIS DÉPASSER - viser 95% max)`);
     }
     if (validation.min_length) {
-      rules.push(`- Longueur MIN: ${validation.min_length} caractères`);
+      rules.push(`- ⚠️ LONGUEUR MIN: ${validation.min_length} caractères (OBLIGATOIRE)`);
     }
     if (validation.sentence_count) {
       rules.push(`- Nombre de phrases: ${validation.sentence_count} exactement`);

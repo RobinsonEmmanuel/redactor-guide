@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { XMarkIcon, SparklesIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, SparklesIcon, ArrowPathIcon, PhotoIcon } from '@heroicons/react/24/outline';
+import ImageAnalysisModal from './ImageAnalysisModal';
 
 interface Template {
   _id: string;
@@ -33,8 +34,9 @@ interface ContentEditorModalProps {
   content: Record<string, any>;
   onClose: () => void;
   onSave: (content: Record<string, any>) => void;
-  guideId: string; // ✅ Ajout
-  apiUrl: string;  // ✅ Ajout
+  onGenerationStarted?: () => void; // ✅ Callback pour recharger les pages après lancement génération
+  guideId: string;
+  apiUrl: string;
 }
 
 export default function ContentEditorModal({
@@ -43,12 +45,14 @@ export default function ContentEditorModal({
   content,
   onClose,
   onSave,
+  onGenerationStarted,
   guideId,
   apiUrl,
 }: ContentEditorModalProps) {
   const [formData, setFormData] = useState<Record<string, any>>(content || {});
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showImageAnalysis, setShowImageAnalysis] = useState(false);
 
   useEffect(() => {
     setFormData(content || {});
@@ -83,8 +87,18 @@ export default function ContentEditorModal({
           alert('✅ Contenu généré avec succès !');
         } else if (data.async) {
           // Génération asynchrone (prod) : via worker
-          alert('🤖 Génération IA lancée (avec analyse images) ! Le contenu sera disponible dans quelques secondes. Rechargez la page.');
+          console.log('🤖 Génération IA lancée en arrière-plan');
+          
+          // Appeler le callback pour recharger les pages
+          if (onGenerationStarted) {
+            onGenerationStarted();
+          }
+          
+          // Fermer la modal
           onClose();
+          
+          // Notifier l'utilisateur (moins intrusif qu'avant)
+          console.log('✅ Modal fermée, polling activé pour suivi auto');
         }
       } else {
         const errorMsg = data.details ? `${data.error}\n\nDétails: ${data.details}` : data.error;
@@ -308,24 +322,38 @@ export default function ContentEditorModal({
           </div>
 
           {/* Bouton génération IA */}
-          <button
-            type="button"
-            onClick={handleGenerateContent}
-            disabled={generating || !page.url_source}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {generating ? (
-              <>
-                <ArrowPathIcon className="h-5 w-5 animate-spin" />
-                Génération en cours...
-              </>
-            ) : (
-              <>
-                <SparklesIcon className="h-5 w-5" />
-                🤖 Générer le contenu automatiquement
-              </>
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={handleGenerateContent}
+              disabled={generating || !page.url_source}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {generating ? (
+                <>
+                  <ArrowPathIcon className="h-5 w-5 animate-spin" />
+                  Génération en cours...
+                </>
+              ) : (
+                <>
+                  <SparklesIcon className="h-5 w-5" />
+                  🤖 Générer le contenu automatiquement
+                </>
+              )}
+            </button>
+
+            {/* Bouton visualiser analyses images */}
+            {page.url_source && (
+              <button
+                type="button"
+                onClick={() => setShowImageAnalysis(true)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors text-sm"
+              >
+                <PhotoIcon className="h-4 w-4" />
+                📊 Voir les analyses d'images
+              </button>
             )}
-          </button>
+          </div>
 
           {!page.url_source && (
             <p className="text-xs text-white/70 mt-2 text-center">
@@ -364,6 +392,16 @@ export default function ContentEditorModal({
           </button>
         </div>
       </div>
+
+      {/* Modal d'analyse des images */}
+      {showImageAnalysis && (
+        <ImageAnalysisModal
+          guideId={guideId}
+          pageId={page._id}
+          apiUrl={apiUrl}
+          onClose={() => setShowImageAnalysis(false)}
+        />
+      )}
     </div>
   );
 }

@@ -30,3 +30,6 @@ export * from './schemas/chemin-de-fer.schema';
 
 // Prompt schemas
 export * from './schemas/prompt.schema';
+
+// Image analysis cache
+export * from './schemas/image-analysis-cache.schema';

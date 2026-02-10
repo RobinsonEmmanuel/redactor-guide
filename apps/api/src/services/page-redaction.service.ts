@@ -29,7 +29,7 @@ export class PageRedactionService {
       reasoningEffort: 'medium',
     });
     this.validatorService = new FieldValidatorService();
-    this.imageAnalysisService = new ImageAnalysisService(openaiApiKey);
+    this.imageAnalysisService = new ImageAnalysisService(openaiApiKey, db);
   }
 
   /**

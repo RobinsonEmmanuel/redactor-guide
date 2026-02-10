@@ -24,7 +24,7 @@ export class DIContainer {
       // Injecter le callback d'analyse d'images
       const openaiApiKey = env.OPENAI_API_KEY;
       if (openaiApiKey) {
-        const imageAnalysisService = new ImageAnalysisService(openaiApiKey);
+        const imageAnalysisService = new ImageAnalysisService(openaiApiKey, this.db);
         wpService.setImageAnalysisCallback(
           (imageUrls, analysisPrompt) => imageAnalysisService.analyzeImages(imageUrls, analysisPrompt)
         );
@@ -47,7 +47,7 @@ export class DIContainer {
     if (!this.services.has('ImageAnalysisService')) {
       this.services.set(
         'ImageAnalysisService',
-        new ImageAnalysisService(openaiApiKey)
+        new ImageAnalysisService(openaiApiKey, this.db)
       );
     }
     return this.services.get('ImageAnalysisService');

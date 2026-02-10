@@ -84,8 +84,8 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
 
       console.log(`📸 Analyse de ${article.images.length} images pour "${article.title}"`);
 
-      // Analyser les images
-      const imageAnalysisService = new ImageAnalysisService(openaiApiKey);
+      // Analyser les images avec cache MongoDB
+      const imageAnalysisService = new ImageAnalysisService(openaiApiKey, db);
       const analyses = await imageAnalysisService.analyzeImages(
         article.images,
         promptDoc.texte_prompt as string
@@ -179,8 +179,8 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
 
       console.log(`🔄 Ré-analyse de ${article.images.length} images pour "${article.title}"`);
 
-      // Analyser les images
-      const imageAnalysisService = new ImageAnalysisService(openaiApiKey);
+      // Analyser les images avec cache MongoDB
+      const imageAnalysisService = new ImageAnalysisService(openaiApiKey, db);
       const analyses = await imageAnalysisService.analyzeImages(
         article.images,
         promptDoc.texte_prompt as string

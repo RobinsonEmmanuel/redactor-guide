@@ -1,20 +1,24 @@
 import OpenAI from 'openai';
+import { Db } from 'mongodb';
 import type { ImageAnalysis, SelectionCriteria } from '@redactor-guide/core-model';
 
 export type { ImageAnalysis, SelectionCriteria };
 
 /**
  * Service pour analyser les images d'articles avec OpenAI Vision
+ * Utilise un cache MongoDB global pour éviter d'analyser 2 fois la même image
  */
 export class ImageAnalysisService {
   private client: OpenAI;
+  private db: Db;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, db: Db) {
     this.client = new OpenAI({ apiKey });
+    this.db = db;
   }
 
   /**
-   * Analyse une liste d'images
+   * Analyse une liste d'images avec cache MongoDB global
    */
   async analyzeImages(
     imageUrls: string[],
@@ -28,28 +32,72 @@ export class ImageAnalysisService {
     console.log(`📸 Analyse de ${imageUrls.length} image(s)...`);
 
     const analyses: ImageAnalysis[] = [];
+    let cacheHits = 0;
+    let newAnalyses = 0;
 
-    // Analyser chaque image individuellement
+    // Analyser chaque image avec cache
     for (let i = 0; i < imageUrls.length; i++) {
       const url = imageUrls[i];
-      console.log(`📸 Analyse image ${i + 1}/${imageUrls.length}: ${url}`);
-
+      
       try {
-        const analysis = await this.analyzeSingleImage(url, analysisPrompt, i);
-        analyses.push(analysis);
-        console.log(`✅ Image ${i + 1} analysée avec succès`);
+        // 1. Chercher dans le cache global
+        const cachedAnalysis = await this.db.collection('image_analyses').findOne({ url });
+
+        if (cachedAnalysis) {
+          console.log(`✅ Image ${i + 1}/${imageUrls.length}: trouvée en cache`);
+          
+          // Incrémenter le compteur de réutilisation
+          await this.db.collection('image_analyses').updateOne(
+            { url },
+            { 
+              $inc: { reuse_count: 1 },
+              $set: { last_reused_at: new Date().toISOString() }
+            }
+          );
+
+          // Convertir au format ImageAnalysis
+          analyses.push({
+            url: cachedAnalysis.url,
+            analysis: cachedAnalysis.analysis,
+            analyzed_at: cachedAnalysis.analyzed_at,
+          });
+          
+          cacheHits++;
+        } else {
+          // 2. Analyser l'image avec OpenAI
+          console.log(`📸 Analyse image ${i + 1}/${imageUrls.length}: ${url}`);
+          
+          const analysis = await this.analyzeSingleImage(url, analysisPrompt, i);
+          
+          // 3. Sauvegarder dans le cache global
+          await this.db.collection('image_analyses').insertOne({
+            url,
+            analysis: analysis.analysis,
+            analyzed_at: analysis.analyzed_at,
+            model_used: 'gpt-4o',
+            prompt_version: '1.0.0',
+            reuse_count: 0,
+          });
+          
+          analyses.push(analysis);
+          newAnalyses++;
+          console.log(`✅ Image ${i + 1} analysée et mise en cache`);
+
+          // Petit délai entre les appels API pour éviter rate limiting
+          if (i < imageUrls.length - 1 && !cachedAnalysis) {
+            await this.sleep(500);
+          }
+        }
       } catch (error: any) {
         console.error(`❌ Erreur analyse image ${i + 1}:`, error.message);
         // Continuer avec l'image suivante
       }
-
-      // Petit délai entre les appels pour éviter rate limiting
-      if (i < imageUrls.length - 1) {
-        await this.sleep(500);
-      }
     }
 
-    console.log(`✅ ${analyses.length}/${imageUrls.length} image(s) analysée(s)`);
+    console.log(`✅ Terminé: ${analyses.length}/${imageUrls.length} images`);
+    console.log(`   💾 Cache: ${cacheHits} hits (économie: ~$${(cacheHits * 0.005).toFixed(3)})`);
+    console.log(`   🆕 Nouvelles: ${newAnalyses} analyses (~$${(newAnalyses * 0.005).toFixed(3)})`);
+    
     return analyses;
   }
 

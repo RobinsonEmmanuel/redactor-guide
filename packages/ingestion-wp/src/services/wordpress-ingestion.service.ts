@@ -8,7 +8,7 @@ import {
   type WordPressPost,
   type WordPressMedia,
 } from '../schemas/wordpress-api.schema';
-import { extractImageUrls } from '../utils/html.utils';
+import { extractImageUrls, normalizeImageUrl } from '../utils/html.utils';
 import { htmlToMarkdown } from '../utils/markdown.utils';
 
 /**
@@ -363,9 +363,28 @@ export class WordPressIngestionService implements IWordPressIngestionService {
           .map((id) => tagsMap.get(id))
           .filter((n): n is string => n != null);
 
-        // Extraire les URLs des images du HTML
+        // Extraire les URLs des images du HTML (hors blocs réutilisables)
         const htmlContent = frPost.content?.rendered ?? '';
-        const imageUrls = extractImageUrls(htmlContent);
+        const rawImageUrls = extractImageUrls(htmlContent);
+        
+        // Dédupliquer les images visuellement identiques (même image, URLs différentes)
+        const seenNormalized = new Map<string, string>();
+        const imageUrls: string[] = [];
+        
+        for (const url of rawImageUrls) {
+          const normalized = normalizeImageUrl(url);
+          
+          if (!seenNormalized.has(normalized)) {
+            // Première occurrence : garder l'URL originale
+            seenNormalized.set(normalized, url);
+            imageUrls.push(url);
+          } else {
+            // Doublon détecté : ignorer
+            console.log(`🔄 Doublon ignoré: ${url} → ${normalized}`);
+          }
+        }
+        
+        console.log(`📸 Images filtrées: ${rawImageUrls.length} → ${imageUrls.length} (${rawImageUrls.length - imageUrls.length} doublons retirés)`);
         
         // Convertir le HTML en Markdown pour l'aide IA
         const markdown = htmlToMarkdown(htmlContent);

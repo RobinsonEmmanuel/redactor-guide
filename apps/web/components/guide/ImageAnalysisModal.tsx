@@ -163,9 +163,15 @@ export default function ImageAnalysisModal({
                           loading="lazy"
                         />
                       </div>
-                      <p className="text-xs text-gray-500 mt-2 truncate" title={img.url}>
-                        {img.url}
-                      </p>
+                      <a
+                        href={img.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-600 hover:text-blue-800 hover:underline mt-2 block truncate"
+                        title={`Ouvrir l'image dans un nouvel onglet: ${img.url}`}
+                      >
+                        🔗 {img.url}
+                      </a>
                     </div>
 
                     {/* Analysis */}

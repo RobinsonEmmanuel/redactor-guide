@@ -367,7 +367,7 @@ export class WordPressIngestionService implements IWordPressIngestionService {
         const htmlContent = frPost.content?.rendered ?? '';
         const rawImageUrls = extractImageUrls(htmlContent);
         
-        // Dédupliquer les images visuellement identiques (même image, URLs différentes)
+        // Dédupliquer les images avec URLs variantes (dimensions, suffixes)
         const seenNormalized = new Map<string, string>();
         const imageUrls: string[] = [];
         
@@ -380,11 +380,13 @@ export class WordPressIngestionService implements IWordPressIngestionService {
             imageUrls.push(url);
           } else {
             // Doublon détecté : ignorer
-            console.log(`🔄 Doublon ignoré: ${url} → ${normalized}`);
+            console.log(`🔄 Doublon ignoré: ${url.substring(0, 80)}...`);
           }
         }
         
-        console.log(`📸 Images filtrées: ${rawImageUrls.length} → ${imageUrls.length} (${rawImageUrls.length - imageUrls.length} doublons retirés)`);
+        if (rawImageUrls.length !== imageUrls.length) {
+          console.log(`📸 Images filtrées: ${rawImageUrls.length} → ${imageUrls.length} (${rawImageUrls.length - imageUrls.length} doublon(s) retiré(s))`);
+        }
         
         // Convertir le HTML en Markdown pour l'aide IA
         const markdown = htmlToMarkdown(htmlContent);

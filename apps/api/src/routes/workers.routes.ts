@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { PageRedactionService } from '../services/page-redaction.service';
+import { JsonTranslatorService } from '../services/json-translator.service';
 
 export async function workersRoutes(fastify: FastifyInstance) {
   /**
@@ -94,6 +95,110 @@ export async function workersRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({ 
         error: 'Erreur lors de la génération',
         details: error.message 
+      });
+    }
+  });
+
+  /**
+   * POST /workers/translate-json
+   * Worker pour traduire un JSON (appelé par QStash)
+   */
+  fastify.post('/workers/translate-json', async (request, reply) => {
+    const db = request.server.container.db;
+    const { jobId } = request.body as { jobId: string };
+
+    try {
+      console.log(`🚀 [WORKER] Traduction JSON job ${jobId}`);
+
+      if (!ObjectId.isValid(jobId)) {
+        throw new Error('Job ID invalide');
+      }
+
+      // Charger le job
+      const job = await db.collection('translation_jobs').findOne({
+        _id: new ObjectId(jobId),
+      });
+
+      if (!job) {
+        throw new Error('Job non trouvé');
+      }
+
+      // Marquer comme "en cours"
+      await db.collection('translation_jobs').updateOne(
+        { _id: new ObjectId(jobId) },
+        { 
+          $set: { 
+            status: 'processing', 
+            updated_at: new Date().toISOString() 
+          } 
+        }
+      );
+
+      // Traduire via ChatGPT
+      const openaiApiKey = process.env.OPENAI_API_KEY;
+      if (!openaiApiKey) {
+        throw new Error('OPENAI_API_KEY non configurée');
+      }
+
+      const translator = new JsonTranslatorService(openaiApiKey);
+      const result = await translator.translateJson(job.input_json);
+
+      if (result.success) {
+        // Succès
+        await db.collection('translation_jobs').updateOne(
+          { _id: new ObjectId(jobId) },
+          {
+            $set: {
+              status: 'completed',
+              output_json: result.translatedJson,
+              stats: result.stats,
+              updated_at: new Date().toISOString(),
+            },
+          }
+        );
+
+        console.log(`✅ [WORKER] Traduction terminée pour job ${jobId}`);
+        return reply.send({ success: true, stats: result.stats });
+      } else {
+        // Erreur
+        await db.collection('translation_jobs').updateOne(
+          { _id: new ObjectId(jobId) },
+          {
+            $set: {
+              status: 'failed',
+              error: result.error,
+              stats: result.stats,
+              updated_at: new Date().toISOString(),
+            },
+          }
+        );
+
+        console.error(`❌ [WORKER] Traduction échouée pour job ${jobId}:`, result.error);
+        return reply.status(500).send({
+          error: 'Traduction échouée',
+          details: result.error,
+        });
+      }
+    } catch (error: any) {
+      console.error(`❌ [WORKER] Erreur traduction job ${jobId}:`, error);
+
+      // Marquer comme "failed"
+      if (ObjectId.isValid(jobId)) {
+        await db.collection('translation_jobs').updateOne(
+          { _id: new ObjectId(jobId) },
+          {
+            $set: {
+              status: 'failed',
+              error: error.message,
+              updated_at: new Date().toISOString(),
+            },
+          }
+        );
+      }
+
+      return reply.status(500).send({
+        error: 'Erreur lors de la traduction',
+        details: error.message,
       });
     }
   });

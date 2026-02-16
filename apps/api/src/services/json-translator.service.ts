@@ -131,17 +131,21 @@ export class JsonTranslatorService {
     } else {
       Object.entries(obj).forEach(([key, value]) => {
         if (key === 'value') {
-          if (typeof value === 'string' && value.trim()) {
-            // Champ "value" string à traduire
+          if (typeof value === 'string' && value.trim() && !this.isUrl(value)) {
+            // Champ "value" string à traduire (sauf URLs)
             fields.push({ path: [...path, key], value });
           } else if (Array.isArray(value)) {
-            // Champ "value" array : traduire chaque élément string
+            // Champ "value" array : gérer strings et objets
             value.forEach((item, idx) => {
-              if (typeof item === 'string' && item.trim()) {
+              if (typeof item === 'string' && item.trim() && !this.isUrl(item)) {
+                // String à traduire (sauf URLs)
                 fields.push({ 
                   path: [...path, key, idx.toString()], 
                   value: item 
                 });
+              } else if (typeof item === 'object' && item !== null) {
+                // Objet dans l'array : extraire récursivement les strings
+                fields.push(...this.extractValueFields(item, [...path, key, idx.toString()]));
               }
             });
           }
@@ -153,6 +157,17 @@ export class JsonTranslatorService {
     }
 
     return fields;
+  }
+
+  /**
+   * Détecte si une chaîne est une URL
+   */
+  private isUrl(str: string): boolean {
+    if (!str) return false;
+    
+    // Détection simple mais robuste des URLs
+    const urlPattern = /^(https?:\/\/|www\.)/i;
+    return urlPattern.test(str.trim());
   }
 
   /**
@@ -255,15 +270,19 @@ Format de réponse attendu:
     for (const [key, value] of Object.entries(obj)) {
       if (key === 'value') {
         if (typeof value === 'string') {
-          // String simple : appliquer traduction directe
+          // String simple : appliquer traduction directe (URLs restent inchangées)
           const pathKey = [...path, key].join('.');
           result[key] = translations.get(pathKey) || value;
         } else if (Array.isArray(value)) {
-          // Array : appliquer traduction pour chaque élément
+          // Array : appliquer traduction pour strings et récursion pour objets
           result[key] = value.map((item, idx) => {
             if (typeof item === 'string') {
+              // String : appliquer traduction (URLs restent inchangées)
               const pathKey = [...path, key, idx.toString()].join('.');
               return translations.get(pathKey) || item;
+            } else if (typeof item === 'object' && item !== null) {
+              // Objet : appliquer récursivement les traductions
+              return this.applyTranslationsRecursive(item, [...path, key, idx.toString()], translations);
             }
             return item;
           });

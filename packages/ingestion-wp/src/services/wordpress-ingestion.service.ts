@@ -30,6 +30,8 @@ export interface IWordPressIngestionService {
     analysisPrompt?: string,
     analyzeImages?: boolean
   ): Promise<IngestArticlesResult>;
+  /** Définir le callback pour l'analyse d'images via IA */
+  setImageAnalysisCallback(callback: (imageUrls: string[], analysisPrompt: string) => Promise<ImageAnalysis[]>): void;
 }
 
 export interface IngestArticlesResult {

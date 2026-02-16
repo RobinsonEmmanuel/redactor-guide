@@ -202,7 +202,7 @@ Format de réponse attendu:
   /**
    * Parse les traductions depuis la réponse ChatGPT
    */
-  private parseTranslations(content: string, expectedCount: number): string[] {
+  private parseTranslations(content: string, _expectedCount: number): string[] {
     const lines = content.split('\n').filter(l => l.trim());
     const translations: string[] = [];
 

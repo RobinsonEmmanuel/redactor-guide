@@ -130,9 +130,21 @@ export class JsonTranslatorService {
       });
     } else {
       Object.entries(obj).forEach(([key, value]) => {
-        if (key === 'value' && typeof value === 'string' && value.trim()) {
-          // Champ "value" à traduire
-          fields.push({ path: [...path, key], value });
+        if (key === 'value') {
+          if (typeof value === 'string' && value.trim()) {
+            // Champ "value" string à traduire
+            fields.push({ path: [...path, key], value });
+          } else if (Array.isArray(value)) {
+            // Champ "value" array : traduire chaque élément string
+            value.forEach((item, idx) => {
+              if (typeof item === 'string' && item.trim()) {
+                fields.push({ 
+                  path: [...path, key, idx.toString()], 
+                  value: item 
+                });
+              }
+            });
+          }
         } else if (typeof value === 'object') {
           // Continuer la récursion
           fields.push(...this.extractValueFields(value, [...path, key]));
@@ -241,9 +253,23 @@ Format de réponse attendu:
 
     const result: any = {};
     for (const [key, value] of Object.entries(obj)) {
-      if (key === 'value' && typeof value === 'string') {
-        const pathKey = [...path, key].join('.');
-        result[key] = translations.get(pathKey) || value;
+      if (key === 'value') {
+        if (typeof value === 'string') {
+          // String simple : appliquer traduction directe
+          const pathKey = [...path, key].join('.');
+          result[key] = translations.get(pathKey) || value;
+        } else if (Array.isArray(value)) {
+          // Array : appliquer traduction pour chaque élément
+          result[key] = value.map((item, idx) => {
+            if (typeof item === 'string') {
+              const pathKey = [...path, key, idx.toString()].join('.');
+              return translations.get(pathKey) || item;
+            }
+            return item;
+          });
+        } else {
+          result[key] = value;
+        }
       } else if (typeof value === 'object') {
         result[key] = this.applyTranslationsRecursive(value, [...path, key], translations);
       } else {

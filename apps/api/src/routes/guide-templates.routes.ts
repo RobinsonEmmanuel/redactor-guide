@@ -1,10 +1,9 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ObjectId } from 'mongodb';
 import {
-  GuideTemplateSchema,
   CreateGuideTemplateSchema,
   UpdateGuideTemplateSchema,
-} from '@repo/core-model/schemas/guide-template.schema';
+} from '@redactor-guide/core-model/schemas/guide-template.schema';
 
 interface GuideTemplateIdParam {
   id: string;
@@ -20,7 +19,7 @@ export default async function guideTemplatesRoutes(
    * GET /guide-templates
    * Liste tous les templates de guides
    */
-  fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.get('/', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       const templates = await guideTemplatesCollection
         .find({})

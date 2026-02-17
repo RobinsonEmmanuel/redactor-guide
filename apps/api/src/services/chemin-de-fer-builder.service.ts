@@ -1,5 +1,5 @@
-import { Db, ObjectId } from 'mongodb';
-import { GuideTemplate } from '@repo/core-model/schemas/guide-template.schema';
+import { Db } from 'mongodb';
+import { GuideTemplate } from '@redactor-guide/core-model/schemas/guide-template.schema';
 
 interface BuilderDependencies {
   db: Db;
@@ -27,6 +27,8 @@ interface PageDocument {
     inspiration_title?: string;
     saison?: string;
     page_type?: string;
+    page_index?: number;
+    total_pages?: number;
   };
   fields: any[];
   created_at: string;

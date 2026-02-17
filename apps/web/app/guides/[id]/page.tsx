@@ -163,22 +163,6 @@ export default function GuideDetailPage() {
     setCurrentWorkflowStep(3); // Passer à l'étape "Lieux"
   };
 
-  const tabs = [
-    { id: 'articles', label: '📄 Articles WordPress', count: articlesCount },
-    { 
-      id: 'matching-cluster', 
-      label: '🗂️ Matching Cluster', 
-      count: null,
-      disabled: !canAccessMatchingCluster 
-    },
-    { 
-      id: 'chemin-de-fer', 
-      label: '🛤️ Chemin de fer', 
-      count: null,
-      disabled: !canAccessCheminDeFer 
-    },
-  ];
-
   return (
     <div className="flex h-screen">
       <Sidebar />
@@ -211,40 +195,6 @@ export default function GuideDetailPage() {
           completedSteps={getCompletedSteps()}
           onStepClick={handleWorkflowStepClick}
         />
-
-        {/* Tabs de navigation */}
-        <div className="border-b border-gray-200 bg-gray-50 px-6 py-2 flex-shrink-0">
-          <div className="flex gap-2">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => !tab.disabled && setActiveTab(tab.id as any)}
-                disabled={tab.disabled}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                  tab.disabled
-                    ? 'text-gray-400 cursor-not-allowed opacity-50 bg-white'
-                    : activeTab === tab.id
-                    ? 'text-white bg-blue-600 shadow-sm'
-                    : 'text-gray-700 bg-white hover:bg-gray-100 border border-gray-200'
-                }`}
-                title={tab.disabled ? 'Récupérez d\'abord les articles WordPress' : ''}
-              >
-                {tab.label}
-                {tab.count !== null && tab.count !== undefined && (
-                  <span className={`ml-2 px-1.5 py-0.5 text-xs rounded ${
-                    tab.disabled 
-                      ? 'bg-gray-200 text-gray-400' 
-                      : activeTab === tab.id
-                      ? 'bg-blue-700 text-white'
-                      : 'bg-gray-200 text-gray-700'
-                  }`}>
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
 
         {/* Tab Content - prend tout l'espace restant */}
         <div className="flex-1 overflow-hidden">

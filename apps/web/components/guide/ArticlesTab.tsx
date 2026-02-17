@@ -44,9 +44,9 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
   const loadAllArticles = async () => {
     setLoading(true);
     try {
-      // Récupérer TOUS les articles en une seule fois (sans pagination)
+      // Charger seulement les articles nécessaires (pagination optimisée)
       const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/articles?page=1&limit=1000`,
+        `${apiUrl}/api/v1/guides/${guideId}/articles?page=${pagination.page}&limit=50`,
         { credentials: 'include' }
       );
       if (res.ok) {

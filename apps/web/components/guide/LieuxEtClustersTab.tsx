@@ -258,7 +258,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   const getStatusBadge = (poi: POI) => {
     if (!poi.cluster_id) {
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
           <XCircleIcon className="w-3 h-3" />
           Non affecté
         </span>
@@ -270,15 +270,15 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                               poi.confidence === 'medium' ? 'bg-yellow-100 text-yellow-700' :
                               'bg-orange-100 text-orange-700';
       return (
-        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${confidenceColor}`}>
+        <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium ${confidenceColor}`}>
           <SparklesIcon className="w-3 h-3" />
-          Auto {poi.score ? `${Math.round(poi.score * 100)}%` : ''}
+          {poi.score ? `${Math.round(poi.score * 100)}%` : 'Auto'}
         </span>
       );
     }
 
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
         Manuel
       </span>
     );
@@ -312,26 +312,23 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
-      {/* Header */}
-      <div className="flex-shrink-0 bg-white border-b border-gray-200 p-4">
-        <h2 className="text-lg font-semibold text-gray-900 mb-3">📍 Lieux et Clusters</h2>
-        
-        {/* Boutons d'action */}
-        <div className="flex items-center gap-3 mb-3">
+      {/* Header compact */}
+      <div className="flex-shrink-0 bg-white border-b border-gray-200 px-4 py-2">
+        <div className="flex items-center gap-2">
           <button
             onClick={generatePoisFromArticles}
             disabled={generating}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
           >
             {generating ? (
               <>
-                <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
                 Génération...
               </>
             ) : (
               <>
-                <SparklesIcon className="w-4 h-4" />
-                1. Générer les lieux
+                <SparklesIcon className="w-3.5 h-3.5" />
+                1. Générer
               </>
             )}
           </button>
@@ -339,23 +336,23 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
           <button
             onClick={launchMatching}
             disabled={matching || pois.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
           >
             {matching ? (
               <>
-                <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
                 Matching...
               </>
             ) : (
               <>
-                <ArrowPathIcon className="w-4 h-4" />
-                2. Lancer le matching
+                <ArrowPathIcon className="w-3.5 h-3.5" />
+                2. Matching
               </>
             )}
           </button>
 
-          <div className="ml-auto text-sm text-gray-600">
-            {stats.assigned}/{stats.total} affectés • {stats.unassigned} non affectés
+          <div className="ml-auto text-xs text-gray-600">
+            {stats.assigned}/{stats.total} • {stats.unassigned} non affectés
           </div>
         </div>
       </div>
@@ -364,37 +361,37 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
       <div className="flex-1 flex overflow-hidden">
         {/* Partie gauche : Liste des POIs */}
         <div className="w-1/2 border-r border-gray-200 flex flex-col bg-white">
-          {/* Header liste */}
-          <div className="p-4 border-b border-gray-200">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-gray-900">Liste des lieux ({filteredPois.length})</h3>
+          {/* Header liste compact */}
+          <div className="p-3 border-b border-gray-200">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm font-semibold text-gray-900">Lieux ({filteredPois.length})</div>
               
               <button
                 onClick={() => setShowManualModal(true)}
-                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                className="flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
               >
-                <PlusIcon className="w-4 h-4" />
+                <PlusIcon className="w-3.5 h-3.5" />
                 Ajouter
               </button>
             </div>
 
             {/* Recherche */}
-            <div className="relative mb-3">
-              <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <div className="relative mb-2">
+              <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 transform -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
               <input
                 type="text"
-                placeholder="Rechercher un lieu..."
+                placeholder="Rechercher..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
 
             {/* Filtres */}
-            <div className="flex gap-2">
+            <div className="flex gap-1.5">
               <button
                 onClick={() => setFilterStatus('all')}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
                   filterStatus === 'all'
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -404,7 +401,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               </button>
               <button
                 onClick={() => setFilterStatus('unassigned')}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
                   filterStatus === 'unassigned'
                     ? 'bg-red-600 text-white'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -414,7 +411,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               </button>
               <button
                 onClick={() => setFilterStatus('assigned')}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
                   filterStatus === 'assigned'
                     ? 'bg-green-600 text-white'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -426,84 +423,98 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
           </div>
 
           {/* Liste scrollable */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
             {loading && (
-              <div className="text-center py-8 text-gray-500">
-                <ArrowPathIcon className="w-8 h-8 animate-spin mx-auto mb-2" />
-                Chargement...
+              <div className="text-center py-6 text-gray-500">
+                <ArrowPathIcon className="w-6 h-6 animate-spin mx-auto mb-2" />
+                <p className="text-xs">Chargement...</p>
               </div>
             )}
 
             {!loading && filteredPois.length === 0 && (
-              <div className="text-center py-8 text-gray-500">
-                <MapPinIcon className="w-12 h-12 mx-auto mb-2 text-gray-300" />
-                <p className="font-medium">Aucun lieu</p>
-                <p className="text-sm">Générez les lieux depuis WordPress</p>
+              <div className="text-center py-6 text-gray-500">
+                <MapPinIcon className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                <p className="text-sm font-medium">Aucun lieu</p>
+                <p className="text-xs">Cliquez sur "1. Générer"</p>
               </div>
             )}
 
-            {!loading && filteredPois.map((poi) => (
-              <button
-                key={poi.poi_id}
-                onClick={() => {
-                  setSelectedPOI(poi);
-                  setShowDetailPanel(true);
-                }}
-                className="w-full text-left p-3 border border-gray-200 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all"
-              >
-                <div className="flex items-start gap-2">
-                  <MapPinIcon className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-gray-900 mb-1">{poi.nom}</div>
-                    <div className="text-xs text-gray-500 mb-2">{poi.type}</div>
-                    {getStatusBadge(poi)}
-                    {poi.cluster_name && (
-                      <div className="text-xs text-gray-600 mt-1">
-                        → {poi.cluster_name}
+            {!loading && filteredPois.map((poi) => {
+              const articleUrl = poi.article_source && guide?.wpConfig?.siteUrl 
+                ? `${guide.wpConfig.siteUrl}${poi.article_source}`
+                : null;
+
+              return (
+                <div
+                  key={poi.poi_id}
+                  className="p-2 border border-gray-200 rounded-md hover:border-blue-400 hover:bg-blue-50 transition-all"
+                >
+                  <div className="flex items-start gap-2">
+                    <MapPinIcon className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm text-gray-900">{poi.nom}</div>
+                      <div className="text-xs text-gray-500 mb-1">{poi.type}</div>
+                      <div className="flex items-center gap-2">
+                        {getStatusBadge(poi)}
+                        {articleUrl && (
+                          <a
+                            href={articleUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            En savoir plus →
+                          </a>
+                        )}
                       </div>
-                    )}
+                      {poi.cluster_name && (
+                        <div className="text-xs text-gray-600 mt-1">
+                          → {poi.cluster_name}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </button>
-            ))}
+              );
+            })}
           </div>
         </div>
 
         {/* Partie droite : Vue par cluster */}
         <div className="w-1/2 flex flex-col bg-gray-50">
-          <div className="p-4 border-b border-gray-200 bg-white">
-            <h3 className="font-semibold text-gray-900">Répartition par cluster</h3>
-            <p className="text-xs text-gray-500 mt-1">{clustersMetadata.length} clusters</p>
+          <div className="p-3 border-b border-gray-200 bg-white">
+            <div className="text-sm font-semibold text-gray-900">Clusters ({clustersMetadata.length})</div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {/* Section Non affectés */}
             {unassignedPois.length > 0 && (
-              <div className="bg-white border border-red-200 rounded-lg overflow-hidden">
+              <div className="bg-white border border-red-200 rounded overflow-hidden">
                 <button
                   onClick={() => toggleCluster('unassigned')}
-                  className="w-full px-4 py-3 flex items-center justify-between bg-red-50 hover:bg-red-100 transition-colors"
+                  className="w-full px-3 py-2 flex items-center justify-between bg-red-50 hover:bg-red-100 transition-colors"
                 >
                   <div className="flex items-center gap-2">
-                    <XCircleIcon className="w-5 h-5 text-red-600" />
-                    <span className="font-semibold text-gray-900">Non affectés</span>
-                    <span className="px-2 py-0.5 bg-red-600 text-white text-xs rounded-full">
+                    <XCircleIcon className="w-4 h-4 text-red-600" />
+                    <span className="text-sm font-semibold text-gray-900">Non affectés</span>
+                    <span className="px-1.5 py-0.5 bg-red-600 text-white text-xs rounded-full">
                       {unassignedPois.length}
                     </span>
                   </div>
                   {expandedClusters.has('unassigned') ? (
-                    <ChevronUpIcon className="w-5 h-5 text-gray-500" />
+                    <ChevronUpIcon className="w-4 h-4 text-gray-500" />
                   ) : (
-                    <ChevronDownIcon className="w-5 h-5 text-gray-500" />
+                    <ChevronDownIcon className="w-4 h-4 text-gray-500" />
                   )}
                 </button>
 
                 {expandedClusters.has('unassigned') && (
-                  <div className="p-3 space-y-1">
+                  <div className="p-2 space-y-0.5">
                     {unassignedPois.map((poi) => (
                       <div
                         key={poi.poi_id}
-                        className="text-sm text-gray-700 py-1 px-2 hover:bg-gray-50 rounded cursor-pointer"
+                        className="text-xs text-gray-700 py-1 px-2 hover:bg-gray-50 rounded cursor-pointer"
                         onClick={() => {
                           setSelectedPOI(poi);
                           setShowDetailPanel(true);
@@ -523,31 +534,31 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               if (clusterPois.length === 0) return null;
 
               return (
-                <div key={cluster.cluster_id} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                <div key={cluster.cluster_id} className="bg-white border border-gray-200 rounded overflow-hidden">
                   <button
                     onClick={() => toggleCluster(cluster.cluster_id)}
-                    className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                    className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-50 transition-colors"
                   >
                     <div className="flex items-center gap-2">
-                      <MapPinIcon className="w-5 h-5 text-blue-600" />
-                      <span className="font-semibold text-gray-900">{cluster.cluster_name}</span>
-                      <span className="px-2 py-0.5 bg-gray-200 text-gray-700 text-xs rounded-full">
+                      <MapPinIcon className="w-4 h-4 text-blue-600" />
+                      <span className="text-sm font-semibold text-gray-900">{cluster.cluster_name}</span>
+                      <span className="px-1.5 py-0.5 bg-gray-200 text-gray-700 text-xs rounded-full">
                         {clusterPois.length}
                       </span>
                     </div>
                     {expandedClusters.has(cluster.cluster_id) ? (
-                      <ChevronUpIcon className="w-5 h-5 text-gray-500" />
+                      <ChevronUpIcon className="w-4 h-4 text-gray-500" />
                     ) : (
-                      <ChevronDownIcon className="w-5 h-5 text-gray-500" />
+                      <ChevronDownIcon className="w-4 h-4 text-gray-500" />
                     )}
                   </button>
 
                   {expandedClusters.has(cluster.cluster_id) && (
-                    <div className="p-3 space-y-1">
+                    <div className="p-2 space-y-0.5">
                       {clusterPois.map((poi) => (
                         <div
                           key={poi.poi_id}
-                          className="text-sm text-gray-700 py-1 px-2 hover:bg-gray-50 rounded cursor-pointer flex items-center justify-between"
+                          className="text-xs text-gray-700 py-1 px-2 hover:bg-gray-50 rounded cursor-pointer flex items-center justify-between"
                           onClick={() => {
                             setSelectedPOI(poi);
                             setShowDetailPanel(true);
@@ -568,9 +579,9 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             })}
 
             {pois.length > 0 && clustersMetadata.length === 0 && unassignedPois.length === 0 && (
-              <div className="text-center py-8 text-gray-500">
-                <p className="font-medium">Aucun cluster</p>
-                <p className="text-sm">Lancez le matching automatique</p>
+              <div className="text-center py-6 text-gray-500">
+                <p className="text-sm font-medium">Aucun cluster</p>
+                <p className="text-xs">Cliquez sur "2. Matching"</p>
               </div>
             )}
           </div>
@@ -581,8 +592,8 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
       {showManualModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">Créer un lieu</h2>
+            <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+              <h2 className="text-base font-semibold text-gray-900">Créer un lieu</h2>
               <button
                 onClick={() => setShowManualModal(false)}
                 className="text-gray-400 hover:text-gray-600"
@@ -591,28 +602,28 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
+            <div className="p-4 space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
                   Nom du lieu *
                 </label>
                 <input
                   type="text"
                   value={manualForm.nom}
                   onChange={(e) => setManualForm({ ...manualForm, nom: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Ex: Mirador de la Esperanza"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
                   Type *
                 </label>
                 <select
                   value={manualForm.type}
                   onChange={(e) => setManualForm({ ...manualForm, type: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="autre">Autre</option>
                   <option value="musee">Musée</option>
@@ -624,58 +635,58 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
                     Latitude
                   </label>
                   <input
                     type="text"
                     value={manualForm.lat}
                     onChange={(e) => setManualForm({ ...manualForm, lat: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="28.xxxxx"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
                     Longitude
                   </label>
                   <input
                     type="text"
                     value={manualForm.lon}
                     onChange={(e) => setManualForm({ ...manualForm, lon: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="-16.xxxxx"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
                   Article source (optionnel)
                 </label>
                 <input
                   type="text"
                   value={manualForm.article_source}
                   onChange={(e) => setManualForm({ ...manualForm, article_source: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="/tenerife/mirador-esperanza"
                 />
               </div>
             </div>
 
-            <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+            <div className="px-4 py-3 border-t border-gray-200 flex gap-2">
               <button
                 onClick={() => setShowManualModal(false)}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                className="flex-1 px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50 transition-colors"
               >
                 Annuler
               </button>
               <button
                 onClick={createManualPOI}
                 disabled={!manualForm.nom}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                className="flex-1 px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
               >
                 Créer
               </button>

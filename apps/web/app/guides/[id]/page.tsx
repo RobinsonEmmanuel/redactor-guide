@@ -183,7 +183,7 @@ export default function GuideDetailPage() {
       <main className="flex-1 overflow-auto flex flex-col">
         {/* Header compact */}
         <div className="border-b border-gray-200 bg-white px-6 py-2 flex-shrink-0">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <button
               onClick={() => router.push('/guides')}
               className="flex items-center gap-1 text-gray-600 hover:text-gray-900"
@@ -191,12 +191,13 @@ export default function GuideDetailPage() {
               <ArrowLeftIcon className="h-4 w-4" />
             </button>
             
-            <div className="border-l border-gray-300 pl-4">
-              <h1 className="text-lg font-bold text-gray-900">{guide.name}</h1>
-              <div className="flex items-center gap-3 text-xs text-gray-500">
-                <span>Version {guide.year}</span>
-                <span>•</span>
-                <span className="capitalize">{guide.status}</span>
+            <div className="border-l border-gray-300 pl-3">
+              <div className="flex items-center gap-2 text-sm">
+                <h1 className="font-bold text-gray-900">{guide.name}</h1>
+                <span className="text-gray-400">•</span>
+                <span className="text-gray-600">Version {guide.year}</span>
+                <span className="text-gray-400">•</span>
+                <span className="capitalize text-gray-600">{guide.status}</span>
               </div>
             </div>
           </div>

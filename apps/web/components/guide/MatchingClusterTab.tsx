@@ -54,9 +54,10 @@ interface ClusterAssignment {
 interface MatchingClusterTabProps {
   guideId: string;
   apiUrl: string;
+  guide?: any;
 }
 
-export default function MatchingClusterTab({ guideId, apiUrl }: MatchingClusterTabProps) {
+export default function MatchingClusterTab({ guideId, apiUrl, guide }: MatchingClusterTabProps) {
   const [assignment, setAssignment] = useState<ClusterAssignment | null>(null);
   const [clustersMetadata, setClustersMetadata] = useState<ClusterMetadata[]>([]);
   const [loading, setLoading] = useState(false);
@@ -95,6 +96,12 @@ export default function MatchingClusterTab({ guideId, apiUrl }: MatchingClusterT
   };
 
   const generateMatching = async () => {
+    // Vérifier que destination_rl_id est configuré
+    if (!guide?.destination_rl_id) {
+      alert('⚠️ Configuration manquante\n\nVeuillez renseigner l\'ID Region Lovers (destination_rl_id) dans les paramètres du guide avant de générer le matching.');
+      return;
+    }
+
     setLoading(true);
     try {
       console.log('🎯 Génération du matching...');
@@ -106,7 +113,9 @@ export default function MatchingClusterTab({ guideId, apiUrl }: MatchingClusterT
 
       if (!res.ok) {
         const errorData = await res.json();
-        alert(`Erreur: ${errorData.error}\n${errorData.message || errorData.details || ''}`);
+        const errorMessage = errorData.message || errorData.details || errorData.error;
+        alert(`❌ Erreur: ${errorData.error}\n\n${errorMessage}`);
+        console.error('Détails erreur:', errorData);
         return;
       }
 
@@ -236,6 +245,9 @@ export default function MatchingClusterTab({ guideId, apiUrl }: MatchingClusterT
   };
 
   if (!assignment) {
+    // Vérifier si destination_rl_id est configuré
+    const isConfigured = guide?.destination_rl_id;
+
     return (
       <div className="h-full flex flex-col items-center justify-center p-8">
         <div className="text-center max-w-md">
@@ -246,9 +258,21 @@ export default function MatchingClusterTab({ guideId, apiUrl }: MatchingClusterT
           <p className="text-gray-600 mb-6">
             Générez les lieux détectés dans vos articles et affectez-les aux clusters Region Lovers
           </p>
+
+          {!isConfigured && (
+            <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <p className="text-yellow-800 text-sm font-medium mb-2">
+                ⚠️ Configuration requise
+              </p>
+              <p className="text-yellow-700 text-xs">
+                Veuillez renseigner l'ID Region Lovers (destination_rl_id) dans les paramètres du guide
+              </p>
+            </div>
+          )}
+
           <button
             onClick={generateMatching}
-            disabled={loading}
+            disabled={loading || !isConfigured}
             className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2 mx-auto"
           >
             {loading && (

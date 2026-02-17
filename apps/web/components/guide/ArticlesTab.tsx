@@ -25,64 +25,40 @@ interface ArticlesTabProps {
 export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported }: ArticlesTabProps) {
   const router = useRouter();
   const [displayedArticles, setDisplayedArticles] = useState<Article[]>([]);
-  const [allArticles, setAllArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(false);
   const [ingesting, setIngesting] = useState(false);
   const [ingestionStatus, setIngestionStatus] = useState<string | null>(null);
   const [ingestionError, setIngestionError] = useState<string | null>(null);
-  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
-  const [filterByDestination, setFilterByDestination] = useState(true);
+  const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0, totalPages: 0 });
 
   useEffect(() => {
-    loadAllArticles();
-  }, [guideId]);
+    loadArticles();
+  }, [guideId, pagination.page]);
 
-  useEffect(() => {
-    applyFilterAndPagination();
-  }, [allArticles, filterByDestination, pagination.page]);
-
-  const loadAllArticles = async () => {
+  const loadArticles = async () => {
     setLoading(true);
     try {
-      // Charger seulement les articles nécessaires (pagination optimisée)
       const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/articles?page=${pagination.page}&limit=50`,
+        `${apiUrl}/api/v1/guides/${guideId}/articles?page=${pagination.page}&limit=${pagination.limit}`,
         { credentials: 'include' }
       );
       if (res.ok) {
         const data = await res.json();
-        setAllArticles(data.articles || []);
+        setDisplayedArticles(data.articles || []);
+        
+        if (data.pagination) {
+          setPagination(prev => ({ 
+            ...prev, 
+            total: data.pagination.total,
+            totalPages: data.pagination.totalPages
+          }));
+        }
       }
     } catch (err) {
       console.error('Erreur chargement articles:', err);
     } finally {
       setLoading(false);
     }
-  };
-
-  const applyFilterAndPagination = () => {
-    // 1. Filtrer par destination si activé
-    const filtered = filterByDestination && guide?.destination
-      ? allArticles.filter((article: Article) => 
-          article.categories?.some(cat => 
-            cat.toLowerCase() === guide.destination.toLowerCase()
-          )
-        )
-      : allArticles;
-    
-    // 2. Calculer la pagination sur les articles filtrés
-    const totalFiltered = filtered.length;
-    const totalPages = Math.ceil(totalFiltered / pagination.limit);
-    const startIndex = (pagination.page - 1) * pagination.limit;
-    const endIndex = startIndex + pagination.limit;
-    const paginatedArticles = filtered.slice(startIndex, endIndex);
-    
-    setDisplayedArticles(paginatedArticles);
-    setPagination(prev => ({ 
-      ...prev,
-      total: totalFiltered,
-      totalPages: totalPages
-    }));
   };
 
   const handlePageChange = (newPage: number) => {
@@ -198,11 +174,6 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
             <h2 className="text-xl font-semibold text-gray-900">Articles WordPress</h2>
             <p className="text-sm text-gray-600 mt-1">
               {pagination.total} article{pagination.total > 1 ? 's' : ''}
-              {filterByDestination && guide?.destination && (
-                <span className="ml-2 text-blue-600">
-                  (filtré par catégorie "{guide.destination}")
-                </span>
-              )}
             </p>
           </div>
           <button
@@ -215,27 +186,6 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
           </button>
         </div>
 
-        {/* Filtre destination */}
-        {guide?.destination && (
-          <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={filterByDestination}
-                onChange={(e) => setFilterByDestination(e.target.checked)}
-                className="rounded text-blue-600 focus:ring-2 focus:ring-blue-500"
-              />
-              <span className="text-sm text-blue-900 font-medium">
-                Afficher uniquement les articles de la destination "{guide.destination}"
-              </span>
-            </label>
-            {!filterByDestination && (
-              <span className="ml-auto text-xs text-blue-700">
-                ({allArticles.length} articles au total)
-              </span>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Status */}
@@ -254,13 +204,9 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
       {/* Liste des articles */}
       {loading ? (
         <div className="text-center py-12 text-gray-500">Chargement...</div>
-      ) : displayedArticles.length === 0 && allArticles.length === 0 ? (
-        <div className="text-center py-12 text-gray-500">
-          Aucun article. Cliquez sur "Récupérer les articles" pour démarrer.
-        </div>
       ) : displayedArticles.length === 0 ? (
         <div className="text-center py-12 text-gray-500">
-          Aucun article ne correspond au filtre "{guide?.destination}".
+          Aucun article. Cliquez sur "Récupérer les articles" pour démarrer.
         </div>
       ) : (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">

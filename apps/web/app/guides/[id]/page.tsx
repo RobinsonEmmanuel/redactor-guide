@@ -80,7 +80,7 @@ export default function GuideDetailPage() {
 
   const checkSommaireStatus = async () => {
     try {
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/sommaire-proposal`, {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/sommaire-proposal`, {
         credentials: 'include',
       });
       if (res.ok) {
@@ -204,7 +204,7 @@ export default function GuideDetailPage() {
             </div>
           )}
           {activeTab === 'matching-cluster' && canAccessMatchingCluster && (
-            <MatchingClusterTab guideId={guideId} apiUrl={apiUrl} />
+            <MatchingClusterTab guideId={guideId} apiUrl={apiUrl} guide={guide} />
           )}
           {activeTab === 'matching-cluster' && !canAccessMatchingCluster && (
             <div className="h-full flex items-center justify-center p-6">

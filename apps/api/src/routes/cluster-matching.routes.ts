@@ -120,6 +120,11 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
 
           console.log(`  🗂️  Cluster "${clusterName}" (${clusterId}): ${drafts.length} draft(s)`);
 
+          // Log du premier draft pour debug
+          if (drafts.length > 0) {
+            console.log(`  📍 Structure du premier draft:`, JSON.stringify(drafts[0], null, 2));
+          }
+
           for (const draft of drafts) {
             placeInstances.push({
               place_instance_id: draft._id || draft.id,

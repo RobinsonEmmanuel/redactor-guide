@@ -291,9 +291,9 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
   };
 
   return (
-    <div className="h-full flex flex-col p-6 space-y-6">
+    <div className="h-full flex flex-col p-6 overflow-y-auto">
       {/* Section 1: POIs détectés */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Lieux identifiés</h3>
@@ -327,7 +327,7 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
             Aucun lieu identifié. Cliquez sur le bouton ci-dessus pour démarrer.
           </div>
         ) : (
-          <div className="space-y-2 max-h-[600px] overflow-y-auto">
+          <div className="space-y-2 max-h-[400px] overflow-y-auto">
             {pois.map((poi) => (
               <div
                 key={poi.poi_id}
@@ -399,7 +399,7 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
       </div>
 
       {/* Section 2: Ajout manuel */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Ajout manuel</h3>
@@ -416,7 +416,7 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
       </div>
 
       {/* Section 3: Bibliothèque Region Lovers */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Bibliothèque Region Lovers</h3>
@@ -460,7 +460,7 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
             </div>
 
             {/* Liste groupée par cluster */}
-            <div className="max-h-[600px] overflow-y-auto space-y-4 border border-gray-200 rounded-lg p-4">
+            <div className="max-h-[400px] overflow-y-auto space-y-4 border border-gray-200 rounded-lg p-4">
               {Object.keys(libraryData).length === 0 ? (
                 <p className="text-center text-gray-500 py-8">
                   Aucun lieu trouvé dans la bibliothèque

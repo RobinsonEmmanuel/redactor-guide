@@ -5,6 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeftIcon } from '@heroicons/react/24/outline';
 import Sidebar from '@/components/Sidebar';
 import ArticlesTab from '@/components/guide/ArticlesTab';
+import MatchingClusterTab from '@/components/guide/MatchingClusterTab';
 import CheminDeFerTab from '@/components/guide/CheminDeFerTab';
 
 export default function GuideDetailPage() {
@@ -14,7 +15,7 @@ export default function GuideDetailPage() {
 
   const [guide, setGuide] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'articles' | 'chemin-de-fer'>('articles');
+  const [activeTab, setActiveTab] = useState<'articles' | 'matching-cluster' | 'chemin-de-fer'>('articles');
   const [articlesCount, setArticlesCount] = useState<number>(0);
   const [hasCheckedArticles, setHasCheckedArticles] = useState(false);
 
@@ -74,9 +75,16 @@ export default function GuideDetailPage() {
   }
 
   const canAccessCheminDeFer = articlesCount > 0;
+  const canAccessMatchingCluster = articlesCount > 0;
 
   const tabs = [
     { id: 'articles', label: 'Articles WordPress', count: articlesCount },
+    { 
+      id: 'matching-cluster', 
+      label: 'Matching Cluster', 
+      count: null,
+      disabled: !canAccessMatchingCluster 
+    },
     { 
       id: 'chemin-de-fer', 
       label: 'Chemin de fer', 
@@ -150,6 +158,27 @@ export default function GuideDetailPage() {
           {activeTab === 'articles' && (
             <div className="h-full p-6">
               <ArticlesTab guideId={guideId} guide={guide} apiUrl={apiUrl} onArticlesImported={checkArticles} />
+            </div>
+          )}
+          {activeTab === 'matching-cluster' && canAccessMatchingCluster && (
+            <MatchingClusterTab guideId={guideId} apiUrl={apiUrl} />
+          )}
+          {activeTab === 'matching-cluster' && !canAccessMatchingCluster && (
+            <div className="h-full flex items-center justify-center p-6">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center max-w-md">
+                <div className="text-yellow-800 font-medium mb-2">
+                  📝 Récupération des articles WordPress requise
+                </div>
+                <p className="text-yellow-700 text-sm mb-4">
+                  Pour effectuer le matching cluster, vous devez d'abord récupérer les articles WordPress de ce guide.
+                </p>
+                <button
+                  onClick={() => setActiveTab('articles')}
+                  className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+                >
+                  Aller aux articles WordPress
+                </button>
+              </div>
             </div>
           )}
           {activeTab === 'chemin-de-fer' && canAccessCheminDeFer && (

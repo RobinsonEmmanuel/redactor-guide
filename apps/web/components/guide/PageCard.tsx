@@ -14,6 +14,11 @@ interface Page {
   statut_editorial?: string;
   url_source?: string;
   image_url?: string; // Image de l'article WordPress
+  coordinates?: {
+    lat: number;
+    lon: number;
+    display_name?: string;
+  };
 }
 
 interface PageCardProps {

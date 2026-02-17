@@ -13,8 +13,9 @@ export async function createServer(db: Db, _port: number) {
   // Initialiser le conteneur DI
   const container = new DIContainer(db);
 
-  // Décorateur pour accéder au conteneur DI depuis les routes
+  // Décorateurs pour accéder au conteneur DI et à MongoDB depuis les routes
   fastify.decorate('container', container);
+  fastify.decorate('mongo', { db });
 
   // Routes de base
   fastify.get('/', async () => {
@@ -87,6 +88,9 @@ export async function createServer(db: Db, _port: number) {
       await fastify.register(
         (await import('./routes/translator.routes')).default
       );
+      await fastify.register(
+        (await import('./routes/cluster-matching.routes')).default
+      );
 
       fastify.get('/destinations', async () => {
         const destinations = await db.collection('destinations').find().toArray();
@@ -113,9 +117,12 @@ export async function createServer(db: Db, _port: number) {
   return fastify;
 }
 
-// Déclaration TypeScript pour le décorateur
+// Déclaration TypeScript pour les décorateurs
 declare module 'fastify' {
   interface FastifyInstance {
     container: DIContainer;
+    mongo: {
+      db: Db;
+    };
   }
 }

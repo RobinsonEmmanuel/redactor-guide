@@ -1,7 +1,5 @@
 import { FastifyInstance } from 'fastify';
 import { Db, ObjectId } from 'mongodb';
-import { OpenAIService } from '../services/openai.service';
-import { GeocodingService } from '../services/geocoding.service';
 import { env } from '../config/env';
 import { z } from 'zod';
 
@@ -16,11 +14,10 @@ const ManualPOISchema = z.object({
 
 export default async function poisManagementRoutes(fastify: FastifyInstance) {
   const db: Db = fastify.mongo.db!;
-  const geocodingService = new GeocodingService();
 
   /**
    * POST /guides/:guideId/pois/generate
-   * Génère les POIs depuis les articles WordPress via IA
+   * Génère les POIs depuis les articles WordPress via IA (asynchrone via QStash)
    */
   fastify.post<{ Params: { guideId: string } }>(
     '/guides/:guideId/pois/generate',
@@ -35,8 +32,6 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
         if (!guide) {
           return reply.code(404).send({ error: 'Guide non trouvé' });
         }
-
-        const destination = guide.destinations?.[0] || guide.destination || 'Destination inconnue';
 
         // 2. Vérifier qu'il y a des articles
         const articlesCount = await db.collection('articles_raw').countDocuments({ 

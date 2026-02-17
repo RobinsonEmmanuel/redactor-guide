@@ -5,24 +5,6 @@ import { GeocodingService } from '../services/geocoding.service';
 import { env } from '../config/env';
 import { z } from 'zod';
 
-// Schema Zod pour un POI
-const POISchema = z.object({
-  poi_id: z.string(),
-  nom: z.string(),
-  type: z.string(),
-  source: z.enum(['article', 'manual', 'library']), // Origine du POI
-  article_source: z.string().optional(), // Si depuis article
-  raison_selection: z.string().optional(),
-  autres_articles_mentions: z.array(z.string()).optional(),
-  coordinates: z.object({
-    lat: z.number(),
-    lon: z.number(),
-    display_name: z.string().optional(),
-  }).optional(),
-  cluster_id: z.string().optional(), // Si depuis bibliothèque RL
-  region_lovers_id: z.string().optional(), // ID dans la base RL
-});
-
 const ManualPOISchema = z.object({
   nom: z.string().min(1),
   type: z.string(),
@@ -110,8 +92,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
         });
 
         console.log('🤖 Appel OpenAI pour génération POIs...');
-        const response = await openaiService.generateContent(prompt);
-        const result = JSON.parse(response.output);
+        const result = await openaiService.generateJSON(prompt, 12000);
 
         if (!result.pois || !Array.isArray(result.pois)) {
           throw new Error('Format de réponse invalide');
@@ -231,7 +212,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
         await db.collection('pois_selection').updateOne(
           { guide_id: guideId },
           {
-            $push: { pois: newPOI },
+            $push: { pois: newPOI } as any,
             $set: { updated_at: now },
             $setOnInsert: { guide_id: guideId, created_at: now },
           },
@@ -288,7 +269,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
             'pois.region_lovers_id': { $ne: region_lovers_id },
           },
           {
-            $push: { pois: newPOI },
+            $push: { pois: newPOI } as any,
             $set: { updated_at: now },
             $setOnInsert: { guide_id: guideId, created_at: now },
           },
@@ -326,7 +307,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
         const result = await db.collection('pois_selection').updateOne(
           { guide_id: guideId },
           {
-            $pull: { pois: { poi_id: poiId } },
+            $pull: { pois: { poi_id: poiId } } as any,
             $set: { updated_at: new Date() },
           }
         );
@@ -372,13 +353,14 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
         // 2. Appeler l'API Region Lovers
         const regionId = guide.destination_rl_id;
         const rlApiToken = env.REGION_LOVERS_API_TOKEN;
+        const rlApiUrl = env.REGION_LOVERS_API_URL || 'https://api-prod.regionlovers.ai';
 
         if (!rlApiToken) {
           return reply.code(500).send({ error: 'REGION_LOVERS_API_TOKEN non configuré' });
         }
 
         const response = await fetch(
-          `https://api.region-lovers.com/place-instance-drafts/region/${regionId}`,
+          `${rlApiUrl}/place-instance-drafts/region/${regionId}`,
           {
             headers: {
               'Authorization': `Bearer ${rlApiToken}`,
@@ -391,12 +373,13 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
           throw new Error(`Erreur API RL: ${response.status}`);
         }
 
-        const data = await response.json();
+        const data: any = await response.json();
 
         // 3. Transformer et grouper par cluster
         const poisByCluster: Record<string, any[]> = {};
+        const dataArray = Array.isArray(data) ? data : (data.drafts || []);
 
-        for (const item of data) {
+        for (const item of dataArray) {
           const clusterId = item.cluster_id || 'non_affecte';
           const clusterName = item.cluster_name || 'Non affecté';
 
@@ -419,11 +402,11 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
           poisByCluster[clusterId].sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
         }
 
-        console.log(`📚 [Library] ${data.length} POI(s) récupéré(s) depuis Region Lovers`);
+        console.log(`📚 [Library] ${dataArray.length} POI(s) récupéré(s) depuis Region Lovers`);
 
         return reply.send({
           clusters: poisByCluster,
-          total: data.length,
+          total: dataArray.length,
         });
 
       } catch (error: any) {

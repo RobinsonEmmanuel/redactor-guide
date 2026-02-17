@@ -48,6 +48,10 @@ const EnvSchema = z.object({
   INGEST_WORKER_URL: z.string().optional(),
   /** Clé API OpenAI pour génération contenu et analyse images (optionnel en dev) */
   OPENAI_API_KEY: z.string().optional(),
+  /** Token API Region Lovers (optionnel) */
+  REGION_LOVERS_API_TOKEN: z.string().optional(),
+  /** URL API Region Lovers (optionnel) */
+  REGION_LOVERS_API_URL: z.string().optional(),
 });
 
 /**

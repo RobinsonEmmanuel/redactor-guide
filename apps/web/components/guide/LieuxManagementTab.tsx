@@ -10,6 +10,7 @@ import {
   ChevronUpIcon,
   BookOpenIcon,
 } from '@heroicons/react/24/outline';
+import { authFetch } from '@/lib/api-client';
 
 interface POI {
   poi_id: string;
@@ -62,9 +63,7 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
   const loadPois = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/pois`, {
-        credentials: 'include',
-      });
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois`);
       if (res.ok) {
         const data = await res.json();
         setPois(data.pois || []);
@@ -81,9 +80,8 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
     try {
       console.log('🔍 Génération POIs depuis articles...');
       
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/pois/generate`, {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/generate`, {
         method: 'POST',
-        credentials: 'include',
       });
 
       if (!res.ok) {
@@ -102,9 +100,8 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
       // 2. Polling pour vérifier le statut
       const checkStatus = async (): Promise<boolean> => {
         try {
-          const statusRes = await fetch(
-            `${apiUrl}/api/v1/guides/${guideId}/pois/job-status/${jobId}`,
-            { credentials: 'include' }
+          const statusRes = await authFetch(
+            `${apiUrl}/api/v1/guides/${guideId}/pois/job-status/${jobId}`
           );
 
           if (!statusRes.ok) {
@@ -176,10 +173,9 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
         };
       }
 
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/pois/add-manual`, {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/add-manual`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify(payload),
       });
 
@@ -204,9 +200,8 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
     if (!confirm('Supprimer ce lieu de la sélection ?')) return;
 
     try {
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/pois/${poiId}`, {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/${poiId}`, {
         method: 'DELETE',
-        credentials: 'include',
       });
 
       if (res.ok) {
@@ -226,9 +221,7 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
 
     setLoadingLibrary(true);
     try {
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/library`, {
-        credentials: 'include',
-      });
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/library`);
 
       if (!res.ok) {
         const errorData = await res.json();
@@ -250,10 +243,9 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
 
   const addPoiFromLibrary = async (poi: POI) => {
     try {
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/pois/add-from-library`, {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/add-from-library`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           region_lovers_id: poi.region_lovers_id,
           nom: poi.nom,

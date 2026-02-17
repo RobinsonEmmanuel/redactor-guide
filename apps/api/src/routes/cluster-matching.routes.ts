@@ -53,12 +53,15 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         }));
 
         // 3. Extraire le token JWT de l'utilisateur depuis les cookies
-        const userToken = request.cookies?.accessToken;
+        // Extraire le token JWT (cookies OU Authorization header)
+        const userToken = 
+          request.cookies?.accessToken || 
+          request.headers.authorization?.replace('Bearer ', '');
         
         if (!userToken) {
           return reply.code(401).send({ 
             error: 'Non authentifié',
-            message: 'Token JWT manquant. Veuillez vous reconnecter.' 
+            message: 'Token JWT manquant. Veuillez vous reconnecter.'
           });
         }
 

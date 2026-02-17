@@ -12,6 +12,7 @@ import {
   DragEndEvent
 } from '@dnd-kit/core';
 import { MapPinIcon, CheckCircleIcon, ExclamationTriangleIcon, XCircleIcon } from '@heroicons/react/24/outline';
+import { authFetch } from '@/lib/api-client';
 
 interface POI {
   poi_id: string;
@@ -80,9 +81,7 @@ export default function MatchingClusterTab({ guideId, apiUrl, guide }: MatchingC
 
   const loadExistingMatching = async () => {
     try {
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/matching`, {
-        credentials: 'include',
-      });
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/matching`);
 
       if (res.ok) {
         const data = await res.json();
@@ -106,9 +105,8 @@ export default function MatchingClusterTab({ guideId, apiUrl, guide }: MatchingC
     try {
       console.log('🎯 Génération du matching...');
       
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/matching/generate`, {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/matching/generate`, {
         method: 'POST',
-        credentials: 'include',
       });
 
       if (!res.ok) {
@@ -140,10 +138,9 @@ export default function MatchingClusterTab({ guideId, apiUrl, guide }: MatchingC
     try {
       console.log('💾 Sauvegarde du matching...');
       
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/matching/save`, {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/matching/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ assignment }),
       });
 

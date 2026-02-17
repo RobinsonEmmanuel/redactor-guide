@@ -373,8 +373,10 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
           });
         }
 
-        // 2. Extraire le token JWT de l'utilisateur depuis les cookies
-        const userToken = request.cookies?.accessToken;
+        // 2. Extraire le token JWT de l'utilisateur (cookies OU Authorization header)
+        const userToken = 
+          request.cookies?.accessToken || 
+          request.headers.authorization?.replace('Bearer ', '');
         
         if (!userToken) {
           return reply.code(401).send({ 

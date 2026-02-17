@@ -1,6 +1,6 @@
 /**
  * Service de matching entre POIs (détectés dans les articles WordPress)
- * et clusters Region Lovers
+ * et place_instances Region Lovers (contenus dans des clusters)
  * 
  * Utilise un algorithme de similarité de chaînes pour proposer des correspondances
  */
@@ -17,15 +17,19 @@ export interface POI {
   };
 }
 
-export interface Cluster {
-  _id: string;
+/**
+ * Représente un draft (place_instance) avec son cluster associé
+ */
+export interface PlaceInstance {
+  place_instance_id: string;
   place_name: string;
   place_type: string;
-  place_instance_id: string;
+  cluster_id: string;
+  cluster_name: string;
 }
 
 export interface MatchSuggestion {
-  cluster: Cluster;
+  place_instance: PlaceInstance;
   score: number;
   confidence: 'high' | 'medium' | 'low';
 }
@@ -33,7 +37,8 @@ export interface MatchSuggestion {
 export interface POIWithMatch {
   poi: POI;
   current_cluster_id: string | 'unassigned';
-  suggested_cluster?: MatchSuggestion;
+  place_instance_id?: string;
+  suggested_match?: MatchSuggestion;
   matched_automatically: boolean;
 }
 
@@ -123,19 +128,19 @@ export class ClusterMatchingService {
   }
 
   /**
-   * Trouve le meilleur cluster pour un POI donné
+   * Trouve la meilleure place_instance pour un POI donné
    */
-  findBestMatch(poi: POI, clusters: Cluster[]): MatchSuggestion | null {
+  findBestMatch(poi: POI, placeInstances: PlaceInstance[]): MatchSuggestion | null {
     let bestMatch: MatchSuggestion | null = null;
     let bestScore = 0;
 
-    for (const cluster of clusters) {
-      const score = this.calculateSimilarity(poi.nom, cluster.place_name);
+    for (const placeInstance of placeInstances) {
+      const score = this.calculateSimilarity(poi.nom, placeInstance.place_name);
 
       if (score > bestScore && score >= this.MIN_SUGGESTION_THRESHOLD) {
         bestScore = score;
         bestMatch = {
-          cluster,
+          place_instance: placeInstance,
           score,
           confidence: this.getConfidenceLevel(score),
         };
@@ -155,50 +160,55 @@ export class ClusterMatchingService {
   }
 
   /**
-   * Assigne automatiquement les POIs aux clusters
+   * Assigne automatiquement les POIs aux clusters via les place_instances
    * 
    * Logique:
-   * - Score >= 60% : Affectation automatique au cluster suggéré
+   * - Score >= 60% : Affectation automatique au cluster de la place_instance matchée
    * - Score < 60% : Reste dans "Non affectés"
    */
-  autoAssignPOIs(pois: POI[], clusters: Cluster[]): ClusterAssignment {
+  autoAssignPOIs(pois: POI[], placeInstances: PlaceInstance[]): ClusterAssignment {
     const assignment: ClusterAssignment = {
       unassigned: [],
       clusters: {},
     };
 
+    // Extraire la liste unique des clusters
+    const uniqueClusterIds = [...new Set(placeInstances.map(pi => pi.cluster_id))];
+    
     // Initialiser les colonnes de clusters
-    for (const cluster of clusters) {
-      assignment.clusters[cluster._id] = [];
+    for (const clusterId of uniqueClusterIds) {
+      assignment.clusters[clusterId] = [];
     }
 
-    console.log(`🎯 Auto-matching de ${pois.length} POI(s) avec ${clusters.length} cluster(s)...`);
+    console.log(`🎯 Auto-matching de ${pois.length} POI(s) avec ${placeInstances.length} place_instance(s) répartis dans ${uniqueClusterIds.length} cluster(s)...`);
 
     let autoMatchedCount = 0;
 
     for (const poi of pois) {
-      const bestMatch = this.findBestMatch(poi, clusters);
+      const bestMatch = this.findBestMatch(poi, placeInstances);
 
       if (bestMatch && bestMatch.score >= this.AUTO_MATCH_THRESHOLD) {
-        // Affecter automatiquement
-        assignment.clusters[bestMatch.cluster._id].push({
+        // Affecter automatiquement au cluster de la place_instance
+        const clusterId = bestMatch.place_instance.cluster_id;
+        assignment.clusters[clusterId].push({
           poi,
-          current_cluster_id: bestMatch.cluster._id,
-          suggested_cluster: bestMatch,
+          current_cluster_id: clusterId,
+          place_instance_id: bestMatch.place_instance.place_instance_id,
+          suggested_match: bestMatch,
           matched_automatically: true,
         });
         autoMatchedCount++;
-        console.log(`  ✅ "${poi.nom}" → "${bestMatch.cluster.place_name}" (${(bestMatch.score * 100).toFixed(0)}%)`);
+        console.log(`  ✅ "${poi.nom}" → "${bestMatch.place_instance.place_name}" dans cluster "${bestMatch.place_instance.cluster_name}" (${(bestMatch.score * 100).toFixed(0)}%)`);
       } else {
         // Rester dans "Non affectés"
         assignment.unassigned.push({
           poi,
           current_cluster_id: 'unassigned',
-          suggested_cluster: bestMatch || undefined,
+          suggested_match: bestMatch || undefined,
           matched_automatically: false,
         });
         if (bestMatch) {
-          console.log(`  ⚠️ "${poi.nom}" → Non affecté (meilleur: "${bestMatch.cluster.place_name}" ${(bestMatch.score * 100).toFixed(0)}%)`);
+          console.log(`  ⚠️ "${poi.nom}" → Non affecté (meilleur: "${bestMatch.place_instance.place_name}" ${(bestMatch.score * 100).toFixed(0)}%)`);
         } else {
           console.log(`  ❌ "${poi.nom}" → Non affecté (aucune suggestion)`);
         }

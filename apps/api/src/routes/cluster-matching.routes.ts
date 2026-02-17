@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { Db, ObjectId } from 'mongodb';
-import { ClusterMatchingService, POI, Cluster } from '../services/cluster-matching.service';
+import { ClusterMatchingService, POI, PlaceInstance } from '../services/cluster-matching.service';
 
 export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
   const db: Db = fastify.mongo.db!;
@@ -96,32 +96,59 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         // Logs détaillés pour debug
         console.log('📦 Type de données reçues:', Array.isArray(clustersData) ? 'Array' : typeof clustersData);
         console.log('📦 Clés de l\'objet:', clustersData && typeof clustersData === 'object' ? Object.keys(clustersData) : 'N/A');
-        console.log('📦 Nombre d\'éléments bruts:', Array.isArray(clustersData) ? clustersData.length : (clustersData?.drafts?.length || clustersData?.data?.length || 'N/A'));
         
-        // Essayer différents chemins pour récupérer les clusters
-        let clusters: Cluster[] = [];
+        // Parser la structure de l'API Region Lovers
+        let clustersArray: any[] = [];
         
         if (Array.isArray(clustersData)) {
-          clusters = clustersData;
-        } else if (clustersData?.drafts && Array.isArray(clustersData.drafts)) {
-          clusters = clustersData.drafts;
+          clustersArray = clustersData;
+        } else if (clustersData?.clusters && Array.isArray(clustersData.clusters)) {
+          clustersArray = clustersData.clusters;
         } else if (clustersData?.data && Array.isArray(clustersData.data)) {
-          clusters = clustersData.data;
-        } else if (clustersData?.places && Array.isArray(clustersData.places)) {
-          clusters = clustersData.places;
+          clustersArray = clustersData.data;
         }
 
-        console.log(`✅ ${clusters.length} cluster(s) récupéré(s) depuis Region Lovers`);
+        console.log(`📦 ${clustersArray.length} cluster(s) trouvé(s) dans la réponse`);
+
+        // Aplatir : extraire toutes les place_instances de tous les clusters
+        const placeInstances: any[] = [];
         
-        if (clusters.length > 0) {
-          console.log('📍 Exemple de cluster:', JSON.stringify(clusters[0], null, 2));
+        for (const cluster of clustersArray) {
+          const clusterId = cluster.id || cluster._id || cluster.cluster_id;
+          const clusterName = cluster.name || cluster.cluster_name || 'Sans nom';
+          const drafts = cluster.drafts || cluster.place_instances || [];
+
+          console.log(`  🗂️  Cluster "${clusterName}" (${clusterId}): ${drafts.length} draft(s)`);
+
+          for (const draft of drafts) {
+            placeInstances.push({
+              place_instance_id: draft._id || draft.id,
+              place_name: draft.place_name || draft.name,
+              place_type: draft.place_type || draft.type || 'autre',
+              cluster_id: clusterId,
+              cluster_name: clusterName,
+            });
+          }
         }
 
-        // 5. Auto-matching
-        const assignment = clusterMatchingService.autoAssignPOIs(pois, clusters);
+        console.log(`✅ ${placeInstances.length} place_instance(s) récupéré(es) depuis Region Lovers`);
+        
+        if (placeInstances.length > 0) {
+          console.log('📍 Exemple de place_instance:', JSON.stringify(placeInstances[0], null, 2));
+        }
+
+        // 5. Auto-matching POIs ↔ Place Instances
+        const assignment = clusterMatchingService.autoAssignPOIs(pois, placeInstances);
         const stats = clusterMatchingService.generateStats(assignment);
 
         // 6. Sauvegarder en base (état initial)
+        // Extraire les clusters uniques pour les métadonnées
+        const uniqueClusters = clustersArray.map(c => ({
+          cluster_id: c.id || c._id || c.cluster_id,
+          cluster_name: c.name || c.cluster_name || 'Sans nom',
+          place_count: (c.drafts || c.place_instances || []).length,
+        }));
+
         await db.collection('cluster_assignments').updateOne(
           { guide_id: guideId },
           {
@@ -130,11 +157,8 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
               region_id: regionId,
               assignment,
               stats,
-              clusters_metadata: clusters.map(c => ({
-                cluster_id: c._id,
-                place_name: c.place_name,
-                place_type: c.place_type,
-              })),
+              clusters_metadata: uniqueClusters,
+              place_instances_count: placeInstances.length,
               updated_at: new Date(),
             },
             $setOnInsert: {
@@ -150,11 +174,8 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
           success: true,
           assignment,
           stats,
-          clusters_metadata: clusters.map(c => ({
-            cluster_id: c._id,
-            place_name: c.place_name,
-            place_type: c.place_type,
-          })),
+          clusters_metadata: uniqueClusters,
+          place_instances_count: placeInstances.length,
         });
       } catch (error: any) {
         console.error('❌ [Matching] Erreur:', error);

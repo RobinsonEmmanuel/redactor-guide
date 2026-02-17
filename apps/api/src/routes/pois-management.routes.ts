@@ -400,38 +400,67 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
 
         const data: any = await response.json();
 
-        // 3. Transformer et grouper par cluster
+        // 3. Parser la structure de l'API Region Lovers (comme dans le matching)
         const poisByCluster: Record<string, any[]> = {};
-        const dataArray = Array.isArray(data) ? data : (data.drafts || []);
-
-        for (const item of dataArray) {
-          const clusterId = item.cluster_id || 'non_affecte';
-          const clusterName = item.cluster_name || 'Non affecté';
-
-          if (!poisByCluster[clusterId]) {
-            poisByCluster[clusterId] = [];
-          }
-
-          poisByCluster[clusterId].push({
-            region_lovers_id: item._id,
-            nom: item.place_name || item.nom,
-            type: item.place_type || 'autre',
-            cluster_id: clusterId,
-            cluster_name: clusterName,
-            coordinates: item.coordinates,
-          });
+        
+        let clustersArray: any[] = [];
+        if (Array.isArray(data)) {
+          clustersArray = data;
+        } else if (data?.clusters && Array.isArray(data.clusters)) {
+          clustersArray = data.clusters;
+        } else if (data?.data && Array.isArray(data.data)) {
+          clustersArray = data.data;
         }
 
-        // 4. Trier alphabétiquement dans chaque cluster
-        for (const clusterId in poisByCluster) {
+        console.log(`📚 [Library] ${clustersArray.length} cluster(s) trouvé(s)`);
+
+        // 4. Extraire les POIs de chaque cluster
+        let totalPois = 0;
+        for (const cluster of clustersArray) {
+          const clusterId = cluster.id || cluster._id || cluster.cluster_id || 'non_affecte';
+          const clusterName = cluster.name || cluster.cluster_name || 'Non affecté';
+          const drafts = cluster.drafts || cluster.place_instances || [];
+
+          if (drafts.length === 0) continue;
+
+          poisByCluster[clusterId] = [];
+
+          for (const draft of drafts) {
+            // Extraire le VRAI nom depuis blocks > general_info > fields > name
+            let realPlaceName = draft.place_name || draft.name || 'Sans nom';
+            
+            try {
+              const generalInfoBlock = draft.blocks?.find((b: any) => b.block_id === 'general_info');
+              const generalSection = generalInfoBlock?.sections?.find((s: any) => s.section_id === 'general_info_general');
+              const nameField = generalSection?.fields?.find((f: any) => f.field_id === 'name');
+              
+              if (nameField?.value) {
+                realPlaceName = nameField.value;
+              }
+            } catch (err) {
+              console.warn('⚠️ Impossible d\'extraire le nom réel pour draft', draft._id);
+            }
+
+            poisByCluster[clusterId].push({
+              region_lovers_id: draft._id || draft.id,
+              nom: realPlaceName,
+              type: draft.place_type || draft.type || 'autre',
+              cluster_id: clusterId,
+              cluster_name: clusterName,
+              coordinates: draft.coordinates,
+            });
+            totalPois++;
+          }
+
+          // Trier alphabétiquement
           poisByCluster[clusterId].sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
         }
 
-        console.log(`📚 [Library] ${dataArray.length} POI(s) récupéré(s) depuis Region Lovers`);
+        console.log(`📚 [Library] ${totalPois} POI(s) récupéré(s) répartis dans ${Object.keys(poisByCluster).length} cluster(s)`);
 
         return reply.send({
           clusters: poisByCluster,
-          total: dataArray.length,
+          total: totalPois,
         });
 
       } catch (error: any) {

@@ -85,9 +85,12 @@ export default function MatchingClusterTab({ guideId, apiUrl, guide }: MatchingC
 
       if (res.ok) {
         const data = await res.json();
-        setAssignment(data.assignment);
-        setClustersMetadata(data.clusters_metadata || []);
-        setStats(data.stats);
+        // Si assignment est null, c'est qu'aucun matching n'a encore été généré
+        if (data.assignment) {
+          setAssignment(data.assignment);
+          setClustersMetadata(data.clusters_metadata || []);
+          setStats(data.stats);
+        }
       }
     } catch (error) {
       console.log('Aucun matching existant');

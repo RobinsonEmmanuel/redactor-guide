@@ -153,7 +153,14 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         const assignment = await db.collection('cluster_assignments').findOne({ guide_id: guideId });
 
         if (!assignment) {
-          return reply.code(404).send({ error: 'Aucun matching trouvé pour ce guide' });
+          // Retourner un objet vide au lieu de 404 pour éviter les logs d'erreur dans la console
+          return reply.send({
+            assignment: null,
+            stats: null,
+            clusters_metadata: [],
+            created_at: null,
+            updated_at: null,
+          });
         }
 
         reply.send({

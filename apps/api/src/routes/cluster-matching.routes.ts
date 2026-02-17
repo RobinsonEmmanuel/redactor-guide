@@ -571,7 +571,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
           await db.collection('cluster_assignments').updateOne(
             { guide_id: guideId },
             {
-              $push: { clusters_metadata: newCluster },
+              $push: { clusters_metadata: newCluster } as any,
               $set: { updated_at: new Date() },
             }
           );

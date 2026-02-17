@@ -7,6 +7,7 @@ import Sidebar from '@/components/Sidebar';
 import WorkflowStepper from '@/components/guide/WorkflowStepper';
 import ArticlesTab from '@/components/guide/ArticlesTab';
 import LieuxEtClustersTab from '@/components/guide/LieuxEtClustersTab';
+import LieuxEtInspirationsTab from '@/components/guide/LieuxEtInspirationsTab';
 import CheminDeFerTab from '@/components/guide/CheminDeFerTab';
 
 export default function GuideDetailPage() {
@@ -16,12 +17,13 @@ export default function GuideDetailPage() {
 
   const [guide, setGuide] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'articles' | 'lieux-et-clusters' | 'chemin-de-fer'>('articles');
+  const [activeTab, setActiveTab] = useState<'articles' | 'lieux-et-clusters' | 'lieux-et-inspirations' | 'chemin-de-fer'>('articles');
   const [articlesCount, setArticlesCount] = useState<number>(0);
   const [hasCheckedArticles, setHasCheckedArticles] = useState(false);
   const [currentWorkflowStep, setCurrentWorkflowStep] = useState<number>(2); // Commence à étape 2 (Articles)
   const [poisSelected, setPoisSelected] = useState(false); // Étape 3: POIs sélectionnés
-  const [matchingGenerated, setMatchingGenerated] = useState(false); // Étape 4: Matching fait
+  const [matchingGenerated, setMatchingGenerated] = useState(false); // Étape 3: Matching fait
+  const [inspirationsGenerated, setInspirationsGenerated] = useState(false); // Étape 4: Inspirations générées
   const [sommaireGenerated, setSommaireGenerated] = useState(false);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -31,6 +33,7 @@ export default function GuideDetailPage() {
     checkArticles();
     checkPoisStatus();
     checkMatchingStatus();
+    checkInspirationsStatus();
     checkSommaireStatus();
   }, [guideId]);
 
@@ -94,6 +97,20 @@ export default function GuideDetailPage() {
     }
   };
 
+  const checkInspirationsStatus = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/inspirations`, {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setInspirationsGenerated(data.inspirations && data.inspirations.length > 0);
+      }
+    } catch (err) {
+      setInspirationsGenerated(false);
+    }
+  };
+
   const checkSommaireStatus = async () => {
     try {
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/sommaire-proposal`, {
@@ -121,10 +138,13 @@ export default function GuideDetailPage() {
     // Étape 3: Lieux et Clusters (POIs identifiés + matching généré)
     if (poisSelected && matchingGenerated) completed.add(3);
     
-    // Étape 4: Chemin de fer (si pages créées ou sommaire généré ou au moins une page avec contenu)
+    // Étape 4: Lieux et Inspirations (inspirations générées)
+    if (inspirationsGenerated) completed.add(4);
+    
+    // Étape 5: Chemin de fer (si pages créées ou sommaire généré ou au moins une page avec contenu)
     const hasGeneratedContent = guide?.chemin_de_fer?.pages?.some((p: any) => p.statut_editorial === 'generee_ia');
     if (sommaireGenerated || guide?.chemin_de_fer?.pages?.length > 0 || hasGeneratedContent) {
-      completed.add(4);
+      completed.add(5);
     }
     
     return completed;
@@ -143,6 +163,7 @@ export default function GuideDetailPage() {
     // Mapper stepId vers l'onglet correspondant
     if (tabId === 'articles') setActiveTab('articles');
     if (tabId === 'lieux-et-clusters') setActiveTab('lieux-et-clusters');
+    if (tabId === 'lieux-et-inspirations') setActiveTab('lieux-et-inspirations');
     if (tabId === 'chemin-de-fer') setActiveTab('chemin-de-fer');
     // Note: 'config' et 'export' n'ont pas encore d'onglet dédié
   };
@@ -164,6 +185,7 @@ export default function GuideDetailPage() {
   }
 
   const canAccessLieuxEtClusters = articlesCount > 0;
+  const canAccessLieuxEtInspirations = articlesCount > 0 && poisSelected;
   const canAccessCheminDeFer = articlesCount > 0;
 
   // Callback pour rafraîchir les statuts après actions
@@ -239,6 +261,29 @@ export default function GuideDetailPage() {
               </div>
             </div>
           )}
+
+          {activeTab === 'lieux-et-inspirations' && canAccessLieuxEtInspirations && (
+            <LieuxEtInspirationsTab guideId={guideId} apiUrl={apiUrl} />
+          )}
+          {activeTab === 'lieux-et-inspirations' && !canAccessLieuxEtInspirations && (
+            <div className="h-full flex items-center justify-center p-6">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center max-w-md">
+                <div className="text-yellow-800 font-medium mb-2">
+                  📍 Lieux requis
+                </div>
+                <p className="text-yellow-700 text-sm mb-4">
+                  Pour affecter les lieux aux inspirations, vous devez d'abord identifier les lieux à l'étape précédente.
+                </p>
+                <button
+                  onClick={() => setActiveTab('lieux-et-clusters')}
+                  className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+                >
+                  Aller aux lieux et clusters
+                </button>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'chemin-de-fer' && canAccessCheminDeFer && (
             <CheminDeFerTab guideId={guideId} cheminDeFer={guide.chemin_de_fer} apiUrl={apiUrl} />
           )}

@@ -7,7 +7,7 @@ interface Step {
   label: string;
   shortLabel: string;
   icon: string;
-  tabId: 'config' | 'articles' | 'lieux-et-clusters' | 'chemin-de-fer' | 'export';
+  tabId: 'config' | 'articles' | 'lieux-et-clusters' | 'lieux-et-inspirations' | 'chemin-de-fer' | 'export';
   description: string;
 }
 
@@ -44,15 +44,23 @@ const WORKFLOW_STEPS: Step[] = [
   },
   {
     id: 4,
-    label: '4. Chemin de fer',
+    label: '4. Lieux & Inspirations',
+    shortLabel: 'Inspir.',
+    icon: '💡',
+    tabId: 'lieux-et-inspirations',
+    description: 'Affectation des lieux aux inspirations thématiques'
+  },
+  {
+    id: 5,
+    label: '5. Chemin de fer',
     shortLabel: 'CdF',
     icon: '🛤️',
     tabId: 'chemin-de-fer',
     description: 'Génération du sommaire et construction des pages'
   },
   {
-    id: 5,
-    label: '5. Export',
+    id: 6,
+    label: '6. Export',
     shortLabel: 'Export',
     icon: '📦',
     tabId: 'export',

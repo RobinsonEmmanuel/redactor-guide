@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { Db, ObjectId } from 'mongodb';
-import { ClusterMatchingService, POI, PlaceInstance } from '../services/cluster-matching.service';
+import { ClusterMatchingService, POI } from '../services/cluster-matching.service';
 
 export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
   const db: Db = fastify.mongo.db!;

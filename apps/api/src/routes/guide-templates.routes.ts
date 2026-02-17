@@ -3,7 +3,7 @@ import { ObjectId } from 'mongodb';
 import {
   CreateGuideTemplateSchema,
   UpdateGuideTemplateSchema,
-} from '@redactor-guide/core-model/schemas/guide-template.schema';
+} from '@redactor-guide/core-model';
 
 interface GuideTemplateIdParam {
   id: string;

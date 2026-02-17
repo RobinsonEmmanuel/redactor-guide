@@ -1,5 +1,5 @@
 import { Db } from 'mongodb';
-import { GuideTemplate } from '@redactor-guide/core-model/schemas/guide-template.schema';
+import { GuideTemplate } from '@redactor-guide/core-model';
 
 interface BuilderDependencies {
   db: Db;

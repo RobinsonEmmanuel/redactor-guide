@@ -6,6 +6,7 @@
 
 // Guide schemas
 export * from './schemas/guide.schema';
+export * from './schemas/guide-template.schema';
 
 // Destination schemas
 export * from './schemas/destination.schema';

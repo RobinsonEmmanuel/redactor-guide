@@ -7,12 +7,11 @@ import {
   MapPinIcon,
   ChevronDownIcon,
   ChevronUpIcon,
-  CheckCircleIcon,
-  ExclamationTriangleIcon,
   XCircleIcon,
   ArrowPathIcon,
   SparklesIcon,
 } from '@heroicons/react/24/outline';
+import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, useDraggable, useDroppable } from '@dnd-kit/core';
 import { authFetch } from '@/lib/api-client';
 
 interface POI {
@@ -43,28 +42,156 @@ interface ClusterMetadata {
   place_count: number;
 }
 
-interface POIWithMatch {
-  poi: POI;
-  current_cluster_id: string | 'unassigned';
-  place_instance_id?: string;
-  suggested_match?: {
-    place_instance: {
-      place_instance_id: string;
-      place_name: string;
-      place_type: string;
-      cluster_id: string;
-      cluster_name: string;
-    };
-    score: number;
-    confidence: 'high' | 'medium' | 'low';
-  };
-  matched_automatically: boolean;
-}
-
 interface LieuxEtClustersTabProps {
   guideId: string;
   apiUrl: string;
   guide?: any;
+}
+
+// Composant POI draggable
+function DraggablePOI({ poi }: { poi: POI }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: poi.poi_id,
+  });
+
+  const style = transform ? {
+    transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+    opacity: isDragging ? 0.5 : 1,
+  } : undefined;
+
+  const getStatusBadge = () => {
+    if (!poi.cluster_id) {
+      return (
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+          <XCircleIcon className="w-3 h-3" />
+          Non affecté
+        </span>
+      );
+    }
+
+    if (poi.matched_automatically) {
+      const confidenceColor = poi.confidence === 'high' ? 'bg-green-100 text-green-700' :
+                              poi.confidence === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                              'bg-orange-100 text-orange-700';
+      return (
+        <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium ${confidenceColor}`}>
+          <SparklesIcon className="w-3 h-3" />
+          {poi.score ? `${Math.round(poi.score * 100)}%` : 'Auto'}
+        </span>
+      );
+    }
+
+    return (
+      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+        Manuel
+      </span>
+    );
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
+      className="bg-white p-2 rounded border border-gray-200 hover:border-blue-400 cursor-move transition-all"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium text-gray-900 truncate">{poi.nom}</div>
+          <div className="text-xs text-gray-500">{poi.type}</div>
+          {poi.cluster_name && (
+            <div className="text-xs text-blue-600 mt-0.5">📍 {poi.cluster_name}</div>
+          )}
+        </div>
+        {getStatusBadge()}
+      </div>
+    </div>
+  );
+}
+
+// Composant Cluster droppable
+function DroppableCluster({ 
+  cluster, 
+  pois, 
+  isExpanded, 
+  onToggle 
+}: { 
+  cluster: ClusterMetadata | 'unassigned'; 
+  pois: POI[];
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const clusterId = cluster === 'unassigned' ? 'unassigned' : cluster.cluster_id;
+  const clusterName = cluster === 'unassigned' ? 'Non affectés' : cluster.cluster_name;
+  const isUnassigned = cluster === 'unassigned';
+
+  const { setNodeRef, isOver } = useDroppable({
+    id: clusterId,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`bg-white border rounded overflow-hidden transition-all ${
+        isUnassigned ? 'border-red-200' : 'border-gray-200'
+      } ${
+        isOver ? 'ring-2 ring-blue-500 border-blue-500' : ''
+      }`}
+    >
+      <button
+        onClick={onToggle}
+        className={`w-full px-3 py-2 flex items-center justify-between transition-colors ${
+          isUnassigned ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          {isUnassigned ? (
+            <XCircleIcon className="w-4 h-4 text-red-600" />
+          ) : (
+            <MapPinIcon className="w-4 h-4 text-blue-600" />
+          )}
+          <span className="text-sm font-semibold text-gray-900">{clusterName}</span>
+          <span className={`px-1.5 py-0.5 text-xs rounded-full ${
+            isUnassigned ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-700'
+          }`}>
+            {pois.length}
+          </span>
+        </div>
+        {isExpanded ? (
+          <ChevronUpIcon className="w-4 h-4 text-gray-500" />
+        ) : (
+          <ChevronDownIcon className="w-4 h-4 text-gray-500" />
+        )}
+      </button>
+
+      {isExpanded && (
+        <div className="p-2 space-y-0.5 max-h-64 overflow-y-auto">
+          {pois.length === 0 ? (
+            <div className="text-center py-4 text-xs text-gray-400">
+              Glissez-déposez des lieux ici
+            </div>
+          ) : (
+            pois.map((poi) => (
+              <div
+                key={poi.poi_id}
+                className="text-xs text-gray-700 py-1 px-2 hover:bg-gray-50 rounded"
+              >
+                <div className="flex items-center justify-between">
+                  <span>• {poi.nom}</span>
+                  {poi.matched_automatically && poi.score && (
+                    <span className="text-xs text-gray-500">
+                      {Math.round(poi.score * 100)}%
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtClustersTabProps) {
@@ -73,21 +200,18 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'unassigned' | 'assigned'>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'unassigned' | string>('all');
   
   // États matching
-  const [assignment, setAssignment] = useState<any>(null);
   const [clustersMetadata, setClustersMetadata] = useState<ClusterMetadata[]>([]);
   const [matching, setMatching] = useState(false);
-  const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set(['unassigned']));
+  const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
+  
+  // États drag & drop
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
   
   // États modals
   const [showManualModal, setShowManualModal] = useState(false);
-  const [showLibraryModal, setShowLibraryModal] = useState(false);
-  const [showDetailPanel, setShowDetailPanel] = useState(false);
-  const [selectedPOI, setSelectedPOI] = useState<POI | null>(null);
-  
-  // Formulaire manuel
   const [manualForm, setManualForm] = useState({
     nom: '',
     type: 'autre',
@@ -122,12 +246,11 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
       if (res.ok) {
         const data = await res.json();
         if (data.assignment) {
-          setAssignment(data.assignment);
           setClustersMetadata(data.clusters_metadata || []);
         }
       }
     } catch (err) {
-      console.log('Aucun matching existant');
+      console.error('Erreur chargement matching:', err);
     }
   };
 
@@ -138,48 +261,30 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         method: 'POST',
       });
 
-      if (!res.ok) {
-        const errorData = await res.json();
-        alert(`❌ Erreur: ${errorData.error}`);
-        setGenerating(false);
-        return;
-      }
-
-      const data = await res.json();
-      const jobId = data.jobId;
-
-      // Polling
-      const pollInterval = setInterval(async () => {
-        try {
-          const statusRes = await authFetch(
-            `${apiUrl}/api/v1/guides/${guideId}/pois/job-status/${jobId}`
-          );
-          if (statusRes.ok) {
-            const statusData = await statusRes.json();
-            
-            if (statusData.status === 'completed') {
+      if (res.ok) {
+        const pollInterval = setInterval(async () => {
+          const checkRes = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/generation/status`);
+          if (checkRes.ok) {
+            const status = await checkRes.json();
+            if (status.status === 'completed') {
               clearInterval(pollInterval);
-              setGenerating(false);
               await loadPois();
-              alert('✅ Lieux générés avec succès !');
-            } else if (statusData.status === 'failed') {
+              setGenerating(false);
+              alert('✅ Génération terminée !');
+            } else if (status.status === 'failed') {
               clearInterval(pollInterval);
               setGenerating(false);
-              alert(`❌ Erreur: ${statusData.error || 'Échec de la génération'}`);
+              alert('❌ Erreur lors de la génération');
             }
           }
-        } catch (err) {
-          console.error('Erreur polling:', err);
-        }
-      }, 3000);
+        }, 3000);
 
-      setTimeout(() => {
-        clearInterval(pollInterval);
-        if (generating) {
+        setTimeout(() => {
+          clearInterval(pollInterval);
           setGenerating(false);
           alert('⏱️ Timeout - Veuillez vérifier manuellement');
-        }
-      }, 180000);
+        }, 180000);
+      }
     } catch (err) {
       console.error('Erreur génération:', err);
       setGenerating(false);
@@ -195,7 +300,6 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
       if (res.ok) {
         const data = await res.json();
-        setAssignment(data.assignment);
         setClustersMetadata(data.clusters_metadata || []);
         await loadPois();
         alert('✅ Matching terminé !');
@@ -243,6 +347,49 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     }
   };
 
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveDragId(event.active.id as string);
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveDragId(null);
+
+    if (!over) return;
+
+    const poiId = active.id as string;
+    const targetClusterId = over.id as string;
+
+    const poi = pois.find(p => p.poi_id === poiId);
+    if (!poi) return;
+
+    if (poi.cluster_id === targetClusterId) return;
+
+    const targetCluster = clustersMetadata.find(c => c.cluster_id === targetClusterId);
+    const clusterName = targetClusterId === 'unassigned' ? null : (targetCluster?.cluster_name || null);
+
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/${poiId}/cluster`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cluster_id: targetClusterId === 'unassigned' ? null : targetClusterId,
+          cluster_name: clusterName,
+        }),
+      });
+
+      if (res.ok) {
+        await loadPois();
+      } else {
+        const errorData = await res.json();
+        alert(`❌ Erreur: ${errorData.error}`);
+      }
+    } catch (err) {
+      console.error('Erreur réaffectation:', err);
+      alert('❌ Erreur lors de la réaffectation');
+    }
+  };
+
   const toggleCluster = (clusterId: string) => {
     setExpandedClusters(prev => {
       const next = new Set(prev);
@@ -255,45 +402,18 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     });
   };
 
-  const getStatusBadge = (poi: POI) => {
-    if (!poi.cluster_id) {
-      return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
-          <XCircleIcon className="w-3 h-3" />
-          Non affecté
-        </span>
-      );
-    }
-
-    if (poi.matched_automatically) {
-      const confidenceColor = poi.confidence === 'high' ? 'bg-green-100 text-green-700' :
-                              poi.confidence === 'medium' ? 'bg-yellow-100 text-yellow-700' :
-                              'bg-orange-100 text-orange-700';
-      return (
-        <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium ${confidenceColor}`}>
-          <SparklesIcon className="w-3 h-3" />
-          {poi.score ? `${Math.round(poi.score * 100)}%` : 'Auto'}
-        </span>
-      );
-    }
-
-    return (
-      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
-        Manuel
-      </span>
-    );
-  };
-
+  // Filtrage pour la colonne de gauche
   const filteredPois = pois.filter(poi => {
     const matchesSearch = poi.nom.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesFilter = filterStatus === 'all' ||
-                         (filterStatus === 'unassigned' && !poi.cluster_id) ||
-                         (filterStatus === 'assigned' && poi.cluster_id);
-    return matchesSearch && matchesFilter;
+    
+    if (filterMode === 'all') return matchesSearch;
+    if (filterMode === 'unassigned') return matchesSearch && !poi.cluster_id;
+    return matchesSearch && poi.cluster_id === filterMode;
   });
 
-  const unassignedPois = filteredPois.filter(p => !p.cluster_id);
-  const assignedPois = filteredPois.filter(p => p.cluster_id);
+  // Groupement pour la colonne de droite
+  const unassignedPois = pois.filter(p => !p.cluster_id);
+  const assignedPois = pois.filter(p => p.cluster_id);
 
   const poisByCluster: Record<string, POI[]> = {};
   assignedPois.forEach(poi => {
@@ -304,19 +424,8 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     poisByCluster[clusterId].push(poi);
   });
 
-  // Construire les clusters à partir des POIs (si clustersMetadata est vide)
-  // Filtrer pour n'afficher que les clusters avec au moins 1 POI affecté
-  const displayClusters: ClusterMetadata[] = (clustersMetadata.length > 0 
-    ? clustersMetadata 
-    : Object.keys(poisByCluster).map(clusterId => {
-        const clusterPois = poisByCluster[clusterId];
-        return {
-          cluster_id: clusterId,
-          cluster_name: clusterPois[0]?.cluster_name || 'Sans nom',
-          place_count: clusterPois.length,
-        };
-      })
-  ).filter(cluster => (poisByCluster[cluster.cluster_id] || []).length > 0);
+  // Construire displayClusters à partir de clustersMetadata
+  const displayClusters: ClusterMetadata[] = clustersMetadata;
 
   const stats = {
     total: pois.length,
@@ -324,383 +433,274 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     unassigned: unassignedPois.length,
   };
 
+  const activePoi = activeDragId ? pois.find(p => p.poi_id === activeDragId) : null;
+
   return (
-    <div className="h-full flex flex-col bg-gray-50">
-      {/* Header compact */}
-      <div className="flex-shrink-0 bg-white border-b border-gray-200 px-4 py-2">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={generatePoisFromArticles}
-            disabled={generating}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
-          >
-            {generating ? (
-              <>
-                <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
-                Génération...
-              </>
-            ) : (
-              <>
-                <SparklesIcon className="w-3.5 h-3.5" />
-                1. Générer
-              </>
-            )}
-          </button>
+    <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <div className="h-full flex flex-col bg-gray-50">
+        {/* Header compact */}
+        <div className="flex-shrink-0 bg-white border-b border-gray-200 px-4 py-2">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={generatePoisFromArticles}
+              disabled={generating}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+            >
+              {generating ? (
+                <>
+                  <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+                  Génération...
+                </>
+              ) : (
+                <>
+                  <SparklesIcon className="w-3.5 h-3.5" />
+                  1. Générer
+                </>
+              )}
+            </button>
 
-          <button
-            onClick={launchMatching}
-            disabled={matching || pois.length === 0}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
-          >
-            {matching ? (
-              <>
-                <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
-                Matching...
-              </>
-            ) : (
-              <>
-                <ArrowPathIcon className="w-3.5 h-3.5" />
-                2. Matching
-              </>
-            )}
-          </button>
+            <button
+              onClick={launchMatching}
+              disabled={matching || pois.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+            >
+              {matching ? (
+                <>
+                  <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+                  Matching...
+                </>
+              ) : (
+                <>
+                  <ArrowPathIcon className="w-3.5 h-3.5" />
+                  2. Matching
+                </>
+              )}
+            </button>
 
-          <div className="ml-auto text-xs text-gray-600">
-            {stats.assigned}/{stats.total} • {stats.unassigned} non affectés
-          </div>
-        </div>
-      </div>
-
-      {/* Split View */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Partie gauche : Liste des POIs */}
-        <div className="w-1/2 border-r border-gray-200 flex flex-col bg-white">
-          {/* Header liste compact */}
-          <div className="p-3 border-b border-gray-200">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-sm font-semibold text-gray-900">Lieux ({filteredPois.length})</div>
-              
-              <button
-                onClick={() => setShowManualModal(true)}
-                className="flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
-              >
-                <PlusIcon className="w-3.5 h-3.5" />
-                Ajouter
-              </button>
+            <div className="ml-auto text-xs text-gray-600">
+              {stats.assigned}/{stats.total} affectés • {stats.unassigned} non affectés
             </div>
-
-            {/* Recherche */}
-            <div className="relative mb-2">
-              <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 transform -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Rechercher..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            {/* Filtres */}
-            <div className="flex gap-1.5">
-              <button
-                onClick={() => setFilterStatus('all')}
-                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                  filterStatus === 'all'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                Tous
-              </button>
-              <button
-                onClick={() => setFilterStatus('unassigned')}
-                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                  filterStatus === 'unassigned'
-                    ? 'bg-red-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                Non affectés ({unassignedPois.length})
-              </button>
-              <button
-                onClick={() => setFilterStatus('assigned')}
-                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                  filterStatus === 'assigned'
-                    ? 'bg-green-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                Affectés ({assignedPois.length})
-              </button>
-            </div>
-          </div>
-
-          {/* Liste scrollable */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
-            {loading && (
-              <div className="text-center py-6 text-gray-500">
-                <ArrowPathIcon className="w-6 h-6 animate-spin mx-auto mb-2" />
-                <p className="text-xs">Chargement...</p>
-              </div>
-            )}
-
-            {!loading && filteredPois.length === 0 && (
-              <div className="text-center py-6 text-gray-500">
-                <MapPinIcon className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                <p className="text-sm font-medium">Aucun lieu</p>
-                <p className="text-xs">Cliquez sur "1. Générer"</p>
-              </div>
-            )}
-
-            {!loading && filteredPois.map((poi) => {
-              const articleUrl = poi.article_source && guide?.wpConfig?.siteUrl 
-                ? `${guide.wpConfig.siteUrl}${poi.article_source}`
-                : null;
-
-              return (
-                <div
-                  key={poi.poi_id}
-                  className="p-2 border border-gray-200 rounded-md hover:border-blue-400 hover:bg-blue-50 transition-all"
-                >
-                  <div className="flex items-start gap-2">
-                    <MapPinIcon className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm text-gray-900">{poi.nom}</div>
-                      <div className="text-xs text-gray-500 mb-1">{poi.type}</div>
-                      <div className="flex items-center gap-2">
-                        {getStatusBadge(poi)}
-                        {articleUrl && (
-                          <a
-                            href={articleUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-xs text-blue-600 hover:text-blue-800 hover:underline"
-                          >
-                            En savoir plus →
-                          </a>
-                        )}
-                      </div>
-                      {poi.cluster_name && (
-                        <div className="text-xs text-gray-600 mt-1">
-                          → {poi.cluster_name}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
           </div>
         </div>
 
-        {/* Partie droite : Vue par cluster */}
-        <div className="w-1/2 flex flex-col bg-gray-50">
-          <div className="p-3 border-b border-gray-200 bg-white">
-            <div className="text-sm font-semibold text-gray-900">Clusters ({displayClusters.length})</div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {/* Section Non affectés */}
-            {unassignedPois.length > 0 && (
-              <div className="bg-white border border-red-200 rounded overflow-hidden">
+        {/* Split View */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Colonne gauche : Liste TOUS les POIs */}
+          <div className="w-1/2 border-r border-gray-200 flex flex-col bg-white">
+            {/* Header */}
+            <div className="p-3 border-b border-gray-200">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-semibold text-gray-900">Lieux ({filteredPois.length})</div>
+                
                 <button
-                  onClick={() => toggleCluster('unassigned')}
-                  className="w-full px-3 py-2 flex items-center justify-between bg-red-50 hover:bg-red-100 transition-colors"
+                  onClick={() => setShowManualModal(true)}
+                  className="flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
                 >
-                  <div className="flex items-center gap-2">
-                    <XCircleIcon className="w-4 h-4 text-red-600" />
-                    <span className="text-sm font-semibold text-gray-900">Non affectés</span>
-                    <span className="px-1.5 py-0.5 bg-red-600 text-white text-xs rounded-full">
-                      {unassignedPois.length}
-                    </span>
-                  </div>
-                  {expandedClusters.has('unassigned') ? (
-                    <ChevronUpIcon className="w-4 h-4 text-gray-500" />
-                  ) : (
-                    <ChevronDownIcon className="w-4 h-4 text-gray-500" />
-                  )}
+                  <PlusIcon className="w-3.5 h-3.5" />
+                  Ajouter
                 </button>
-
-                {expandedClusters.has('unassigned') && (
-                  <div className="p-2 space-y-0.5">
-                    {unassignedPois.map((poi) => (
-                      <div
-                        key={poi.poi_id}
-                        className="text-xs text-gray-700 py-1 px-2 hover:bg-gray-50 rounded cursor-pointer"
-                        onClick={() => {
-                          setSelectedPOI(poi);
-                          setShowDetailPanel(true);
-                        }}
-                      >
-                        • {poi.nom}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
-            )}
 
-            {/* Sections par cluster */}
-            {displayClusters.map((cluster) => {
-              const clusterPois = poisByCluster[cluster.cluster_id] || [];
-              if (clusterPois.length === 0) return null;
+              {/* Recherche */}
+              <div className="relative mb-2">
+                <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 transform -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Rechercher..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
 
-              return (
-                <div key={cluster.cluster_id} className="bg-white border border-gray-200 rounded overflow-hidden">
+              {/* Filtres */}
+              <div className="flex gap-1.5 flex-wrap">
+                <button
+                  onClick={() => setFilterMode('all')}
+                  className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                    filterMode === 'all'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Tous ({pois.length})
+                </button>
+                <button
+                  onClick={() => setFilterMode('unassigned')}
+                  className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                    filterMode === 'unassigned'
+                      ? 'bg-red-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Non affectés ({unassignedPois.length})
+                </button>
+                {displayClusters.map(cluster => (
                   <button
-                    onClick={() => toggleCluster(cluster.cluster_id)}
-                    className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                    key={cluster.cluster_id}
+                    onClick={() => setFilterMode(cluster.cluster_id)}
+                    className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                      filterMode === cluster.cluster_id
+                        ? 'bg-green-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
                   >
-                    <div className="flex items-center gap-2">
-                      <MapPinIcon className="w-4 h-4 text-blue-600" />
-                      <span className="text-sm font-semibold text-gray-900">{cluster.cluster_name}</span>
-                      <span className="px-1.5 py-0.5 bg-gray-200 text-gray-700 text-xs rounded-full">
-                        {clusterPois.length}
-                      </span>
-                    </div>
-                    {expandedClusters.has(cluster.cluster_id) ? (
-                      <ChevronUpIcon className="w-4 h-4 text-gray-500" />
-                    ) : (
-                      <ChevronDownIcon className="w-4 h-4 text-gray-500" />
-                    )}
+                    {cluster.cluster_name} ({(poisByCluster[cluster.cluster_id] || []).length})
                   </button>
-
-                  {expandedClusters.has(cluster.cluster_id) && (
-                    <div className="p-2 space-y-0.5">
-                      {clusterPois.map((poi) => (
-                        <div
-                          key={poi.poi_id}
-                          className="text-xs text-gray-700 py-1 px-2 hover:bg-gray-50 rounded cursor-pointer flex items-center justify-between"
-                          onClick={() => {
-                            setSelectedPOI(poi);
-                            setShowDetailPanel(true);
-                          }}
-                        >
-                          <span>• {poi.nom}</span>
-                          {poi.matched_automatically && poi.score && (
-                            <span className="text-xs text-gray-500">
-                              {Math.round(poi.score * 100)}%
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {pois.length > 0 && displayClusters.length === 0 && unassignedPois.length === 0 && (
-              <div className="text-center py-6 text-gray-500">
-                <p className="text-sm font-medium">Aucun cluster</p>
-                <p className="text-xs">Cliquez sur "2. Matching"</p>
+                ))}
               </div>
-            )}
+            </div>
+
+            {/* Liste scrollable des POIs */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+              {loading && (
+                <div className="text-center py-6 text-gray-500">
+                  <ArrowPathIcon className="w-6 h-6 animate-spin mx-auto mb-2" />
+                  <p className="text-xs">Chargement...</p>
+                </div>
+              )}
+
+              {!loading && filteredPois.length === 0 && (
+                <div className="text-center py-6 text-gray-500">
+                  <MapPinIcon className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                  <p className="text-sm font-medium">Aucun lieu</p>
+                  {pois.length === 0 && <p className="text-xs">Cliquez sur "1. Générer"</p>}
+                </div>
+              )}
+
+              {!loading && filteredPois.map((poi) => (
+                <DraggablePOI key={poi.poi_id} poi={poi} />
+              ))}
+            </div>
+          </div>
+
+          {/* Colonne droite : TOUS les Clusters */}
+          <div className="w-1/2 flex flex-col bg-gray-50">
+            <div className="p-3 border-b border-gray-200 bg-white">
+              <div className="text-sm font-semibold text-gray-900">Clusters ({displayClusters.length + 1})</div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {/* Cluster Non affectés */}
+              <DroppableCluster
+                cluster="unassigned"
+                pois={unassignedPois}
+                isExpanded={expandedClusters.has('unassigned')}
+                onToggle={() => toggleCluster('unassigned')}
+              />
+
+              {/* Clusters Region Lovers */}
+              {displayClusters.map((cluster) => (
+                <DroppableCluster
+                  key={cluster.cluster_id}
+                  cluster={cluster}
+                  pois={poisByCluster[cluster.cluster_id] || []}
+                  isExpanded={expandedClusters.has(cluster.cluster_id)}
+                  onToggle={() => toggleCluster(cluster.cluster_id)}
+                />
+              ))}
+
+              {pois.length > 0 && displayClusters.length === 0 && (
+                <div className="text-center py-6 text-gray-500">
+                  <p className="text-sm font-medium">Aucun cluster</p>
+                  <p className="text-xs">Cliquez sur "2. Matching"</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Drag Overlay */}
+      <DragOverlay>
+        {activePoi ? (
+          <div className="bg-white p-2 rounded border-2 border-blue-500 shadow-lg">
+            <div className="text-sm font-medium text-gray-900">{activePoi.nom}</div>
+            <div className="text-xs text-gray-500">{activePoi.type}</div>
+          </div>
+        ) : null}
+      </DragOverlay>
 
       {/* Modal création manuelle */}
       {showManualModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-gray-900">Créer un lieu</h2>
-              <button
-                onClick={() => setShowManualModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <span className="text-xl">×</span>
-              </button>
-            </div>
-
-            <div className="p-4 space-y-3">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-4 w-full max-w-md">
+            <h3 className="text-base font-semibold mb-3">Ajouter un lieu manuellement</h3>
+            
+            <div className="space-y-2">
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Nom du lieu *
-                </label>
+                <label className="block text-xs font-medium text-gray-700 mb-0.5">Nom *</label>
                 <input
                   type="text"
                   value={manualForm.nom}
                   onChange={(e) => setManualForm({ ...manualForm, nom: e.target.value })}
-                  className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Ex: Mirador de la Esperanza"
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                  placeholder="Ex: Tour Eiffel"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Type *
-                </label>
+                <label className="block text-xs font-medium text-gray-700 mb-0.5">Type</label>
                 <select
                   value={manualForm.type}
                   onChange={(e) => setManualForm({ ...manualForm, type: e.target.value })}
-                  className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
                 >
-                  <option value="autre">Autre</option>
-                  <option value="musee">Musée</option>
+                  <option value="ville">Ville</option>
                   <option value="plage">Plage</option>
                   <option value="parc">Parc</option>
-                  <option value="restaurant">Restaurant</option>
-                  <option value="hotel">Hôtel</option>
-                  <option value="point_de_vue">Point de vue</option>
+                  <option value="monument">Monument</option>
+                  <option value="musee">Musée</option>
+                  <option value="autre">Autre</option>
                 </select>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
-                    Latitude
-                  </label>
+                  <label className="block text-xs font-medium text-gray-700 mb-0.5">Latitude</label>
                   <input
                     type="text"
                     value={manualForm.lat}
                     onChange={(e) => setManualForm({ ...manualForm, lat: e.target.value })}
-                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="28.xxxxx"
+                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                    placeholder="Ex: 48.8584"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
-                    Longitude
-                  </label>
+                  <label className="block text-xs font-medium text-gray-700 mb-0.5">Longitude</label>
                   <input
                     type="text"
                     value={manualForm.lon}
                     onChange={(e) => setManualForm({ ...manualForm, lon: e.target.value })}
-                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="-16.xxxxx"
+                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                    placeholder="Ex: 2.2945"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Article source (optionnel)
-                </label>
+                <label className="block text-xs font-medium text-gray-700 mb-0.5">URL article source</label>
                 <input
                   type="text"
                   value={manualForm.article_source}
                   onChange={(e) => setManualForm({ ...manualForm, article_source: e.target.value })}
-                  className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="/tenerife/mirador-esperanza"
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                  placeholder="Ex: /que-faire-paris/"
                 />
               </div>
             </div>
 
-            <div className="px-4 py-3 border-t border-gray-200 flex gap-2">
+            <div className="flex gap-2 mt-4">
               <button
                 onClick={() => setShowManualModal(false)}
-                className="flex-1 px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                className="flex-1 px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
               >
                 Annuler
               </button>
               <button
                 onClick={createManualPOI}
                 disabled={!manualForm.nom}
-                className="flex-1 px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                className="flex-1 px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
               >
                 Créer
               </button>
@@ -708,6 +708,6 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
           </div>
         </div>
       )}
-    </div>
+    </DndContext>
   );
 }

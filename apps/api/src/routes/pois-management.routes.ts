@@ -443,4 +443,73 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       }
     }
   );
+
+  /**
+   * PATCH /guides/:guideId/pois/:poiId/cluster
+   * Réaffecter un POI à un cluster
+   */
+  fastify.patch<{
+    Params: { guideId: string; poiId: string };
+    Body: { cluster_id: string | null; cluster_name?: string };
+  }>(
+    '/guides/:guideId/pois/:poiId/cluster',
+    async (request, reply) => {
+      const { guideId, poiId } = request.params;
+      const { cluster_id, cluster_name } = request.body;
+
+      try {
+        console.log(`🔄 [POI] Réaffectation POI ${poiId} → cluster ${cluster_id || 'unassigned'}`);
+
+        // 1. Récupérer le document pois_selection
+        const poisSelection = await db.collection('pois_selection').findOne({ guide_id: guideId });
+        
+        if (!poisSelection) {
+          return reply.code(404).send({ error: 'Aucune sélection de POIs trouvée pour ce guide' });
+        }
+
+        // 2. Trouver et mettre à jour le POI
+        const poiIndex = poisSelection.pois.findIndex((p: any) => p.poi_id === poiId);
+        
+        if (poiIndex === -1) {
+          return reply.code(404).send({ error: 'POI non trouvé dans la sélection' });
+        }
+
+        // 3. Mettre à jour le POI avec le nouveau cluster
+        const updatedPoi = {
+          ...poisSelection.pois[poiIndex],
+          cluster_id: cluster_id || null,
+          cluster_name: cluster_name || null,
+          matched_automatically: false, // C'est une réaffectation manuelle
+          updated_at: new Date(),
+        };
+
+        poisSelection.pois[poiIndex] = updatedPoi;
+
+        // 4. Sauvegarder dans MongoDB
+        await db.collection('pois_selection').updateOne(
+          { guide_id: guideId },
+          {
+            $set: {
+              pois: poisSelection.pois,
+              updated_at: new Date(),
+            },
+          }
+        );
+
+        console.log(`✅ [POI] POI ${poiId} réaffecté avec succès`);
+
+        return reply.send({
+          success: true,
+          poi: updatedPoi,
+        });
+
+      } catch (error: any) {
+        console.error('❌ [POI] Erreur réaffectation:', error);
+        return reply.code(500).send({
+          error: 'Erreur lors de la réaffectation',
+          details: error.message,
+        });
+      }
+    }
+  );
 }

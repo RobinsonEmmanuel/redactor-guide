@@ -248,6 +248,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
           poi_id: p.poi_id,
           nom: p.nom,
           type: p.type,
+          article_source: p.article_source || '',
         }));
 
         // 3. Récupérer les clusters depuis Region Lovers
@@ -348,7 +349,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
           { upsert: true }
         );
 
-        console.log(`📊 Résultat: ${stats.assigned}/${stats.total} POI(s) auto-affecté(s)`);
+        console.log(`📊 Résultat: ${stats.assigned}/${stats.total_pois} POI(s) auto-affecté(s)`);
         console.log('✅ [Matching] Assignment sauvegardé');
 
         reply.send({

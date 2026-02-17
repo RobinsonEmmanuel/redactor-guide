@@ -11,6 +11,7 @@ const CreateGuideSchema = z.object({
   availableLanguages: z.array(z.string()).default(['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl']),
   status: z.enum(['draft', 'in_progress', 'review', 'ready', 'published', 'archived']),
   destination: z.string().min(1), // 1 guide = 1 destination
+  destination_rl_id: z.string().optional(), // ID MongoDB de la destination dans Region Lovers
   wpConfig: z.object({
     siteUrl: z.string().url(),
     jwtToken: z.string(),

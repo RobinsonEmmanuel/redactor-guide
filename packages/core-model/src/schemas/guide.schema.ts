@@ -57,6 +57,9 @@ export const GuideSchema = z.object({
   // Destinations incluses
   destinations: z.array(z.string()).min(1, 'Au moins une destination requise'),
   
+  // ID MongoDB de la destination dans Region Lovers
+  destination_rl_id: z.string().optional(),
+  
   // Statut
   status: GuideStatusEnum.default('draft'),
   

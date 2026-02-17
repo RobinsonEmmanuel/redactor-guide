@@ -20,6 +20,7 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
     availableLanguages: ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'] as string[],
     status: 'draft',
     destination: '', // 1 guide = 1 destination
+    destination_rl_id: '', // ID MongoDB de la destination dans Region Lovers
     wpConfig: {
       siteUrl: '',
       jwtToken: '',
@@ -43,6 +44,7 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
         availableLanguages: guide.availableLanguages || ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'],
         status: guide.status || 'draft',
         destination: guide.destination || '',
+        destination_rl_id: guide.destination_rl_id || '',
         wpConfig: {
           siteUrl: guide.wpConfig?.siteUrl || '',
           jwtToken: guide.wpConfig?.jwtToken || '',
@@ -209,7 +211,7 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
               />
             </div>
 
-            <div className="col-span-2">
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Destination *
               </label>
@@ -224,6 +226,23 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
               />
               <p className="mt-1 text-xs text-gray-500">
                 🔍 Les articles WordPress seront automatiquement filtrés par cette catégorie
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                ID Region Lovers
+              </label>
+              <input
+                type="text"
+                name="destination_rl_id"
+                value={formData.destination_rl_id}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                placeholder="68c2aaeb5a239cd1cfe753f0"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                🔗 ID MongoDB de la destination dans la base Region Lovers
               </p>
             </div>
 

@@ -52,24 +52,26 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
           type: p.type || 'autre',
         }));
 
-        // 3. Récupérer les clusters depuis Region Lovers
+        // 3. Extraire le token JWT de l'utilisateur depuis les cookies
+        const userToken = request.cookies?.accessToken;
+        
+        if (!userToken) {
+          return reply.code(401).send({ 
+            error: 'Non authentifié',
+            message: 'Token JWT manquant. Veuillez vous reconnecter.' 
+          });
+        }
+
+        // 4. Récupérer les clusters depuis Region Lovers avec le token utilisateur
         console.log(`🌍 Récupération des clusters pour la région ${regionId}...`);
         
         const regionLoversApiUrl = process.env.REGION_LOVERS_API_URL || 'https://api-prod.regionlovers.ai';
-        const regionLoversToken = process.env.REGION_LOVERS_API_TOKEN;
-
-        if (!regionLoversToken) {
-          return reply.code(500).send({ 
-            error: 'Configuration manquante', 
-            message: 'REGION_LOVERS_API_TOKEN non configuré' 
-          });
-        }
 
         const clustersResponse = await fetch(
           `${regionLoversApiUrl}/place-instance-drafts/region/${regionId}`,
           {
             headers: {
-              'Authorization': `Bearer ${regionLoversToken}`,
+              'Authorization': `Bearer ${userToken}`,
               'Content-Type': 'application/json',
             },
           }

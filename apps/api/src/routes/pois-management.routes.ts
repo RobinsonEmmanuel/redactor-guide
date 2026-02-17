@@ -350,20 +350,25 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
           });
         }
 
-        // 2. Appeler l'API Region Lovers
-        const regionId = guide.destination_rl_id;
-        const rlApiToken = env.REGION_LOVERS_API_TOKEN;
-        const rlApiUrl = env.REGION_LOVERS_API_URL || 'https://api-prod.regionlovers.ai';
-
-        if (!rlApiToken) {
-          return reply.code(500).send({ error: 'REGION_LOVERS_API_TOKEN non configuré' });
+        // 2. Extraire le token JWT de l'utilisateur depuis les cookies
+        const userToken = request.cookies?.accessToken;
+        
+        if (!userToken) {
+          return reply.code(401).send({ 
+            error: 'Non authentifié',
+            message: 'Token JWT manquant. Veuillez vous reconnecter.' 
+          });
         }
+
+        // 3. Appeler l'API Region Lovers avec le token de l'utilisateur
+        const regionId = guide.destination_rl_id;
+        const rlApiUrl = env.REGION_LOVERS_API_URL || 'https://api-prod.regionlovers.ai';
 
         const response = await fetch(
           `${rlApiUrl}/place-instance-drafts/region/${regionId}`,
           {
             headers: {
-              'Authorization': `Bearer ${rlApiToken}`,
+              'Authorization': `Bearer ${userToken}`,
               'Content-Type': 'application/json',
             },
           }

@@ -58,6 +58,9 @@ export async function createServer(db: Db, _port: number) {
     credentials: true,
   });
 
+  // Activer le support des cookies
+  await fastify.register(import('@fastify/cookie'));
+
   // Routes API
   await fastify.register(
     async (fastify) => {

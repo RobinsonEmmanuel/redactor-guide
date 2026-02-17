@@ -112,7 +112,7 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
             if (statusData.status === 'completed') {
               setIngestionStatus('Récupération terminée !');
               setIngesting(false);
-              await loadAllArticles();
+              await loadArticles();
               onArticlesImported?.();
               return;
             } else if (statusData.status === 'failed') {
@@ -149,7 +149,7 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
         if (ingestRes.ok) {
           const data = await ingestRes.json();
           setIngestionStatus(`Récupération terminée ! ${data.totalArticles || 0} articles`);
-          loadAllArticles();
+          loadArticles();
         } else {
           const errorData = await ingestRes.json().catch(() => ({}));
           setIngestionError(errorData.error || 'Erreur lors de la récupération');

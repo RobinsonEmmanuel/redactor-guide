@@ -305,7 +305,8 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   });
 
   // Construire les clusters à partir des POIs (si clustersMetadata est vide)
-  const displayClusters: ClusterMetadata[] = clustersMetadata.length > 0 
+  // Filtrer pour n'afficher que les clusters avec au moins 1 POI affecté
+  const displayClusters: ClusterMetadata[] = (clustersMetadata.length > 0 
     ? clustersMetadata 
     : Object.keys(poisByCluster).map(clusterId => {
         const clusterPois = poisByCluster[clusterId];
@@ -314,7 +315,8 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
           cluster_name: clusterPois[0]?.cluster_name || 'Sans nom',
           place_count: clusterPois.length,
         };
-      });
+      })
+  ).filter(cluster => (poisByCluster[cluster.cluster_id] || []).length > 0);
 
   const stats = {
     total: pois.length,

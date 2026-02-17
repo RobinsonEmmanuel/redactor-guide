@@ -6,8 +6,7 @@ import { ArrowLeftIcon } from '@heroicons/react/24/outline';
 import Sidebar from '@/components/Sidebar';
 import WorkflowStepper from '@/components/guide/WorkflowStepper';
 import ArticlesTab from '@/components/guide/ArticlesTab';
-import LieuxManagementTab from '@/components/guide/LieuxManagementTab';
-import MatchingClusterTab from '@/components/guide/MatchingClusterTab';
+import LieuxEtClustersTab from '@/components/guide/LieuxEtClustersTab';
 import CheminDeFerTab from '@/components/guide/CheminDeFerTab';
 
 export default function GuideDetailPage() {
@@ -17,7 +16,7 @@ export default function GuideDetailPage() {
 
   const [guide, setGuide] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'articles' | 'lieux-management' | 'matching-cluster' | 'chemin-de-fer'>('articles');
+  const [activeTab, setActiveTab] = useState<'articles' | 'lieux-et-clusters' | 'chemin-de-fer'>('articles');
   const [articlesCount, setArticlesCount] = useState<number>(0);
   const [hasCheckedArticles, setHasCheckedArticles] = useState(false);
   const [currentWorkflowStep, setCurrentWorkflowStep] = useState<number>(2); // Commence à étape 2 (Articles)
@@ -119,21 +118,18 @@ export default function GuideDetailPage() {
     // Étape 2: Articles WordPress
     if (articlesCount > 0) completed.add(2);
     
-    // Étape 3: Lieux identifiés
-    if (poisSelected) completed.add(3);
+    // Étape 3: Lieux et Clusters (POIs identifiés + matching généré)
+    if (poisSelected && matchingGenerated) completed.add(3);
     
-    // Étape 4: Clusters (matching généré)
-    if (matchingGenerated) completed.add(4);
+    // Étape 4: Sommaire
+    if (sommaireGenerated) completed.add(4);
     
-    // Étape 5: Sommaire
-    if (sommaireGenerated) completed.add(5);
+    // Étape 5: Chemin de fer (si pages créées)
+    if (guide?.chemin_de_fer?.pages?.length > 0) completed.add(5);
     
-    // Étape 6: Chemin de fer (si pages créées)
-    if (guide?.chemin_de_fer?.pages?.length > 0) completed.add(6);
-    
-    // Étape 7: Rédaction (si au moins une page générée)
+    // Étape 6: Rédaction (si au moins une page générée)
     const hasGeneratedContent = guide?.chemin_de_fer?.pages?.some((p: any) => p.statut_editorial === 'generee_ia');
-    if (hasGeneratedContent) completed.add(7);
+    if (hasGeneratedContent) completed.add(6);
     
     return completed;
   };
@@ -150,8 +146,7 @@ export default function GuideDetailPage() {
     
     // Mapper stepId vers l'onglet correspondant
     if (tabId === 'articles') setActiveTab('articles');
-    if (tabId === 'lieux-management') setActiveTab('lieux-management');
-    if (tabId === 'matching-cluster') setActiveTab('matching-cluster');
+    if (tabId === 'lieux-et-clusters') setActiveTab('lieux-et-clusters');
     if (tabId === 'chemin-de-fer') setActiveTab('chemin-de-fer');
     // Note: 'config' et 'export' n'ont pas encore d'onglet dédié
   };
@@ -172,8 +167,7 @@ export default function GuideDetailPage() {
     );
   }
 
-  const canAccessLieuxManagement = articlesCount > 0;
-  const canAccessMatchingCluster = articlesCount > 0 && poisSelected;
+  const canAccessLieuxEtClusters = articlesCount > 0;
   const canAccessCheminDeFer = articlesCount > 0;
 
   // Callback pour rafraîchir les statuts après actions
@@ -227,45 +221,23 @@ export default function GuideDetailPage() {
             </div>
           )}
 
-          {activeTab === 'lieux-management' && canAccessLieuxManagement && (
-            <LieuxManagementTab guideId={guideId} apiUrl={apiUrl} guide={guide} />
+          {activeTab === 'lieux-et-clusters' && canAccessLieuxEtClusters && (
+            <LieuxEtClustersTab guideId={guideId} apiUrl={apiUrl} guide={guide} />
           )}
-          {activeTab === 'lieux-management' && !canAccessLieuxManagement && (
+          {activeTab === 'lieux-et-clusters' && !canAccessLieuxEtClusters && (
             <div className="h-full flex items-center justify-center p-6">
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center max-w-md">
                 <div className="text-yellow-800 font-medium mb-2">
                   📝 Récupération des articles WordPress requise
                 </div>
                 <p className="text-yellow-700 text-sm mb-4">
-                  Pour identifier les lieux, vous devez d'abord récupérer les articles WordPress de ce guide.
+                  Pour identifier les lieux et les affecter aux clusters, vous devez d'abord récupérer les articles WordPress de ce guide.
                 </p>
                 <button
                   onClick={() => setActiveTab('articles')}
                   className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
                 >
                   Aller aux articles WordPress
-                </button>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'matching-cluster' && canAccessMatchingCluster && (
-            <MatchingClusterTab guideId={guideId} apiUrl={apiUrl} guide={guide} />
-          )}
-          {activeTab === 'matching-cluster' && !canAccessMatchingCluster && (
-            <div className="h-full flex items-center justify-center p-6">
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center max-w-md">
-                <div className="text-yellow-800 font-medium mb-2">
-                  📍 Sélection des lieux requise
-                </div>
-                <p className="text-yellow-700 text-sm mb-4">
-                  Pour affecter les lieux aux clusters, vous devez d'abord identifier et sélectionner les lieux à l'étape 3.
-                </p>
-                <button
-                  onClick={() => setActiveTab('lieux-management')}
-                  className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
-                >
-                  Aller à la gestion des lieux
                 </button>
               </div>
             </div>

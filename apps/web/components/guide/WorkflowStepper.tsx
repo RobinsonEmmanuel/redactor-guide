@@ -7,7 +7,7 @@ interface Step {
   label: string;
   shortLabel: string;
   icon: string;
-  tabId: 'config' | 'articles' | 'lieux-management' | 'matching-cluster' | 'chemin-de-fer' | 'export';
+  tabId: 'config' | 'articles' | 'lieux-et-clusters' | 'chemin-de-fer' | 'export';
   description: string;
 }
 
@@ -36,47 +36,39 @@ const WORKFLOW_STEPS: Step[] = [
   },
   {
     id: 3,
-    label: '3. Lieux',
+    label: '3. Lieux & Clusters',
     shortLabel: 'Lieux',
     icon: '📍',
-    tabId: 'lieux-management',
-    description: 'Identification et sélection des lieux'
+    tabId: 'lieux-et-clusters',
+    description: 'Identification des lieux et affectation par cluster'
   },
   {
     id: 4,
-    label: '4. Clusters',
-    shortLabel: 'Clusters',
-    icon: '🗂️',
-    tabId: 'matching-cluster',
-    description: 'Affectation des lieux par cluster'
-  },
-  {
-    id: 5,
-    label: '5. Sommaire',
+    label: '4. Sommaire',
     shortLabel: 'Sommaire',
     icon: '📋',
     tabId: 'chemin-de-fer',
     description: 'Génération du sommaire IA'
   },
   {
-    id: 6,
-    label: '6. Chemin de fer',
+    id: 5,
+    label: '5. Chemin de fer',
     shortLabel: 'CdF',
     icon: '🛤️',
     tabId: 'chemin-de-fer',
-    description: 'Finalisation de la structure'
+    description: 'Construction de la structure des pages'
   },
   {
-    id: 7,
-    label: '7. Rédaction',
+    id: 6,
+    label: '6. Rédaction',
     shortLabel: 'Rédaction',
     icon: '✍️',
     tabId: 'chemin-de-fer',
-    description: 'Génération des contenus'
+    description: 'Génération des contenus IA'
   },
   {
-    id: 8,
-    label: '8. Export',
+    id: 7,
+    label: '7. Export',
     shortLabel: 'Export',
     icon: '📦',
     tabId: 'export',

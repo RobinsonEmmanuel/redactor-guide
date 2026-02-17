@@ -232,19 +232,20 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         const regionId = guide.destination_rl_id;
 
         // 2. Charger les POIs depuis pois_selection
-        const poisCollection = await db.collection('pois_selection').find({ guide_id: guideId }).toArray();
+        const poisSelection = await db.collection('pois_selection').findOne({ guide_id: guideId });
         
-        if (!poisCollection || poisCollection.length === 0) {
+        if (!poisSelection || !poisSelection.pois || poisSelection.pois.length === 0) {
           return reply.code(400).send({ 
             error: 'Aucun POI sélectionné', 
             message: 'Veuillez d\'abord identifier et sélectionner des lieux à l\'étape 3' 
           });
         }
 
-        console.log(`📍 ${poisCollection.length} POI(s) chargé(s) depuis la sélection`);
+        const selectedPois = poisSelection.pois;
+        console.log(`📍 ${selectedPois.length} POI(s) chargé(s) depuis la sélection`);
 
         // Mapper vers format POI attendu
-        const pois: POI[] = poisCollection.map((p: any) => ({
+        const pois: POI[] = selectedPois.map((p: any) => ({
           poi_id: p.poi_id,
           nom: p.nom,
           type: p.type,

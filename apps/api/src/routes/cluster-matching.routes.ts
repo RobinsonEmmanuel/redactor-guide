@@ -126,9 +126,24 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
           }
 
           for (const draft of drafts) {
+            // Extraire le VRAI nom depuis blocks > general_info > fields > name
+            let realPlaceName = draft.place_name || draft.name || 'Sans nom';
+            
+            try {
+              const generalInfoBlock = draft.blocks?.find((b: any) => b.block_id === 'general_info');
+              const generalSection = generalInfoBlock?.sections?.find((s: any) => s.section_id === 'general_info_general');
+              const nameField = generalSection?.fields?.find((f: any) => f.field_id === 'name');
+              
+              if (nameField?.value) {
+                realPlaceName = nameField.value;
+              }
+            } catch (err) {
+              console.warn('⚠️ Impossible d\'extraire le nom réel pour draft', draft._id);
+            }
+
             placeInstances.push({
               place_instance_id: draft._id || draft.id,
-              place_name: draft.place_name || draft.name,
+              place_name: realPlaceName,
               place_type: draft.place_type || draft.type || 'autre',
               cluster_id: clusterId,
               cluster_name: clusterName,

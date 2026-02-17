@@ -121,15 +121,11 @@ export default function GuideDetailPage() {
     // Étape 3: Lieux et Clusters (POIs identifiés + matching généré)
     if (poisSelected && matchingGenerated) completed.add(3);
     
-    // Étape 4: Sommaire
-    if (sommaireGenerated) completed.add(4);
-    
-    // Étape 5: Chemin de fer (si pages créées)
-    if (guide?.chemin_de_fer?.pages?.length > 0) completed.add(5);
-    
-    // Étape 6: Rédaction (si au moins une page générée)
+    // Étape 4: Chemin de fer (si pages créées ou sommaire généré ou au moins une page avec contenu)
     const hasGeneratedContent = guide?.chemin_de_fer?.pages?.some((p: any) => p.statut_editorial === 'generee_ia');
-    if (hasGeneratedContent) completed.add(6);
+    if (sommaireGenerated || guide?.chemin_de_fer?.pages?.length > 0 || hasGeneratedContent) {
+      completed.add(4);
+    }
     
     return completed;
   };

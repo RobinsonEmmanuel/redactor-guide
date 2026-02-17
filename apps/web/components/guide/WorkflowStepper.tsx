@@ -44,31 +44,15 @@ const WORKFLOW_STEPS: Step[] = [
   },
   {
     id: 4,
-    label: '4. Sommaire',
-    shortLabel: 'Sommaire',
-    icon: '📋',
-    tabId: 'chemin-de-fer',
-    description: 'Génération du sommaire IA'
-  },
-  {
-    id: 5,
-    label: '5. Chemin de fer',
+    label: '4. Chemin de fer',
     shortLabel: 'CdF',
     icon: '🛤️',
     tabId: 'chemin-de-fer',
-    description: 'Construction de la structure des pages'
+    description: 'Génération du sommaire et construction des pages'
   },
   {
-    id: 6,
-    label: '6. Rédaction',
-    shortLabel: 'Rédaction',
-    icon: '✍️',
-    tabId: 'chemin-de-fer',
-    description: 'Génération des contenus IA'
-  },
-  {
-    id: 7,
-    label: '7. Export',
+    id: 5,
+    label: '5. Export',
     shortLabel: 'Export',
     icon: '📦',
     tabId: 'export',

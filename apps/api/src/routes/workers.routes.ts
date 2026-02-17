@@ -100,6 +100,191 @@ export async function workersRoutes(fastify: FastifyInstance) {
   });
 
   /**
+   * POST /workers/generate-pois
+   * Worker pour générer les POIs depuis les articles WordPress via IA
+   * Appelé par QStash de manière asynchrone
+   */
+  fastify.post('/workers/generate-pois', async (request, reply) => {
+    const db = request.server.container.db;
+    const { guideId, jobId } = request.body as { guideId: string; jobId: string };
+
+    try {
+      console.log(`🚀 [WORKER] Génération POIs pour guide ${guideId}`);
+
+      // Marquer le job comme "processing"
+      await db.collection('pois_generation_jobs').updateOne(
+        { _id: new ObjectId(jobId) },
+        { $set: { status: 'processing', updated_at: new Date() } }
+      );
+
+      const openaiApiKey = process.env.OPENAI_API_KEY;
+      if (!openaiApiKey) {
+        throw new Error('OPENAI_API_KEY non configurée');
+      }
+
+      // Importer les services nécessaires
+      const { OpenAIService } = await import('../services/openai.service');
+      const { GeocodingService } = await import('../services/geocoding.service');
+      
+      const openaiService = new OpenAIService({
+        apiKey: openaiApiKey,
+        model: 'gpt-4o-mini',
+      });
+      const geocodingService = new GeocodingService();
+
+      // 1. Charger le guide
+      const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+      if (!guide) {
+        throw new Error('Guide non trouvé');
+      }
+
+      const destination = guide.destination;
+      if (!destination) {
+        throw new Error('Aucune destination définie pour ce guide');
+      }
+
+      // 2. Récupérer les articles WordPress
+      const articles = await db
+        .collection('articles_raw')
+        .find({ 
+          site_id: guide.slug,
+          categories: { $in: [destination] }
+        })
+        .project({ title: 1, slug: 1, markdown: 1 })
+        .toArray();
+
+      if (articles.length === 0) {
+        throw new Error('Aucun article WordPress trouvé pour cette destination');
+      }
+
+      console.log(`📚 ${articles.length} articles chargés`);
+
+      // 3. Formater les articles pour l'IA
+      const articlesFormatted = articles.map((a: any) => ({
+        title: a.title,
+        slug: a.slug,
+        content: a.markdown?.substring(0, 5000) || '', // Limiter à 5000 caractères par article
+      }));
+
+      const listeArticles = articlesFormatted
+        .map((a: any) => `- ${a.title} (${a.slug})`)
+        .join('\n');
+
+      // 4. Charger le prompt système pour l'identification des lieux (Étape 3)
+      const promptPOI = await db.collection('prompts').findOne({ 
+        categories: { $all: ['lieux', 'poi', 'sommaire'] },
+        actif: true 
+      });
+
+      if (!promptPOI) {
+        throw new Error('Prompt de sélection des lieux non trouvé');
+      }
+
+      console.log(`📋 Utilisation du prompt: ${promptPOI.prompt_nom || promptPOI.prompt_id}`);
+
+      const prompt = openaiService.replaceVariables(promptPOI.texte_prompt, {
+        SITE: guide.wpConfig?.siteUrl || '',
+        DESTINATION: destination,
+        LISTE_ARTICLES_POI: listeArticles,
+      });
+
+      // 5. Générer les POIs via OpenAI
+      console.log('🤖 Appel OpenAI pour génération POIs...');
+      const result = await openaiService.generateJSON(prompt, 12000);
+
+      if (!result.pois || !Array.isArray(result.pois)) {
+        throw new Error('Format de réponse invalide');
+      }
+
+      console.log(`✅ ${result.pois.length} POI(s) généré(s)`);
+
+      // 6. Enrichir avec géolocalisation
+      const pays = geocodingService.getCountryFromDestination(destination);
+      const poisWithCoords: any[] = [];
+
+      for (const poi of result.pois) {
+        const coordsResult = await geocodingService.geocodePlace(poi.nom, pays);
+        
+        poisWithCoords.push({
+          poi_id: poi.poi_id,
+          nom: poi.nom,
+          type: poi.type,
+          source: 'article',
+          article_source: poi.article_source,
+          raison_selection: poi.raison_selection,
+          autres_articles_mentions: poi.autres_articles_mentions || [],
+          coordinates: coordsResult || undefined,
+        });
+
+        // Rate limiting Nominatim (1 req/sec)
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      console.log(`📍 ${poisWithCoords.filter(p => p.coordinates).length}/${poisWithCoords.length} POI(s) géolocalisé(s)`);
+
+      // 7. Sauvegarder la sélection
+      const now = new Date();
+      await db.collection('pois_selection').updateOne(
+        { guide_id: guideId },
+        {
+          $set: {
+            guide_id: guideId,
+            pois: poisWithCoords,
+            updated_at: now,
+          },
+          $setOnInsert: {
+            created_at: now,
+          },
+        },
+        { upsert: true }
+      );
+
+      // 8. Marquer le job comme "completed"
+      await db.collection('pois_generation_jobs').updateOne(
+        { _id: new ObjectId(jobId) },
+        { 
+          $set: { 
+            status: 'completed', 
+            count: poisWithCoords.length,
+            updated_at: new Date() 
+          } 
+        }
+      );
+
+      console.log(`✅ [WORKER] POIs sauvegardés pour guide ${guideId}`);
+
+      return reply.send({ 
+        success: true, 
+        count: poisWithCoords.length 
+      });
+
+    } catch (error: any) {
+      console.error(`❌ [WORKER] Erreur génération POIs:`, error);
+      
+      // Marquer le job comme "failed"
+      try {
+        await db.collection('pois_generation_jobs').updateOne(
+          { _id: new ObjectId(jobId) },
+          { 
+            $set: { 
+              status: 'failed',
+              error: error.message,
+              updated_at: new Date() 
+            } 
+          }
+        );
+      } catch (dbError) {
+        console.error('Erreur mise à jour statut job:', dbError);
+      }
+
+      return reply.status(500).send({ 
+        error: 'Erreur lors de la génération des POIs',
+        details: error.message 
+      });
+    }
+  });
+
+  /**
    * POST /workers/translate-json
    * Worker pour traduire un JSON (appelé par QStash)
    */

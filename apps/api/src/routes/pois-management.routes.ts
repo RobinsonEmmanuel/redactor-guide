@@ -30,7 +30,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       try {
         console.log(`🔍 [POIs] Génération POIs pour guide ${guideId}`);
 
-        // 1. Récupérer le guide
+        // 1. Vérifier que le guide existe
         const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
         if (!guide) {
           return reply.code(404).send({ error: 'Guide non trouvé' });
@@ -38,120 +38,101 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
 
         const destination = guide.destinations?.[0] || guide.destination || 'Destination inconnue';
 
-        // 2. Créer l'OpenAI service
-        const openaiApiKey = env.OPENAI_API_KEY;
-        if (!openaiApiKey) {
-          return reply.code(500).send({ error: 'OPENAI_API_KEY non configuré' });
-        }
-        
-        const openaiService = new OpenAIService({
-          apiKey: openaiApiKey,
-          model: 'gpt-5-mini',
-          reasoningEffort: 'medium',
+        // 2. Vérifier qu'il y a des articles
+        const articlesCount = await db.collection('articles_raw').countDocuments({ 
+          site_id: guide.slug
         });
 
-        // 3. Charger les articles
-        const articles = await db.collection('articles_raw')
-          .find({ site_id: guide.slug })
-          .toArray();
-
-        if (articles.length === 0) {
+        if (articlesCount === 0) {
           return reply.code(400).send({ 
             error: 'Aucun article trouvé', 
             message: 'Récupérez d\'abord les articles WordPress' 
           });
         }
 
-        console.log(`📄 ${articles.length} article(s) trouvé(s)`);
+        console.log(`📚 ${articlesCount} articles disponibles pour génération POIs`);
 
-        // 4. Charger le prompt système pour l'identification des lieux (Étape 3)
-        // Ce prompt est utilisé pour tous les guides
-        const promptPOI = await db.collection('prompts').findOne({ 
-          categories: { $all: ['lieux', 'poi', 'sommaire'] },
-          actif: true 
+        // 3. Créer un job de génération
+        const jobId = new ObjectId();
+        await db.collection('pois_generation_jobs').insertOne({
+          _id: jobId,
+          guide_id: guideId,
+          status: 'pending',
+          created_at: new Date(),
+          updated_at: new Date(),
         });
 
-        if (!promptPOI) {
-          return reply.code(400).send({ 
-            error: 'Prompt de sélection des lieux non trouvé',
-            message: 'Le prompt système pour l\'identification des lieux (catégories: lieux, poi, sommaire) est manquant ou inactif' 
-          });
+        // 4. Envoyer vers QStash (worker asynchrone)
+        const qstashToken = env.QSTASH_TOKEN;
+        let workerUrl = env.INGEST_WORKER_URL || process.env.RAILWAY_PUBLIC_DOMAIN || process.env.API_URL;
+        
+        // Ajouter https:// si absent
+        if (workerUrl && !workerUrl.startsWith('http')) {
+          workerUrl = `https://${workerUrl}`;
         }
 
-        console.log(`📋 Utilisation du prompt: ${promptPOI.prompt_nom || promptPOI.prompt_id}`);
+        console.log(`🔧 [Config] QSTASH_TOKEN: ${qstashToken ? '✅ présent' : '❌ manquant'}`);
+        console.log(`🔧 [Config] workerUrl: ${workerUrl || '❌ manquant'}`);
 
-        // 5. Générer les POIs avec l'IA
-        const articlesFormatted = articles.map((a: any) => ({
-          title: a.title,
-          slug: a.slug,
-          categories: a.categories || [],
-        }));
-
-        const listeArticles = articlesFormatted
-          .map((a: any) => `- ${a.title} (${a.slug})`)
-          .join('\n');
-
-        const prompt = openaiService.replaceVariables(promptPOI.texte_prompt, {
-          SITE: guide.wpConfig?.siteUrl || '',
-          DESTINATION: destination,
-          LISTE_ARTICLES_POI: listeArticles,
-        });
-
-        console.log('🤖 Appel OpenAI pour génération POIs...');
-        const result = await openaiService.generateJSON(prompt, 12000);
-
-        if (!result.pois || !Array.isArray(result.pois)) {
-          throw new Error('Format de réponse invalide');
-        }
-
-        console.log(`✅ ${result.pois.length} POI(s) généré(s)`);
-
-        // 6. Enrichir avec géolocalisation
-        const pays = geocodingService.getCountryFromDestination(destination);
-        const poisWithCoords: any[] = [];
-
-        for (const poi of result.pois) {
-          const coordsResult = await geocodingService.geocodePlace(poi.nom, pays);
+        if (qstashToken && workerUrl) {
+          // Worker asynchrone via QStash
+          const fullWorkerUrl = `${workerUrl}/api/v1/workers/generate-pois`;
           
-          poisWithCoords.push({
-            poi_id: poi.poi_id,
-            nom: poi.nom,
-            type: poi.type,
-            source: 'article',
-            article_source: poi.article_source,
-            raison_selection: poi.raison_selection,
-            autres_articles_mentions: poi.autres_articles_mentions || [],
-            coordinates: coordsResult || undefined,
+          console.log(`📤 [QStash] Envoi job vers ${fullWorkerUrl}`);
+          
+          try {
+            const qstashResponse = await fetch(`https://qstash.upstash.io/v2/publish/${fullWorkerUrl}`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${qstashToken}`,
+                'Content-Type': 'application/json',
+                'Upstash-Retries': '2',
+              },
+              body: JSON.stringify({ guideId, jobId: jobId.toString() }),
+            });
+
+            if (!qstashResponse.ok) {
+              const qstashError = await qstashResponse.text();
+              console.error('❌ [QStash] Erreur:', qstashError);
+              
+              // Marquer le job comme failed
+              await db.collection('pois_generation_jobs').updateOne(
+                { _id: jobId },
+                { 
+                  $set: { 
+                    status: 'failed',
+                    error: `Erreur QStash: ${qstashError}`,
+                    updated_at: new Date() 
+                  } 
+                }
+              );
+
+              throw new Error(`QStash error: ${qstashError}`);
+            }
+
+            console.log(`✅ [QStash] Job envoyé avec succès`);
+
+            return reply.send({ 
+              success: true, 
+              jobId: jobId.toString(),
+              message: 'Génération des POIs lancée en arrière-plan'
+            });
+
+          } catch (qstashErr: any) {
+            console.error('❌ [QStash] Exception:', qstashErr);
+            throw qstashErr;
+          }
+        } else {
+          // Fallback : impossible sans QStash
+          console.error('⚠️ QStash non configuré - impossible de générer les POIs');
+          
+          await db.collection('pois_generation_jobs').deleteOne({ _id: jobId });
+          
+          return reply.code(503).send({
+            error: 'QStash non configuré',
+            message: 'La génération asynchrone n\'est pas disponible. Configurez QSTASH_TOKEN.',
           });
-
-          // Rate limiting Nominatim (1 req/sec)
-          await new Promise(resolve => setTimeout(resolve, 1000));
         }
-
-        console.log(`📍 ${poisWithCoords.filter(p => p.coordinates).length}/${poisWithCoords.length} POI(s) géolocalisé(s)`);
-
-        // 7. Sauvegarder ou mettre à jour la sélection
-        const now = new Date();
-        await db.collection('pois_selection').updateOne(
-          { guide_id: guideId },
-          {
-            $set: {
-              guide_id: guideId,
-              pois: poisWithCoords,
-              updated_at: now,
-            },
-            $setOnInsert: {
-              created_at: now,
-            },
-          },
-          { upsert: true }
-        );
-
-        return reply.send({
-          success: true,
-          pois: poisWithCoords,
-          count: poisWithCoords.length,
-        });
 
       } catch (error: any) {
         console.error('❌ [POIs] Erreur génération:', error);
@@ -159,6 +140,42 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
           error: 'Erreur lors de la génération des POIs',
           details: error.message,
         });
+      }
+    }
+  );
+
+  /**
+   * GET /guides/:guideId/pois/job-status/:jobId
+   * Vérifie le statut d'un job de génération POIs
+   */
+  fastify.get<{ Params: { guideId: string; jobId: string } }>(
+    '/guides/:guideId/pois/job-status/:jobId',
+    async (request, reply) => {
+      const { jobId } = request.params;
+
+      try {
+        if (!ObjectId.isValid(jobId)) {
+          return reply.code(400).send({ error: 'Job ID invalide' });
+        }
+
+        const job = await db.collection('pois_generation_jobs').findOne({
+          _id: new ObjectId(jobId),
+        });
+
+        if (!job) {
+          return reply.code(404).send({ error: 'Job non trouvé' });
+        }
+
+        return reply.send({
+          status: job.status,
+          count: job.count || 0,
+          error: job.error || null,
+          created_at: job.created_at,
+          updated_at: job.updated_at,
+        });
+      } catch (error: any) {
+        console.error('❌ [POIs] Erreur statut job:', error);
+        return reply.code(500).send({ error: error.message });
       }
     }
   );

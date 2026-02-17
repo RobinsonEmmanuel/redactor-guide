@@ -770,7 +770,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       const { CheminDeFerBuilderService } = await import('../services/chemin-de-fer-builder.service');
       const cheminDeFerBuilder = new CheminDeFerBuilderService({ db });
       
-      const pages = await cheminDeFerBuilder.buildFromTemplate(guideId, guideTemplate, {
+      const pages = await cheminDeFerBuilder.buildFromTemplate(guideId, guideTemplate as any, {
         clusters,
         inspirations,
         pois,

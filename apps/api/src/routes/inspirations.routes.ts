@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { Db, ObjectId } from 'mongodb';
+import { Db } from 'mongodb';
 
 export default async function inspirationsRoutes(fastify: FastifyInstance) {
   const db: Db = fastify.mongo.db!;

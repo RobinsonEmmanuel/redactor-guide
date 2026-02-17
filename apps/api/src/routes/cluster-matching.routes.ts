@@ -531,4 +531,72 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
       }
     }
   );
+
+  /**
+   * POST /guides/:guideId/clusters
+   * Créer un cluster manuellement
+   */
+  fastify.post<{
+    Params: { guideId: string };
+    Body: { cluster_name: string };
+  }>(
+    '/guides/:guideId/clusters',
+    async (request, reply) => {
+      const { guideId } = request.params;
+      const { cluster_name } = request.body;
+
+      try {
+        console.log(`➕ [Cluster] Création cluster manuel "${cluster_name}" pour guide ${guideId}`);
+
+        if (!cluster_name || !cluster_name.trim()) {
+          return reply.code(400).send({ error: 'Le nom du cluster est requis' });
+        }
+
+        // Générer un ID unique pour le cluster
+        const clusterId = `manual_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
+        const newCluster = {
+          cluster_id: clusterId,
+          cluster_name: cluster_name.trim(),
+          place_count: 0,
+          is_manual: true,
+          created_at: new Date(),
+        };
+
+        // Ajouter le cluster aux métadonnées dans cluster_assignments
+        const assignment = await db.collection('cluster_assignments').findOne({ guide_id: guideId });
+        
+        if (assignment) {
+          // Ajouter aux métadonnées existantes
+          await db.collection('cluster_assignments').updateOne(
+            { guide_id: guideId },
+            {
+              $push: { clusters_metadata: newCluster },
+              $set: { updated_at: new Date() },
+            }
+          );
+        } else {
+          // Créer un nouveau document si pas de matching encore
+          await db.collection('cluster_assignments').insertOne({
+            guide_id: guideId,
+            clusters_metadata: [newCluster],
+            assignment: { clusters: {}, unassigned: [] },
+            stats: { total_pois: 0, assigned: 0, unassigned: 0, auto_matched: 0, manual_matched: 0, by_cluster: {} },
+            created_at: new Date(),
+            updated_at: new Date(),
+          });
+        }
+
+        console.log(`✅ [Cluster] Cluster "${cluster_name}" créé avec l'ID ${clusterId}`);
+
+        reply.send({
+          success: true,
+          cluster: newCluster,
+        });
+      } catch (error: any) {
+        console.error('❌ [Cluster] Erreur création:', error);
+        reply.code(500).send({ error: 'Erreur lors de la création du cluster', details: error.message });
+      }
+    }
+  );
 }

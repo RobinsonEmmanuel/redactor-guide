@@ -424,8 +424,10 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     poisByCluster[clusterId].push(poi);
   });
 
-  // Construire displayClusters à partir de clustersMetadata
-  const displayClusters: ClusterMetadata[] = clustersMetadata;
+  // Construire displayClusters et filtrer pour ne garder que ceux avec des POIs
+  const displayClusters: ClusterMetadata[] = clustersMetadata.filter(
+    cluster => (poisByCluster[cluster.cluster_id] || []).length > 0
+  );
 
   const stats = {
     total: pois.length,
@@ -513,41 +515,21 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                 />
               </div>
 
-              {/* Filtres */}
-              <div className="flex gap-1.5 flex-wrap">
-                <button
-                  onClick={() => setFilterMode('all')}
-                  className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                    filterMode === 'all'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+              {/* Filtre déroulant */}
+              <div>
+                <select
+                  value={filterMode}
+                  onChange={(e) => setFilterMode(e.target.value)}
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                 >
-                  Tous ({pois.length})
-                </button>
-                <button
-                  onClick={() => setFilterMode('unassigned')}
-                  className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                    filterMode === 'unassigned'
-                      ? 'bg-red-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Non affectés ({unassignedPois.length})
-                </button>
-                {displayClusters.map(cluster => (
-                  <button
-                    key={cluster.cluster_id}
-                    onClick={() => setFilterMode(cluster.cluster_id)}
-                    className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                      filterMode === cluster.cluster_id
-                        ? 'bg-green-600 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    {cluster.cluster_name} ({(poisByCluster[cluster.cluster_id] || []).length})
-                  </button>
-                ))}
+                  <option value="all">Tous ({pois.length})</option>
+                  <option value="unassigned">Non affectés ({unassignedPois.length})</option>
+                  {displayClusters.map(cluster => (
+                    <option key={cluster.cluster_id} value={cluster.cluster_id}>
+                      {cluster.cluster_name} ({(poisByCluster[cluster.cluster_id] || []).length})
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 

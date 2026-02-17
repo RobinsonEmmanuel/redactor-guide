@@ -89,17 +89,70 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
       if (!res.ok) {
         const errorData = await res.json();
         alert(`❌ Erreur: ${errorData.error}\n${errorData.message || errorData.details || ''}`);
+        setGenerating(false);
         return;
       }
 
       const data = await res.json();
-      setPois(data.pois || []);
-      alert(`✅ ${data.count} lieu(x) identifié(s) avec succès !`);
+      const jobId = data.jobId;
+
+      console.log(`📋 Job de génération lancé: ${jobId}`);
+      alert('🔄 Génération des lieux lancée en arrière-plan...');
+
+      // 2. Polling pour vérifier le statut
+      const checkStatus = async (): Promise<boolean> => {
+        try {
+          const statusRes = await fetch(
+            `${apiUrl}/api/v1/guides/${guideId}/pois/job-status/${jobId}`,
+            { credentials: 'include' }
+          );
+
+          if (!statusRes.ok) {
+            console.error('Erreur lors de la vérification du statut');
+            return false;
+          }
+
+          const statusData = await statusRes.json();
+          console.log(`📊 Statut job: ${statusData.status}`);
+
+          if (statusData.status === 'completed') {
+            // Recharger les POIs
+            await loadPois();
+            alert(`✅ ${statusData.count || 0} lieu(x) identifié(s) avec succès !`);
+            return true;
+          } else if (statusData.status === 'failed') {
+            alert(`❌ Erreur lors de la génération: ${statusData.error || 'Erreur inconnue'}`);
+            return true;
+          }
+
+          // Toujours en cours (pending ou processing)
+          return false;
+
+        } catch (error) {
+          console.error('Erreur polling:', error);
+          return false;
+        }
+      };
+
+      // 3. Polling toutes les 3 secondes
+      const pollInterval = setInterval(async () => {
+        const isDone = await checkStatus();
+        if (isDone) {
+          clearInterval(pollInterval);
+          setGenerating(false);
+        }
+      }, 3000);
+
+      // Timeout de 5 minutes
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        setGenerating(false);
+        alert('⏱️ Timeout: la génération prend trop de temps. Rafraîchissez la page plus tard.');
+      }, 5 * 60 * 1000);
       
     } catch (error: any) {
       console.error('❌ Erreur génération:', error);
       alert(`Erreur lors de la génération: ${error.message}`);
-    } finally {
       setGenerating(false);
     }
   };

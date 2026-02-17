@@ -719,6 +719,119 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   });
 
   /**
+   * POST /guides/:guideId/chemin-de-fer/generate-structure
+   * Génère automatiquement la structure du chemin de fer à partir du guide template
+   */
+  fastify.post('/guides/:guideId/chemin-de-fer/generate-structure', async (request, reply) => {
+    const { guideId } = request.params as { guideId: string };
+    const db = request.server.container.db;
+
+    try {
+      console.log(`🏗️ [Generate Structure] Début pour guide ${guideId}`);
+
+      // 1. Charger le guide
+      const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+      if (!guide) {
+        return reply.code(404).send({ error: 'Guide non trouvé' });
+      }
+
+      // 2. Charger le template de guide (ou utiliser le template par défaut)
+      let guideTemplate;
+      if (guide.guide_template_id) {
+        guideTemplate = await db.collection('guide_templates').findOne({
+          _id: new ObjectId(guide.guide_template_id),
+        });
+      }
+
+      if (!guideTemplate) {
+        // Utiliser le template par défaut
+        guideTemplate = await db.collection('guide_templates').findOne({ is_default: true });
+      }
+
+      if (!guideTemplate) {
+        return reply.code(400).send({
+          error: 'Aucun template de guide trouvé. Veuillez en créer un ou en définir un par défaut.',
+        });
+      }
+
+      console.log(`📋 Template: ${guideTemplate.name}`);
+
+      // 3. Charger les données des étapes précédentes
+      const clusters = await db.collection('cluster_assignments').findOne({ guide_id: guideId });
+      const inspirations = await db.collection('inspirations').findOne({ guide_id: guideId });
+      const pois = await db.collection('pois_selection').findOne({ guide_id: guideId });
+
+      console.log(`📊 Données chargées:`);
+      console.log(`  - Clusters: ${clusters?.clusters_metadata?.length || 0}`);
+      console.log(`  - Inspirations: ${inspirations?.inspirations?.length || 0}`);
+      console.log(`  - POIs: ${pois?.pois?.length || 0}`);
+
+      // 4. Construire les pages selon la structure du template
+      const { CheminDeFerBuilderService } = await import('../services/chemin-de-fer-builder.service');
+      const cheminDeFerBuilder = new CheminDeFerBuilderService({ db });
+      
+      const pages = await cheminDeFerBuilder.buildFromTemplate(guideId, guideTemplate, {
+        clusters,
+        inspirations,
+        pois,
+      });
+
+      // 5. Vérifier si des pages existent déjà
+      const existingPagesCount = await db.collection('pages').countDocuments({ guide_id: guideId });
+      
+      if (existingPagesCount > 0) {
+        return reply.code(409).send({
+          error: `Le guide contient déjà ${existingPagesCount} page(s). Veuillez les supprimer avant de générer la structure.`,
+        });
+      }
+
+      // 6. Sauvegarder toutes les pages
+      if (pages.length > 0) {
+        await db.collection('pages').insertMany(pages);
+        console.log(`✅ ${pages.length} pages sauvegardées`);
+      }
+
+      // 7. Créer ou mettre à jour le document chemin_de_fer
+      const now = new Date().toISOString();
+      await db.collection('chemins_de_fer').updateOne(
+        { guide_id: guideId },
+        {
+          $set: {
+            guide_id: guideId,
+            structure_generated: true,
+            template_used: guideTemplate.name,
+            updated_at: now,
+          },
+          $setOnInsert: {
+            created_at: now,
+          },
+        },
+        { upsert: true }
+      );
+
+      return reply.send({
+        success: true,
+        message: 'Structure du chemin de fer générée avec succès',
+        template: guideTemplate.name,
+        pages_created: pages.length,
+        structure: {
+          fixed_pages: pages.filter(p => p.metadata.page_type === 'fixed').length,
+          cluster_pages: pages.filter(p => p.metadata.page_type === 'cluster_intro').length,
+          poi_pages: pages.filter(p => p.metadata.page_type === 'poi').length,
+          inspiration_pages: pages.filter(p => p.metadata.page_type === 'inspiration').length,
+          other_pages: pages.filter(p => p.metadata.page_type === 'repeated_fixed').length,
+        },
+      });
+    } catch (error: any) {
+      console.error('❌ [Generate Structure] Erreur:', error);
+      return reply.code(500).send({
+        error: 'Erreur lors de la génération de la structure',
+        details: error.message,
+      });
+    }
+  });
+
+  /**
    * GET /guides/:guideId/chemin-de-fer/sommaire-proposal
    * Récupérer la dernière proposition de sommaire générée
    */

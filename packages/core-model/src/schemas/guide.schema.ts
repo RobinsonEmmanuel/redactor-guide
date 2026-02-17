@@ -60,6 +60,9 @@ export const GuideSchema = z.object({
   // ID MongoDB de la destination dans Region Lovers
   destination_rl_id: z.string().optional(),
   
+  // ID du template de guide à utiliser
+  guide_template_id: z.string().optional(),
+  
   // Statut
   status: GuideStatusEnum.default('draft'),
   

@@ -21,6 +21,7 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
     status: 'draft',
     destination: '', // 1 guide = 1 destination
     destination_rl_id: '', // ID MongoDB de la destination dans Region Lovers
+    guide_template_id: '', // ID du template de guide à utiliser
     wpConfig: {
       siteUrl: '',
       jwtToken: '',
@@ -32,8 +33,31 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
   const [customLanguage, setCustomLanguage] = useState({ code: '', label: '' });
 
   const [saving, setSaving] = useState(false);
+  const [guideTemplates, setGuideTemplates] = useState<any[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
 
   useEffect(() => {
+    // Charger les templates de guides
+    const loadGuideTemplates = async () => {
+      setLoadingTemplates(true);
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+        const response = await fetch(`${apiUrl}/api/v1/guide-templates`, {
+          credentials: 'include',
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setGuideTemplates(data.templates || []);
+        }
+      } catch (error) {
+        console.error('Erreur chargement templates:', error);
+      } finally {
+        setLoadingTemplates(false);
+      }
+    };
+
+    loadGuideTemplates();
+
     if (guide) {
       setFormData({
         name: guide.name || '',
@@ -45,6 +69,7 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
         status: guide.status || 'draft',
         destination: guide.destination || '',
         destination_rl_id: guide.destination_rl_id || '',
+        guide_template_id: guide.guide_template_id || '',
         wpConfig: {
           siteUrl: guide.wpConfig?.siteUrl || '',
           jwtToken: guide.wpConfig?.jwtToken || '',
@@ -243,6 +268,33 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
               />
               <p className="mt-1 text-xs text-gray-500">
                 🔗 ID MongoDB de la destination dans la base Region Lovers
+              </p>
+            </div>
+
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Template de guide
+              </label>
+              <select
+                name="guide_template_id"
+                value={formData.guide_template_id}
+                onChange={handleChange}
+                disabled={loadingTemplates}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+              >
+                <option value="">
+                  {loadingTemplates ? 'Chargement...' : 'Sélectionner un template (optionnel)'}
+                </option>
+                {guideTemplates.map((template) => (
+                  <option key={template._id} value={template._id}>
+                    {template.name}
+                    {template.is_default ? ' (par défaut)' : ''}
+                    {template.description ? ` - ${template.description}` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                📋 Définit la structure automatique du chemin de fer (pages fixes, sections dynamiques). Si non sélectionné, le template par défaut sera utilisé.
               </p>
             </div>
 

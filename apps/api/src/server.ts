@@ -100,6 +100,9 @@ export async function createServer(db: Db, _port: number) {
       await fastify.register(
         (await import('./routes/inspirations.routes')).default
       );
+      await fastify.register(
+        (await import('./routes/guide-templates.routes')).default
+      );
 
       fastify.get('/destinations', async () => {
         const destinations = await db.collection('destinations').find().toArray();

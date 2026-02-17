@@ -60,6 +60,10 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   // États pour le polling de génération en cours
   const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
   const [generatingPageIds, setGeneratingPageIds] = useState<Set<string>>(new Set());
+  
+  // États pour la génération de structure
+  const [generatingStructure, setGeneratingStructure] = useState(false);
+  const [structureError, setStructureError] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -608,6 +612,49 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     setShowAddPagesModal(false);
   };
 
+  const generateStructure = async () => {
+    setGeneratingStructure(true);
+    setStructureError(null);
+
+    try {
+      const token = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('accessToken='))
+        ?.split('=')[1];
+
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/generate-structure`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          credentials: 'include',
+        }
+      );
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Erreur lors de la génération');
+      }
+
+      console.log('✅ Structure générée:', data);
+      
+      // Recharger les pages
+      await loadPages();
+      
+      // Afficher un message de succès
+      alert(`✅ Structure générée avec succès !\n\n${data.pages_created} pages créées :\n- ${data.structure.fixed_pages} pages fixes\n- ${data.structure.cluster_pages} pages cluster\n- ${data.structure.poi_pages} pages POI\n- ${data.structure.inspiration_pages} pages inspiration\n- ${data.structure.other_pages} autres pages`);
+    } catch (error: any) {
+      console.error('❌ Erreur génération structure:', error);
+      setStructureError(error.message || 'Erreur lors de la génération');
+    } finally {
+      setGeneratingStructure(false);
+    }
+  };
+
   const handleSavePage = async (pageData: any) => {
     try {
       if (editingPage) {
@@ -887,16 +934,113 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
 
           {/* Grille de pages - Maximum d'espace */}
           <div className="flex-1 overflow-auto p-4">
-            <CheminDeFerGrid
-              pages={pages}
-              onEdit={handleEditPage}
-              onDelete={handleDeletePage}
-              onOpenContent={handleOpenContent}
-              onReset={handleResetPage}
-              isEmpty={pages.length === 0}
-              onAddPages={() => setShowAddPagesModal(true)}
-              additionalSlots={additionalSlots}
-            />
+            {pages.length === 0 ? (
+              /* État vide avec bouton de génération de structure */
+              <div className="h-full flex items-center justify-center">
+                <div className="max-w-2xl text-center px-8">
+                  <div className="mb-6">
+                    <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-purple-100 to-blue-100 mb-4">
+                      <DocumentTextIcon className="w-10 h-10 text-purple-600" />
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">
+                      Votre chemin de fer est vide
+                    </h3>
+                    <p className="text-gray-600 mb-6">
+                      Générez automatiquement la structure complète de votre guide à partir du template, 
+                      ou ajoutez des pages manuellement en glissant-déposant depuis la palette.
+                    </p>
+                  </div>
+
+                  {structureError && (
+                    <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+                      {structureError}
+                    </div>
+                  )}
+
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                    <button
+                      onClick={generateStructure}
+                      disabled={generatingStructure}
+                      className="px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-lg hover:from-purple-700 hover:to-blue-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl flex items-center gap-2"
+                    >
+                      {generatingStructure ? (
+                        <>
+                          <ArrowPathIcon className="w-5 h-5 animate-spin" />
+                          Génération en cours...
+                        </>
+                      ) : (
+                        <>
+                          <SparklesIcon className="w-5 h-5" />
+                          Générer la structure
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setShowAddPagesModal(true)}
+                      className="px-6 py-3 bg-white text-gray-700 font-semibold rounded-lg border-2 border-gray-300 hover:border-gray-400 hover:bg-gray-50 transition-all flex items-center gap-2"
+                    >
+                      <PlusIcon className="w-5 h-5" />
+                      Ajouter manuellement
+                    </button>
+                  </div>
+
+                  <div className="mt-8 pt-6 border-t border-gray-200">
+                    <p className="text-sm text-gray-500 mb-3">
+                      La génération automatique créera :
+                    </p>
+                    <div className="grid grid-cols-2 gap-3 text-left max-w-lg mx-auto">
+                      <div className="flex items-start gap-2">
+                        <div className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <span className="text-blue-600 text-xs font-bold">✓</span>
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">Pages fixes</div>
+                          <div className="text-xs text-gray-500">Couverture, présentation, carte...</div>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <span className="text-green-600 text-xs font-bold">✓</span>
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">Lieux par zones</div>
+                          <div className="text-xs text-gray-500">Clusters et POIs de l'étape 3</div>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="w-5 h-5 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <span className="text-orange-600 text-xs font-bold">✓</span>
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">Inspirations</div>
+                          <div className="text-xs text-gray-500">Thèmes de l'étape 4</div>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="w-5 h-5 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <span className="text-purple-600 text-xs font-bold">✓</span>
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">Saisons & finales</div>
+                          <div className="text-xs text-gray-500">4 saisons + pages de fin</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <CheminDeFerGrid
+                pages={pages}
+                onEdit={handleEditPage}
+                onDelete={handleDeletePage}
+                onOpenContent={handleOpenContent}
+                onReset={handleResetPage}
+                isEmpty={pages.length === 0}
+                onAddPages={() => setShowAddPagesModal(true)}
+                additionalSlots={additionalSlots}
+              />
+            )}
           </div>
         </div>
 

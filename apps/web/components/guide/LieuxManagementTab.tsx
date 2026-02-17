@@ -327,7 +327,7 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
             Aucun lieu identifié. Cliquez sur le bouton ci-dessus pour démarrer.
           </div>
         ) : (
-          <div className="space-y-2 max-h-96 overflow-y-auto">
+          <div className="space-y-2 max-h-[600px] overflow-y-auto">
             {pois.map((poi) => (
               <div
                 key={poi.poi_id}
@@ -347,6 +347,42 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
                   )}
                   {poi.raison_selection && (
                     <p className="text-xs text-gray-600 mt-1 ml-7">{poi.raison_selection}</p>
+                  )}
+                  
+                  {/* URLs des articles WordPress */}
+                  {poi.article_source && (
+                    <div className="mt-2 ml-7 text-xs">
+                      <p className="text-gray-500 font-medium mb-1">📄 Article principal :</p>
+                      <a
+                        href={`${guide?.wpConfig?.siteUrl}/${poi.article_source}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        {poi.article_source}
+                      </a>
+                    </div>
+                  )}
+                  
+                  {poi.autres_articles_mentions && poi.autres_articles_mentions.length > 0 && (
+                    <div className="mt-2 ml-7 text-xs">
+                      <p className="text-gray-500 font-medium mb-1">
+                        📚 Mentionné dans {poi.autres_articles_mentions.length} autre(s) article(s) :
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {poi.autres_articles_mentions.map((slug, idx) => (
+                          <a
+                            key={idx}
+                            href={`${guide?.wpConfig?.siteUrl}/${slug}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            {slug}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
                 <button
@@ -424,8 +460,12 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
             </div>
 
             {/* Liste groupée par cluster */}
-            <div className="max-h-96 overflow-y-auto space-y-4">
-              {Object.entries(libraryData).map(([clusterId, poisList]) => {
+            <div className="max-h-[600px] overflow-y-auto space-y-4 border border-gray-200 rounded-lg p-4">
+              {Object.keys(libraryData).length === 0 ? (
+                <p className="text-center text-gray-500 py-8">
+                  Aucun lieu trouvé dans la bibliothèque
+                </p>
+              ) : Object.entries(libraryData).map(([clusterId, poisList]) => {
                 const filteredPois = filterLibrary(poisList);
                 if (filteredPois.length === 0) return null;
 

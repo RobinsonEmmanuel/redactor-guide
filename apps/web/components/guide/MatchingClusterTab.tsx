@@ -29,11 +29,14 @@ interface POI {
 interface POIWithMatch {
   poi: POI;
   current_cluster_id: string | 'unassigned';
-  suggested_cluster?: {
-    cluster: {
-      _id: string;
+  place_instance_id?: string;
+  suggested_match?: {
+    place_instance: {
+      place_instance_id: string;
       place_name: string;
       place_type: string;
+      cluster_id: string;
+      cluster_name: string;
     };
     score: number;
     confidence: 'high' | 'medium' | 'low';
@@ -43,8 +46,8 @@ interface POIWithMatch {
 
 interface ClusterMetadata {
   cluster_id: string;
-  place_name: string;
-  place_type: string;
+  cluster_name: string;
+  place_count: number;
 }
 
 interface ClusterAssignment {
@@ -332,6 +335,29 @@ export default function MatchingClusterTab({ guideId, apiUrl, guide }: MatchingC
         </div>
       </div>
 
+      {/* Légende des codes couleur */}
+      <div className="bg-gray-100 border-t border-b border-gray-200 px-6 py-3 flex-shrink-0">
+        <div className="flex items-center gap-6 text-xs">
+          <span className="font-semibold text-gray-700">Légende :</span>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 border-2 border-green-400 bg-green-50 rounded"></div>
+            <span className="text-gray-600">✅ Auto haute confiance (≥90%)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 border-2 border-yellow-400 bg-yellow-50 rounded"></div>
+            <span className="text-gray-600">⚠️ Auto moyenne confiance (75-89%)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 border-2 border-orange-400 bg-orange-50 rounded"></div>
+            <span className="text-gray-600">⚠️ Auto basse confiance (60-74%)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 border-2 border-blue-400 bg-blue-50 rounded"></div>
+            <span className="text-gray-600">✏️ Affectation manuelle</span>
+          </div>
+        </div>
+      </div>
+
       {/* Kanban Board */}
       <DndContext
         sensors={sensors}
@@ -354,7 +380,7 @@ export default function MatchingClusterTab({ guideId, apiUrl, guide }: MatchingC
               <ClusterColumn
                 key={cluster.cluster_id}
                 clusterId={cluster.cluster_id}
-                clusterName={cluster.place_name}
+                clusterName={cluster.cluster_name || cluster.place_name}
                 pois={assignment.clusters[cluster.cluster_id] || []}
                 count={(assignment.clusters[cluster.cluster_id] || []).length}
               />
@@ -388,6 +414,8 @@ function ClusterColumn({ clusterId, clusterName, pois, count }: {
     id: clusterId,
   });
 
+  const isUnassigned = clusterId === 'unassigned';
+  
   return (
     <div
       ref={setNodeRef}
@@ -395,11 +423,23 @@ function ClusterColumn({ clusterId, clusterName, pois, count }: {
         isOver ? 'border-blue-400 bg-blue-50' : 'border-gray-200'
       }`}
     >
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-200 bg-white rounded-t-lg">
+      {/* Header avec nom du cluster */}
+      <div className={`px-4 py-3 border-b-2 rounded-t-lg ${
+        isUnassigned 
+          ? 'bg-yellow-100 border-yellow-300' 
+          : 'bg-blue-600 border-blue-700'
+      }`}>
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-gray-900 text-sm">{clusterName}</h3>
-          <span className="bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-xs font-medium">
+          <h3 className={`font-bold text-sm ${
+            isUnassigned ? 'text-yellow-900' : 'text-white'
+          }`}>
+            {clusterName}
+          </h3>
+          <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+            isUnassigned 
+              ? 'bg-yellow-200 text-yellow-900'
+              : 'bg-blue-500 text-white'
+          }`}>
             {count}
           </span>
         </div>
@@ -439,16 +479,38 @@ function POICard({ poi, clusterId, isDragging }: {
     data: { poi, clusterId },
   });
 
-  const getScoreBadge = () => {
-    if (!poi.suggested_cluster) return null;
+  const getConfidenceLevel = (): 'high' | 'medium' | 'low' | 'none' => {
+    if (!poi.suggested_match) return 'none';
+    return poi.suggested_match.confidence;
+  };
 
-    const { score, confidence } = poi.suggested_cluster;
+  const getCardBorderColor = () => {
+    const confidence = getConfidenceLevel();
+    
+    if (poi.matched_automatically) {
+      // Auto-matching
+      return {
+        high: 'border-green-400 bg-green-50',
+        medium: 'border-yellow-400 bg-yellow-50',
+        low: 'border-orange-400 bg-orange-50',
+        none: 'border-gray-300 bg-white',
+      }[confidence];
+    } else {
+      // Manuel ou suggestion
+      return 'border-blue-400 bg-blue-50';
+    }
+  };
+
+  const getScoreBadge = () => {
+    if (!poi.suggested_match) return null;
+
+    const { score, confidence } = poi.suggested_match;
     const percentage = Math.round(score * 100);
 
     const badgeClass = {
-      high: 'bg-green-100 text-green-700',
-      medium: 'bg-yellow-100 text-yellow-700',
-      low: 'bg-orange-100 text-orange-700',
+      high: 'bg-green-600 text-white',
+      medium: 'bg-yellow-500 text-white',
+      low: 'bg-orange-500 text-white',
     }[confidence];
 
     const icon = {
@@ -458,10 +520,9 @@ function POICard({ poi, clusterId, isDragging }: {
     }[confidence];
 
     return (
-      <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${badgeClass}`}>
+      <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${badgeClass}`}>
         {icon}
         {percentage}%
-        {poi.matched_automatically && ' (Auto)'}
       </div>
     );
   };
@@ -471,9 +532,9 @@ function POICard({ poi, clusterId, isDragging }: {
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className={`bg-white border-2 border-gray-200 rounded-lg p-3 cursor-grab active:cursor-grabbing transition-all hover:shadow-md ${
-        isDrag || isDragging ? 'opacity-50 scale-95' : ''
-      }`}
+      className={`border-2 rounded-lg p-3 cursor-grab active:cursor-grabbing transition-all hover:shadow-lg ${
+        getCardBorderColor()
+      } ${isDrag || isDragging ? 'opacity-50 scale-95' : ''}`}
     >
       <div className="flex items-start gap-2">
         <MapPinIcon className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
@@ -489,10 +550,19 @@ function POICard({ poi, clusterId, isDragging }: {
           <p className="text-xs text-gray-500 mt-1">
             🏷️ {poi.poi.type}
           </p>
-          {getScoreBadge() && (
-            <div className="mt-2">
-              {getScoreBadge()}
-            </div>
+          <div className="flex items-center gap-2 mt-2">
+            {getScoreBadge()}
+            {poi.matched_automatically && (
+              <span className="text-[10px] text-gray-500 font-medium">✨ Auto</span>
+            )}
+            {!poi.matched_automatically && poi.current_cluster_id !== 'unassigned' && (
+              <span className="text-[10px] text-blue-600 font-medium">✏️ Manuel</span>
+            )}
+          </div>
+          {poi.suggested_match && (
+            <p className="text-[10px] text-gray-500 mt-1 line-clamp-1" title={poi.suggested_match.place_instance.place_name}>
+              💡 Suggestion : {poi.suggested_match.place_instance.place_name}
+            </p>
           )}
         </div>
       </div>

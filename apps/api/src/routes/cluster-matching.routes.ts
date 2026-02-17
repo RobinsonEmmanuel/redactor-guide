@@ -188,7 +188,49 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
           { upsert: true }
         );
 
-        console.log('✅ [Matching] Assignment sauvegardé');
+        // Mettre à jour les POIs dans pois_selection avec les cluster_id
+        const updatedPois = selectedPois.map((poi: any) => {
+          // Trouver le POI dans l'assignment (soit dans clusters soit dans unassigned)
+          let matchedPoi: any = null;
+          
+          // Chercher dans les clusters
+          for (const clusterId in assignment.clusters) {
+            matchedPoi = assignment.clusters[clusterId].find((p: any) => p.poi.nom === poi.nom);
+            if (matchedPoi) break;
+          }
+          
+          // Sinon chercher dans unassigned
+          if (!matchedPoi) {
+            matchedPoi = assignment.unassigned.find((p: any) => p.poi.nom === poi.nom);
+          }
+
+          // Mettre à jour le POI avec les infos de matching
+          if (matchedPoi) {
+            return {
+              ...poi,
+              cluster_id: matchedPoi.current_cluster_id === 'unassigned' ? null : matchedPoi.current_cluster_id,
+              cluster_name: matchedPoi.current_cluster_id === 'unassigned' ? null : uniqueClusters.find((c: any) => c.cluster_id === matchedPoi.current_cluster_id)?.cluster_name,
+              place_instance_id: matchedPoi.place_instance_id || null,
+              matched_automatically: matchedPoi.matched_automatically,
+              confidence: matchedPoi.suggested_match?.confidence || null,
+              score: matchedPoi.suggested_match?.score || null,
+            };
+          }
+          
+          return poi;
+        });
+
+        await db.collection('pois_selection').updateOne(
+          { guide_id: guideId },
+          {
+            $set: {
+              pois: updatedPois,
+              updated_at: new Date(),
+            },
+          }
+        );
+
+        console.log('✅ [Matching] Assignment sauvegardé + POIs mis à jour');
 
         reply.send({
           success: true,
@@ -350,8 +392,50 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
           { upsert: true }
         );
 
+        // 8. Mettre à jour les POIs dans pois_selection avec les cluster_id
+        const updatedPois = selectedPois.map((poi: any) => {
+          // Trouver le POI dans l'assignment (soit dans clusters soit dans unassigned)
+          let matchedPoi: any = null;
+          
+          // Chercher dans les clusters
+          for (const clusterId in assignment.clusters) {
+            matchedPoi = assignment.clusters[clusterId].find((p: any) => p.poi.poi_id === poi.poi_id);
+            if (matchedPoi) break;
+          }
+          
+          // Sinon chercher dans unassigned
+          if (!matchedPoi) {
+            matchedPoi = assignment.unassigned.find((p: any) => p.poi.poi_id === poi.poi_id);
+          }
+
+          // Mettre à jour le POI avec les infos de matching
+          if (matchedPoi) {
+            return {
+              ...poi,
+              cluster_id: matchedPoi.current_cluster_id === 'unassigned' ? null : matchedPoi.current_cluster_id,
+              cluster_name: matchedPoi.current_cluster_id === 'unassigned' ? null : clustersMetadata.find((c: any) => c.cluster_id === matchedPoi.current_cluster_id)?.cluster_name,
+              place_instance_id: matchedPoi.place_instance_id || null,
+              matched_automatically: matchedPoi.matched_automatically,
+              confidence: matchedPoi.suggested_match?.confidence || null,
+              score: matchedPoi.suggested_match?.score || null,
+            };
+          }
+          
+          return poi;
+        });
+
+        await db.collection('pois_selection').updateOne(
+          { guide_id: guideId },
+          {
+            $set: {
+              pois: updatedPois,
+              updated_at: new Date(),
+            },
+          }
+        );
+
         console.log(`📊 Résultat: ${stats.assigned}/${stats.total_pois} POI(s) auto-affecté(s)`);
-        console.log('✅ [Matching] Assignment sauvegardé');
+        console.log('✅ [Matching] Assignment sauvegardé + POIs mis à jour');
 
         reply.send({
           assignment,

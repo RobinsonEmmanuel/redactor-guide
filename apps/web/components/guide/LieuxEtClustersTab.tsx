@@ -304,6 +304,18 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     poisByCluster[clusterId].push(poi);
   });
 
+  // Construire les clusters à partir des POIs (si clustersMetadata est vide)
+  const displayClusters: ClusterMetadata[] = clustersMetadata.length > 0 
+    ? clustersMetadata 
+    : Object.keys(poisByCluster).map(clusterId => {
+        const clusterPois = poisByCluster[clusterId];
+        return {
+          cluster_id: clusterId,
+          cluster_name: clusterPois[0]?.cluster_name || 'Sans nom',
+          place_count: clusterPois.length,
+        };
+      });
+
   const stats = {
     total: pois.length,
     assigned: assignedPois.length,
@@ -484,7 +496,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         {/* Partie droite : Vue par cluster */}
         <div className="w-1/2 flex flex-col bg-gray-50">
           <div className="p-3 border-b border-gray-200 bg-white">
-            <div className="text-sm font-semibold text-gray-900">Clusters ({clustersMetadata.length})</div>
+            <div className="text-sm font-semibold text-gray-900">Clusters ({displayClusters.length})</div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -529,7 +541,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             )}
 
             {/* Sections par cluster */}
-            {clustersMetadata.map((cluster) => {
+            {displayClusters.map((cluster) => {
               const clusterPois = poisByCluster[cluster.cluster_id] || [];
               if (clusterPois.length === 0) return null;
 
@@ -578,7 +590,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               );
             })}
 
-            {pois.length > 0 && clustersMetadata.length === 0 && unassignedPois.length === 0 && (
+            {pois.length > 0 && displayClusters.length === 0 && unassignedPois.length === 0 && (
               <div className="text-center py-6 text-gray-500">
                 <p className="text-sm font-medium">Aucun cluster</p>
                 <p className="text-xs">Cliquez sur "2. Matching"</p>

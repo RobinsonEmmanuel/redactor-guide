@@ -64,15 +64,20 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
 
         console.log(`📄 ${articles.length} article(s) trouvé(s)`);
 
-        // 4. Charger le prompt de sélection POI
+        // 4. Charger le prompt de sélection POI (par catégories)
         const promptPOI = await db.collection('prompts').findOne({ 
-          prompt_id: 'selection_pois',
+          categories: { $all: ['poi', 'lieux', 'sommaire'] },
           actif: true 
         });
 
         if (!promptPOI) {
-          return reply.code(400).send({ error: 'Prompt selection_pois non trouvé' });
+          return reply.code(400).send({ 
+            error: 'Prompt de sélection POI non trouvé',
+            message: 'Veuillez créer un prompt avec les catégories "poi", "lieux" et "sommaire", puis l\'activer dans la page Prompts' 
+          });
         }
+
+        console.log(`📋 Prompt trouvé: ${promptPOI.prompt_nom || promptPOI.prompt_id}`);
 
         // 5. Générer les POIs avec l'IA
         const articlesFormatted = articles.map((a: any) => ({

@@ -380,7 +380,7 @@ export default function MatchingClusterTab({ guideId, apiUrl, guide }: MatchingC
               <ClusterColumn
                 key={cluster.cluster_id}
                 clusterId={cluster.cluster_id}
-                clusterName={cluster.cluster_name || cluster.place_name}
+                clusterName={cluster.cluster_name}
                 pois={assignment.clusters[cluster.cluster_id] || []}
                 count={(assignment.clusters[cluster.cluster_id] || []).length}
               />

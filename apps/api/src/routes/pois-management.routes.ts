@@ -64,20 +64,21 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
 
         console.log(`📄 ${articles.length} article(s) trouvé(s)`);
 
-        // 4. Charger le prompt de sélection POI (par catégories)
+        // 4. Charger le prompt système pour l'identification des lieux (Étape 3)
+        // Ce prompt est utilisé pour tous les guides
         const promptPOI = await db.collection('prompts').findOne({ 
-          categories: { $all: ['poi', 'lieux', 'sommaire'] },
+          categories: { $all: ['lieux', 'poi', 'sommaire'] },
           actif: true 
         });
 
         if (!promptPOI) {
           return reply.code(400).send({ 
-            error: 'Prompt de sélection POI non trouvé',
-            message: 'Veuillez créer un prompt avec les catégories "poi", "lieux" et "sommaire", puis l\'activer dans la page Prompts' 
+            error: 'Prompt de sélection des lieux non trouvé',
+            message: 'Le prompt système pour l\'identification des lieux (catégories: lieux, poi, sommaire) est manquant ou inactif' 
           });
         }
 
-        console.log(`📋 Prompt trouvé: ${promptPOI.prompt_nom || promptPOI.prompt_id}`);
+        console.log(`📋 Utilisation du prompt: ${promptPOI.prompt_nom || promptPOI.prompt_id}`);
 
         // 5. Générer les POIs avec l'IA
         const articlesFormatted = articles.map((a: any) => ({
@@ -93,7 +94,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
         const prompt = openaiService.replaceVariables(promptPOI.texte_prompt, {
           SITE: guide.wpConfig?.siteUrl || '',
           DESTINATION: destination,
-          LISTE_ARTICLES: listeArticles,
+          LISTE_ARTICLES_POI: listeArticles,
         });
 
         console.log('🤖 Appel OpenAI pour génération POIs...');

@@ -10,7 +10,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
 
   /**
    * POST /guides/:guideId/matching/generate
-   * Génère les POIs et effectue l'auto-matching avec les clusters
+   * Charge les POIs sélectionnés (étape 3) et effectue l'auto-matching avec les clusters
    */
   fastify.post<{ Params: { guideId: string } }>(
     '/guides/:guideId/matching/generate',
@@ -18,7 +18,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
       const { guideId } = request.params;
 
       try {
-        console.log(`🎯 [Matching] Génération POIs pour guide ${guideId}`);
+        console.log(`🎯 [Matching] Affectation clusters pour guide ${guideId}`);
 
         // 1. Récupérer le guide et vérifier destination_rl_id
         const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
@@ -34,77 +34,27 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         }
 
         const regionId = guide.destination_rl_id;
-        const destination = guide.destinations?.[0] || guide.destination || 'Destination inconnue';
 
-        // 2. Créer l'OpenAI service
-        const openaiApiKey = env.OPENAI_API_KEY;
-        if (!openaiApiKey) {
-          return reply.code(500).send({ error: 'OPENAI_API_KEY non configuré' });
-        }
+        // 2. Charger les POIs depuis pois_selection (étape 3)
+        const poisSelection = await db.collection('pois_selection').findOne({ guide_id: guideId });
         
-        const openaiService = new OpenAIService({
-          apiKey: openaiApiKey,
-          model: 'gpt-5-mini',
-          reasoningEffort: 'medium',
-        });
-
-        // 3. Charger les articles
-        const site = await db.collection('sites').findOne({ url: guide.wpConfig?.siteUrl });
-        if (!site) {
-          return reply.code(400).send({ error: 'Site WordPress non trouvé' });
-        }
-
-        const articles = await db.collection('articles_raw')
-          .find({
-            site_id: site._id,
-            destinations: { $in: [destination] }
-          })
-          .toArray();
-
-        if (articles.length === 0) {
+        if (!poisSelection || !poisSelection.pois || poisSelection.pois.length === 0) {
           return reply.code(400).send({ 
-            error: 'Aucun article trouvé', 
-            message: 'Récupérez d\'abord les articles WordPress pour cette destination' 
+            error: 'Aucun POI sélectionné', 
+            message: 'Veuillez d\'abord identifier et sélectionner des lieux à l\'étape 3' 
           });
         }
 
-        console.log(`📄 ${articles.length} article(s) trouvé(s) pour la destination "${destination}"`);
+        const selectedPois = poisSelection.pois;
+        console.log(`📍 ${selectedPois.length} POI(s) chargé(s) depuis la sélection`);
 
-        // Charger le prompt de sélection POI
-        const promptPOI = await db.collection('prompts').findOne({ 
-          prompt_id: 'selection_pois',
-          actif: true 
-        });
-
-        if (!promptPOI) {
-          return reply.code(400).send({ error: 'Prompt selection_pois non trouvé' });
-        }
-
-        // Générer les POIs avec l'IA
-        const articlesFormatted = articles.map((a: any) => ({
-          title: a.title,
-          slug: a.slug,
-          categories: a.categories || [],
-          url_francais: a.url_francais,
+        // Mapper vers format POI attendu par ClusterMatchingService
+        const pois: POI[] = selectedPois.map((p: any) => ({
+          nom: p.nom,
+          type: p.type || 'autre',
         }));
 
-        const listeArticles = articlesFormatted
-          .map((a: any) => `- ${a.title} (${a.slug})`)
-          .join('\n');
-
-        const prompt = openaiService.replaceVariables(promptPOI.texte_prompt, {
-          SITE: guide.wpConfig?.siteUrl || '',
-          DESTINATION: destination,
-          LISTE_ARTICLES_POI: listeArticles,
-        });
-
-        console.log('🤖 Appel OpenAI pour génération des POIs...');
-        const poisResult = await openaiService.generateJSON(prompt, 12000);
-        const pois: POI[] = poisResult.pois || [];
-
-        console.log(`✅ ${pois.length} POI(s) généré(s) par l'IA`);
-
-        // 4. Récupérer les clusters depuis Region Lovers
+        // 3. Récupérer les clusters depuis Region Lovers
         console.log(`🌍 Récupération des clusters pour la région ${regionId}...`);
         
         const regionLoversApiUrl = process.env.REGION_LOVERS_API_URL || 'https://api-prod.regionlovers.ai';

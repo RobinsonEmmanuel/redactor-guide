@@ -7,7 +7,7 @@ interface Step {
   label: string;
   shortLabel: string;
   icon: string;
-  tabId: 'config' | 'articles' | 'matching-cluster' | 'chemin-de-fer' | 'export';
+  tabId: 'config' | 'articles' | 'lieux-management' | 'matching-cluster' | 'chemin-de-fer' | 'export';
   description: string;
 }
 
@@ -39,8 +39,8 @@ const WORKFLOW_STEPS: Step[] = [
     label: '3. Lieux',
     shortLabel: 'Lieux',
     icon: '📍',
-    tabId: 'matching-cluster',
-    description: 'Identification des lieux dans les articles'
+    tabId: 'lieux-management',
+    description: 'Identification et sélection des lieux'
   },
   {
     id: 4,
@@ -48,7 +48,7 @@ const WORKFLOW_STEPS: Step[] = [
     shortLabel: 'Clusters',
     icon: '🗂️',
     tabId: 'matching-cluster',
-    description: 'Rangement des lieux par cluster'
+    description: 'Affectation des lieux par cluster'
   },
   {
     id: 5,

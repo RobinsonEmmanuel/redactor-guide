@@ -6,6 +6,7 @@ import { ArrowLeftIcon } from '@heroicons/react/24/outline';
 import Sidebar from '@/components/Sidebar';
 import WorkflowStepper from '@/components/guide/WorkflowStepper';
 import ArticlesTab from '@/components/guide/ArticlesTab';
+import LieuxManagementTab from '@/components/guide/LieuxManagementTab';
 import MatchingClusterTab from '@/components/guide/MatchingClusterTab';
 import CheminDeFerTab from '@/components/guide/CheminDeFerTab';
 
@@ -16,11 +17,12 @@ export default function GuideDetailPage() {
 
   const [guide, setGuide] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'articles' | 'matching-cluster' | 'chemin-de-fer'>('articles');
+  const [activeTab, setActiveTab] = useState<'articles' | 'lieux-management' | 'matching-cluster' | 'chemin-de-fer'>('articles');
   const [articlesCount, setArticlesCount] = useState<number>(0);
   const [hasCheckedArticles, setHasCheckedArticles] = useState(false);
   const [currentWorkflowStep, setCurrentWorkflowStep] = useState<number>(2); // Commence à étape 2 (Articles)
-  const [matchingGenerated, setMatchingGenerated] = useState(false);
+  const [poisSelected, setPoisSelected] = useState(false); // Étape 3: POIs sélectionnés
+  const [matchingGenerated, setMatchingGenerated] = useState(false); // Étape 4: Matching fait
   const [sommaireGenerated, setSommaireGenerated] = useState(false);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -28,6 +30,7 @@ export default function GuideDetailPage() {
   useEffect(() => {
     loadGuide();
     checkArticles();
+    checkPoisStatus();
     checkMatchingStatus();
     checkSommaireStatus();
   }, [guideId]);
@@ -61,6 +64,20 @@ export default function GuideDetailPage() {
     } catch (err) {
       console.error('Erreur vérification articles:', err);
       setHasCheckedArticles(true);
+    }
+  };
+
+  const checkPoisStatus = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/pois`, {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPoisSelected(data.pois && data.pois.length > 0);
+      }
+    } catch (err) {
+      setPoisSelected(false);
     }
   };
 
@@ -102,11 +119,11 @@ export default function GuideDetailPage() {
     // Étape 2: Articles WordPress
     if (articlesCount > 0) completed.add(2);
     
-    // Étapes 3-4: Lieux + Clusters (matching généré)
-    if (matchingGenerated) {
-      completed.add(3);
-      completed.add(4);
-    }
+    // Étape 3: Lieux identifiés
+    if (poisSelected) completed.add(3);
+    
+    // Étape 4: Clusters (matching généré)
+    if (matchingGenerated) completed.add(4);
     
     // Étape 5: Sommaire
     if (sommaireGenerated) completed.add(5);
@@ -133,6 +150,7 @@ export default function GuideDetailPage() {
     
     // Mapper stepId vers l'onglet correspondant
     if (tabId === 'articles') setActiveTab('articles');
+    if (tabId === 'lieux-management') setActiveTab('lieux-management');
     if (tabId === 'matching-cluster') setActiveTab('matching-cluster');
     if (tabId === 'chemin-de-fer') setActiveTab('chemin-de-fer');
     // Note: 'config' et 'export' n'ont pas encore d'onglet dédié
@@ -154,13 +172,18 @@ export default function GuideDetailPage() {
     );
   }
 
+  const canAccessLieuxManagement = articlesCount > 0;
+  const canAccessMatchingCluster = articlesCount > 0 && poisSelected;
   const canAccessCheminDeFer = articlesCount > 0;
-  const canAccessMatchingCluster = articlesCount > 0;
 
   // Callback pour rafraîchir les statuts après actions
   const handleArticlesImported = () => {
     checkArticles();
     setCurrentWorkflowStep(3); // Passer à l'étape "Lieux"
+  };
+
+  const handlePoisUpdated = () => {
+    checkPoisStatus();
   };
 
   return (
@@ -203,6 +226,29 @@ export default function GuideDetailPage() {
               <ArticlesTab guideId={guideId} guide={guide} apiUrl={apiUrl} onArticlesImported={handleArticlesImported} />
             </div>
           )}
+
+          {activeTab === 'lieux-management' && canAccessLieuxManagement && (
+            <LieuxManagementTab guideId={guideId} apiUrl={apiUrl} guide={guide} />
+          )}
+          {activeTab === 'lieux-management' && !canAccessLieuxManagement && (
+            <div className="h-full flex items-center justify-center p-6">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center max-w-md">
+                <div className="text-yellow-800 font-medium mb-2">
+                  📝 Récupération des articles WordPress requise
+                </div>
+                <p className="text-yellow-700 text-sm mb-4">
+                  Pour identifier les lieux, vous devez d'abord récupérer les articles WordPress de ce guide.
+                </p>
+                <button
+                  onClick={() => setActiveTab('articles')}
+                  className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+                >
+                  Aller aux articles WordPress
+                </button>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'matching-cluster' && canAccessMatchingCluster && (
             <MatchingClusterTab guideId={guideId} apiUrl={apiUrl} guide={guide} />
           )}
@@ -210,16 +256,16 @@ export default function GuideDetailPage() {
             <div className="h-full flex items-center justify-center p-6">
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center max-w-md">
                 <div className="text-yellow-800 font-medium mb-2">
-                  📝 Récupération des articles WordPress requise
+                  📍 Sélection des lieux requise
                 </div>
                 <p className="text-yellow-700 text-sm mb-4">
-                  Pour effectuer le matching cluster, vous devez d'abord récupérer les articles WordPress de ce guide.
+                  Pour affecter les lieux aux clusters, vous devez d'abord identifier et sélectionner les lieux à l'étape 3.
                 </p>
                 <button
-                  onClick={() => setActiveTab('articles')}
+                  onClick={() => setActiveTab('lieux-management')}
                   className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
                 >
-                  Aller aux articles WordPress
+                  Aller à la gestion des lieux
                 </button>
               </div>
             </div>

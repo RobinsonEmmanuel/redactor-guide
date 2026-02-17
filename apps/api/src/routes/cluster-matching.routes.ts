@@ -80,6 +80,8 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
           }
         );
 
+        console.log(`📡 Status API Region Lovers: ${clustersResponse.status}`);
+
         if (!clustersResponse.ok) {
           const errorText = await clustersResponse.text();
           console.error('❌ Erreur API Region Lovers:', errorText);
@@ -90,9 +92,30 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         }
 
         const clustersData: any = await clustersResponse.json();
-        const clusters: Cluster[] = Array.isArray(clustersData) ? clustersData : clustersData.drafts || [];
+        
+        // Logs détaillés pour debug
+        console.log('📦 Type de données reçues:', Array.isArray(clustersData) ? 'Array' : typeof clustersData);
+        console.log('📦 Clés de l\'objet:', clustersData && typeof clustersData === 'object' ? Object.keys(clustersData) : 'N/A');
+        console.log('📦 Nombre d\'éléments bruts:', Array.isArray(clustersData) ? clustersData.length : (clustersData?.drafts?.length || clustersData?.data?.length || 'N/A'));
+        
+        // Essayer différents chemins pour récupérer les clusters
+        let clusters: Cluster[] = [];
+        
+        if (Array.isArray(clustersData)) {
+          clusters = clustersData;
+        } else if (clustersData?.drafts && Array.isArray(clustersData.drafts)) {
+          clusters = clustersData.drafts;
+        } else if (clustersData?.data && Array.isArray(clustersData.data)) {
+          clusters = clustersData.data;
+        } else if (clustersData?.places && Array.isArray(clustersData.places)) {
+          clusters = clustersData.places;
+        }
 
         console.log(`✅ ${clusters.length} cluster(s) récupéré(s) depuis Region Lovers`);
+        
+        if (clusters.length > 0) {
+          console.log('📍 Exemple de cluster:', JSON.stringify(clusters[0], null, 2));
+        }
 
         // 5. Auto-matching
         const assignment = clusterMatchingService.autoAssignPOIs(pois, clusters);

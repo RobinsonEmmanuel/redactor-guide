@@ -162,6 +162,16 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
           </div>
         )}
 
+        {/* Coordonnées GPS */}
+        {page.coordinates && (
+          <div className="text-[10px] text-gray-400 font-mono mb-3 flex items-center gap-1">
+            <span>📍</span>
+            <span title={page.coordinates.display_name || 'Coordonnées GPS'}>
+              {page.coordinates.lat.toFixed(5)}, {page.coordinates.lon.toFixed(5)}
+            </span>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="flex gap-2 pt-2 border-t border-gray-100">
           {/* Bouton Rédiger avec état visuel selon statut */}

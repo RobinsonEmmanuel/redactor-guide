@@ -70,6 +70,13 @@ export const PageSchema = z.object({
   /** URL source (WordPress ou autre) */
   url_source: z.string().url().optional(),
   
+  /** Coordonnées GPS du lieu (pour les POIs) */
+  coordinates: z.object({
+    lat: z.number(),
+    lon: z.number(),
+    display_name: z.string().optional(),
+  }).optional(),
+  
   /** Statut éditorial */
   statut_editorial: PageStatusEnum.default('draft'),
   

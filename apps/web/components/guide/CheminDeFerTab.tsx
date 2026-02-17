@@ -428,6 +428,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         section_id: proposalData.id,
         url_source: articleUrl || proposalData.url || undefined,
         image_url: imageUrl || undefined,
+        coordinates: proposalData.coordinates || undefined, // ✅ Ajouter les coordonnées GPS
         commentaire_interne: [
           proposalData.poiType ? `Type POI: ${proposalData.poiType}` : null, // ✅ Type du POI dans commentaire
           proposalData.autresArticlesMentions && proposalData.autresArticlesMentions.length > 0
@@ -804,6 +805,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                               articleSlug={poi.article_source}
                               autresArticlesMentions={poi.autres_articles_mentions}
                               poiType={poi.type}
+                              coordinates={poi.coordinates}
                             />
                           ))}
                         </div>
@@ -974,7 +976,7 @@ function TemplatePaletteItemMini({ template }: { template: any }) {
 }
 
 // Composant Proposition IA MINI pour la palette
-function ProposalCardMini({ id, type, title, description, icon: Icon, color, articleSlug, autresArticlesMentions, poiType }: any) {
+function ProposalCardMini({ id, type, title, description, icon: Icon, color, articleSlug, autresArticlesMentions, poiType, coordinates }: any) {
   const [showOthers, setShowOthers] = useState(false);
   
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -987,7 +989,8 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color, art
       description, 
       articleSlug,
       autresArticlesMentions,
-      poiType // ✅ Ajouter le type du POI (musée, plage, etc.)
+      poiType, // ✅ Ajouter le type du POI (musée, plage, etc.)
+      coordinates // ✅ Ajouter les coordonnées GPS
     },
   });
 
@@ -1023,6 +1026,11 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color, art
             <h4 className="font-medium text-gray-900 text-xs line-clamp-1">{title}</h4>
             {description && (
               <p className="text-xs text-gray-500 line-clamp-1">{description}</p>
+            )}
+            {coordinates && (
+              <p className="text-[10px] text-gray-400 font-mono">
+                📍 {coordinates.lat.toFixed(5)}, {coordinates.lon.toFixed(5)}
+              </p>
             )}
           </div>
           {hasOtherArticles && (

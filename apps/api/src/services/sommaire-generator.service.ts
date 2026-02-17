@@ -1,5 +1,6 @@
 import { Db, ObjectId } from 'mongodb';
 import { OpenAIService } from './openai.service';
+import { GeocodingService } from './geocoding.service';
 
 export interface SommaireGeneratorConfig {
   db: Db;
@@ -26,6 +27,11 @@ export interface SommairePOI {
   type: string;
   article_source: string;
   raison_selection: string;
+  coordinates?: {
+    lat: number;
+    lon: number;
+    display_name?: string;
+  };
 }
 
 export interface SommaireInspiration {
@@ -44,10 +50,12 @@ export interface SommaireProposal {
 export class SommaireGeneratorService {
   private db: Db;
   private openaiService: OpenAIService;
+  private geocodingService: GeocodingService;
 
   constructor(config: SommaireGeneratorConfig) {
     this.db = config.db;
     this.openaiService = config.openaiService;
+    this.geocodingService = new GeocodingService();
   }
 
   /**
@@ -91,7 +99,16 @@ export class SommaireGeneratorService {
       const promptPOIs = await this.loadPrompt('selection_pois');
       const poisResult = await this.generatePOIs(promptPOIs, destination, siteUrl, articles);
       console.log(`✅ ${poisResult.pois.length} POIs sélectionnés`);
-      proposal.pois = poisResult.pois;
+      
+      // Enrichir les POIs avec les coordonnées GPS
+      if (poisResult.pois.length > 0) {
+        console.log('🌍 Géolocalisation des POIs...');
+        const pays = this.geocodingService.getCountryFromDestination(destination);
+        const enrichedPois = await this.enrichPoisWithCoordinates(poisResult.pois, pays);
+        proposal.pois = enrichedPois;
+      } else {
+        proposal.pois = poisResult.pois;
+      }
     }
 
     // 5. Générer les inspirations si demandé
@@ -236,6 +253,45 @@ export class SommaireGeneratorService {
     });
 
     return await this.openaiService.generateJSON(prompt, 12000);
+  }
+
+  /**
+   * Enrichir les POIs avec les coordonnées GPS via Nominatim
+   */
+  private async enrichPoisWithCoordinates(
+    pois: SommairePOI[],
+    pays: string
+  ): Promise<SommairePOI[]> {
+    const lieuxToGeocode = pois.map(poi => ({
+      nom: poi.nom,
+      pays: pays,
+    }));
+
+    const coordinates = await this.geocodingService.geocodePlaces(lieuxToGeocode);
+
+    // Enrichir chaque POI avec ses coordonnées
+    const enrichedPois = pois.map(poi => {
+      const coords = coordinates.get(poi.nom);
+      
+      if (coords) {
+        return {
+          ...poi,
+          coordinates: {
+            lat: coords.lat,
+            lon: coords.lon,
+            display_name: coords.display_name,
+          },
+        };
+      }
+      
+      // Pas de coordonnées trouvées, retourner le POI tel quel
+      return poi;
+    });
+
+    const withCoords = enrichedPois.filter(p => p.coordinates).length;
+    console.log(`📍 ${withCoords}/${pois.length} POI(s) géolocalisé(s)`);
+
+    return enrichedPois;
   }
 
   /**

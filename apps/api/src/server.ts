@@ -64,6 +64,10 @@ export async function createServer(db: Db, _port: number) {
   // Routes API
   await fastify.register(
     async (fastify) => {
+      // IMPORTANT: Les routes spécifiques doivent être enregistrées AVANT les routes avec paramètres génériques (:id)
+      // pour éviter que Fastify ne confonde "/guide-templates" avec "/articles/:id"
+      
+      // Routes spécifiques d'abord
       await fastify.register(
         (await import('./routes/guides.routes')).guidesRoutes
       );
@@ -74,7 +78,13 @@ export async function createServer(db: Db, _port: number) {
         (await import('./routes/templates.routes')).templatesRoutes
       );
       await fastify.register(
+        (await import('./routes/guide-templates.routes')).default
+      );
+      await fastify.register(
         (await import('./routes/chemin-de-fer.routes')).cheminDeFerRoutes
+      );
+      await fastify.register(
+        (await import('./routes/chemin-de-fer-proposals.routes')).default
       );
       await fastify.register(
         (await import('./routes/prompts.routes')).promptsRoutes
@@ -100,19 +110,14 @@ export async function createServer(db: Db, _port: number) {
       await fastify.register(
         (await import('./routes/inspirations.routes')).default
       );
-      await fastify.register(
-        (await import('./routes/guide-templates.routes')).default
-      );
-      await fastify.register(
-        (await import('./routes/chemin-de-fer-proposals.routes')).default
-      );
 
+      // Routes génériques avec :id en dernier
       fastify.get('/destinations', async () => {
         const destinations = await db.collection('destinations').find().toArray();
         return { destinations };
       });
 
-      // Détail d'un article
+      // Détail d'un article (route générique avec :id - doit être EN DERNIER)
       fastify.get<{ Params: { id: string } }>('/articles/:id', async (request, reply) => {
         const { id } = request.params;
         try {

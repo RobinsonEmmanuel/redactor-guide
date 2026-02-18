@@ -140,6 +140,7 @@ export default function ContentEditorModal({
 
     switch (field.type) {
       case 'titre':
+        const isTitleOverLimit = field.max_chars && fieldValue.length > field.max_chars;
         return (
           <div key={field.name} className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -152,18 +153,27 @@ export default function ContentEditorModal({
               type="text"
               value={fieldValue}
               onChange={(e) => handleFieldChange(field.name, e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              maxLength={field.max_chars}
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                isTitleOverLimit 
+                  ? 'border-red-500 bg-red-50 text-red-900' 
+                  : 'border-gray-300'
+              }`}
             />
             {field.max_chars && (
               <div className="mt-1 text-right">
                 {getCharacterCount(field.name, field.max_chars)}
               </div>
             )}
+            {isTitleOverLimit && (
+              <p className="mt-1 text-xs text-red-600 font-medium">
+                ⚠️ Titre en dépassement de {fieldValue.length - field.max_chars!} caractères
+              </p>
+            )}
           </div>
         );
 
       case 'texte':
+        const isOverLimit = field.max_chars && fieldValue.length > field.max_chars;
         return (
           <div key={field.name} className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -176,13 +186,21 @@ export default function ContentEditorModal({
               value={fieldValue}
               onChange={(e) => handleFieldChange(field.name, e.target.value)}
               rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              maxLength={field.max_chars}
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                isOverLimit 
+                  ? 'border-red-500 bg-red-50 text-red-900' 
+                  : 'border-gray-300'
+              }`}
             />
             {field.max_chars && (
               <div className="mt-1 text-right">
                 {getCharacterCount(field.name, field.max_chars)}
               </div>
+            )}
+            {isOverLimit && (
+              <p className="mt-1 text-xs text-red-600 font-medium">
+                ⚠️ Texte en dépassement de {fieldValue.length - field.max_chars!} caractères
+              </p>
             )}
           </div>
         );
@@ -238,6 +256,7 @@ export default function ContentEditorModal({
         );
 
       case 'meta':
+        const isMetaOverLimit = field.max_chars && fieldValue.length > field.max_chars;
         return (
           <div key={field.name} className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -251,13 +270,21 @@ export default function ContentEditorModal({
               value={fieldValue}
               onChange={(e) => handleFieldChange(field.name, e.target.value)}
               placeholder="Valeur courte et normée"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              maxLength={field.max_chars || 50}
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                isMetaOverLimit 
+                  ? 'border-red-500 bg-red-50 text-red-900' 
+                  : 'border-gray-300'
+              }`}
             />
             {field.max_chars && (
               <div className="mt-1 text-right">
                 {getCharacterCount(field.name, field.max_chars)}
               </div>
+            )}
+            {isMetaOverLimit && (
+              <p className="mt-1 text-xs text-red-600 font-medium">
+                ⚠️ Métadonnée en dépassement de {fieldValue.length - field.max_chars!} caractères
+              </p>
             )}
           </div>
         );

@@ -997,18 +997,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
             </div>
           </div>
         </div>
-                              color="orange"
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
 
         {/* ZONE PRINCIPALE : Chemin de fer - Plus d'espace */}
         <div className="flex-1 flex flex-col overflow-hidden bg-white">

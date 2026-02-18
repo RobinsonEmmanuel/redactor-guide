@@ -78,7 +78,8 @@ export async function createServer(db: Db, _port: number) {
         (await import('./routes/templates.routes')).templatesRoutes
       );
       await fastify.register(
-        (await import('./routes/guide-templates.routes')).default
+        (await import('./routes/guide-templates.routes')).default,
+        { prefix: '/guide-templates' }
       );
       await fastify.register(
         (await import('./routes/chemin-de-fer.routes')).cheminDeFerRoutes

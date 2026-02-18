@@ -10,10 +10,12 @@ const CreateGuideSchema = z.object({
   language: z.enum(['fr', 'en', 'de', 'it', 'es', 'pt-pt', 'nl', 'da', 'sv']),
   availableLanguages: z.array(z.string()).default(['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl']),
   status: z.enum(['draft', 'in_progress', 'review', 'ready', 'published', 'archived']),
-  destination: z.string().min(1), // 1 guide = 1 destination
-  destination_rl_id: z.string().optional(), // ID MongoDB de la destination dans Region Lovers
+  destination: z.string().min(1),
+  destination_rl_id: z.string().optional(),
+  guide_template_id: z.string().optional(),
+  image_principale: z.string().optional(),
   wpConfig: z.object({
-    siteUrl: z.string().url(),
+    siteUrl: z.string().url().or(z.literal('')),
     jwtToken: z.string(),
   }).optional(),
 });

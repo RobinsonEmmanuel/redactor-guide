@@ -52,6 +52,8 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   const [loadingProposal, setLoadingProposal] = useState(false);
   const [proposal, setProposal] = useState<any>(null);
   const [proposalError, setProposalError] = useState<string | null>(null);
+  const [templateProposals, setTemplateProposals] = useState<any>(null);
+  const [loadingTemplateProposals, setLoadingTemplateProposals] = useState(false);
 
   // États pour l'ajout multiple de pages
   const [showAddPagesModal, setShowAddPagesModal] = useState(false);
@@ -75,7 +77,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
 
   useEffect(() => {
     loadTemplates();
-    loadExistingProposal();
+    loadTemplateProposals();
     if (cheminDeFer) {
       loadPages();
     } else {
@@ -189,6 +191,33 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     }
   };
 
+  const loadTemplateProposals = async () => {
+    setLoadingTemplateProposals(true);
+    try {
+      const token = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('accessToken='))
+        ?.split('=')[1];
+
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/proposals`, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setTemplateProposals(data);
+        console.log('📋 Propositions template chargées:', data);
+      }
+    } catch (err) {
+      console.error('Erreur chargement propositions:', err);
+    } finally {
+      setLoadingTemplateProposals(false);
+    }
+  };
+
   const generateSommaire = async () => {
     setLoadingProposal(true);
     setProposalError(null);
@@ -258,6 +287,13 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     if (active.data.current?.type === 'template') {
       const template = active.data.current.template;
       await handleCreatePageFromTemplate(template, targetOrder);
+      return;
+    }
+
+    // Drag d'une page suggérée du template vers un emplacement
+    if (active.data.current?.type === 'template_page') {
+      const templatePageData = active.data.current.templatePage;
+      await handleCreatePageFromTemplatePage(templatePageData, targetOrder);
       return;
     }
 
@@ -365,6 +401,50 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
       }
     } catch (err) {
       console.error('Erreur création page depuis template:', err);
+      alert('Erreur lors de la création de la page');
+    }
+  };
+
+  const handleCreatePageFromTemplatePage = async (templatePageData: any, targetOrder: number | null = null) => {
+    try {
+      // Trouver le template correspondant
+      const template = templates.find((t) => t.name === templatePageData.template_name);
+      if (!template) {
+        alert(`Template "${templatePageData.template_name}" introuvable`);
+        return;
+      }
+
+      const pageData = {
+        page_id: templatePageData.page_id || nanoid(10),
+        titre: templatePageData.titre,
+        template_id: template._id,
+        template_name: templatePageData.template_name,
+        type_de_page: templatePageData.type,
+        statut_editorial: 'draft',
+        ordre: targetOrder || pages.length + 1,
+        section_id: templatePageData.section_name,
+        section_name: templatePageData.section_name,
+        url_source: undefined,
+        commentaire_interne: undefined,
+      };
+
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(pageData),
+      });
+
+      if (res.ok) {
+        console.log(`✅ Page "${templatePageData.titre}" créée`);
+        loadPages();
+      } else {
+        const errorData = await res.json();
+        console.error('❌ Erreur création page depuis template:', errorData);
+        alert(`Erreur: ${errorData.error || 'Impossible de créer la page'}`);
+      }
+    } catch (err) {
+      console.error('Erreur création page depuis template page:', err);
       alert('Erreur lors de la création de la page');
     }
   };
@@ -739,155 +819,184 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
             </div>
           </div>
 
-          {/* Section Propositions IA - Plus compacte */}
+          {/* Section Pages suggérées du template */}
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="p-3 border-b border-gray-300 bg-white flex-shrink-0">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <div className="p-1 bg-purple-100 rounded">
-                    <SparklesIcon className="w-4 h-4 text-purple-600" />
+                  <div className="p-1 bg-blue-100 rounded">
+                    <DocumentTextIcon className="w-4 h-4 text-blue-600" />
                   </div>
-                  <h3 className="text-xs font-bold text-gray-900">Propositions IA</h3>
+                  <h3 className="text-xs font-bold text-gray-900">Pages suggérées</h3>
                 </div>
                 <button
-                  onClick={generateSommaire}
-                  disabled={loadingProposal}
-                  className="flex items-center gap-1 px-2 py-1 bg-purple-600 text-white text-xs font-medium rounded hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                  onClick={loadTemplateProposals}
+                  disabled={loadingTemplateProposals}
+                  className="flex items-center gap-1 px-2 py-1 bg-blue-600 text-white text-xs font-medium rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                 >
-                  <ArrowPathIcon className={`h-3 w-3 ${loadingProposal ? 'animate-spin' : ''}`} />
-                  {loadingProposal ? 'Génération...' : 'Tout générer'}
+                  <ArrowPathIcon className={`h-3 w-3 ${loadingTemplateProposals ? 'animate-spin' : ''}`} />
+                  {loadingTemplateProposals ? 'Chargement...' : 'Actualiser'}
                 </button>
               </div>
 
-              {proposalError && (
-                <div className="mt-1 p-1.5 bg-red-50 border border-red-200 rounded text-xs text-red-800">
-                  {proposalError}
+              {templateProposals && (
+                <div className="text-xs text-gray-600">
+                  📋 {templateProposals.template_name} • {templateProposals.stats?.total || 0} pages
                 </div>
               )}
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 space-y-3">
-              {!proposal && !loadingProposal && (
+              {!templateProposals && !loadingTemplateProposals && (
                 <div className="text-center py-6">
-                  <SparklesIcon className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-                  <p className="text-xs text-gray-500">Cliquez sur "Tout générer"</p>
-                  <p className="text-xs text-gray-400 mt-1">ou générez par partie ci-dessous</p>
+                  <DocumentTextIcon className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                  <p className="text-xs text-gray-500">Aucune proposition chargée</p>
                 </div>
               )}
 
-              {loadingProposal && (
+              {loadingTemplateProposals && (
                 <div className="text-center py-6">
-                  <ArrowPathIcon className="w-8 h-8 text-purple-600 mx-auto mb-2 animate-spin" />
-                  <p className="text-xs text-gray-500">Génération...</p>
+                  <ArrowPathIcon className="w-8 h-8 text-blue-600 mx-auto mb-2 animate-spin" />
+                  <p className="text-xs text-gray-500">Chargement...</p>
                 </div>
               )}
 
-              {proposal && (
+              {templateProposals && (
                 <>
-                  {/* Sections */}
-                  {(proposal.sections && proposal.sections.length > 0) || !loadingProposal ? (
+                  {/* Pages fixes */}
+                  {templateProposals.proposals?.fixed_pages && templateProposals.proposals.fixed_pages.length > 0 && (
                     <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <RectangleStackIcon className="w-3 h-3 text-blue-600" />
-                          <h4 className="font-semibold text-gray-700 text-xs">
-                            Sections {proposal.sections ? `(${proposal.sections.length})` : ''}
-                          </h4>
-                        </div>
-                        <button
-                          onClick={() => handleGeneratePartial(['sections'])}
-                          disabled={loadingProposal}
-                          className="text-xs text-blue-600 hover:text-blue-800 hover:underline disabled:opacity-50"
-                        >
-                          🔄 Regénérer
-                        </button>
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <DocumentTextIcon className="w-3 h-3 text-blue-600" />
+                        <h4 className="font-semibold text-gray-700 text-xs">
+                          Pages fixes ({templateProposals.proposals.fixed_pages.length})
+                        </h4>
                       </div>
-                      {proposal.sections && proposal.sections.length > 0 && (
-                        <div className="space-y-1">
-                          {proposal.sections.map((section: any) => (
-                            <ProposalCardMini
-                              key={section.section_id}
-                              id={section.section_id}
-                              type="section"
-                              title={section.section_nom}
-                              description={section.description_courte}
-                              icon={RectangleStackIcon}
-                              color="blue"
-                            />
-                          ))}
-                        </div>
-                      )}
+                      <div className="space-y-1">
+                        {templateProposals.proposals.fixed_pages.map((page: any) => (
+                          <ProposalCardMini
+                            key={page.page_id}
+                            id={page.page_id}
+                            type="template_page"
+                            title={page.titre}
+                            description={page.template_name}
+                            icon={DocumentTextIcon}
+                            color="blue"
+                            templatePage={page}
+                          />
+                        ))}
+                      </div>
                     </div>
-                  ) : null}
+                  )}
 
-                  {/* POIs */}
-                  {(proposal.pois && proposal.pois.length > 0) || !loadingProposal ? (
+                  {/* Pages clusters */}
+                  {templateProposals.proposals?.cluster_pages && templateProposals.proposals.cluster_pages.length > 0 && (
                     <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <MapPinIcon className="w-3 h-3 text-green-600" />
-                          <h4 className="font-semibold text-gray-700 text-xs">
-                            Lieux {proposal.pois ? `(${proposal.pois.length})` : ''}
-                          </h4>
-                        </div>
-                        <button
-                          onClick={() => handleGeneratePartial(['pois'])}
-                          disabled={loadingProposal}
-                          className="text-xs text-green-600 hover:text-green-800 hover:underline disabled:opacity-50"
-                        >
-                          🔄 Regénérer
-                        </button>
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <RectangleStackIcon className="w-3 h-3 text-green-600" />
+                        <h4 className="font-semibold text-gray-700 text-xs">
+                          Clusters ({templateProposals.proposals.cluster_pages.length})
+                        </h4>
                       </div>
-                      {proposal.pois && proposal.pois.length > 0 && (
-                        <div className="space-y-1">
-                          {proposal.pois.map((poi: any) => (
-                            <ProposalCardMini
-                              key={poi.poi_id}
-                              id={poi.poi_id}
-                              type="poi"
-                              title={poi.nom}
-                              description={`${poi.type}`}
-                              icon={MapPinIcon}
-                              color="green"
-                              articleSlug={poi.article_source}
-                              autresArticlesMentions={poi.autres_articles_mentions}
-                              poiType={poi.type}
-                              coordinates={poi.coordinates}
-                            />
-                          ))}
-                        </div>
-                      )}
+                      <div className="space-y-1">
+                        {templateProposals.proposals.cluster_pages.map((page: any) => (
+                          <ProposalCardMini
+                            key={page.page_id}
+                            id={page.page_id}
+                            type="template_page"
+                            title={page.titre}
+                            description={`${page.poi_count} POIs`}
+                            icon={RectangleStackIcon}
+                            color="green"
+                            templatePage={page}
+                          />
+                        ))}
+                      </div>
                     </div>
-                  ) : null}
+                  )}
 
-                  {/* Inspirations */}
-                  {(proposal.inspirations && proposal.inspirations.length > 0) || !loadingProposal ? (
+                  {/* Pages POIs */}
+                  {templateProposals.proposals?.poi_pages && templateProposals.proposals.poi_pages.length > 0 && (
                     <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <LightBulbIcon className="w-3 h-3 text-orange-600" />
-                          <h4 className="font-semibold text-gray-700 text-xs">
-                            Inspiration {proposal.inspirations ? `(${proposal.inspirations.length})` : ''}
-                          </h4>
-                        </div>
-                        <button
-                          onClick={() => handleGeneratePartial(['inspirations'])}
-                          disabled={loadingProposal}
-                          className="text-xs text-orange-600 hover:text-orange-800 hover:underline disabled:opacity-50"
-                        >
-                          🔄 Regénérer
-                        </button>
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <MapPinIcon className="w-3 h-3 text-green-600" />
+                        <h4 className="font-semibold text-gray-700 text-xs">
+                          Lieux ({templateProposals.proposals.poi_pages.length})
+                        </h4>
                       </div>
-                      {proposal.inspirations && proposal.inspirations.length > 0 && (
-                        <div className="space-y-1">
-                          {proposal.inspirations.map((inspiration: any) => (
-                            <ProposalCardMini
-                              key={inspiration.theme_id}
-                              id={inspiration.theme_id}
-                              type="inspiration"
-                              title={inspiration.titre}
-                              description={inspiration.angle_editorial}
-                              icon={LightBulbIcon}
+                      <div className="space-y-1 max-h-64 overflow-y-auto">
+                        {templateProposals.proposals.poi_pages.map((page: any) => (
+                          <ProposalCardMini
+                            key={page.page_id}
+                            id={page.page_id}
+                            type="template_page"
+                            title={page.titre}
+                            description={page.cluster_name}
+                            icon={MapPinIcon}
+                            color="green"
+                            templatePage={page}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Pages inspirations */}
+                  {templateProposals.proposals?.inspiration_pages && templateProposals.proposals.inspiration_pages.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <LightBulbIcon className="w-3 h-3 text-orange-600" />
+                        <h4 className="font-semibold text-gray-700 text-xs">
+                          Inspirations ({templateProposals.proposals.inspiration_pages.length})
+                        </h4>
+                      </div>
+                      <div className="space-y-1">
+                        {templateProposals.proposals.inspiration_pages.map((page: any) => (
+                          <ProposalCardMini
+                            key={page.page_id}
+                            id={page.page_id}
+                            type="template_page"
+                            title={page.titre}
+                            description={`${page.poi_count} POIs`}
+                            icon={LightBulbIcon}
+                            color="orange"
+                            templatePage={page}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Pages saisons */}
+                  {templateProposals.proposals?.saison_pages && templateProposals.proposals.saison_pages.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <SparklesIcon className="w-3 h-3 text-purple-600" />
+                        <h4 className="font-semibold text-gray-700 text-xs">
+                          Saisons ({templateProposals.proposals.saison_pages.length})
+                        </h4>
+                      </div>
+                      <div className="space-y-1">
+                        {templateProposals.proposals.saison_pages.map((page: any) => (
+                          <ProposalCardMini
+                            key={page.page_id}
+                            id={page.page_id}
+                            type="template_page"
+                            title={page.titre}
+                            description={page.template_name}
+                            icon={SparklesIcon}
+                            color="purple"
+                            templatePage={page}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
                               color="orange"
                             />
                           ))}
@@ -1120,21 +1229,22 @@ function TemplatePaletteItemMini({ template }: { template: any }) {
 }
 
 // Composant Proposition IA MINI pour la palette
-function ProposalCardMini({ id, type, title, description, icon: Icon, color, articleSlug, autresArticlesMentions, poiType, coordinates }: any) {
+function ProposalCardMini({ id, type, title, description, icon: Icon, color, articleSlug, autresArticlesMentions, poiType, coordinates, templatePage }: any) {
   const [showOthers, setShowOthers] = useState(false);
   
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `proposal-${type}-${id}`,
     data: { 
-      type: 'proposal', 
+      type: type === 'template_page' ? 'template_page' : 'proposal', 
       proposalType: type, 
       id, 
       title, 
       description, 
       articleSlug,
       autresArticlesMentions,
-      poiType, // ✅ Ajouter le type du POI (musée, plage, etc.)
-      coordinates // ✅ Ajouter les coordonnées GPS
+      poiType,
+      coordinates,
+      templatePage, // Données complètes de la page du template
     },
   });
 
@@ -1142,12 +1252,14 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color, art
     blue: 'border-blue-200 hover:border-blue-400 bg-blue-50/40',
     green: 'border-green-200 hover:border-green-400 bg-green-50/40',
     orange: 'border-orange-200 hover:border-orange-400 bg-orange-50/40',
+    purple: 'border-purple-200 hover:border-purple-400 bg-purple-50/40',
   };
 
   const iconColorClasses = {
     blue: 'bg-blue-100 text-blue-600',
     green: 'bg-green-100 text-green-600',
     orange: 'bg-orange-100 text-orange-600',
+    purple: 'bg-purple-100 text-purple-600',
   };
 
   const hasOtherArticles = autresArticlesMentions && autresArticlesMentions.length > 0;

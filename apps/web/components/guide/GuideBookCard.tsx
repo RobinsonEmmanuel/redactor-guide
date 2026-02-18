@@ -78,7 +78,11 @@ export default function GuideBookCard({ guide }: GuideBookCardProps) {
             </div>
 
             {/* Titre du guide en bas */}
-            <div className="space-y-2">
+            <div className="space-y-1.5">
+              {/* Nom du guide */}
+              <p className="text-xs font-medium text-white/70 tracking-wide uppercase drop-shadow">
+                {guide.name}
+              </p>
               <h3 className="font-bold text-xl text-white drop-shadow-lg leading-tight">
                 {guide.destinations.join(', ')}
               </h3>

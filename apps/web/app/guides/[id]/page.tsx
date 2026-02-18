@@ -9,6 +9,7 @@ import ArticlesTab from '@/components/guide/ArticlesTab';
 import LieuxEtClustersTab from '@/components/guide/LieuxEtClustersTab';
 import LieuxEtInspirationsTab from '@/components/guide/LieuxEtInspirationsTab';
 import CheminDeFerTab from '@/components/guide/CheminDeFerTab';
+import ParametrageTab from '@/components/guide/ParametrageTab';
 
 export default function GuideDetailPage() {
   const router = useRouter();
@@ -17,7 +18,7 @@ export default function GuideDetailPage() {
 
   const [guide, setGuide] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'articles' | 'lieux-et-clusters' | 'lieux-et-inspirations' | 'chemin-de-fer'>('articles');
+  const [activeTab, setActiveTab] = useState<'config' | 'articles' | 'lieux-et-clusters' | 'lieux-et-inspirations' | 'chemin-de-fer'>('articles');
   const [articlesCount, setArticlesCount] = useState<number>(0);
   const [hasCheckedArticles, setHasCheckedArticles] = useState(false);
   const [currentWorkflowStep, setCurrentWorkflowStep] = useState<number>(2); // Commence à étape 2 (Articles)
@@ -161,11 +162,11 @@ export default function GuideDetailPage() {
     setCurrentWorkflowStep(stepId);
     
     // Mapper stepId vers l'onglet correspondant
+    if (tabId === 'config') setActiveTab('config');
     if (tabId === 'articles') setActiveTab('articles');
     if (tabId === 'lieux-et-clusters') setActiveTab('lieux-et-clusters');
     if (tabId === 'lieux-et-inspirations') setActiveTab('lieux-et-inspirations');
     if (tabId === 'chemin-de-fer') setActiveTab('chemin-de-fer');
-    // Note: 'config' et 'export' n'ont pas encore d'onglet dédié
   };
 
   if (loading) {
@@ -196,6 +197,18 @@ export default function GuideDetailPage() {
 
   const handlePoisUpdated = () => {
     checkPoisStatus();
+  };
+
+  const handleGuideUpdated = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setGuide(data);
+      }
+    } catch (err) {
+      // silently refresh
+    }
   };
 
   return (
@@ -234,6 +247,15 @@ export default function GuideDetailPage() {
 
         {/* Tab Content - prend tout l'espace restant */}
         <div className="flex-1 overflow-hidden">
+          {activeTab === 'config' && (
+            <ParametrageTab
+              guide={guide}
+              guideId={guideId}
+              apiUrl={apiUrl}
+              onGuideUpdated={handleGuideUpdated}
+            />
+          )}
+
           {activeTab === 'articles' && (
             <div className="h-full p-6">
               <ArticlesTab guideId={guideId} guide={guide} apiUrl={apiUrl} onArticlesImported={handleArticlesImported} />

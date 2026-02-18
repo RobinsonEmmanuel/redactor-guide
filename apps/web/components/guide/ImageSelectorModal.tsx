@@ -13,12 +13,14 @@ interface ImageSelectorModalProps {
 }
 
 interface ImageAnalysis {
+  image_id: string;
   url: string;
-  analysis?: {
-    description?: string;
-    tags?: string[];
-    caption?: string;
-  };
+  analysis_summary?: string;
+  editorial_relevance?: string;
+  visual_clarity_score?: number;
+  composition_quality_score?: number;
+  is_iconic_view?: boolean;
+  shows_entire_site?: boolean;
 }
 
 export default function ImageSelectorModal({
@@ -46,7 +48,7 @@ export default function ImageSelectorModal({
         ?.split('=')[1];
 
       const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${pageId}/image-analyses`,
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${pageId}/image-analysis`,
         {
           headers: {
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -58,7 +60,7 @@ export default function ImageSelectorModal({
       if (res.ok) {
         const data = await res.json();
         console.log('📸 Images chargées:', data);
-        setImages(data.analyses || []);
+        setImages(data.images || []);
       } else {
         console.error('Erreur chargement images:', res.status);
       }
@@ -123,7 +125,7 @@ export default function ImageSelectorModal({
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {images.map((image, index) => (
                 <div
-                  key={index}
+                  key={image.image_id || index}
                   onClick={() => setSelectedImage(image.url)}
                   className={`relative cursor-pointer rounded-lg border-2 overflow-hidden transition-all ${
                     selectedImage === image.url
@@ -135,19 +137,22 @@ export default function ImageSelectorModal({
                   {selectedImage === image.url && (
                     <div className="absolute top-2 right-2 z-10 bg-purple-600 text-white rounded-full p-1">
                       <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                        <path
-                          fillRule="evenodd"
-                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                          clipRule="evenodd"
-                        />
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                       </svg>
                     </div>
                   )}
 
-                  {/* Image actuelle marquée */}
+                  {/* Badge image actuelle */}
                   {image.url === currentImageUrl && (
                     <div className="absolute top-2 left-2 z-10 bg-blue-600 text-white text-xs font-medium px-2 py-1 rounded">
                       Actuelle
+                    </div>
+                  )}
+
+                  {/* Badge iconique */}
+                  {image.is_iconic_view && (
+                    <div className="absolute bottom-2 left-2 z-10 bg-purple-600 text-white text-[10px] font-medium px-1.5 py-0.5 rounded">
+                      ⭐ Iconique
                     </div>
                   )}
 
@@ -155,39 +160,43 @@ export default function ImageSelectorModal({
                   <div className="aspect-video bg-gray-100 flex items-center justify-center overflow-hidden">
                     <img
                       src={image.url}
-                      alt={image.analysis?.caption || `Image ${index + 1}`}
+                      alt={image.analysis_summary || `Image ${index + 1}`}
                       className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                      loading="lazy"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).src = '/placeholder-image.svg';
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = 'none';
+                        const parent = target.parentElement;
+                        if (parent) {
+                          parent.innerHTML = `<div class="w-full h-full flex flex-col items-center justify-center gap-2 p-2 bg-gray-50">
+                            <svg class="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                            <span class="text-[10px] text-gray-400 text-center break-all line-clamp-2">Image non accessible</span>
+                          </div>`;
+                        }
                       }}
                     />
                   </div>
 
-                  {/* Description */}
-                  {image.analysis?.description && (
-                    <div className="p-2 bg-white">
+                  {/* Résumé analyse */}
+                  {image.analysis_summary && (
+                    <div className="p-2 bg-white border-t border-gray-100">
                       <p className="text-xs text-gray-600 line-clamp-2">
-                        {image.analysis.description}
+                        {image.analysis_summary}
                       </p>
                     </div>
                   )}
 
-                  {/* Tags */}
-                  {image.analysis?.tags && image.analysis.tags.length > 0 && (
-                    <div className="p-2 pt-0 flex flex-wrap gap-1">
-                      {image.analysis.tags.slice(0, 3).map((tag, tagIndex) => (
-                        <span
-                          key={tagIndex}
-                          className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                      {image.analysis.tags.length > 3 && (
-                        <span className="text-[10px] text-gray-400">
-                          +{image.analysis.tags.length - 3}
-                        </span>
-                      )}
+                  {/* Score pertinence */}
+                  {image.editorial_relevance && (
+                    <div className="px-2 pb-2 bg-white">
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                        image.editorial_relevance === 'forte' ? 'bg-green-100 text-green-700' :
+                        image.editorial_relevance === 'moyenne' ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        Pertinence : {image.editorial_relevance}
+                      </span>
                     </div>
                   )}
                 </div>

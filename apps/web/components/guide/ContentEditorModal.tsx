@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { XMarkIcon, SparklesIcon, ArrowPathIcon, PhotoIcon } from '@heroicons/react/24/outline';
 import ImageAnalysisModal from './ImageAnalysisModal';
+import ImageSelectorModal from './ImageSelectorModal';
 
 interface Template {
   _id: string;
@@ -53,6 +54,8 @@ export default function ContentEditorModal({
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showImageAnalysis, setShowImageAnalysis] = useState(false);
+  const [showImageSelector, setShowImageSelector] = useState(false);
+  const [currentImageField, setCurrentImageField] = useState<string | null>(null);
 
   useEffect(() => {
     setFormData(content || {});
@@ -120,6 +123,17 @@ export default function ContentEditorModal({
 
   const handleFieldChange = (fieldName: string, value: any) => {
     setFormData((prev) => ({ ...prev, [fieldName]: value }));
+  };
+
+  const handleOpenImageSelector = (fieldName: string) => {
+    setCurrentImageField(fieldName);
+    setShowImageSelector(true);
+  };
+
+  const handleImageSelected = (imageUrl: string) => {
+    if (currentImageField) {
+      handleFieldChange(currentImageField, imageUrl);
+    }
   };
 
   const getCharacterCount = (fieldName: string, maxChars?: number) => {
@@ -214,23 +228,41 @@ export default function ContentEditorModal({
             {field.description && (
               <p className="text-xs text-gray-500 mb-2">{field.description}</p>
             )}
-            <input
-              type="text"
-              value={fieldValue}
-              onChange={(e) => handleFieldChange(field.name, e.target.value)}
-              placeholder="URL de l'image ou chemin local"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
+            
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={fieldValue}
+                onChange={(e) => handleFieldChange(field.name, e.target.value)}
+                placeholder="URL de l'image ou chemin local"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <button
+                type="button"
+                onClick={() => handleOpenImageSelector(field.name)}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2 whitespace-nowrap"
+                title="Choisir parmi les images analysées"
+              >
+                <PhotoIcon className="h-5 w-5" />
+                Choisir
+              </button>
+            </div>
+
             {fieldValue && (
-              <div className="mt-2">
+              <div className="mt-3 relative">
                 <img
                   src={fieldValue}
                   alt={field.label}
-                  className="max-h-32 rounded border border-gray-200"
+                  className="max-h-48 rounded-lg border border-gray-200 shadow-sm cursor-pointer hover:opacity-90 transition-opacity"
+                  onClick={() => handleOpenImageSelector(field.name)}
                   onError={(e) => {
                     (e.target as HTMLImageElement).style.display = 'none';
                   }}
                 />
+                <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 hover:bg-opacity-20 transition-all rounded-lg cursor-pointer"
+                     onClick={() => handleOpenImageSelector(field.name)}>
+                  <PhotoIcon className="h-8 w-8 text-white opacity-0 hover:opacity-100 transition-opacity" />
+                </div>
               </div>
             )}
           </div>
@@ -427,6 +459,21 @@ export default function ContentEditorModal({
           pageId={page._id}
           apiUrl={apiUrl}
           onClose={() => setShowImageAnalysis(false)}
+        />
+      )}
+
+      {/* Modal de sélection d'images */}
+      {showImageSelector && currentImageField && (
+        <ImageSelectorModal
+          guideId={guideId}
+          pageId={page._id}
+          currentImageUrl={formData[currentImageField]}
+          apiUrl={apiUrl}
+          onSelect={handleImageSelected}
+          onClose={() => {
+            setShowImageSelector(false);
+            setCurrentImageField(null);
+          }}
         />
       )}
     </div>

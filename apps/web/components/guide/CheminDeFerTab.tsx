@@ -418,12 +418,10 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         page_id: templatePageData.page_id || nanoid(10),
         titre: templatePageData.titre,
         template_id: template._id,
-        template_name: templatePageData.template_name,
         type_de_page: templatePageData.type,
         statut_editorial: 'draft',
         ordre: targetOrder || pages.length + 1,
-        section_id: templatePageData.section_name,
-        section_name: templatePageData.section_name,
+        section_id: templatePageData.section_name, // Le nom de la section devient l'ID
         url_source: undefined,
         commentaire_interne: undefined,
       };
@@ -793,32 +791,8 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        {/* COLONNE GAUCHE : Palette unifiée compacte */}
+        {/* COLONNE GAUCHE : Pages suggérées */}
         <div className="w-72 flex-shrink-0 bg-gradient-to-b from-gray-50 to-gray-100 border-r-2 border-gray-300 flex flex-col overflow-hidden">
-          {/* Section Templates - Plus compacte */}
-          <div className="flex-shrink-0 border-b border-gray-300 bg-white">
-            <div className="p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="p-1 bg-blue-100 rounded">
-                  <DocumentTextIcon className="w-4 h-4 text-blue-600" />
-                </div>
-                <h3 className="text-xs font-bold text-gray-900">Templates</h3>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-1.5">
-                {templates.length === 0 && (
-                  <div className="col-span-2 text-center py-4 px-2">
-                    <div className="text-gray-400 mb-1 text-xl">📝</div>
-                    <div className="text-xs text-gray-500">Aucun template</div>
-                  </div>
-                )}
-                {templates.map((template) => (
-                  <TemplatePaletteItemMini key={template._id} template={template} />
-                ))}
-              </div>
-            </div>
-          </div>
-
           {/* Section Pages suggérées du template */}
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="p-3 border-b border-gray-300 bg-white flex-shrink-0">
@@ -1200,36 +1174,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
 }
 
 // Composant Template MINI pour la palette (grille 2 colonnes)
-function TemplatePaletteItemMini({ template }: { template: any }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `template-${template._id}`,
-    data: { type: 'template', template },
-  });
-
-  return (
-    <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      className={`bg-white rounded border p-2 cursor-grab active:cursor-grabbing transition-all ${
-        isDragging 
-          ? 'opacity-50 scale-95 border-blue-500 shadow-lg' 
-          : 'border-blue-200 hover:border-blue-400 hover:shadow-sm'
-      }`}
-    >
-      <div className="flex items-center gap-1.5 mb-1">
-        <div className="p-0.5 bg-blue-100 rounded flex-shrink-0">
-          <DocumentTextIcon className="w-3 h-3 text-blue-600" />
-        </div>
-        <h4 className="font-bold text-gray-900 text-xs line-clamp-1 flex-1">{template.name}</h4>
-      </div>
-      <div className="text-xs text-blue-600 font-medium">
-        {template.fields?.length || 0} champs
-      </div>
-    </div>
-  );
-}
-
 // Composant Proposition IA MINI pour la palette
 function ProposalCardMini({ id, type, title, description, icon: Icon, color, articleSlug, autresArticlesMentions, poiType, coordinates, templatePage }: any) {
   const [showOthers, setShowOthers] = useState(false);

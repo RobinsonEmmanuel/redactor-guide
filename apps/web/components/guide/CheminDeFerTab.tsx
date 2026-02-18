@@ -88,15 +88,19 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   // 🔄 Polling pour les pages en génération
   useEffect(() => {
     const pagesEnGeneration = pages.filter(p => p.statut_editorial === 'en_attente');
-    const pagesGenerees = pages.filter(p => 
-      p.statut_editorial === 'generee_ia' && 
+    const pagesTerminees = pages.filter(p => 
+      (p.statut_editorial === 'generee_ia' || p.statut_editorial === 'non_conforme') && 
       generatingPageIds.has(p._id)
     );
     
     // Notifier pour les pages terminées
-    if (pagesGenerees.length > 0) {
-      pagesGenerees.forEach(page => {
-        console.log(`✅ Page "${page.titre}" générée avec succès !`);
+    if (pagesTerminees.length > 0) {
+      pagesTerminees.forEach(page => {
+        if (page.statut_editorial === 'generee_ia') {
+          console.log(`✅ Page "${page.titre}" générée avec succès !`);
+        } else if (page.statut_editorial === 'non_conforme') {
+          console.log(`⚠️ Page "${page.titre}" générée avec des erreurs de validation`);
+        }
         // Retirer de la liste des pages en génération
         setGeneratingPageIds(prev => {
           const newSet = new Set(prev);
@@ -105,11 +109,20 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         });
       });
       
-      // Toast simple
-      if (pagesGenerees.length === 1) {
-        alert(`✅ Page "${pagesGenerees[0].titre}" générée avec succès !`);
-      } else {
-        alert(`✅ ${pagesGenerees.length} pages générées avec succès !`);
+      // Notification groupée
+      const pagesReussies = pagesTerminees.filter(p => p.statut_editorial === 'generee_ia');
+      const pagesErreur = pagesTerminees.filter(p => p.statut_editorial === 'non_conforme');
+      
+      let message = '';
+      if (pagesReussies.length > 0) {
+        message += `✅ ${pagesReussies.length} page(s) générée(s) avec succès`;
+      }
+      if (pagesErreur.length > 0) {
+        if (message) message += '\n';
+        message += `⚠️ ${pagesErreur.length} page(s) avec erreur de validation (texte trop long)`;
+      }
+      if (message) {
+        alert(message);
       }
     }
     
@@ -126,8 +139,9 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         });
         
         const interval = setInterval(() => {
+          console.log('🔄 Rechargement des pages (polling)...');
           loadPages(); // Recharger les pages
-        }, 3000); // Toutes les 3 secondes
+        }, 2000); // Toutes les 2 secondes (plus rapide)
         setPollingInterval(interval);
       }
     } else {
@@ -566,6 +580,14 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   };
 
   const handleOpenContent = async (page: Page) => {
+    // Si la page est en brouillon (draft) et a une URL source, lancer directement la génération
+    if (page.statut_editorial === 'draft' && page.url_source) {
+      console.log('🚀 Lancement direct de la génération pour:', page.titre);
+      await handleGeneratePageContent(page);
+      return;
+    }
+
+    // Sinon, ouvrir la modale d'édition
     setEditingContent(page);
     
     // Charger le contenu existant
@@ -586,6 +608,34 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     }
     
     setShowContentModal(true);
+  };
+
+  const handleGeneratePageContent = async (page: Page) => {
+    try {
+      console.log('🤖 Génération du contenu pour la page:', page.titre);
+      
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}/generate-content`,
+        {
+          method: 'POST',
+          credentials: 'include',
+        }
+      );
+
+      const data = await res.json();
+
+      if (res.ok) {
+        console.log('✅ Génération lancée avec succès');
+        // Recharger les pages pour afficher le statut "en_attente"
+        loadPages();
+      } else {
+        console.error('❌ Erreur génération:', data);
+        alert(`Erreur: ${data.error || 'Impossible de lancer la génération'}`);
+      }
+    } catch (err) {
+      console.error('Erreur génération:', err);
+      alert('Erreur lors du lancement de la génération');
+    }
   };
 
   const handleSaveContent = async (content: Record<string, any>) => {

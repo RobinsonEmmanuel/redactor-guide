@@ -414,17 +414,32 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         return;
       }
 
-      const pageData = {
+      // Mapper les types de pages vers des types valides du schéma backend
+      const mapPageType = (type: string): string => {
+        const typeMapping: Record<string, string> = {
+          'fixed': 'intro',
+          'cluster_intro': 'section',
+          'saison': 'section',
+          'inspiration': 'inspiration',
+          'poi': 'poi',
+        };
+        return typeMapping[type] || 'section';
+      };
+
+      // Construire les données de la page en ne gardant que les champs définis
+      const pageData: any = {
         page_id: templatePageData.page_id || nanoid(10),
         titre: templatePageData.titre,
         template_id: template._id,
-        type_de_page: templatePageData.type,
+        type_de_page: mapPageType(templatePageData.type),
         statut_editorial: 'draft',
         ordre: targetOrder || pages.length + 1,
-        section_id: templatePageData.section_name, // Le nom de la section devient l'ID
-        url_source: undefined,
-        commentaire_interne: undefined,
       };
+
+      // Ajouter section_id uniquement si section_name est défini
+      if (templatePageData.section_name) {
+        pageData.section_id = templatePageData.section_name;
+      }
 
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages`, {
         method: 'POST',
@@ -439,6 +454,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
       } else {
         const errorData = await res.json();
         console.error('❌ Erreur création page depuis template:', errorData);
+        console.error('📋 Données envoyées:', pageData);
         alert(`Erreur: ${errorData.error || 'Impossible de créer la page'}`);
       }
     } catch (err) {

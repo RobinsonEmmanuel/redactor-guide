@@ -889,54 +889,55 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                     </div>
                   )}
 
-                  {/* Pages clusters */}
+                  {/* Clusters et POIs groupés */}
                   {templateProposals.proposals?.cluster_pages && templateProposals.proposals.cluster_pages.length > 0 && (
                     <div>
                       <div className="flex items-center gap-1.5 mb-1.5">
                         <RectangleStackIcon className="w-3 h-3 text-green-600" />
                         <h4 className="font-semibold text-gray-700 text-xs">
-                          Clusters ({templateProposals.proposals.cluster_pages.length})
+                          Clusters et Lieux ({templateProposals.proposals.cluster_pages.length} clusters, {templateProposals.proposals.poi_pages?.length || 0} POIs)
                         </h4>
                       </div>
-                      <div className="space-y-1">
-                        {templateProposals.proposals.cluster_pages.map((page: any) => (
-                          <ProposalCardMini
-                            key={page.page_id}
-                            id={page.page_id}
-                            type="template_page"
-                            title={page.titre}
-                            description={`${page.poi_count} POIs`}
-                            icon={RectangleStackIcon}
-                            color="green"
-                            templatePage={page}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Pages POIs */}
-                  {templateProposals.proposals?.poi_pages && templateProposals.proposals.poi_pages.length > 0 && (
-                    <div>
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <MapPinIcon className="w-3 h-3 text-green-600" />
-                        <h4 className="font-semibold text-gray-700 text-xs">
-                          Lieux ({templateProposals.proposals.poi_pages.length})
-                        </h4>
-                      </div>
-                      <div className="space-y-1 max-h-64 overflow-y-auto">
-                        {templateProposals.proposals.poi_pages.map((page: any) => (
-                          <ProposalCardMini
-                            key={page.page_id}
-                            id={page.page_id}
-                            type="template_page"
-                            title={page.titre}
-                            description={page.cluster_name}
-                            icon={MapPinIcon}
-                            color="green"
-                            templatePage={page}
-                          />
-                        ))}
+                      <div className="space-y-2">
+                        {templateProposals.proposals.cluster_pages.map((clusterPage: any) => {
+                          // Trouver les POIs de ce cluster
+                          const clusterPois = templateProposals.proposals.poi_pages?.filter(
+                            (poi: any) => poi.cluster_id === clusterPage.cluster_id
+                          ) || [];
+                          
+                          return (
+                            <div key={clusterPage.page_id} className="border border-green-200 rounded-md bg-green-50/30 p-2">
+                              {/* Page cluster */}
+                              <ProposalCardMini
+                                id={clusterPage.page_id}
+                                type="template_page"
+                                title={clusterPage.titre}
+                                description={`${clusterPage.poi_count} POIs`}
+                                icon={RectangleStackIcon}
+                                color="green"
+                                templatePage={clusterPage}
+                              />
+                              
+                              {/* POIs du cluster */}
+                              {clusterPois.length > 0 && (
+                                <div className="mt-1.5 ml-3 pl-2 border-l-2 border-green-300 space-y-1">
+                                  {clusterPois.map((poi: any) => (
+                                    <ProposalCardMini
+                                      key={poi.page_id}
+                                      id={poi.page_id}
+                                      type="template_page"
+                                      title={poi.titre}
+                                      description="POI"
+                                      icon={MapPinIcon}
+                                      color="green"
+                                      templatePage={poi}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -1026,6 +1027,19 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                   </button>
                 )}
               </div>
+            </div>
+          </div>
+
+          {/* Bande de templates rapides */}
+          <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 flex-shrink-0">
+            <div className="flex items-center gap-2 overflow-x-auto">
+              {templates.length === 0 ? (
+                <div className="text-xs text-gray-400 italic">Aucun template disponible</div>
+              ) : (
+                templates.map((template) => (
+                  <QuickTemplateButton key={template._id} template={template} />
+                ))
+              )}
             </div>
           </div>
 
@@ -1440,6 +1454,50 @@ function CheminDeFerGrid({
             <AddPagesCard onClick={onAddPages} />
           </div>
         </SortableContext>
+      </div>
+    </div>
+  );
+}
+
+// Composant bouton de template rapide (bande en haut du Chemin de fer)
+function QuickTemplateButton({ template }: { template: any }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `quick-template-${template._id}`,
+  });
+
+  const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({
+    id: `template-quick-${template._id}`,
+    data: {
+      type: 'template',
+      template: template,
+    },
+  });
+
+  const style = transform ? {
+    transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+    opacity: isDragging ? 0.5 : 1,
+  } : undefined;
+
+  return (
+    <div
+      ref={setDragRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={`
+        flex-shrink-0 px-3 py-1.5 rounded-md text-xs font-medium
+        bg-white border border-gray-300 hover:border-blue-400 hover:bg-blue-50
+        cursor-grab active:cursor-grabbing
+        transition-all
+        ${isDragging ? 'shadow-lg' : 'shadow-sm'}
+      `}
+      title={`Template: ${template.name || template.template_name || 'Sans nom'}`}
+    >
+      <div className="flex items-center gap-1.5">
+        <DocumentTextIcon className="w-3.5 h-3.5 text-gray-500" />
+        <span className="text-gray-700 whitespace-nowrap">
+          {template.name || template.template_name || 'Sans nom'}
+        </span>
       </div>
     </div>
   );

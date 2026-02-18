@@ -63,6 +63,9 @@ export const GuideSchema = z.object({
   // ID du template de guide à utiliser
   guide_template_id: z.string().optional(),
   
+  // Image principale du guide (pour la couverture)
+  image_principale: z.string().url().optional(),
+  
   // Statut
   status: GuideStatusEnum.default('draft'),
   

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { PlusIcon, PencilIcon, TrashIcon, BookOpenIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, BookOpenIcon } from '@heroicons/react/24/outline';
+import GuideBookCard from './guide/GuideBookCard';
 
 interface Guide {
   _id: string;
@@ -11,11 +12,8 @@ interface Guide {
   version: string;
   language: string;
   status: string;
-  destination: string; // 1 guide = 1 destination
-  wpConfig?: {
-    siteUrl: string;
-    jwtToken: string;
-  };
+  destinations: string[];
+  image_principale?: string;
 }
 
 interface GuidesListProps {
@@ -27,6 +25,7 @@ export default function GuidesList({ onCreateGuide, onEditGuide }: GuidesListPro
   const router = useRouter();
   const [guides, setGuides] = useState<Guide[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<string>('all');
 
   useEffect(() => {
     fetchGuides();
@@ -47,190 +46,114 @@ export default function GuidesList({ onCreateGuide, onEditGuide }: GuidesListPro
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Êtes-vous sûr de vouloir supprimer ce guide ?')) return;
-    
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-      await fetch(`${apiUrl}/api/v1/guides/${id}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      });
-      fetchGuides();
-    } catch (error) {
-      console.error('Erreur lors de la suppression:', error);
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      draft: 'bg-gray-100 text-gray-700',
-      in_progress: 'bg-blue-100 text-blue-700',
-      review: 'bg-yellow-100 text-yellow-700',
-      ready: 'bg-green-100 text-green-700',
-      published: 'bg-purple-100 text-purple-700',
-    };
-    return colors[status] || 'bg-gray-100 text-gray-700';
-  };
-
-  const getStatusLabel = (status: string) => {
-    const labels: Record<string, string> = {
-      draft: 'Brouillon',
-      in_progress: 'En cours',
-      review: 'En revue',
-      ready: 'Prêt',
-      published: 'Publié',
-    };
-    return labels[status] || status;
-  };
+  const filteredGuides = guides.filter(guide => {
+    if (filter === 'all') return true;
+    return guide.status === filter;
+  });
 
   return (
-    <div className="p-8">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Guides touristiques</h1>
-          <p className="text-gray-500 mt-1">
-            {guides.length} guide{guides.length > 1 ? 's' : ''} • Triés par année
-          </p>
+      <div className="max-w-7xl mx-auto mb-8">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-4xl font-bold text-gray-900 mb-2">Guides touristiques</h1>
+            <p className="text-gray-600">
+              {filteredGuides.length} guide{filteredGuides.length > 1 ? 's' : ''} • Triés par année
+            </p>
+          </div>
+          <button
+            onClick={onCreateGuide}
+            className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg hover:from-green-700 hover:to-green-800 transition-all shadow-lg hover:shadow-xl font-medium"
+          >
+            <PlusIcon className="w-5 h-5" />
+            Ajouter un guide
+          </button>
         </div>
-        <button
-          onClick={onCreateGuide}
-          className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
-        >
-          <PlusIcon className="w-5 h-5" />
-          Ajouter un guide
-        </button>
       </div>
 
       {/* Filters */}
-      <div className="flex gap-2 mb-6">
-        <button className="px-4 py-2 bg-gray-800 text-white rounded-lg text-sm font-medium">
-          Tous
-        </button>
-        <button className="px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg text-sm hover:bg-gray-50">
-          Brouillons
-        </button>
-        <button className="px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg text-sm hover:bg-gray-50">
-          En cours
-        </button>
-        <button className="px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg text-sm hover:bg-gray-50">
-          Publiés
-        </button>
-      </div>
-
-      {/* Guides list */}
-      {loading ? (
-        <div className="text-center py-12 text-gray-500">Chargement...</div>
-      ) : guides.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-          <BookOpenIcon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-          <h3 className="text-lg font-medium text-gray-900 mb-1">
-            Aucun guide
-          </h3>
-          <p className="text-gray-500 mb-4">
-            Commencez par créer votre premier guide touristique
-          </p>
+      <div className="max-w-7xl mx-auto mb-8">
+        <div className="flex gap-2">
           <button
-            onClick={onCreateGuide}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            onClick={() => setFilter('all')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              filter === 'all'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+            }`}
           >
-            <PlusIcon className="w-4 h-4" />
-            Créer un guide
+            Tous
+          </button>
+          <button
+            onClick={() => setFilter('draft')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              filter === 'draft'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+            }`}
+          >
+            Brouillons
+          </button>
+          <button
+            onClick={() => setFilter('in_progress')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              filter === 'in_progress'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+            }`}
+          >
+            En cours
+          </button>
+          <button
+            onClick={() => setFilter('published')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              filter === 'published'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+            }`}
+          >
+            Publiés
           </button>
         </div>
-      ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Guide
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Année
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Destinations
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Statut
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  WordPress
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {guides.map((guide) => (
-                <tr
-                  key={guide._id}
-                  onClick={() => router.push(`/guides/${guide._id}`)}
-                  className="hover:bg-gray-50 cursor-pointer"
-                >
-                  <td className="px-6 py-4">
-                    <div>
-                      <div className="font-medium text-gray-900">{guide.name}</div>
-                      <div className="text-sm text-gray-500">v{guide.version}</div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {guide.year}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {guide.destination || 'Non définie'}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(guide.status)}`}>
-                      {getStatusLabel(guide.status)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    {guide.wpConfig?.siteUrl ? (
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                        <span className="text-sm text-gray-600">Configuré</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 bg-gray-300 rounded-full"></div>
-                        <span className="text-sm text-gray-400">Non configuré</span>
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEditGuide(guide);
-                        }}
-                        className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                        title="Modifier"
-                      >
-                        <PencilIcon className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(guide._id);
-                        }}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Supprimer"
-                      >
-                        <TrashIcon className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      </div>
+
+      {/* Guides grid */}
+      <div className="max-w-7xl mx-auto">
+        {loading ? (
+          <div className="text-center py-24">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            <p className="mt-4 text-gray-600">Chargement des guides...</p>
+          </div>
+        ) : filteredGuides.length === 0 ? (
+          <div className="text-center py-24 bg-white rounded-2xl shadow-lg border border-gray-200">
+            <BookOpenIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">
+              {filter === 'all' ? 'Aucun guide' : 'Aucun guide dans cette catégorie'}
+            </h3>
+            <p className="text-gray-600 mb-6">
+              {filter === 'all'
+                ? 'Commencez par créer votre premier guide touristique'
+                : 'Changez de filtre ou créez un nouveau guide'}
+            </p>
+            {filter === 'all' && (
+              <button
+                onClick={onCreateGuide}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg hover:from-green-700 hover:to-green-800 shadow-lg hover:shadow-xl transition-all font-medium"
+              >
+                <PlusIcon className="w-5 h-5" />
+                Créer un guide
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-8">
+            {filteredGuides.map((guide) => (
+              <GuideBookCard key={guide._id} guide={guide} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

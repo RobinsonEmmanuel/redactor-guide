@@ -39,12 +39,24 @@ export default function GuideTemplatesPage() {
   const loadTemplates = async () => {
     setLoading(true);
     try {
+      const token = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('accessToken='))
+        ?.split('=')[1];
+
       const res = await fetch(`${apiUrl}/api/v1/guide-templates`, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         credentials: 'include',
       });
+      
       if (res.ok) {
         const data = await res.json();
+        console.log('📋 Templates chargés:', data);
         setTemplates(data.templates || []);
+      } else {
+        console.error('❌ Erreur HTTP:', res.status, await res.text());
       }
     } catch (err) {
       console.error('Erreur chargement templates:', err);

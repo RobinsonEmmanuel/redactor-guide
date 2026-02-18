@@ -580,14 +580,19 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   };
 
   const handleOpenContent = async (page: Page) => {
-    // Si la page est en brouillon (draft) et a une URL source, lancer directement la génération
-    if (page.statut_editorial === 'draft' && page.url_source) {
+    // Pour les pages sans contenu (draft) : toujours lancer la génération directement
+    const hasContent = page.statut_editorial && !['draft'].includes(page.statut_editorial);
+    if (!hasContent) {
+      if (!page.url_source) {
+        alert('Aucun article WordPress source associé à cette page. Veuillez d\'abord lier un article.');
+        return;
+      }
       console.log('🚀 Lancement direct de la génération pour:', page.titre);
       await handleGeneratePageContent(page);
       return;
     }
 
-    // Sinon, ouvrir la modale d'édition
+    // Pour les pages avec contenu existant : ouvrir la modale d'édition
     setEditingContent(page);
     
     // Charger le contenu existant

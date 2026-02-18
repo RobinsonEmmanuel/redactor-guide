@@ -346,11 +346,22 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
 
         const now = new Date().toISOString();
 
+        // Récupérer la page actuelle pour vérifier son statut
+        const currentPage = await db.collection('pages').findOne({ _id: new ObjectId(pageId) });
+        if (!currentPage) {
+          return reply.status(404).send({ error: 'Page non trouvée' });
+        }
+
+        // Si la page est "non_conforme" ou "draft", passer à "relue" lors de la sauvegarde manuelle
+        const shouldUpdateStatus = currentPage.statut_editorial === 'non_conforme' || currentPage.statut_editorial === 'draft';
+        const newStatus = shouldUpdateStatus ? 'relue' : currentPage.statut_editorial;
+
         const result = await db.collection('pages').findOneAndUpdate(
           { _id: new ObjectId(pageId) },
           {
             $set: {
               content,
+              ...(shouldUpdateStatus && { statut_editorial: newStatus }),
               updated_at: now,
             },
           },

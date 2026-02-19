@@ -255,10 +255,12 @@ export class CheminDeFerBuilderService {
         poiPage.section_id = sectionId;
         poiPage.metadata = {
           ...poiPage.metadata,
-          cluster_id: cluster.cluster_id,
-          cluster_name: cluster.cluster_name,
-          poi_id: poi.poi_id,
-          poi_name: poi.nom,
+          cluster_id:               cluster.cluster_id,
+          cluster_name:             cluster.cluster_name,
+          poi_id:                   poi.poi_id,
+          poi_name:                 poi.nom,
+          article_source:           poi.article_source   ?? null,
+          autres_articles_mentions: poi.autres_articles_mentions ?? [],
           page_type: 'poi',
         };
         pages.push(poiPage);

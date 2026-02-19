@@ -815,10 +815,14 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
 
       // 7. Normaliser les pages du builder vers le format attendu par le chemin de fer
       //    Le builder produit { order, status, ... } mais le reste de l'app attend
-      //    { ordre, statut_editorial, chemin_de_fer_id, titre, template_id, ... }
+      //    { ordre, statut_editorial, chemin_de_fer_id, titre, template_id, url_source, ... }
       const templateCache: Record<string, any> = {};
+      // Cache slug → URL pour éviter des requêtes répétées sur articles_raw
+      const articleUrlCache: Record<string, string | null> = {};
+      const guideLang = guide.language || 'fr';
+
       const normalizedPages = await Promise.all(rawPages.map(async (p: any) => {
-        // Résoudre template_id depuis le nom si besoin
+        // Résoudre template_id depuis le nom
         if (!templateCache[p.template_name]) {
           const tpl = await db.collection('templates').findOne({ name: p.template_name });
           templateCache[p.template_name] = tpl ?? null;
@@ -835,16 +839,37 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           p.template_name               ||
           'Page';
 
+        // Résoudre url_source depuis article_source (slug POI) → articles_raw.urls_by_lang
+        let url_source: string | null = null;
+        const articleSlug: string | undefined = p.metadata?.article_source;
+        if (articleSlug) {
+          if (!(articleSlug in articleUrlCache)) {
+            const article = await db.collection('articles_raw').findOne(
+              { slug: articleSlug },
+              { projection: { urls_by_lang: 1 } }
+            );
+            articleUrlCache[articleSlug] =
+              article?.urls_by_lang?.[guideLang] ??
+              article?.urls_by_lang?.['fr']     ??
+              null;
+          }
+          url_source = articleUrlCache[articleSlug];
+        }
+
+        if (url_source) {
+          console.log(`🔗 [URL résolue] ${titre} → ${url_source}`);
+        }
+
         return {
           chemin_de_fer_id: cheminDeFerId,
           guide_id:         guideId,
           template_name:    p.template_name,
           template_id:      tpl?._id?.toString() ?? null,
           titre,
-          ordre:            p.order,                    // order → ordre
-          statut_editorial: 'draft',                    // status → statut_editorial
+          ordre:            p.order,
+          statut_editorial: 'draft',
           section_id:       p.section_name ?? null,
-          url_source:       null,
+          url_source,
           content:          {},
           metadata:         p.metadata ?? {},
           fields:           p.fields   ?? [],

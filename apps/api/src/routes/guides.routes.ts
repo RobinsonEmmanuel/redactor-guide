@@ -203,4 +203,89 @@ export async function guidesRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({ error: 'ID invalide' });
     }
   });
+
+  /**
+   * GET /guides/:id/articles
+   * Retourne les articles WordPress liés aux POIs du guide.
+   * Utilisé par PageModal pour la recherche et l'autocomplétion.
+   *
+   * Query params:
+   *   - q      : filtre texte sur le titre (optionnel)
+   *   - limit  : nombre max de résultats (défaut: 500)
+   *   - lang   : langue pour l'URL (défaut: langue du guide)
+   */
+  fastify.get<{
+    Params: { id: string };
+    Querystring: { q?: string; limit?: string; lang?: string };
+  }>('/guides/:id/articles', async (request, reply) => {
+    const db = request.server.container.db;
+    const { id } = request.params;
+    const { q, limit: limitStr, lang } = request.query;
+    const limit = Math.min(parseInt(limitStr ?? '500', 10) || 500, 1000);
+
+    if (!ObjectId.isValid(id)) {
+      return reply.status(400).send({ error: 'ID invalide' });
+    }
+
+    try {
+      // 1. Récupérer la langue du guide pour les URLs
+      const guide = await db.collection('guides').findOne(
+        { _id: new ObjectId(id) },
+        { projection: { language: 1 } }
+      );
+      const targetLang = lang || guide?.language || 'fr';
+
+      // 2. Récupérer les slugs d'articles associés aux POIs du guide
+      const poisDoc = await db.collection('pois_selection').findOne({ guide_id: id });
+      const pois: any[] = poisDoc?.pois ?? [];
+
+      // Collecter tous les slugs uniques (article principal + mentions secondaires)
+      const slugSet = new Set<string>();
+      for (const poi of pois) {
+        if (poi.article_source) slugSet.add(poi.article_source);
+        for (const s of poi.autres_articles_mentions ?? []) slugSet.add(s);
+      }
+
+      // 3. Construire le filtre MongoDB
+      const filter: Record<string, unknown> = {};
+
+      if (slugSet.size > 0) {
+        // Articles liés aux POIs du guide
+        filter.slug = { $in: [...slugSet] };
+      }
+      // Filtre texte optionnel
+      if (q) {
+        const regex = new RegExp(q, 'i');
+        filter.$or = [{ title: regex }, { slug: regex }];
+        // Si filtre texte, chercher sur toute la collection (pas seulement POIs liés)
+        delete filter.slug;
+      }
+
+      // 4. Récupérer les articles
+      const rawArticles = await db
+        .collection('articles_raw')
+        .find(filter, { projection: { slug: 1, title: 1, urls_by_lang: 1 } })
+        .limit(limit)
+        .toArray();
+
+      // 5. Normaliser vers le format attendu par PageModal
+      const articles = rawArticles.map(a => ({
+        _id:          a._id.toString(),
+        titre:        a.title ?? a.slug,
+        slug:         a.slug,
+        url_francais: a.urls_by_lang?.[targetLang] ?? a.urls_by_lang?.['fr'] ?? '',
+        urls:         a.urls_by_lang ?? {},
+      }));
+
+      return reply.send({
+        articles,
+        total: articles.length,
+        lang:  targetLang,
+        guide_pois_slugs: [...slugSet].length,
+      });
+    } catch (error) {
+      request.log.error(error);
+      return reply.status(500).send({ error: 'Erreur lors du chargement des articles' });
+    }
+  });
 }

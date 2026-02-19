@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { ExportService } from '../services/export.service.js';
+import { normalizeGuideExport, type NormalizerOptions } from '../services/normalize-export.service.js';
 
 export async function exportRoutes(fastify: FastifyInstance) {
   const exportService = new ExportService();
@@ -14,12 +15,17 @@ export async function exportRoutes(fastify: FastifyInstance) {
    */
   fastify.get<{
     Params: { guideId: string };
-    Querystring: { lang?: string; download?: string };
+    Querystring: {
+      lang?: string;
+      download?: string;
+      normalize?: string;
+      drop_null_pictos?: string;
+    };
   }>(
     '/guides/:guideId/export',
     async (request, reply) => {
       const { guideId } = request.params;
-      const { lang = 'fr', download } = request.query;
+      const { lang = 'fr', download, normalize, drop_null_pictos } = request.query;
       const db = request.server.container.db;
 
       if (!ObjectId.isValid(guideId)) {
@@ -27,9 +33,20 @@ export async function exportRoutes(fastify: FastifyInstance) {
       }
 
       try {
-        const exportData = await exportService.buildGuideExport(guideId, db, { language: lang });
+        const rawExport = await exportService.buildGuideExport(guideId, db, { language: lang });
 
-        const filename = `guide_${exportData.meta.destination.toLowerCase().replace(/\s+/g, '_')}_${exportData.meta.year}_${lang}.json`;
+        // Normalisation optionnelle (activée par défaut — passer ?normalize=false pour le JSON brut)
+        const shouldNormalize = normalize !== 'false';
+        const normalizerOptions: NormalizerOptions = {
+          dropNullPictos: drop_null_pictos !== 'false',
+        };
+        const exportData = shouldNormalize
+          ? normalizeGuideExport(rawExport as unknown as Record<string, unknown>, normalizerOptions)
+          : rawExport;
+
+        const dest = rawExport.meta.destination.toLowerCase().replace(/\s+/g, '_');
+        const suffix = shouldNormalize ? '_normalized' : '_raw';
+        const filename = `guide_${dest}_${rawExport.meta.year}_${lang}${suffix}.json`;
 
         if (download === 'true') {
           reply.header('Content-Disposition', `attachment; filename="${filename}"`);

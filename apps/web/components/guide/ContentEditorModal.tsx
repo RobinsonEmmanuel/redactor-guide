@@ -38,6 +38,8 @@ interface Page {
   page_id: string;
   titre: string;
   template_id: string;
+  template_name?: string;
+  type_de_page?: string;
   ordre: number;
   url_source?: string;
 }
@@ -74,9 +76,15 @@ export default function ContentEditorModal({
     setFormData(content || {});
   }, [content]);
 
+  // POI et INSPIRATION nécessitent un article source ; les autres types génèrent
+  // depuis le contexte général du site WordPress.
+  const requiresUrlForGeneration = ['poi', 'inspiration'].includes(
+    (page.type_de_page ?? page.template_name ?? '').toLowerCase()
+  );
+
   const handleGenerateContent = async () => {
-    if (!page.url_source) {
-      setError('Aucun article WordPress source associé à cette page');
+    if (requiresUrlForGeneration && !page.url_source) {
+      setError('Aucun article WordPress source associé à cette page. Veuillez lier un article via les paramètres de la page.');
       return;
     }
 
@@ -464,7 +472,7 @@ export default function ContentEditorModal({
             <button
               type="button"
               onClick={handleGenerateContent}
-              disabled={generating || !page.url_source}
+              disabled={generating || (requiresUrlForGeneration && !page.url_source)}
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {generating ? (
@@ -480,7 +488,7 @@ export default function ContentEditorModal({
               )}
             </button>
 
-            {/* Bouton visualiser analyses images */}
+            {/* Bouton visualiser analyses images (seulement si article source lié) */}
             {page.url_source && (
               <button
                 type="button"
@@ -493,9 +501,14 @@ export default function ContentEditorModal({
             )}
           </div>
 
-          {!page.url_source && (
+          {requiresUrlForGeneration && !page.url_source && (
             <p className="text-xs text-white/70 mt-2 text-center">
-              Aucun article WordPress source associé
+              Article WordPress source requis pour ce type de page
+            </p>
+          )}
+          {!requiresUrlForGeneration && !page.url_source && (
+            <p className="text-xs text-white/60 mt-2 text-center">
+              Génération basée sur le contenu global du site WordPress
             </p>
           )}
 

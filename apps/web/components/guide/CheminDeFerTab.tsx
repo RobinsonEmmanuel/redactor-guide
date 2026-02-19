@@ -493,7 +493,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
       if (proposalData.proposalType === 'poi' && proposalData.articleSlug) {
         try {
           const articleRes = await fetch(
-            `${apiUrl}/api/v1/guides/${guideId}/articles?slug=${proposalData.articleSlug}`,
+            `${apiUrl}/api/v1/guides/${guideId}/articles?slug=${encodeURIComponent(proposalData.articleSlug)}`,
             { credentials: 'include' }
           );
           if (articleRes.ok) {
@@ -505,11 +505,16 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                 imageUrl = article.images[0];
                 console.log(`📸 Image récupérée pour "${proposalData.title}": ${imageUrl}`);
               }
-              // Récupérer l'URL en français (structure correcte: urls_by_lang.fr)
-              if (article.urls_by_lang?.fr) {
-                articleUrl = article.urls_by_lang.fr;
+              // urls_by_lang peut être retourné sous urls_by_lang OU urls selon la version de l'API
+              const urlsMap = article.urls_by_lang ?? article.urls ?? {};
+              articleUrl = urlsMap['fr'] || urlsMap['en'] || article.url_francais || undefined;
+              if (articleUrl) {
                 console.log(`🔗 URL source récupérée pour "${proposalData.title}": ${articleUrl}`);
+              } else {
+                console.warn(`⚠️ Aucune URL trouvée pour "${proposalData.title}" (slug: ${proposalData.articleSlug})`);
               }
+            } else {
+              console.warn(`⚠️ Article introuvable pour le slug "${proposalData.articleSlug}"`);
             }
           }
         } catch (err) {

@@ -155,11 +155,11 @@ export async function guidesRoutes(fastify: FastifyInstance) {
    */
   fastify.get<{
     Params: { id: string };
-    Querystring: { q?: string; limit?: string; lang?: string };
+    Querystring: { q?: string; slug?: string; limit?: string; lang?: string };
   }>('/guides/:id/articles', async (request, reply) => {
     const db = request.server.container.db;
     const { id } = request.params;
-    const { q, limit: limitStr, lang } = request.query;
+    const { q, slug: slugParam, limit: limitStr, lang } = request.query;
     const limit = Math.min(parseInt(limitStr ?? '500', 10) || 500, 1000);
 
     if (!ObjectId.isValid(id)) {
@@ -188,16 +188,16 @@ export async function guidesRoutes(fastify: FastifyInstance) {
       // 3. Construire le filtre MongoDB
       const filter: Record<string, unknown> = {};
 
-      if (slugSet.size > 0) {
-        // Articles liés aux POIs du guide
-        filter.slug = { $in: [...slugSet] };
-      }
-      // Filtre texte optionnel
-      if (q) {
+      if (slugParam) {
+        // Lookup exact par slug (utilisé lors du drag-and-drop d'une suggestion POI)
+        filter.slug = slugParam;
+      } else if (q) {
+        // Recherche texte sur toute la collection (PageModal)
         const regex = new RegExp(q, 'i');
         filter.$or = [{ title: regex }, { slug: regex }];
-        // Si filtre texte, chercher sur toute la collection (pas seulement POIs liés)
-        delete filter.slug;
+      } else if (slugSet.size > 0) {
+        // Par défaut : articles liés aux POIs du guide
+        filter.slug = { $in: [...slugSet] };
       }
 
       // 4. Récupérer les articles
@@ -207,12 +207,14 @@ export async function guidesRoutes(fastify: FastifyInstance) {
         .limit(limit)
         .toArray();
 
-      // 5. Normaliser vers le format attendu par PageModal
+      // 5. Normaliser vers le format attendu par PageModal et handleCreatePageFromProposal
       const articles = rawArticles.map(a => ({
         _id:          a._id.toString(),
         titre:        a.title ?? a.slug,
         slug:         a.slug,
         url_francais: a.urls_by_lang?.[targetLang] ?? a.urls_by_lang?.['fr'] ?? '',
+        // Exposer urls_by_lang sous son vrai nom ET sous l'alias `urls`
+        urls_by_lang: a.urls_by_lang ?? {},
         urls:         a.urls_by_lang ?? {},
       }));
 

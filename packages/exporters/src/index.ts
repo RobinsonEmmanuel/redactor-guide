@@ -6,3 +6,4 @@
 
 export * from './services/csv-exporter.service';
 export * from './schemas/export.schema';
+export * from './utils/resolve-images';

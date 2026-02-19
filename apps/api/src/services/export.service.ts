@@ -93,6 +93,17 @@ export class ExportService {
         titre: page.titre,
         status: page.statut_editorial,
         url_source: page.url_source || null,
+        // Identifiants entité — propagés depuis le chemin de fer builder
+        entity_meta: {
+          page_type:          page.metadata?.page_type          ?? null,
+          cluster_id:         page.metadata?.cluster_id         ?? null,
+          cluster_name:       page.metadata?.cluster_name       ?? null,
+          poi_id:             page.metadata?.poi_id             ?? null,
+          poi_name:           page.metadata?.poi_name           ?? null,
+          inspiration_id:     page.metadata?.inspiration_id     ?? null,
+          inspiration_title:  page.metadata?.inspiration_title  ?? null,
+          season:             page.metadata?.saison             ?? null,
+        },
         content: {
           text:   textFields,
           images: imageFields,

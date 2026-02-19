@@ -73,6 +73,17 @@ export interface NormalizedImage {
   local?: string;
 }
 
+export interface EntityMeta {
+  page_type:         string | null;
+  cluster_id:        string | null;
+  cluster_name:      string | null;
+  poi_id:            string | null;
+  poi_name:          string | null;
+  inspiration_id:    string | null;
+  inspiration_title: string | null;
+  season:            string | null;
+}
+
 export interface NormalizedPage {
   id: string;
   page_number: number;
@@ -81,6 +92,8 @@ export interface NormalizedPage {
   titre: string;
   status: string;
   url_source: string | null;
+  /** Identifiants d'entité propagés depuis le chemin de fer — utilisés par le storyboard builder */
+  entity_meta: EntityMeta;
   content: {
     /** Textes filtrés, potentiellement tronqués */
     text: Record<string, string>;
@@ -299,6 +312,18 @@ export function normalizeGuideExport(
     };
 
     // ── 5. Page normalisée ─────────────────────────────────────────────────
+    const rawEntityMeta = (page.entity_meta ?? {}) as Record<string, unknown>;
+    const entity_meta: EntityMeta = {
+      page_type:         (rawEntityMeta.page_type         as string)  ?? null,
+      cluster_id:        (rawEntityMeta.cluster_id        as string)  ?? null,
+      cluster_name:      (rawEntityMeta.cluster_name      as string)  ?? null,
+      poi_id:            (rawEntityMeta.poi_id            as string)  ?? null,
+      poi_name:          (rawEntityMeta.poi_name          as string)  ?? null,
+      inspiration_id:    (rawEntityMeta.inspiration_id    as string)  ?? null,
+      inspiration_title: (rawEntityMeta.inspiration_title as string)  ?? null,
+      season:            (rawEntityMeta.season            as string)  ?? null,
+    };
+
     return {
       id: page.id ?? '',
       page_number: page.page_number ?? 0,
@@ -307,6 +332,7 @@ export function normalizeGuideExport(
       titre,
       status: page.status ?? '',
       url_source: page.url_source ?? null,
+      entity_meta,
       content: {
         text: cleanText,
         images: cleanImages,

@@ -347,7 +347,7 @@ INSTRUCTIONS STRICTES :
 
     // 2. Structure du guide (clusters + POIs)
     const poisDoc = await this.db.collection('pois_selection').findOne({ guide_id: guideId });
-    if (poisDoc?.pois?.length > 0) {
+    if (poisDoc != null && poisDoc.pois?.length > 0) {
       parts.push(`\n=== STRUCTURE DU GUIDE (clusters et lieux) ===`);
       const byCluster: Record<string, string[]> = {};
       for (const poi of poisDoc.pois) {

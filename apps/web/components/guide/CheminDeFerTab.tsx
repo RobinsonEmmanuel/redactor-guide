@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { DndContext, closestCenter, DragEndEvent, DragOverEvent, PointerSensor, useSensor, useSensors, useDroppable, useDraggable, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
 import { nanoid } from 'nanoid';
@@ -62,8 +62,9 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   // Mode grille vide : affiche la grille avec N slots même sans pages en base
   const [emptyGridMode, setEmptyGridMode] = useState(false);
 
-  // États pour le polling de génération en cours
-  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
+  // Polling — useRef pour éviter les closures stale
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const pollingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [generatingPageIds, setGeneratingPageIds] = useState<Set<string>>(new Set());
   
   // États pour la génération de structure
@@ -88,81 +89,74 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     }
   }, [cheminDeFer]);
 
-  // 🔄 Polling pour les pages en génération
+  // ─── Helpers polling (refs → pas de closure stale) ──────────────────────
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+      console.log('✅ Polling arrêté');
+    }
+    if (pollingTimeoutRef.current) {
+      clearTimeout(pollingTimeoutRef.current);
+      pollingTimeoutRef.current = null;
+    }
+  }, []);
+
+  const startPolling = useCallback((loadPagesFn: () => void) => {
+    if (pollingRef.current) return; // déjà actif
+    console.log('🔄 Polling démarré (intervalle 3s, timeout 5min)');
+
+    pollingRef.current = setInterval(() => {
+      console.log('🔄 Polling — rechargement pages...');
+      loadPagesFn();
+    }, 3000);
+
+    // Timeout de sécurité : stoppe au bout de 5 minutes
+    pollingTimeoutRef.current = setTimeout(() => {
+      console.warn('⏱ Polling timeout (5min) — arrêt forcé');
+      stopPolling();
+      loadPagesFn(); // dernier rechargement
+    }, 5 * 60 * 1000);
+  }, [stopPolling]);
+
+  // Nettoyage à la destruction
+  useEffect(() => () => stopPolling(), [stopPolling]);
+
+  // 🔄 Réagir aux changements de pages pour démarrer/arrêter le polling
   useEffect(() => {
     const pagesEnGeneration = pages.filter(p => p.statut_editorial === 'en_attente');
-    const pagesTerminees = pages.filter(p => 
-      (p.statut_editorial === 'generee_ia' || p.statut_editorial === 'non_conforme') && 
+
+    // Pages qui viennent de terminer (étaient en génération, ne le sont plus)
+    const pagesTerminees = pages.filter(p =>
+      (p.statut_editorial === 'generee_ia' || p.statut_editorial === 'non_conforme') &&
       generatingPageIds.has(p._id)
     );
-    
-    // Notifier pour les pages terminées
+
     if (pagesTerminees.length > 0) {
-      pagesTerminees.forEach(page => {
-        if (page.statut_editorial === 'generee_ia') {
-          console.log(`✅ Page "${page.titre}" générée avec succès !`);
-        } else if (page.statut_editorial === 'non_conforme') {
-          console.log(`⚠️ Page "${page.titre}" générée avec des erreurs de validation`);
-        }
-        // Retirer de la liste des pages en génération
-        setGeneratingPageIds(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(page._id);
-          return newSet;
-        });
+      const ids = pagesTerminees.map(p => p._id);
+      setGeneratingPageIds(prev => {
+        const next = new Set(prev);
+        ids.forEach(id => next.delete(id));
+        return next;
       });
-      
-      // Notification groupée
-      const pagesReussies = pagesTerminees.filter(p => p.statut_editorial === 'generee_ia');
-      const pagesErreur = pagesTerminees.filter(p => p.statut_editorial === 'non_conforme');
-      
-      let message = '';
-      if (pagesReussies.length > 0) {
-        message += `✅ ${pagesReussies.length} page(s) générée(s) avec succès`;
-      }
-      if (pagesErreur.length > 0) {
-        if (message) message += '\n';
-        message += `⚠️ ${pagesErreur.length} page(s) avec erreur de validation (texte trop long)`;
-      }
-      if (message) {
-        alert(message);
-      }
-    }
-    
-    if (pagesEnGeneration.length > 0) {
-      // Démarrer le polling si pas déjà actif
-      if (!pollingInterval) {
-        console.log(`🔄 Polling activé pour ${pagesEnGeneration.length} page(s) en génération`);
-        
-        // Ajouter ces pages à la liste des pages en génération
-        setGeneratingPageIds(prev => {
-          const newSet = new Set(prev);
-          pagesEnGeneration.forEach(p => newSet.add(p._id));
-          return newSet;
-        });
-        
-        const interval = setInterval(() => {
-          console.log('🔄 Rechargement des pages (polling)...');
-          loadPages(); // Recharger les pages
-        }, 2000); // Toutes les 2 secondes (plus rapide)
-        setPollingInterval(interval);
-      }
-    } else {
-      // Arrêter le polling si plus de pages en génération
-      if (pollingInterval) {
-        console.log('✅ Polling arrêté, aucune génération en cours');
-        clearInterval(pollingInterval);
-        setPollingInterval(null);
-      }
+      const ok  = pagesTerminees.filter(p => p.statut_editorial === 'generee_ia').length;
+      const nok = pagesTerminees.filter(p => p.statut_editorial === 'non_conforme').length;
+      console.log(`✅ ${ok} page(s) générée(s)${nok ? `, ⚠️ ${nok} non conforme(s)` : ''}`);
     }
 
-    // Nettoyage à la destruction du composant
-    return () => {
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-      }
-    };
-  }, [pages]);
+    if (pagesEnGeneration.length > 0) {
+      // Enregistrer les IDs en génération
+      setGeneratingPageIds(prev => {
+        const next = new Set(prev);
+        pagesEnGeneration.forEach(p => next.add(p._id));
+        return next;
+      });
+      startPolling(loadPages);
+    } else {
+      // Plus rien en attente → arrêter
+      if (pollingRef.current) stopPolling();
+    }
+  }, [pages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadTemplates = async () => {
     try {

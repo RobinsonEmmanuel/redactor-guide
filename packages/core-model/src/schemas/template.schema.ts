@@ -89,6 +89,13 @@ export const TemplateFieldSchema = z.object({
 
   /** Si type=picto, liste des valeurs autorisées (ex: ['oui', 'non'] ou ['incontournable', 'interessant', 'a_voir']) */
   options: z.array(z.string()).optional(),
+
+  /**
+   * Nom du calque InDesign cible pour ce champ.
+   * Si absent, le nom est dérivé automatiquement à l'export via deriveLayerName().
+   * Ex: "txt_poi_nom", "img_poi_grand_rond", "picto_interet"
+   */
+  indesign_layer: z.string().optional(),
 });
 
 export type TemplateField = z.infer<typeof TemplateFieldSchema>;

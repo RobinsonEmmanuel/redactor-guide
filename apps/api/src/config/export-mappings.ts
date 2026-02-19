@@ -166,11 +166,60 @@ export function isPictoField(fieldName: string): boolean {
   return fieldName.includes('_picto_');
 }
 
-/** Retourne le nom du calque InDesign pour un champ (text ou picto) */
-export function resolveLayerName(fieldName: string): string {
+/**
+ * Dérive automatiquement le nom de calque InDesign depuis le nom de champ.
+ *
+ * Convention :
+ *   POI_titre_1        → txt_poi_titre_1
+ *   POI_texte_1        → txt_poi_texte_1
+ *   POI_image_1        → img_poi_image_1
+ *   POI_picto_interet  → picto_poi_interet
+ *   POI_meta_duree     → txt_poi_meta_duree
+ *   POI_liste_activ    → txt_poi_liste_activ
+ *   POI_lien_site      → lnk_poi_lien_site
+ *
+ * Utilisé en fallback quand `field.indesign_layer` n'est pas renseigné.
+ */
+export function deriveLayerName(fieldName: string): string {
+  // Pattern attendu : TEMPLATE_type_slug  (ex: POI_titre_1, CLUSTER_image_principale)
+  const match = fieldName.match(/^([A-Z][A-Z0-9_]*)_(titre|texte|image|picto|meta|liste|lien)_(.+)$/i);
+
+  if (!match) return fieldName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+
+  const [, template, typeRaw, slug] = match;
+  const tpl  = template.toLowerCase();
+  const type = typeRaw.toLowerCase();
+
+  const prefix: Record<string, string> = {
+    titre:  'txt',
+    texte:  'txt',
+    meta:   'txt',
+    liste:  'txt',
+    lien:   'lnk',
+    image:  'img',
+    picto:  'picto',
+  };
+
+  const p = prefix[type] ?? 'txt';
+  return `${p}_${tpl}_${slug.toLowerCase()}`;
+}
+
+/**
+ * Résout le nom du calque InDesign pour un champ donné.
+ * Priorité : field.indesign_layer > FIELD_LAYER_MAPPINGS > PICTO_LAYER_MAPPINGS > deriveLayerName()
+ *
+ * À utiliser dans export.service.ts plutôt que resolveLayerName() hardcodée.
+ */
+export function resolveFieldLayer(fieldName: string, explicitLayer?: string): string {
   return (
+    explicitLayer ??
     FIELD_LAYER_MAPPINGS[fieldName] ??
     PICTO_LAYER_MAPPINGS[fieldName] ??
-    fieldName.toLowerCase()
+    deriveLayerName(fieldName)
   );
+}
+
+/** @deprecated Utiliser resolveFieldLayer() à la place */
+export function resolveLayerName(fieldName: string): string {
+  return resolveFieldLayer(fieldName);
 }

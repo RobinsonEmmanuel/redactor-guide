@@ -5,6 +5,7 @@ import {
   PICTO_VALUE_MAPPINGS,
   isPictoField,
   resolvePictoMapping,
+  resolveFieldLayer,
 } from '../config/export-mappings.js';
 
 const EXPORTED_STATUSES = ['generee_ia', 'relue', 'validee', 'texte_coule', 'visuels_montes'];
@@ -64,15 +65,18 @@ export class ExportService {
           pictoFields[field.name] = {
             value: String(value),
             picto_key: mapping.picto_key,
-            indesign_layer: PICTO_LAYER_MAPPINGS[field.name] ?? field.name.toLowerCase(),
+            // Priorité : field.indesign_layer > PICTO_LAYER_MAPPINGS > deriveLayerName()
+            indesign_layer: resolveFieldLayer(field.name, field.indesign_layer),
             label: mapping.label,
           };
         } else if (field.type === 'image') {
           const pageNum   = String(page.ordre || idx + 1).padStart(3, '0');
           const tplSlug   = (page.template_name || 'page').toLowerCase();
-          const fieldSlug = field.name.toLowerCase().replace(/_/g, '_');
+          const fieldSlug = field.name.toLowerCase();
           imageFields[field.name] = {
             url: String(value),
+            // Priorité : field.indesign_layer > FIELD_LAYER_MAPPINGS > deriveLayerName()
+            indesign_layer: resolveFieldLayer(field.name, field.indesign_layer),
             local_filename: `p${pageNum}_${tplSlug}_${fieldSlug}.jpg`,
             local_path: `images/${tplSlug}/`,
           };
@@ -97,7 +101,20 @@ export class ExportService {
       };
     });
 
-    // ── 6. Construire le JSON final ────────────────────────────────────────
+    // ── 6. Construire le mapping field→calque depuis les templates réels ──────
+    // Priorité : field.indesign_layer > FIELD_LAYER_MAPPINGS > PICTO_LAYER_MAPPINGS > deriveLayerName()
+    const dynamicFieldLayers: Record<string, string> = {};
+    for (const tpl of Object.values(templates)) {
+      for (const field of (tpl.fields ?? [])) {
+        dynamicFieldLayers[field.name] = resolveFieldLayer(field.name, field.indesign_layer);
+      }
+    }
+    // Compléter avec les champs du mapping statique non couverts (rétrocompat)
+    for (const [k, v] of Object.entries(FIELD_LAYER_MAPPINGS)) {
+      if (!dynamicFieldLayers[k]) dynamicFieldLayers[k] = v;
+    }
+
+    // ── 7. Construire le JSON final ────────────────────────────────────────
     return {
       meta: {
         guide_id:     guideId,
@@ -116,7 +133,8 @@ export class ExportService {
       },
 
       mappings: {
-        fields: FIELD_LAYER_MAPPINGS,
+        // Mapping dynamique construit depuis les templates réels — toujours à jour
+        fields: dynamicFieldLayers,
         picto_layers: PICTO_LAYER_MAPPINGS,
         picto_values: Object.fromEntries(
           Object.entries(PICTO_VALUE_MAPPINGS).map(([k, v]) => [k, v])

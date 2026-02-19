@@ -559,6 +559,7 @@ export default function ContentEditorModal({
         <ImageSelectorModal
           guideId={guideId}
           pageId={page._id}
+          scope={page.url_source ? 'page' : 'guide'}
           currentImageUrl={formData[currentImageField]}
           apiUrl={apiUrl}
           onSelect={handleImageSelected}

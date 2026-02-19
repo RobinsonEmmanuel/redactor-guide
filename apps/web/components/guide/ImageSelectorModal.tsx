@@ -6,6 +6,9 @@ import { XMarkIcon, ArrowPathIcon, PhotoIcon } from '@heroicons/react/24/outline
 interface ImageSelectorModalProps {
   guideId: string;
   pageId: string;
+  /** 'page' : images de l'article lié à la page (POI/INSPIRATION)
+   *  'guide': toutes les images analysées du guide (autres types) */
+  scope?: 'page' | 'guide';
   currentImageUrl?: string;
   apiUrl: string;
   onSelect: (imageUrl: string) => void;
@@ -15,6 +18,8 @@ interface ImageSelectorModalProps {
 interface ImageAnalysis {
   image_id: string;
   url: string;
+  source_article_title?: string;
+  source_article_slug?: string;
   analysis_summary?: string;
   editorial_relevance?: string;
   visual_clarity_score?: number;
@@ -26,6 +31,7 @@ interface ImageAnalysis {
 export default function ImageSelectorModal({
   guideId,
   pageId,
+  scope = 'page',
   currentImageUrl,
   apiUrl,
   onSelect,
@@ -34,10 +40,11 @@ export default function ImageSelectorModal({
   const [images, setImages] = useState<ImageAnalysis[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedImage, setSelectedImage] = useState<string | null>(currentImageUrl || null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'relevance' | 'clarity' | 'composition'>('relevance');
 
-  useEffect(() => {
-    loadImages();
-  }, []);
+  useEffect(() => { loadImages(); }, []);
+  useEffect(() => { if (scope === 'guide') loadImages(); }, [sortBy]);
 
   const loadImages = async () => {
     setLoading(true);
@@ -47,19 +54,17 @@ export default function ImageSelectorModal({
         .find(row => row.startsWith('accessToken='))
         ?.split('=')[1];
 
-      const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${pageId}/image-analysis`,
-        {
-          headers: {
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          credentials: 'include',
-        }
-      );
+      const url = scope === 'guide'
+        ? `${apiUrl}/api/v1/guides/${guideId}/images?sort=${sortBy}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ''}`
+        : `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${pageId}/image-analysis`;
+
+      const res = await fetch(url, {
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        credentials: 'include',
+      });
 
       if (res.ok) {
         const data = await res.json();
-        console.log('📸 Images chargées:', data);
         setImages(data.images || []);
       } else {
         console.error('Erreur chargement images:', res.status);
@@ -69,6 +74,11 @@ export default function ImageSelectorModal({
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    loadImages();
   };
 
   const handleSelect = () => {
@@ -83,23 +93,48 @@ export default function ImageSelectorModal({
       <div className="bg-white rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="bg-gradient-to-r from-purple-600 to-purple-700 px-6 py-4 text-white">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
               <PhotoIcon className="h-6 w-6" />
               <div>
                 <h2 className="text-xl font-semibold">Sélectionner une image</h2>
-                <p className="text-sm text-purple-100 mt-1">
-                  {images.length} image{images.length !== 1 ? 's' : ''} disponible{images.length !== 1 ? 's' : ''}
+                <p className="text-sm text-purple-100 mt-0.5">
+                  {scope === 'guide' ? 'Toutes les images analysées du guide' : 'Images de l\'article lié'}
+                  {' · '}{images.length} image{images.length !== 1 ? 's' : ''}
                 </p>
               </div>
             </div>
-            <button
-              onClick={onClose}
-              className="text-white hover:text-purple-100 transition-colors"
-            >
+            <button onClick={onClose} className="text-white hover:text-purple-100 transition-colors">
               <XMarkIcon className="h-6 w-6" />
             </button>
           </div>
+
+          {/* Filtres (scope guide uniquement) */}
+          {scope === 'guide' && (
+            <div className="flex gap-2 mt-1">
+              <form onSubmit={handleSearch} className="flex-1 flex gap-2">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Filtrer par article source..."
+                  className="flex-1 px-3 py-1.5 rounded-lg text-sm text-gray-900 bg-white/90 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-white/50"
+                />
+                <button type="submit" className="px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors">
+                  Filtrer
+                </button>
+              </form>
+              <select
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value as any)}
+                className="px-2 py-1.5 rounded-lg text-sm text-gray-900 bg-white/90 focus:outline-none"
+              >
+                <option value="relevance">Pertinence</option>
+                <option value="clarity">Clarté</option>
+                <option value="composition">Composition</option>
+              </select>
+            </div>
+          )}
         </div>
 
         {/* Content */}
@@ -149,10 +184,24 @@ export default function ImageSelectorModal({
                     </div>
                   )}
 
+                  {/* Source article (scope guide) */}
+                  {scope === 'guide' && image.source_article_title && !image.is_iconic_view && (
+                    <div className="absolute bottom-2 left-2 right-2 z-10">
+                      <span className="block text-[9px] font-medium bg-black/60 text-white px-1.5 py-0.5 rounded truncate">
+                        {image.source_article_title}
+                      </span>
+                    </div>
+                  )}
+
                   {/* Badge iconique */}
                   {image.is_iconic_view && (
-                    <div className="absolute bottom-2 left-2 z-10 bg-purple-600 text-white text-[10px] font-medium px-1.5 py-0.5 rounded">
-                      ⭐ Iconique
+                    <div className="absolute bottom-2 left-2 z-10 flex flex-col gap-0.5 items-start">
+                      <span className="bg-purple-600 text-white text-[10px] font-medium px-1.5 py-0.5 rounded">⭐ Iconique</span>
+                      {scope === 'guide' && image.source_article_title && (
+                        <span className="bg-black/60 text-white text-[9px] font-medium px-1.5 py-0.5 rounded max-w-[120px] truncate block">
+                          {image.source_article_title}
+                        </span>
+                      )}
                     </div>
                   )}
 

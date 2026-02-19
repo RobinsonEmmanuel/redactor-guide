@@ -616,6 +616,89 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * GET /guides/:guideId/images
+   * Toutes les images analysées de tous les articles du guide.
+   * Utilisé par les pages sans url_source (COUVERTURE, CLUSTER, SAISON…)
+   * pour choisir une illustration dans le pool global du guide.
+   *
+   * Query params:
+   *   - q      : filtre texte sur le titre de l'article source
+   *   - sort   : 'relevance' (défaut) | 'clarity' | 'composition'
+   */
+  fastify.get<{
+    Params: { guideId: string };
+    Querystring: { q?: string; sort?: string };
+  }>('/guides/:guideId/images', async (request, reply) => {
+    const { guideId } = request.params;
+    const { q, sort = 'relevance' } = request.query;
+    const db = request.server.container.db;
+
+    try {
+      // 1. Récupérer tous les slugs d'articles liés aux POIs du guide
+      const poisDoc = await db.collection('pois_selection').findOne({ guide_id: guideId });
+      const pois: any[] = poisDoc?.pois ?? [];
+
+      const slugSet = new Set<string>();
+      for (const poi of pois) {
+        if (poi.article_source) slugSet.add(poi.article_source);
+        for (const s of poi.autres_articles_mentions ?? []) slugSet.add(s);
+      }
+
+      if (slugSet.size === 0) {
+        return reply.send({ images: [], total: 0 });
+      }
+
+      // 2. Filtrer sur le titre si ?q= fourni
+      const filter: Record<string, unknown> = {
+        slug: { $in: [...slugSet] },
+        images_analysis: { $exists: true, $not: { $size: 0 } },
+      };
+      if (q) {
+        filter.title = { $regex: q, $options: 'i' };
+      }
+
+      const articles = await db
+        .collection('articles_raw')
+        .find(filter, { projection: { title: 1, slug: 1, images_analysis: 1 } })
+        .toArray();
+
+      // 3. Aplatir toutes les images avec la source article
+      const allImages: any[] = [];
+      for (const article of articles) {
+        for (let idx = 0; idx < (article.images_analysis ?? []).length; idx++) {
+          const imgAnalysis = article.images_analysis[idx];
+          allImages.push({
+            image_id:                    `${article.slug}_${idx}`,
+            url:                         imgAnalysis.url || '',
+            source_article_title:        article.title ?? article.slug,
+            source_article_slug:         article.slug,
+            shows_entire_site:           imgAnalysis.analysis?.shows_entire_site ?? false,
+            shows_detail:                imgAnalysis.analysis?.shows_detail ?? false,
+            is_iconic_view:              imgAnalysis.analysis?.is_iconic_view ?? false,
+            visual_clarity_score:        imgAnalysis.analysis?.visual_clarity_score ?? 0,
+            composition_quality_score:   imgAnalysis.analysis?.composition_quality_score ?? 0,
+            editorial_relevance:         imgAnalysis.analysis?.editorial_relevance || 'faible',
+            analysis_summary:            imgAnalysis.analysis?.analysis_summary || '',
+          });
+        }
+      }
+
+      // 4. Trier
+      const sortFn: Record<string, (a: any, b: any) => number> = {
+        relevance:   (a, b) => (b.editorial_relevance === 'forte' ? 1 : 0) - (a.editorial_relevance === 'forte' ? 1 : 0),
+        clarity:     (a, b) => b.visual_clarity_score - a.visual_clarity_score,
+        composition: (a, b) => b.composition_quality_score - a.composition_quality_score,
+      };
+      allImages.sort(sortFn[sort] ?? sortFn.relevance);
+
+      return reply.send({ images: allImages, total: allImages.length });
+    } catch (error: any) {
+      request.log.error(error);
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+
+  /**
    * POST /guides/:guideId/chemin-de-fer/generate-sommaire
    * Lancer la génération automatique du sommaire via IA
    * Query params: ?parts=sections,pois,inspirations (optionnel, défaut: toutes les parties)

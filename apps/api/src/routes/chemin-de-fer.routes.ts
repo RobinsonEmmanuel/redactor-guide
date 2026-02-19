@@ -781,30 +781,16 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       const { CheminDeFerBuilderService } = await import('../services/chemin-de-fer-builder.service');
       const cheminDeFerBuilder = new CheminDeFerBuilderService({ db });
       
-      const pages = await cheminDeFerBuilder.buildFromTemplate(guideId, guideTemplate as any, {
+      const rawPages = await cheminDeFerBuilder.buildFromTemplate(guideId, guideTemplate as any, {
         clusters,
         inspirations,
         pois,
       });
 
-      // 5. Vérifier si des pages existent déjà
-      const existingPagesCount = await db.collection('pages').countDocuments({ guide_id: guideId });
-      
-      if (existingPagesCount > 0) {
-        return reply.code(409).send({
-          error: `Le guide contient déjà ${existingPagesCount} page(s). Veuillez les supprimer avant de générer la structure.`,
-        });
-      }
-
-      // 6. Sauvegarder toutes les pages
-      if (pages.length > 0) {
-        await db.collection('pages').insertMany(pages);
-        console.log(`✅ ${pages.length} pages sauvegardées`);
-      }
-
-      // 7. Créer ou mettre à jour le document chemin_de_fer
+      // 5. Créer ou mettre à jour le document chemin_de_fer EN PREMIER
+      //    (nécessaire pour obtenir l'_id avant d'insérer les pages)
       const now = new Date().toISOString();
-      await db.collection('chemins_de_fer').updateOne(
+      const cdfResult = await db.collection('chemins_de_fer').findOneAndUpdate(
         { guide_id: guideId },
         {
           $set: {
@@ -817,8 +803,66 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
             created_at: now,
           },
         },
-        { upsert: true }
+        { upsert: true, returnDocument: 'after' }
       );
+      const cheminDeFerId = cdfResult?._id?.toString() ?? '';
+
+      // 6. Vérifier si des pages existent déjà (requête sur chemin_de_fer_id)
+      const existingPagesCount = await db.collection('pages').countDocuments({ chemin_de_fer_id: cheminDeFerId });
+      
+      if (existingPagesCount > 0) {
+        return reply.code(409).send({
+          error: `Le guide contient déjà ${existingPagesCount} page(s). Veuillez les supprimer avant de générer la structure.`,
+        });
+      }
+
+      // 7. Normaliser les pages du builder vers le format attendu par le chemin de fer
+      //    Le builder produit { order, status, ... } mais le reste de l'app attend
+      //    { ordre, statut_editorial, chemin_de_fer_id, titre, template_id, ... }
+      const templateCache: Record<string, any> = {};
+      const normalizedPages = await Promise.all(rawPages.map(async (p: any) => {
+        // Résoudre template_id depuis le nom si besoin
+        if (!templateCache[p.template_name]) {
+          const tpl = await db.collection('templates').findOne({ name: p.template_name });
+          templateCache[p.template_name] = tpl ?? null;
+        }
+        const tpl = templateCache[p.template_name];
+
+        // Construire le titre à partir des métadonnées disponibles
+        const titre =
+          p.metadata?.poi_name          ||
+          p.metadata?.cluster_name      ||
+          p.metadata?.inspiration_title ||
+          p.metadata?.saison            ||
+          p.section_name                ||
+          p.template_name               ||
+          'Page';
+
+        return {
+          chemin_de_fer_id: cheminDeFerId,
+          guide_id:         guideId,
+          template_name:    p.template_name,
+          template_id:      tpl?._id?.toString() ?? null,
+          titre,
+          ordre:            p.order,                    // order → ordre
+          statut_editorial: 'draft',                    // status → statut_editorial
+          section_id:       p.section_name ?? null,
+          url_source:       null,
+          content:          {},
+          metadata:         p.metadata ?? {},
+          fields:           p.fields   ?? [],
+          created_at:       p.created_at,
+          updated_at:       p.updated_at,
+        };
+      }));
+
+      // 8. Sauvegarder toutes les pages normalisées
+      if (normalizedPages.length > 0) {
+        await db.collection('pages').insertMany(normalizedPages);
+        console.log(`✅ ${normalizedPages.length} pages sauvegardées`);
+      }
+
+      const pages = normalizedPages; // alias pour les stats ci-dessous
 
       return reply.send({
         success: true,
@@ -826,11 +870,11 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         template: guideTemplate.name,
         pages_created: pages.length,
         structure: {
-          fixed_pages: pages.filter(p => p.metadata.page_type === 'fixed').length,
-          cluster_pages: pages.filter(p => p.metadata.page_type === 'cluster_intro').length,
-          poi_pages: pages.filter(p => p.metadata.page_type === 'poi').length,
-          inspiration_pages: pages.filter(p => p.metadata.page_type === 'inspiration').length,
-          other_pages: pages.filter(p => p.metadata.page_type === 'repeated_fixed').length,
+          fixed_pages:       pages.filter((p: any) => p.metadata?.page_type === 'fixed').length,
+          cluster_pages:     pages.filter((p: any) => p.metadata?.page_type === 'cluster_intro').length,
+          poi_pages:         pages.filter((p: any) => p.metadata?.page_type === 'poi').length,
+          inspiration_pages: pages.filter((p: any) => p.metadata?.page_type === 'inspiration').length,
+          other_pages:       pages.filter((p: any) => !['fixed','cluster_intro','poi','inspiration'].includes(p.metadata?.page_type)).length,
         },
       });
     } catch (error: any) {

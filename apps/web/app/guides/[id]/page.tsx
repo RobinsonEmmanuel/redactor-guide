@@ -10,6 +10,7 @@ import LieuxEtClustersTab from '@/components/guide/LieuxEtClustersTab';
 import LieuxEtInspirationsTab from '@/components/guide/LieuxEtInspirationsTab';
 import CheminDeFerTab from '@/components/guide/CheminDeFerTab';
 import ParametrageTab from '@/components/guide/ParametrageTab';
+import ExportTab from '@/components/guide/ExportTab';
 
 export default function GuideDetailPage() {
   const router = useRouter();
@@ -18,7 +19,7 @@ export default function GuideDetailPage() {
 
   const [guide, setGuide] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'config' | 'articles' | 'lieux-et-clusters' | 'lieux-et-inspirations' | 'chemin-de-fer'>('articles');
+  const [activeTab, setActiveTab] = useState<'config' | 'articles' | 'lieux-et-clusters' | 'lieux-et-inspirations' | 'chemin-de-fer' | 'export'>('articles');
   const [articlesCount, setArticlesCount] = useState<number>(0);
   const [hasCheckedArticles, setHasCheckedArticles] = useState(false);
   const [currentWorkflowStep, setCurrentWorkflowStep] = useState<number>(2); // Commence à étape 2 (Articles)
@@ -167,6 +168,7 @@ export default function GuideDetailPage() {
     if (tabId === 'lieux-et-clusters') setActiveTab('lieux-et-clusters');
     if (tabId === 'lieux-et-inspirations') setActiveTab('lieux-et-inspirations');
     if (tabId === 'chemin-de-fer') setActiveTab('chemin-de-fer');
+    if (tabId === 'export') setActiveTab('export');
   };
 
   if (loading) {
@@ -326,6 +328,14 @@ export default function GuideDetailPage() {
                 </button>
               </div>
             </div>
+          )}
+
+          {activeTab === 'export' && (
+            <ExportTab
+              guideId={guideId}
+              guide={guide}
+              apiUrl={apiUrl}
+            />
           )}
         </div>
       </main>

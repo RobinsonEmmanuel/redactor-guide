@@ -111,6 +111,9 @@ export async function createServer(db: Db, _port: number) {
       await fastify.register(
         (await import('./routes/inspirations.routes')).default
       );
+      await fastify.register(
+        (await import('./routes/export.routes')).exportRoutes
+      );
 
       // Routes génériques avec :id en dernier
       fastify.get('/destinations', async () => {

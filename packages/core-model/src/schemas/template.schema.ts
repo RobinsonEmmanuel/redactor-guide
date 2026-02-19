@@ -10,6 +10,7 @@ export const TemplateFieldTypeEnum = z.enum([
   'lien',
   'meta',
   'liste',
+  'picto',
 ]);
 
 export type TemplateFieldType = z.infer<typeof TemplateFieldTypeEnum>;
@@ -61,8 +62,8 @@ export const TemplateFieldSchema = z.object({
   
   /** Nom du champ (ex: POI_titre_1) - sera généré automatiquement selon la convention */
   name: z.string().regex(
-    /^[A-Z][A-Z0-9_]*_(titre|texte|image|lien|meta|liste)_[a-z0-9_]+$/,
-    'Format: <TEMPLATE>_<TYPE>_<INDEX> (ex: POI_titre_1, POI_meta_duree)'
+    /^[A-Z][A-Z0-9_]*_(titre|texte|image|lien|meta|liste|picto)_[a-z0-9_]+$/,
+    'Format: <TEMPLATE>_<TYPE>_<INDEX> (ex: POI_titre_1, POI_meta_duree, POI_picto_interet)'
   ),
   
   /** Label pour l'affichage (optionnel) */
@@ -85,6 +86,9 @@ export const TemplateFieldSchema = z.object({
   
   /** Si type=liste, nombre d'éléments fixes dans la liste */
   list_size: z.number().int().positive().optional(),
+
+  /** Si type=picto, liste des valeurs autorisées (ex: ['oui', 'non'] ou ['incontournable', 'interessant', 'a_voir']) */
+  options: z.array(z.string()).optional(),
 });
 
 export type TemplateField = z.infer<typeof TemplateFieldSchema>;
@@ -144,6 +148,7 @@ export const FIELD_TYPE_LABELS: Record<TemplateFieldType, string> = {
   lien: 'Lien',
   meta: 'Métadonnée',
   liste: 'Liste',
+  picto: 'Pictogramme',
 };
 
 /**
@@ -156,4 +161,5 @@ export const FIELD_TYPE_DESCRIPTIONS: Record<TemplateFieldType, string> = {
   lien: 'URL pointant vers un contenu externe',
   meta: 'Métadonnée éditoriale normée, non narrative',
   liste: 'Élément de liste courte, avec nombre fixe de champs',
+  picto: 'Valeur parmi une liste d\'options prédéfinies (ex: oui/non, incontournable/intéressant/à voir)',
 };

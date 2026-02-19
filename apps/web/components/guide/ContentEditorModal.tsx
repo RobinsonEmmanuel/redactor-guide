@@ -13,12 +13,25 @@ interface Template {
 
 interface TemplateField {
   name: string;
-  type: 'titre' | 'texte' | 'image' | 'lien' | 'meta' | 'liste';
+  type: 'titre' | 'texte' | 'image' | 'lien' | 'meta' | 'liste' | 'picto';
   label: string;
   description?: string;
   ai_instructions?: string;
   max_chars?: number;
+  options?: string[];
 }
+
+// Labels et icônes pour les valeurs de picto
+const PICTO_OPTION_CONFIG: Record<string, { label: string; icon: string; color: string }> = {
+  incontournable: { label: 'Incontournable', icon: '😄', color: 'bg-green-100 border-green-400 text-green-800' },
+  interessant:    { label: 'Intéressant',    icon: '😊', color: 'bg-blue-100 border-blue-400 text-blue-800' },
+  a_voir:         { label: 'À voir',         icon: '🙂', color: 'bg-gray-100 border-gray-400 text-gray-700' },
+  '100':          { label: 'Accessible 100%', icon: '♿', color: 'bg-green-100 border-green-400 text-green-800' },
+  '50':           { label: 'Partiellement',   icon: '♿', color: 'bg-yellow-100 border-yellow-400 text-yellow-800' },
+  '0':            { label: 'Non accessible',  icon: '🚫', color: 'bg-red-100 border-red-400 text-red-800' },
+  oui:            { label: 'Oui',             icon: '✅', color: 'bg-green-100 border-green-400 text-green-800' },
+  non:            { label: 'Non',             icon: '❌', color: 'bg-gray-100 border-gray-400 text-gray-600' },
+};
 
 interface Page {
   _id: string;
@@ -356,6 +369,52 @@ export default function ContentEditorModal({
               onChange={(e) => handleFieldChange(field.name, e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
+          </div>
+        );
+
+      case 'picto':
+        return (
+          <div key={field.name} className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {field.label}
+            </label>
+            {field.description && (
+              <p className="text-xs text-gray-500 mb-2">{field.description}</p>
+            )}
+            {field.options && field.options.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {field.options.map((option) => {
+                  const config = PICTO_OPTION_CONFIG[option] || { label: option, icon: '●', color: 'bg-gray-100 border-gray-300 text-gray-700' };
+                  const isSelected = fieldValue === option;
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => handleFieldChange(field.name, option)}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all cursor-pointer ${
+                        isSelected
+                          ? `${config.color} shadow-sm scale-105`
+                          : 'bg-white border-gray-200 text-gray-500 hover:border-gray-400'
+                      }`}
+                    >
+                      <span className="text-base">{config.icon}</span>
+                      <span>{config.label}</span>
+                      {isSelected && <span className="ml-1">✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <input
+                type="text"
+                value={fieldValue}
+                onChange={(e) => handleFieldChange(field.name, e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            )}
+            {!fieldValue && (
+              <p className="mt-1 text-xs text-amber-600">⚠️ Valeur non renseignée</p>
+            )}
           </div>
         );
 

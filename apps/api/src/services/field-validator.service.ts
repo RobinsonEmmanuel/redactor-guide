@@ -24,6 +24,20 @@ export class FieldValidatorService {
     const errors: ValidationError[] = [];
 
     for (const field of fields) {
+      // Validation spécifique aux champs picto : la valeur doit être dans options
+      if (field.type === 'picto' && field.options && field.options.length > 0) {
+        const value = content[field.name];
+        if (value !== undefined && value !== null && value !== '') {
+          const strValue = String(value).trim();
+          if (!field.options.includes(strValue)) {
+            errors.push({
+              field: field.name,
+              errors: [`Valeur "${strValue}" invalide pour ${field.name}. Valeurs acceptées : ${field.options.join(', ')}`],
+            });
+          }
+        }
+      }
+
       if (!field.validation) {
         continue; // Pas de règles = validation passée
       }

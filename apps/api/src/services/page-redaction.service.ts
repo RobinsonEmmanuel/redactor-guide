@@ -352,6 +352,12 @@ INSTRUCTIONS STRICTES :
         parts.push(`Instructions: ${field.ai_instructions}`);
       }
 
+      // Pour les champs picto : lister les options autorisées et imposer un choix strict
+      if (field.type === 'picto' && field.options && field.options.length > 0) {
+        parts.push(`⚠️ VALEUR OBLIGATOIRE: Choisir EXACTEMENT UNE valeur parmi cette liste (rien d'autre) : ${field.options.map((o: string) => `"${o}"`).join(', ')}`);
+        parts.push(`✅ Répondre avec la valeur EXACTE (sans guillemets, sans espaces supplémentaires)`);
+      }
+
       // Ajouter les règles de validation si présentes
       if (field.validation) {
         const validationRules = this.formatValidationRules(field.validation);

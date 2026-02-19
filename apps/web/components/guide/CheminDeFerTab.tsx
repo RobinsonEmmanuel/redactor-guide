@@ -779,6 +779,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
             'Content-Type': 'application/json',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
+          body: JSON.stringify({}),
           credentials: 'include',
         }
       );

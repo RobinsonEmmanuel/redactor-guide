@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { ExportService } from '../services/export.service.js';
-import { normalizeGuideExport, type NormalizerOptions } from '../services/normalize-export.service.js';
+import { normalizeGuideExportV2, type NormalizerOptions } from '../services/normalize-export.service.js';
 import { buildGuideStoryboard, type StoryboardInputGuide } from '@redactor-guide/exporters';
 
 export async function exportRoutes(fastify: FastifyInstance) {
@@ -42,7 +42,7 @@ export async function exportRoutes(fastify: FastifyInstance) {
           dropNullPictos: drop_null_pictos !== 'false',
         };
         const exportData = shouldNormalize
-          ? normalizeGuideExport(rawExport as unknown as Record<string, unknown>, normalizerOptions)
+          ? normalizeGuideExportV2(rawExport as unknown as Record<string, unknown>, normalizerOptions)
           : rawExport;
 
         const dest = rawExport.meta.destination.toLowerCase().replace(/\s+/g, '_');
@@ -68,7 +68,7 @@ export async function exportRoutes(fastify: FastifyInstance) {
   /**
    * GET /guides/:guideId/export/storyboard
    * Retourne le storyboard séquentiel complet prêt pour le renderer InDesign.
-   * Pipeline : buildGuideExport → normalizeGuideExport → buildGuideStoryboard
+   * Pipeline : buildGuideExport → normalizeGuideExportV2 → buildGuideStoryboard
    * Query params:
    *   - lang: code langue (fr, en, de...) — défaut: fr
    *   - download: "true" pour forcer le téléchargement
@@ -96,7 +96,7 @@ export async function exportRoutes(fastify: FastifyInstance) {
         const normalizerOptions: NormalizerOptions = {
           dropNullPictos: drop_null_pictos !== 'false',
         };
-        const normalized = normalizeGuideExport(
+        const normalized = normalizeGuideExportV2(
           rawExport as unknown as Record<string, unknown>,
           normalizerOptions
         );

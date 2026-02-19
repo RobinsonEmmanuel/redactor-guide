@@ -23,6 +23,8 @@ interface PageDocument {
     cluster_name?: string;
     poi_id?: string;
     poi_name?: string;
+    article_source?: string | null;
+    autres_articles_mentions?: string[];
     inspiration_id?: string;
     inspiration_title?: string;
     saison?: string;

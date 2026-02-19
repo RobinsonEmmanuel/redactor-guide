@@ -53,7 +53,7 @@ export class ExportService {
       const fields   = template?.fields || [];
 
       const textFields:  Record<string, string>  = {};
-      const imageFields: Record<string, { url: string; local_filename: string; local_path: string }> = {};
+      const imageFields: Record<string, { url: string; indesign_layer: string; local_filename: string; local_path: string }> = {};
       const pictoFields: Record<string, { value: string; picto_key: string | null; indesign_layer: string; label: string }> = {};
 
       for (const field of fields) {

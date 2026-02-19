@@ -59,6 +59,8 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   // États pour l'ajout multiple de pages
   const [showAddPagesModal, setShowAddPagesModal] = useState(false);
   const [additionalSlots, setAdditionalSlots] = useState(0);
+  // Mode grille vide : affiche la grille avec N slots même sans pages en base
+  const [emptyGridMode, setEmptyGridMode] = useState(false);
 
   // États pour le polling de génération en cours
   const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
@@ -183,7 +185,10 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
       });
       if (res.ok) {
         const data = await res.json();
-        setPages(data.pages || []);
+        const loadedPages = data.pages || [];
+        setPages(loadedPages);
+        // Si des pages existent en base, quitter le mode grille vide
+        if (loadedPages.length > 0) setEmptyGridMode(false);
       }
     } catch (err) {
       console.error('Erreur chargement pages:', err);
@@ -825,9 +830,10 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   };
 
   const startEmptyStructure = (count = 100) => {
-    // Affiche simplement N emplacements vides dans la grille.
+    // Affiche N emplacements vides dans la grille.
     // Aucune page n'est créée en base — l'utilisateur glisse les templates dessus.
     setAdditionalSlots(count);
+    setEmptyGridMode(true);
   };
 
   const handleSavePage = async (pageData: any) => {
@@ -1116,7 +1122,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
 
           {/* Grille de pages - Maximum d'espace */}
           <div className="flex-1 overflow-auto p-4">
-            {pages.length === 0 ? (
+            {pages.length === 0 && !emptyGridMode ? (
               /* État vide — deux options de démarrage */
               <div className="h-full flex items-center justify-center p-6">
                 <div className="w-full max-w-3xl">

@@ -49,67 +49,6 @@ export async function guidesRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // Articles récupérés pour un guide (avec pagination)
-  fastify.get('/guides/:id/articles', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const { page = '1', limit = '20', slug } = request.query as { page?: string; limit?: string; slug?: string };
-    const db = request.server.container.db;
-    
-    try {
-      // Récupérer le guide pour obtenir le slug (siteId)
-      const guide = await db.collection('guides').findOne({ _id: new ObjectId(id) });
-      
-      if (!guide) {
-        return reply.status(404).send({ error: 'Guide non trouvé' });
-      }
-
-      const pageNum = Math.max(1, parseInt(page, 10));
-      const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10))); // Max 100 par page
-      const skip = (pageNum - 1) * limitNum;
-
-      const query: any = { site_id: guide.slug };
-      
-      // Si un slug spécifique est demandé (pour récupérer un article précis)
-      if (slug) {
-        query.slug = slug;
-      }
-
-      // Compter le total (avec cache si possible)
-      const total = await db.collection('articles_raw').countDocuments(query);
-
-      // Récupérer les articles paginés
-      const articles = await db
-        .collection('articles_raw')
-        .find(query)
-        .project({
-          _id: 1,
-          title: 1,
-          slug: 1,
-          urls_by_lang: 1,
-          images: 1,
-          categories: 1,
-          tags: 1,
-          markdown: 1,
-          updated_at: 1,
-        })
-        .sort({ updated_at: -1 })
-        .skip(skip)
-        .limit(limitNum)
-        .toArray();
-      
-      return { 
-        articles,
-        pagination: {
-          page: pageNum,
-          limit: limitNum,
-          total,
-          totalPages: Math.ceil(total / limitNum),
-        }
-      };
-    } catch (error) {
-      return reply.status(400).send({ error: 'ID invalide' });
-    }
-  });
 
   // Créer un guide
   fastify.post('/guides', async (request, reply) => {

@@ -118,7 +118,7 @@ async function main() {
       
       // Retirer les anciens pictos et la durée si elle existe déjà
       const cleanedFields = poiTemplate.fields.filter(
-        (f) => !f.type === 'picto' && !f.name.includes('picto') && f.name !== 'POI_meta_duree'
+        (f) => f.type !== 'picto' && !f.name.includes('picto') && f.name !== 'POI_meta_duree'
       );
       
       const result = await collection.updateOne(

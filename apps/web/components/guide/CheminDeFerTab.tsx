@@ -427,6 +427,14 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
 
   const handleCreatePageFromTemplatePage = async (templatePageData: any, targetOrder: number | null = null) => {
     try {
+      console.log('🎯 [handleCreatePageFromTemplatePage] Données reçues:', {
+        titre: templatePageData.titre,
+        type: templatePageData.type,
+        template_name: templatePageData.template_name,
+        article_source: templatePageData.article_source,
+        autres_articles_mentions: templatePageData.autres_articles_mentions,
+      });
+
       // Trouver le template correspondant
       const template = templates.find((t) => t.name === templatePageData.template_name);
       if (!template) {
@@ -446,6 +454,37 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         return typeMapping[type] || 'section';
       };
 
+      // Résoudre url_source pour les pages POI
+      let url_source: string | undefined;
+      if (templatePageData.type === 'poi' && templatePageData.article_source) {
+        console.log(`🔍 [url_source] Résolution pour slug "${templatePageData.article_source}"...`);
+        try {
+          const articleRes = await fetch(
+            `${apiUrl}/api/v1/guides/${guideId}/articles?slug=${encodeURIComponent(templatePageData.article_source)}`,
+            { credentials: 'include' }
+          );
+          console.log(`📡 [url_source] Réponse API articles: status=${articleRes.status}`);
+          if (articleRes.ok) {
+            const articleData = await articleRes.json();
+            console.log(`📦 [url_source] Articles retournés: ${articleData.articles?.length ?? 0}`, articleData.articles?.[0]);
+            const article = articleData.articles?.[0];
+            if (article) {
+              const urlsMap = article.urls_by_lang ?? article.urls ?? {};
+              url_source = urlsMap['fr'] || urlsMap['en'] || article.url_francais || undefined;
+              console.log(`✅ [url_source] Résolue: ${url_source}`);
+            } else {
+              console.warn(`⚠️ [url_source] Aucun article trouvé pour slug "${templatePageData.article_source}"`);
+            }
+          } else {
+            console.warn(`⚠️ [url_source] Échec API articles: ${articleRes.status} ${articleRes.statusText}`);
+          }
+        } catch (err) {
+          console.warn('⚠️ [url_source] Erreur fetch:', err);
+        }
+      } else if (templatePageData.type === 'poi') {
+        console.warn(`⚠️ [url_source] Page POI sans article_source — vérifier la route proposals`);
+      }
+
       // Construire les données de la page en ne gardant que les champs définis
       const pageData: any = {
         page_id: templatePageData.page_id || nanoid(10),
@@ -454,12 +493,15 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         type_de_page: mapPageType(templatePageData.type),
         statut_editorial: 'draft',
         ordre: targetOrder || pages.length + 1,
+        url_source: url_source || undefined,
       };
 
       // Ajouter section_id uniquement si section_name est défini
       if (templatePageData.section_name) {
         pageData.section_id = templatePageData.section_name;
       }
+
+      console.log('📤 [handleCreatePageFromTemplatePage] pageData envoyé:', pageData);
 
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages`, {
         method: 'POST',

@@ -116,6 +116,9 @@ export default async function cheminDeFerProposalsRoutes(fastify: FastifyInstanc
                     cluster_name: cluster.cluster_name,
                     section_name: block.section_title || 'Lieux par zones',
                     type: 'poi',
+                    // Champs nécessaires pour résoudre url_source côté frontend
+                    article_source: poi.article_source ?? null,
+                    autres_articles_mentions: poi.autres_articles_mentions ?? [],
                   });
                 }
               }

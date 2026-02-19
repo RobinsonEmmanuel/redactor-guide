@@ -5,7 +5,6 @@ import {
   PICTO_VALUE_MAPPINGS,
   isPictoField,
   resolvePictoMapping,
-  resolveLayerName,
 } from '../config/export-mappings.js';
 
 const EXPORTED_STATUSES = ['generee_ia', 'relue', 'validee', 'texte_coule', 'visuels_montes'];

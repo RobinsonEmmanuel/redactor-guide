@@ -190,7 +190,136 @@ function textDensity(chars: number): 'light' | 'medium' | 'heavy' {
   return 'heavy';
 }
 
-// ─── Service principal ────────────────────────────────────────────────────────
+// ─── Types V2 ─────────────────────────────────────────────────────────────────
+
+export interface ActivePictoV2 extends ActivePicto {
+  variant_layer: string | null;
+}
+
+export interface NormalizedImageV2 extends NormalizedImage {
+  aspect_ratio: number | null;
+  orientation: 'landscape' | 'portrait' | 'square' | null;
+}
+
+export interface NormalizationStatsV2 extends NormalizationStats {
+  variant_layers_resolved:  number;
+  pictos_active_derived:    number;
+  images_with_layout_hints: number;
+}
+
+export interface NormalizedPageV2 {
+  id: string;
+  page_number: number;
+  template: string;
+  section: string | null;
+  titre: string;
+  status: string;
+  url_source: string | null;
+  entity_meta: EntityMeta;
+  content: {
+    text:    Record<string, string>;
+    images:  Record<string, NormalizedImageV2>;
+    pictos:  Record<string, ActivePictoV2>;
+    /** @deprecated Utiliser content._derived.pictos_active */
+    pictos_active: ActivePictoV2[];
+    pictos_active_meta: {
+      derived:    true;
+      deprecated: true;
+    };
+    _derived: {
+      pictos_active: ActivePictoV2[];
+    };
+  };
+  layout: LayoutFlags;
+}
+
+export interface NormalizedGuideExportV2 {
+  meta:     Record<string, unknown> & { normalized_at: string };
+  mappings: Record<string, unknown>;
+  pages:    NormalizedPageV2[];
+  normalization: {
+    version: '1.1.0';
+    options: NormalizerOptions;
+    stats:   NormalizationStatsV2;
+  };
+}
+
+// ─── Table de variants picto ──────────────────────────────────────────────────
+
+const PICTO_VARIANT_TABLE: Record<string, string> = {
+  'POI_picto_interet|incontournable': 'picto_interet_1',
+  'POI_picto_interet|interessant':    'picto_interet_2',
+  'POI_picto_interet|a_voir':         'picto_interet_3',
+  'POI_picto_pmr|100': 'picto_pmr_full',
+  'POI_picto_pmr|50':  'picto_pmr_half',
+  'POI_picto_pmr|0':   'picto_pmr_none',
+  'POI_picto_escaliers|oui':    'picto_escaliers_oui',
+  'POI_picto_escaliers|non':    'picto_escaliers_non',
+  'POI_picto_toilettes|oui':    'picto_toilettes_oui',
+  'POI_picto_toilettes|non':    'picto_toilettes_non',
+  'POI_picto_restauration|oui': 'picto_restauration_oui',
+  'POI_picto_restauration|non': 'picto_restauration_non',
+  'POI_picto_famille|oui':      'picto_famille_oui',
+  'POI_picto_famille|non':      'picto_famille_non',
+};
+
+// ─── Helpers exportés ─────────────────────────────────────────────────────────
+
+/**
+ * Résout le variant_layer d'un picto selon sa valeur.
+ * Priorité : mappings.picto_values (runtime) > PICTO_VARIANT_TABLE (statique) > null.
+ */
+export function resolveVariantLayer(
+  picto: Pick<ActivePicto, 'field' | 'value'>,
+  pictoValueMap?: Record<string, Record<string, string>>
+): string | null {
+  const key = `${picto.field}|${picto.value}`;
+  if (pictoValueMap) {
+    const runtime = pictoValueMap[picto.field]?.[picto.value];
+    if (runtime) return runtime;
+  }
+  return PICTO_VARIANT_TABLE[key] ?? null;
+}
+
+/**
+ * Dérive le tableau ordonné des pictos actifs depuis le dictionnaire pictos V2.
+ * Source de vérité unique — ne jamais lire pictos_active directement.
+ */
+export function deriveActivePictos(
+  pictos: Record<string, ActivePictoV2>
+): ActivePictoV2[] {
+  return Object.values(pictos).filter(p => p.picto_key !== null && p.picto_key !== '');
+}
+
+/**
+ * Enrichit une image avec des hints de layout (aspect_ratio, orientation).
+ * Les dimensions ne sont PAS récupérées à distance : passer { width, height }
+ * après téléchargement si disponibles, ou null pour différer l'enrichissement.
+ */
+export function enrichImageLayoutHints(
+  img: NormalizedImage,
+  dimensions?: { width: number; height: number } | null
+): NormalizedImageV2 {
+  if (!dimensions || dimensions.width <= 0 || dimensions.height <= 0) {
+    return { ...img, aspect_ratio: null, orientation: null };
+  }
+  const ratio = dimensions.width / dimensions.height;
+  let orientation: NormalizedImageV2['orientation'];
+  if (Math.abs(ratio - 1) < 0.05) {
+    orientation = 'square';
+  } else if (ratio > 1) {
+    orientation = 'landscape';
+  } else {
+    orientation = 'portrait';
+  }
+  return {
+    ...img,
+    aspect_ratio: Math.round(ratio * 1000) / 1000,
+    orientation,
+  };
+}
+
+// ─── Service principal V1 ─────────────────────────────────────────────────────
 
 export function normalizeGuideExport(
   raw: Record<string, unknown>,
@@ -354,6 +483,108 @@ export function normalizeGuideExport(
       version: '1.0.0',
       options: { maxTextLengths, dropNullPictos, truncateMarker },
       stats,
+    },
+  };
+}
+
+// ─── Service principal V2 ─────────────────────────────────────────────────────
+
+/**
+ * normalizeGuideExportV2 — super-ensemble idempotent de normalizeGuideExport.
+ *
+ * Nouveautés :
+ *   1. pictos[*].variant_layer  — calque InDesign spécifique à la valeur
+ *   2. content._derived.pictos_active — source de vérité dérivée
+ *   3. images[*].aspect_ratio + orientation — hints de layout
+ *
+ * Rétro-compatibilité totale : tous les champs V1 sont préservés.
+ */
+export function normalizeGuideExportV2(
+  raw: Record<string, unknown>,
+  options: NormalizerOptions = {}
+): NormalizedGuideExportV2 {
+  const v1 = normalizeGuideExport(raw, options);
+
+  const pictoValueMap = (v1.mappings as any)?.picto_values as
+    | Record<string, Record<string, string>>
+    | undefined;
+
+  const statsV2: NormalizationStatsV2 = {
+    ...v1.normalization.stats,
+    variant_layers_resolved:  0,
+    pictos_active_derived:    0,
+    images_with_layout_hints: 0,
+  };
+
+  const pagesV2: NormalizedPageV2[] = v1.pages.map(page => {
+
+    // ── Pictos → variant_layer ─────────────────────────────────────────────
+    const pictosV2: Record<string, ActivePictoV2> = {};
+    for (const [key, picto] of Object.entries(page.content.pictos)) {
+      const variantLayer = resolveVariantLayer(picto, pictoValueMap);
+      if (variantLayer !== null) statsV2.variant_layers_resolved++;
+      pictosV2[key] = { ...picto, variant_layer: variantLayer };
+    }
+
+    // ── pictos_active dérivé ───────────────────────────────────────────────
+    const derivedPictosActive = deriveActivePictos(pictosV2);
+    statsV2.pictos_active_derived += derivedPictosActive.length;
+
+    // ── Images → layout hints ─────────────────────────────────────────────
+    const imagesV2: Record<string, NormalizedImageV2> = {};
+    for (const [key, img] of Object.entries(page.content.images)) {
+      const enriched = enrichImageLayoutHints(img, null);
+      if (enriched.aspect_ratio !== null) statsV2.images_with_layout_hints++;
+      imagesV2[key] = enriched;
+    }
+
+    // entity_meta provient de NormalizedPage du service (présent ici)
+    const rawEntityMeta = (page as any).entity_meta ?? {};
+    const entity_meta: EntityMeta = {
+      page_type:         rawEntityMeta.page_type         ?? null,
+      cluster_id:        rawEntityMeta.cluster_id        ?? null,
+      cluster_name:      rawEntityMeta.cluster_name      ?? null,
+      poi_id:            rawEntityMeta.poi_id            ?? null,
+      poi_name:          rawEntityMeta.poi_name          ?? null,
+      inspiration_id:    rawEntityMeta.inspiration_id    ?? null,
+      inspiration_title: rawEntityMeta.inspiration_title ?? null,
+      season:            rawEntityMeta.season            ?? null,
+    };
+
+    return {
+      id:          page.id,
+      page_number: page.page_number,
+      template:    page.template,
+      section:     page.section,
+      titre:       page.titre,
+      status:      page.status,
+      url_source:  page.url_source,
+      entity_meta,
+      layout: page.layout,
+      content: {
+        text:   page.content.text,
+        images: imagesV2,
+        pictos: pictosV2,
+        pictos_active: derivedPictosActive,
+        pictos_active_meta: {
+          derived:    true as const,
+          deprecated: true as const,
+        },
+        _derived: {
+          pictos_active: derivedPictosActive,
+        },
+      },
+    };
+  });
+
+  return {
+    meta:     v1.meta,
+    mappings: v1.mappings,
+    pages:    pagesV2,
+    normalization: {
+      version: '1.1.0',
+      options: v1.normalization.options,
+      stats:   statsV2,
     },
   };
 }

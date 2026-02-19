@@ -15,6 +15,7 @@ import {
   MapPinIcon,
   LightBulbIcon,
   PlusIcon,
+  TableCellsIcon,
 } from '@heroicons/react/24/outline';
 
 interface Page {
@@ -818,6 +819,50 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     }
   };
 
+  const startEmptyStructure = async (count = 100) => {
+    if (pages.length > 0) {
+      const ok = confirm(
+        `⚠️ Cette action va supprimer les ${pages.length} page(s) existante(s) et créer ${count} cases vides.\n\nContinuer ?`
+      );
+      if (!ok) return;
+    }
+
+    setGeneratingStructure(true);
+    setStructureError(null);
+
+    try {
+      const token = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('accessToken='))
+        ?.split('=')[1];
+
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/empty-structure`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ count }),
+          credentials: 'include',
+        }
+      );
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `Erreur ${res.status}`);
+      }
+
+      await loadPages();
+    } catch (error: any) {
+      console.error('❌ Erreur création structure vide:', error);
+      setStructureError(error.message || 'Erreur lors de la création');
+    } finally {
+      setGeneratingStructure(false);
+    }
+  };
+
   const handleSavePage = async (pageData: any) => {
     try {
       if (editingPage) {
@@ -1105,96 +1150,122 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
           {/* Grille de pages - Maximum d'espace */}
           <div className="flex-1 overflow-auto p-4">
             {pages.length === 0 ? (
-              /* État vide avec bouton de génération de structure */
-              <div className="h-full flex items-center justify-center">
-                <div className="max-w-2xl text-center px-8">
-                  <div className="mb-6">
-                    <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-purple-100 to-blue-100 mb-4">
-                      <DocumentTextIcon className="w-10 h-10 text-purple-600" />
+              /* État vide — deux options de démarrage */
+              <div className="h-full flex items-center justify-center p-6">
+                <div className="w-full max-w-3xl">
+                  <div className="text-center mb-8">
+                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-purple-100 to-blue-100 mb-4">
+                      <DocumentTextIcon className="w-8 h-8 text-purple-600" />
                     </div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">
+                    <h3 className="text-xl font-bold text-gray-900 mb-1">
                       Votre chemin de fer est vide
                     </h3>
-                    <p className="text-gray-600 mb-6">
-                      Générez automatiquement la structure complète de votre guide à partir du template, 
-                      ou ajoutez des pages manuellement en glissant-déposant depuis la palette.
+                    <p className="text-gray-500 text-sm">
+                      Choisissez comment démarrer votre mise en pages
                     </p>
                   </div>
 
                   {structureError && (
-                    <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+                    <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800 text-center">
                       {structureError}
                     </div>
                   )}
 
-                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-                    <button
-                      onClick={generateStructure}
-                      disabled={generatingStructure}
-                      className="px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-lg hover:from-purple-700 hover:to-blue-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl flex items-center gap-2"
-                    >
-                      {generatingStructure ? (
-                        <>
-                          <ArrowPathIcon className="w-5 h-5 animate-spin" />
-                          Génération en cours...
-                        </>
-                      ) : (
-                        <>
-                          <SparklesIcon className="w-5 h-5" />
-                          Générer la structure
-                        </>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => setShowAddPagesModal(true)}
-                      className="px-6 py-3 bg-white text-gray-700 font-semibold rounded-lg border-2 border-gray-300 hover:border-gray-400 hover:bg-gray-50 transition-all flex items-center gap-2"
-                    >
-                      <PlusIcon className="w-5 h-5" />
-                      Ajouter manuellement
-                    </button>
-                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    {/* Option 1 — Générer depuis le template */}
+                    <div className="relative flex flex-col bg-white border-2 border-purple-200 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-purple-400 transition-all group">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center flex-shrink-0">
+                          <SparklesIcon className="w-5 h-5 text-white" />
+                        </div>
+                        <div>
+                          <div className="font-semibold text-gray-900">Depuis le template</div>
+                          <div className="text-xs text-purple-600 font-medium">Recommandé</div>
+                        </div>
+                      </div>
+                      <p className="text-sm text-gray-600 mb-5 flex-1">
+                        Génère automatiquement toutes les pages du guide — pages fixes, clusters, POIs, inspirations et saisons — dans l'ordre défini par le template.
+                      </p>
+                      <div className="grid grid-cols-2 gap-1.5 mb-5">
+                        {[
+                          { color: 'blue', label: 'Pages fixes' },
+                          { color: 'green', label: 'Clusters & POIs' },
+                          { color: 'orange', label: 'Inspirations' },
+                          { color: 'purple', label: 'Saisons' },
+                        ].map(({ color, label }) => (
+                          <div key={label} className="flex items-center gap-1.5">
+                            <div className={`w-4 h-4 rounded-full bg-${color}-100 flex items-center justify-center flex-shrink-0`}>
+                              <span className={`text-${color}-600 text-xs font-bold leading-none`}>✓</span>
+                            </div>
+                            <span className="text-xs text-gray-600">{label}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <button
+                        onClick={generateStructure}
+                        disabled={generatingStructure}
+                        className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-sm font-semibold rounded-xl hover:from-purple-700 hover:to-blue-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all shadow hover:shadow-md flex items-center justify-center gap-2"
+                      >
+                        {generatingStructure ? (
+                          <>
+                            <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                            Génération en cours...
+                          </>
+                        ) : (
+                          <>
+                            <SparklesIcon className="w-4 h-4" />
+                            Générer la structure
+                          </>
+                        )}
+                      </button>
+                    </div>
 
-                  <div className="mt-8 pt-6 border-t border-gray-200">
-                    <p className="text-sm text-gray-500 mb-3">
-                      La génération automatique créera :
-                    </p>
-                    <div className="grid grid-cols-2 gap-3 text-left max-w-lg mx-auto">
-                      <div className="flex items-start gap-2">
-                        <div className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                          <span className="text-blue-600 text-xs font-bold">✓</span>
+                    {/* Option 2 — Structure vide */}
+                    <div className="relative flex flex-col bg-white border-2 border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-gray-400 transition-all group">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0 group-hover:bg-gray-200 transition-colors">
+                          <TableCellsIcon className="w-5 h-5 text-gray-600" />
                         </div>
                         <div>
-                          <div className="text-sm font-medium text-gray-900">Pages fixes</div>
-                          <div className="text-xs text-gray-500">Couverture, présentation, carte...</div>
+                          <div className="font-semibold text-gray-900">Structure vide</div>
+                          <div className="text-xs text-gray-500 font-medium">Libre &amp; flexible</div>
                         </div>
                       </div>
-                      <div className="flex items-start gap-2">
-                        <div className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                          <span className="text-green-600 text-xs font-bold">✓</span>
-                        </div>
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">Lieux par zones</div>
-                          <div className="text-xs text-gray-500">Clusters et POIs de l'étape 3</div>
-                        </div>
+                      <p className="text-sm text-gray-600 mb-5 flex-1">
+                        Crée 100 cases vides. Glissez-déposez vos templates de pages depuis la palette pour composer votre guide librement, sans contrainte de structure.
+                      </p>
+                      <div className="grid grid-cols-2 gap-1.5 mb-5">
+                        {[
+                          { label: '100 cases vides' },
+                          { label: 'Glisser-déposer' },
+                          { label: 'Ordre libre' },
+                          { label: 'Sans contrainte' },
+                        ].map(({ label }) => (
+                          <div key={label} className="flex items-center gap-1.5">
+                            <div className="w-4 h-4 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+                              <span className="text-gray-500 text-xs font-bold leading-none">○</span>
+                            </div>
+                            <span className="text-xs text-gray-600">{label}</span>
+                          </div>
+                        ))}
                       </div>
-                      <div className="flex items-start gap-2">
-                        <div className="w-5 h-5 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                          <span className="text-orange-600 text-xs font-bold">✓</span>
-                        </div>
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">Inspirations</div>
-                          <div className="text-xs text-gray-500">Thèmes de l'étape 4</div>
-                        </div>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="w-5 h-5 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                          <span className="text-purple-600 text-xs font-bold">✓</span>
-                        </div>
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">Saisons & finales</div>
-                          <div className="text-xs text-gray-500">4 saisons + pages de fin</div>
-                        </div>
-                      </div>
+                      <button
+                        onClick={() => startEmptyStructure(100)}
+                        disabled={generatingStructure}
+                        className="w-full py-2.5 bg-white text-gray-700 text-sm font-semibold rounded-xl border-2 border-gray-300 hover:border-gray-400 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                      >
+                        {generatingStructure ? (
+                          <>
+                            <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                            Création en cours...
+                          </>
+                        ) : (
+                          <>
+                            <TableCellsIcon className="w-4 h-4" />
+                            Partir de 100 cases vides
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
                 </div>

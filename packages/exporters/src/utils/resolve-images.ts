@@ -213,7 +213,7 @@ export async function resolveImagesForGuide(
 
   const stats = { total: tasks.length, downloaded: 0, skipped: 0, failed: 0 };
 
-  const work = tasks.map(({ page, fieldName, image }) => async () => {
+  const work = tasks.map(({ image }) => async () => {
     const subDir  = path.join(outputFolder, image.local_path);
     const absPath = path.join(subDir, image.local_filename);
     const relPath = path.join(image.local_path, image.local_filename)

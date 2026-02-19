@@ -819,48 +819,10 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     }
   };
 
-  const startEmptyStructure = async (count = 100) => {
-    if (pages.length > 0) {
-      const ok = confirm(
-        `⚠️ Cette action va supprimer les ${pages.length} page(s) existante(s) et créer ${count} cases vides.\n\nContinuer ?`
-      );
-      if (!ok) return;
-    }
-
-    setGeneratingStructure(true);
-    setStructureError(null);
-
-    try {
-      const token = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('accessToken='))
-        ?.split('=')[1];
-
-      const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/empty-structure`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({ count }),
-          credentials: 'include',
-        }
-      );
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(err.error || `Erreur ${res.status}`);
-      }
-
-      await loadPages();
-    } catch (error: any) {
-      console.error('❌ Erreur création structure vide:', error);
-      setStructureError(error.message || 'Erreur lors de la création');
-    } finally {
-      setGeneratingStructure(false);
-    }
+  const startEmptyStructure = (count = 100) => {
+    // Affiche simplement N emplacements vides dans la grille.
+    // Aucune page n'est créée en base — l'utilisateur glisse les templates dessus.
+    setAdditionalSlots(count);
   };
 
   const handleSavePage = async (pageData: any) => {
@@ -1251,20 +1213,10 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                       </div>
                       <button
                         onClick={() => startEmptyStructure(100)}
-                        disabled={generatingStructure}
-                        className="w-full py-2.5 bg-white text-gray-700 text-sm font-semibold rounded-xl border-2 border-gray-300 hover:border-gray-400 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                        className="w-full py-2.5 bg-white text-gray-700 text-sm font-semibold rounded-xl border-2 border-gray-300 hover:border-gray-400 hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
                       >
-                        {generatingStructure ? (
-                          <>
-                            <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                            Création en cours...
-                          </>
-                        ) : (
-                          <>
-                            <TableCellsIcon className="w-4 h-4" />
-                            Partir de 100 cases vides
-                          </>
-                        )}
+                        <TableCellsIcon className="w-4 h-4" />
+                        Partir de 100 cases vides
                       </button>
                     </div>
                   </div>

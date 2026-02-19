@@ -51,14 +51,27 @@ export class PageRedactionService {
         throw new Error('Template non trouvé');
       }
 
-      // 3. Charger l'article WordPress source
-      const article = await this.loadArticleSource(page.url_source);
-      if (!article) {
-        throw new Error('Article WordPress source non trouvé');
-      }
+      // 3. Charger le contenu source (article spécifique OU contexte général du site)
+      let article: any;
+      let articleContext: string;
 
-      // 4. Analyser les images si nécessaire
-      await this.ensureImagesAnalyzed(article);
+      if (page.url_source) {
+        // Mode POI / INSPIRATION : article WordPress spécifique
+        article = await this.loadArticleSource(page.url_source);
+        if (!article) {
+          throw new Error('Article WordPress source non trouvé');
+        }
+        // 4a. Analyser les images de l'article si nécessaire
+        await this.ensureImagesAnalyzed(article);
+        articleContext = this.formatArticle(article);
+        console.log(`📄 Mode article spécifique : ${article.title}`);
+      } else {
+        // Mode contexte général : COUVERTURE, PRESENTATION_*, CLUSTER, SAISON, etc.
+        // Utiliser le contenu global du site (articles_raw) + métadonnées du guide
+        article = null;
+        articleContext = await this.buildGeneralContext(_guideId, page);
+        console.log(`🌐 Mode contexte général (aucune url_source)`);
+      }
 
       // 5. Charger les prompts
       const promptRedaction = await this.loadPrompt('redaction_page');
@@ -67,7 +80,7 @@ export class PageRedactionService {
       // 6. Générer avec retry automatique
       const result = await this.generateWithRetry(
         template,
-        article,
+        articleContext,
         promptRedaction,
         promptRegles
       );
@@ -155,10 +168,11 @@ export class PageRedactionService {
 
   /**
    * Génère le contenu avec retry automatique si validation échoue
+   * @param articleContext - Contenu formaté (article spécifique ou contexte général)
    */
   private async generateWithRetry(
     template: any,
-    article: any,
+    articleContext: string,
     promptRedaction: string,
     promptRegles: string
   ): Promise<RedactionResult> {
@@ -178,7 +192,7 @@ export class PageRedactionService {
       // Construire le prompt (avec erreurs de la tentative précédente si retry)
       let prompt = this.openaiService.replaceVariables(promptRedaction, {
         REGLES_REGION_LOVERS: promptRegles,
-        ARTICLE_WORDPRESS: this.formatArticle(article),
+        ARTICLE_WORDPRESS: articleContext,
         TEMPLATE_INSTRUCTIONS: templateInstructions,
       });
 
@@ -294,12 +308,78 @@ INSTRUCTIONS STRICTES :
       throw new Error('URL source manquante');
     }
 
-    // Chercher l'article par son URL française
+    // Chercher l'article par son URL (toutes langues)
     const article = await this.db.collection('articles_raw').findOne({
-      'urls_by_lang.fr': urlSource,
+      $or: [
+        { 'urls_by_lang.fr': urlSource },
+        { 'urls_by_lang.en': urlSource },
+        { 'urls_by_lang.de': urlSource },
+        { 'urls_by_lang.es': urlSource },
+        { 'urls_by_lang.it': urlSource },
+      ],
     });
 
     return article;
+  }
+
+  /**
+   * Construit un contexte général depuis le site WordPress pour les pages
+   * qui n'ont pas d'article source spécifique (COUVERTURE, PRESENTATION_*, SAISON, etc.)
+   *
+   * Fournit à l'IA :
+   *  - Les métadonnées du guide (destination, année, langue)
+   *  - La liste des clusters et POIs du guide
+   *  - Un échantillon d'articles du site pour la couleur éditoriale
+   */
+  private async buildGeneralContext(guideId: string, page: any): Promise<string> {
+    const parts: string[] = [];
+
+    // 1. Métadonnées du guide
+    const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+    if (guide) {
+      parts.push(`=== GUIDE ===`);
+      parts.push(`Destination : ${guide.destination ?? guide.destinations?.[0] ?? 'N/A'}`);
+      parts.push(`Année : ${guide.year ?? 'N/A'}`);
+      parts.push(`Langue cible : ${guide.language ?? 'fr'}`);
+      if (page.titre) parts.push(`Page à rédiger : ${page.titre}`);
+      if (page.template_name) parts.push(`Template : ${page.template_name}`);
+    }
+
+    // 2. Structure du guide (clusters + POIs)
+    const poisDoc = await this.db.collection('pois_selection').findOne({ guide_id: guideId });
+    if (poisDoc?.pois?.length > 0) {
+      parts.push(`\n=== STRUCTURE DU GUIDE (clusters et lieux) ===`);
+      const byCluster: Record<string, string[]> = {};
+      for (const poi of poisDoc.pois) {
+        const cluster = poi.cluster_name || 'Sans cluster';
+        if (!byCluster[cluster]) byCluster[cluster] = [];
+        byCluster[cluster].push(poi.nom);
+      }
+      for (const [cluster, pois] of Object.entries(byCluster)) {
+        parts.push(`${cluster} : ${pois.join(', ')}`);
+      }
+    }
+
+    // 3. Échantillon d'articles du site (5 articles pour donner le ton éditorial)
+    const sampleArticles = await this.db
+      .collection('articles_raw')
+      .find({}, { projection: { title: 1, categories: 1, tags: 1, markdown: 1, html_brut: 1 } })
+      .limit(5)
+      .toArray();
+
+    if (sampleArticles.length > 0) {
+      parts.push(`\n=== CONTENUS WORDPRESS DU SITE (échantillon) ===`);
+      parts.push(`Ces articles représentent le ton éditorial et les informations disponibles sur la destination.`);
+      for (const art of sampleArticles) {
+        parts.push(`\n--- ${art.title ?? 'Article'} ---`);
+        if (art.categories?.length) parts.push(`Catégories : ${art.categories.join(', ')}`);
+        // Utiliser markdown si disponible, sinon html_brut tronqué
+        const content = art.markdown || art.html_brut || '';
+        parts.push(content.slice(0, 2000)); // Limiter la taille par article
+      }
+    }
+
+    return parts.join('\n');
   }
 
   /**

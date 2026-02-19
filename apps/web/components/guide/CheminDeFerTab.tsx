@@ -579,12 +579,18 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     }
   };
 
+  // Templates qui nécessitent un article WordPress spécifique pour la génération
+  const TEMPLATES_REQUIRING_URL = ['POI', 'INSPIRATION'];
+
   const handleOpenContent = async (page: Page) => {
     // Pour les pages sans contenu (draft) : toujours lancer la génération directement
     const hasContent = page.statut_editorial && !['draft'].includes(page.statut_editorial);
     if (!hasContent) {
-      if (!page.url_source) {
-        alert('Aucun article WordPress source associé à cette page. Veuillez d\'abord lier un article.');
+      const requiresUrl = TEMPLATES_REQUIRING_URL.some(t =>
+        (page.template_name || '').toUpperCase().startsWith(t)
+      );
+      if (requiresUrl && !page.url_source) {
+        alert('Aucun article WordPress source associé à cette page. Veuillez d\'abord lier un article via le bouton crayon.');
         return;
       }
       console.log('🚀 Lancement direct de la génération pour:', page.titre);

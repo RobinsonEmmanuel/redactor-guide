@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { XMarkIcon, SparklesIcon, ArrowPathIcon, PhotoIcon } from '@heroicons/react/24/outline';
 import ImageAnalysisModal from './ImageAnalysisModal';
 import ImageSelectorModal from './ImageSelectorModal';
@@ -43,6 +43,102 @@ interface Page {
   ordre: number;
   url_source?: string;
 }
+
+// ─── BoldTextArea ─────────────────────────────────────────────────────────────
+// Textarea enrichi avec un bouton "Gras" qui entoure la sélection de marqueurs
+// **...** compatibles avec le script InDesign.
+
+interface BoldTextAreaProps {
+  value: string;
+  onChange: (val: string) => void;
+  rows?: number;
+  className?: string;
+}
+
+function BoldTextArea({ value, onChange, rows = 4, className }: BoldTextAreaProps) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  const handleBold = () => {
+    const ta = ref.current;
+    if (!ta) return;
+
+    const start = ta.selectionStart;
+    const end   = ta.selectionEnd;
+    if (start === end) return; // rien de sélectionné
+
+    const selected = value.slice(start, end);
+    let newValue: string;
+    let newStart: number;
+    let newEnd:   number;
+
+    // Toggle : déjà en gras → retirer les marqueurs
+    if (selected.startsWith('**') && selected.endsWith('**') && selected.length > 4) {
+      const inner = selected.slice(2, -2);
+      newValue = value.slice(0, start) + inner + value.slice(end);
+      newStart = start;
+      newEnd   = start + inner.length;
+    } else {
+      newValue = value.slice(0, start) + '**' + selected + '**' + value.slice(end);
+      newStart = start + 2;
+      newEnd   = end   + 2;
+    }
+
+    onChange(newValue);
+
+    // Restaurer la sélection après re-render React
+    requestAnimationFrame(() => {
+      if (ref.current) {
+        ref.current.setSelectionRange(newStart, newEnd);
+        ref.current.focus();
+      }
+    });
+  };
+
+  // Aperçu inline : **texte** → <strong>texte</strong>
+  const hasMarkers = value.includes('**');
+  const previewHtml = hasMarkers
+    ? value.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    : '';
+
+  return (
+    <div>
+      {/* Barre d'outils */}
+      <div className="flex items-center gap-2 mb-1">
+        <button
+          type="button"
+          onMouseDown={(e) => { e.preventDefault(); handleBold(); }}
+          title="Mettre en gras — sélectionner du texte puis cliquer"
+          className="px-2 py-0.5 text-sm font-bold border border-gray-300 rounded hover:bg-gray-100 active:bg-gray-200 transition-colors select-none"
+        >
+          G
+        </button>
+        <span className="text-xs text-gray-400">
+          Sélectionner du texte, puis cliquer <strong>G</strong> pour le mettre en gras
+        </span>
+      </div>
+
+      <textarea
+        ref={ref}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={rows}
+        className={className}
+      />
+
+      {/* Aperçu du rendu gras */}
+      {hasMarkers && (
+        <div className="mt-1.5 px-3 py-2 bg-gray-50 border border-gray-200 rounded text-sm text-gray-700 leading-relaxed">
+          <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide block mb-0.5">
+            Aperçu InDesign
+          </span>
+          <span dangerouslySetInnerHTML={{ __html: previewHtml }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface ContentEditorModalProps {
   page: Page;
@@ -159,7 +255,8 @@ export default function ContentEditorModal({
 
   const getCharacterCount = (fieldName: string, maxChars?: number) => {
     const value = formData[fieldName] || '';
-    const count = value.length;
+    // Les marqueurs **...** ne comptent pas dans la longueur finale InDesign
+    const count = String(value).replace(/\*\*/g, '').length;
     if (!maxChars) return null;
     const percentage = (count / maxChars) * 100;
     const color = percentage > 100 ? 'text-red-600' : percentage > 90 ? 'text-orange-600' : 'text-gray-500';
@@ -207,8 +304,9 @@ export default function ContentEditorModal({
           </div>
         );
 
-      case 'texte':
-        const isOverLimit = field.max_chars && fieldValue.length > field.max_chars;
+      case 'texte': {
+        const plainLength = String(fieldValue).replace(/\*\*/g, '').length;
+        const isOverLimit = field.max_chars ? plainLength > field.max_chars : false;
         return (
           <div key={field.name} className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -217,13 +315,13 @@ export default function ContentEditorModal({
             {field.description && (
               <p className="text-xs text-gray-500 mb-2">{field.description}</p>
             )}
-            <textarea
+            <BoldTextArea
               value={fieldValue}
-              onChange={(e) => handleFieldChange(field.name, e.target.value)}
+              onChange={(val) => handleFieldChange(field.name, val)}
               rows={4}
               className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                isOverLimit 
-                  ? 'border-red-500 bg-red-50 text-red-900' 
+                isOverLimit
+                  ? 'border-red-500 bg-red-50 text-red-900'
                   : 'border-gray-300'
               }`}
             />
@@ -234,11 +332,12 @@ export default function ContentEditorModal({
             )}
             {isOverLimit && (
               <p className="mt-1 text-xs text-red-600 font-medium">
-                ⚠️ Texte en dépassement de {fieldValue.length - field.max_chars!} caractères
+                ⚠️ Texte en dépassement de {plainLength - field.max_chars!} caractères
               </p>
             )}
           </div>
         );
+      }
 
       case 'image':
         return (

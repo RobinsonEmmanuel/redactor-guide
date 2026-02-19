@@ -762,6 +762,13 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   };
 
   const generateStructure = async () => {
+    if (pages.length > 0) {
+      const ok = confirm(
+        `⚠️ Cette action va supprimer les ${pages.length} page(s) existante(s) et régénérer la structure complète depuis le template.\n\nContinuer ?`
+      );
+      if (!ok) return;
+    }
+
     setGeneratingStructure(true);
     setStructureError(null);
 

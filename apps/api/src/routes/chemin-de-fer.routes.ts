@@ -807,13 +807,10 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       );
       const cheminDeFerId = cdfResult?._id?.toString() ?? '';
 
-      // 6. Vérifier si des pages existent déjà (requête sur chemin_de_fer_id)
-      const existingPagesCount = await db.collection('pages').countDocuments({ chemin_de_fer_id: cheminDeFerId });
-      
-      if (existingPagesCount > 0) {
-        return reply.code(409).send({
-          error: `Le guide contient déjà ${existingPagesCount} page(s). Veuillez les supprimer avant de générer la structure.`,
-        });
+      // 6. Supprimer les pages existantes avant de régénérer
+      const deleteResult = await db.collection('pages').deleteMany({ chemin_de_fer_id: cheminDeFerId });
+      if (deleteResult.deletedCount > 0) {
+        console.log(`🗑️ [Generate Structure] ${deleteResult.deletedCount} page(s) existante(s) supprimée(s)`);
       }
 
       // 7. Normaliser les pages du builder vers le format attendu par le chemin de fer

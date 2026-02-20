@@ -77,32 +77,37 @@ function moveItem(item, targetX, targetY) {
 }
 
 // ─── 4. Appliquer le gras via GREP (cherche **...**, applique style, supprime marqueurs)
-// Approche GREP : évite tout calcul d'indices de caractères (incompatible avec ExtendScript)
+// Utilise tf.parentStory car findGrep/changeGrep ne sont pas disponibles sur TextFrame directement.
 function applyBoldMarkers(tf) {
-    var boldStyle = doc.characterStyles.itemByName(BOLD_STYLE_NAME);
+    try {
+        var story = tf.parentStory;
+        var boldStyle = doc.characterStyles.itemByName(BOLD_STYLE_NAME);
 
-    // Chercher les patterns **...** dans ce bloc texte
-    app.findGrepPreferences  = NothingEnum.NOTHING;
-    app.changeGrepPreferences = NothingEnum.NOTHING;
-    app.findGrepPreferences.findWhat = "\\*\\*[^*]+\\*\\*";
-    var matches = tf.findGrep();
-    app.findGrepPreferences = NothingEnum.NOTHING;
+        // Chercher les patterns **...** dans cette story
+        app.findGrepPreferences  = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+        app.findGrepPreferences.findWhat = "\\*\\*[^*]+\\*\\*";
+        var matches = story.findGrep();
+        app.findGrepPreferences = NothingEnum.NOTHING;
 
-    // Appliquer le style "Gras" à chaque correspondance (marqueurs inclus)
-    if (boldStyle.isValid) {
-        for (var m = 0; m < matches.length; m++) {
-            matches[m].appliedCharacterStyle = boldStyle;
+        // Appliquer le style "Gras" à chaque correspondance (marqueurs inclus)
+        if (boldStyle.isValid) {
+            for (var m = 0; m < matches.length; m++) {
+                try { matches[m].appliedCharacterStyle = boldStyle; } catch(e) {}
+            }
         }
-    }
 
-    // Supprimer les marqueurs ** — le texte garde le style gras
-    app.findGrepPreferences  = NothingEnum.NOTHING;
-    app.changeGrepPreferences = NothingEnum.NOTHING;
-    app.findGrepPreferences.findWhat  = "\\*\\*";
-    app.changeGrepPreferences.changeTo = "";
-    tf.changeGrep();
-    app.findGrepPreferences  = NothingEnum.NOTHING;
-    app.changeGrepPreferences = NothingEnum.NOTHING;
+        // Supprimer les marqueurs ** — le texte garde le style gras
+        app.findGrepPreferences  = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+        app.findGrepPreferences.findWhat  = "\\*\\*";
+        app.changeGrepPreferences.changeTo = "";
+        story.changeGrep();
+        app.findGrepPreferences  = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+    } catch(e) {
+        // Ne pas bloquer le reste du script si le gras échoue
+    }
 }
 
 // ─── 5. Injecter texte simple avec gras optionnel ────────────────────────────
@@ -242,18 +247,20 @@ function injectHyperlink(page, label, url) {
             try { dest = doc.hyperlinkURLDestinations.itemByName(url); } catch(e2) { continue; }
         }
 
-        // Créer la source sur tout le texte du bloc
+        // Créer la source sur tout le texte du bloc (via parentStory)
         var src;
         try {
-            src = doc.hyperlinkTextSources.add(tf.texts.item(0));
+            src = doc.hyperlinkTextSources.add(tf.parentStory.texts.item(0));
         } catch(e) { continue; }
 
-        // Créer l'hyperlien (sans encadré visible)
+        // Créer l'hyperlien avec soulignement visible
         try {
-            doc.hyperlinks.add(src, dest, {
+            var hl = doc.hyperlinks.add(src, dest, {
                 visible:     false,
                 highlight:   HyperlinkAppearanceHighlight.NONE
             });
+            // Appliquer le soulignement au texte pour signaler visuellement le lien
+            tf.texts.item(0).underline = true;
         } catch(e) {}
     }
 }

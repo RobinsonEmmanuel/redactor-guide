@@ -247,6 +247,7 @@ export interface NormalizedGuideExportV2 {
 // ─── Table de variants picto ──────────────────────────────────────────────────
 
 const PICTO_VARIANT_TABLE: Record<string, string> = {
+  // Noms sémantiques (nouveaux templates)
   'POI_picto_interet|incontournable': 'picto_interet_1',
   'POI_picto_interet|interessant':    'picto_interet_2',
   'POI_picto_interet|a_voir':         'picto_interet_3',
@@ -261,6 +262,21 @@ const PICTO_VARIANT_TABLE: Record<string, string> = {
   'POI_picto_restauration|non': 'picto_restauration_non',
   'POI_picto_famille|oui':      'picto_famille_oui',
   'POI_picto_famille|non':      'picto_famille_non',
+  // Alias numérotés (anciens templates restaurés depuis backup)
+  'POI_picto_1|incontournable': 'picto_interet_1',
+  'POI_picto_1|interessant':    'picto_interet_2',
+  'POI_picto_1|a_voir':         'picto_interet_3',
+  'POI_picto_2|100': 'picto_pmr_full',
+  'POI_picto_2|50':  'picto_pmr_half',
+  'POI_picto_2|0':   'picto_pmr_none',
+  'POI_picto_3|oui': 'picto_escaliers_oui',
+  'POI_picto_3|non': 'picto_escaliers_non',
+  'POI_picto_4|oui': 'picto_toilettes_oui',
+  'POI_picto_4|non': 'picto_toilettes_non',
+  'POI_picto_5|oui': 'picto_restauration_oui',
+  'POI_picto_5|non': 'picto_restauration_non',
+  'POI_picto_6|oui': 'picto_famille_oui',
+  'POI_picto_6|non': 'picto_famille_non',
 };
 
 // ─── Helpers exportés ─────────────────────────────────────────────────────────

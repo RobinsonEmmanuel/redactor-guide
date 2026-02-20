@@ -1,3 +1,4 @@
+// v2.1.0 — variant_layer résolu depuis field.option_layers (template = source de vérité)
 import { Db, ObjectId } from 'mongodb';
 import {
   FIELD_LAYER_MAPPINGS,

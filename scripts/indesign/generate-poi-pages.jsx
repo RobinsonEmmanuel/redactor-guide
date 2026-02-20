@@ -31,8 +31,8 @@ var DURATION_GAP       = 3;     // mm — espace entre dernier picto et clock/du
 // Champs dont le texte est rendu en liste à puces
 var BULLET_LIST_FIELDS = { "POI_texte_2": true };
 
-// Champs gérés par injectPictoBar — exclus de l'injection texte standard
-var SKIP_IN_TEXT_STEP  = { "POI_meta_duree": true };
+// Champs gérés par injectPictoBar ou injectHyperlink — exclus de l'injection texte standard
+var SKIP_IN_TEXT_STEP  = { "POI_meta_duree": true, "POI_lien_1": true };
 
 // Champs à NE PAS masquer à l'étape A (ils gardent leur texte statique du gabarit)
 var SKIP_IN_MASK_STEP  = { "POI_lien_1": true };

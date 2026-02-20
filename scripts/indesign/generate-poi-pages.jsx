@@ -267,55 +267,39 @@ function injectHyperlink(page, label, url) {
 }
 
 // ─── 9. Barre de pictos avec reflow dynamique + durée ────────────────────────
-// Inclut les labels de base ET les variants pour masquer tous les blocs possibles
+//
+// Architecture propre :
+//   - ALL_PICTO_LABELS : liste exhaustive des labels InDesign possibles (masquage initial)
+//   - injectPictoBar   : utilise content._derived.pictos_active (déjà ordonné et filtré)
+//
+// _derived.pictos_active est calculé par le backend depuis le template :
+//   chaque entrée contient { indesign_layer, variant_layer }
+//   → le script InDesign ne connaît PLUS les noms de champs JSON, seulement les labels ID.
+//
+// Ajouter un nouveau picto = ajouter son label dans ALL_PICTO_LABELS et dans le template.
+// Aucune modification du script nécessaire pour le reste.
+
 var ALL_PICTO_LABELS = [
     "picto_interet",  "picto_interet_1", "picto_interet_2", "picto_interet_3",
     "picto_pmr",      "picto_pmr_full",  "picto_pmr_half",  "picto_pmr_none",
-    "picto_escaliers",    "picto_escaliers_oui",
-    "picto_toilettes",    "picto_toilettes_oui",
-    "picto_restauration", "picto_restauration_oui",
-    "picto_famille",      "picto_famille_oui",
+    "picto_escaliers",
+    "picto_toilettes",
+    "picto_restauration",
+    "picto_famille",
     "picto_duree"
 ];
-
-// Ordre d'affichage — couvre les 2 conventions de nommage :
-//   numérotée (POI_picto_1…6 — templates restaurés depuis backup)
-//   sémantique (POI_picto_interet… — nouveaux templates)
-// L'ordre interleave les deux pour que le numéroté soit testé en premier.
-var PICTO_ORDER = [
-    "POI_picto_1", "POI_picto_interet",
-    "POI_picto_2", "POI_picto_pmr",
-    "POI_picto_3", "POI_picto_escaliers",
-    "POI_picto_4", "POI_picto_toilettes",
-    "POI_picto_5", "POI_picto_restauration",
-    "POI_picto_6", "POI_picto_famille"
-];
-
-// Résolution du calque InDesign depuis picto_key (quand variant_layer est null)
-var PICTO_KEY_TO_LAYER = {
-    "PICTO_SMILEY_INCONTOURNABLE": "picto_interet_1",
-    "PICTO_SMILEY_INTERESSANT":    "picto_interet_2",
-    "PICTO_SMILEY_A_VOIR":         "picto_interet_3",
-    "PICTO_PMR_FULL":              "picto_pmr_full",
-    "PICTO_PMR_HALF":              "picto_pmr_half",
-    "PICTO_PMR_NONE":              "picto_pmr_none",
-    "PICTO_ESCALIERS":             "picto_escaliers",
-    "PICTO_TOILETTES":             "picto_toilettes",
-    "PICTO_RESTAURATION":          "picto_restauration",
-    "PICTO_FAMILLE":               "picto_famille"
-};
 
 /**
  * Positionne les pictos actifs en reflow horizontal.
  * Gère également picto_duree (clock) et txt_poi_duree en fin de barre.
  *
- * @param {Page}   page          - page InDesign cible
- * @param {Object} pictoContent  - pageData.content.pictos
- * @param {string} durationValue - valeur de POI_meta_duree (ou null)
+ * @param {Page}   page         - page InDesign cible
+ * @param {Object} contentData  - pageData.content (objet complet, pas seulement .pictos)
+ * @param {string} durationValue- valeur de durée de visite (ou null)
  */
-function injectPictoBar(page, pictoContent, durationValue) {
+function injectPictoBar(page, contentData, durationValue) {
 
-    // 1. Masquer TOUS les blocs pictos (labels base + variants) + texte durée
+    // 1. Masquer TOUS les blocs picto connus + texte durée
     for (var p = 0; p < ALL_PICTO_LABELS.length; p++) {
         var pBlocks = findByLabelOnPage(page, ALL_PICTO_LABELS[p]);
         for (var b = 0; b < pBlocks.length; b++) {
@@ -327,35 +311,30 @@ function injectPictoBar(page, pictoContent, durationValue) {
         durTextBlocks[d].visible = false;
     }
 
-    if (!pictoContent) return;
+    if (!contentData) return;
 
-    // 2. Collecter les pictos actifs dans l'ordre défini
-    // seenLayers évite les doublons quand les deux conventions de nommage
-    // (numérotée + sémantique) sont présentes en même temps dans PICTO_ORDER.
+    // 2. Source de vérité : _derived.pictos_active (calculé par le backend)
+    //    Chaque entrée : { field, picto_key, indesign_layer, variant_layer, value, label }
+    //    variant_layer = calque exact du gabarit (ex: picto_interet_2, picto_pmr_half)
+    //    indesign_layer = calque de base, utilisé en fallback si variant absent du gabarit
+    var pictosActive = (contentData._derived && contentData._derived.pictos_active)
+        ? contentData._derived.pictos_active
+        : [];
+
+    // 3. Collecter les blocs InDesign dans l'ordre de la liste
     var activePictos = [];
-    var seenLayers  = {};
-    for (var o = 0; o < PICTO_ORDER.length; o++) {
-        var fieldKey  = PICTO_ORDER[o];
-        var pictoData = pictoContent[fieldKey];
-        if (!pictoData || !pictoData.picto_key) continue;
-
-        // Résolution calque : variant_layer (JSON v1.1) → PICTO_KEY_TO_LAYER → indesign_layer
-        var layer = pictoData.variant_layer || PICTO_KEY_TO_LAYER[pictoData.picto_key] || pictoData.indesign_layer;
+    for (var o = 0; o < pictosActive.length; o++) {
+        var entry = pictosActive[o];
+        // Résolution : variant_layer (calque précis) → indesign_layer (calque de base)
+        var layer = entry.variant_layer || entry.indesign_layer;
         if (!layer) continue;
 
-        // Anti-doublon : on ne traite pas deux fois le même calque InDesign
-        if (seenLayers[layer]) continue;
-
         var found = findByLabelOnPage(page, layer);
-        // Fallback vers indesign_layer si le calque variant exact n'existe pas dans le gabarit
-        if (found.length === 0 && pictoData.indesign_layer && layer !== pictoData.indesign_layer) {
-            found = findByLabelOnPage(page, pictoData.indesign_layer);
-            layer = pictoData.indesign_layer;
+        // Fallback : si le calque variant n'existe pas dans ce gabarit, utiliser le calque de base
+        if (found.length === 0 && entry.indesign_layer && layer !== entry.indesign_layer) {
+            found = findByLabelOnPage(page, entry.indesign_layer);
         }
-        if (found.length > 0) {
-            seenLayers[layer] = true;
-            activePictos.push(found[0]);
-        }
+        if (found.length > 0) activePictos.push(found[0]);
     }
 
     if (activePictos.length === 0) return;
@@ -457,10 +436,13 @@ for (var i = 0; i < data.pages.length; i++) {
     }
 
     // Étape D : pictos + durée
-    // Supporte les deux conventions de nommage : POI_meta_duree (sémantique) et POI_meta_1 (numéroté)
-    var durationVal = (textContent && (textContent["POI_meta_duree"] || textContent["POI_meta_1"])) ?
-                      (textContent["POI_meta_duree"] || textContent["POI_meta_1"]) : null;
-    injectPictoBar(newPage, pictoContent, durationVal);
+    // durationVal : lecture depuis les champs texte (sémantique ou numéroté)
+    var durationVal = null;
+    if (textContent) {
+        durationVal = textContent["POI_meta_duree"] || textContent["POI_meta_1"] || null;
+    }
+    // injectPictoBar reçoit l'objet content complet pour accéder à _derived.pictos_active
+    injectPictoBar(newPage, pageData.content, durationVal);
 
     // Étape E : hyperlien sur le lien bas de page → url_source de l'article
     var linkLabel = data.mappings.fields["POI_lien_1"];

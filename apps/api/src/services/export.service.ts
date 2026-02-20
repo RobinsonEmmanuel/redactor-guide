@@ -6,6 +6,7 @@ import {
   isPictoField,
   resolvePictoMapping,
   resolveFieldLayer,
+  resolveVariantLayerFromMappings,
 } from '../config/export-mappings.js';
 
 const EXPORTED_STATUSES = ['generee_ia', 'relue', 'validee', 'texte_coule', 'visuels_montes'];
@@ -54,19 +55,32 @@ export class ExportService {
 
       const textFields:  Record<string, string>  = {};
       const imageFields: Record<string, { url: string; indesign_layer: string; local_filename: string; local_path: string }> = {};
-      const pictoFields: Record<string, { value: string; picto_key: string | null; indesign_layer: string; label: string }> = {};
+      const pictoFields: Record<string, {
+        value: string;
+        picto_key: string | null;
+        indesign_layer: string;
+        variant_layer: string | null;
+        label: string;
+      }> = {};
 
       for (const field of fields) {
         const value = content[field.name];
         if (value === undefined || value === null || value === '') continue;
 
         if (isPictoField(field.name)) {
-          const mapping = resolvePictoMapping(field.name, String(value));
+          const strValue  = String(value);
+          const mapping   = resolvePictoMapping(field.name, strValue);
+          // variant_layer : source de vérité = field.option_layers (défini dans le template)
+          // Fallback : PICTO_VARIANT_TABLE (rétrocompatiblité templates sans option_layers)
+          const variantLayer: string | null =
+            (field as any).option_layers?.[strValue] ??
+            resolveVariantLayerFromMappings(field.name, strValue);
           pictoFields[field.name] = {
-            value: String(value),
+            value: strValue,
             picto_key: mapping.picto_key,
             // Priorité : field.indesign_layer > PICTO_LAYER_MAPPINGS > deriveLayerName()
             indesign_layer: resolveFieldLayer(field.name, field.indesign_layer),
+            variant_layer: variantLayer,
             label: mapping.label,
           };
         } else if (field.type === 'image') {

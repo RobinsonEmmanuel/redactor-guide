@@ -48,28 +48,17 @@ export const FIELD_LAYER_MAPPINGS: Record<string, string> = {
   CLUSTER_meta_duree_visite:      'txt_cluster_duree',
   CLUSTER_texte_conseil_acces:    'txt_cluster_acces',
 
-  // POI
-  POI_titre_1:   'txt_poi_nom',
-  POI_texte_1:   'txt_poi_desc_principale',
-  POI_texte_2:   'txt_poi_desc_secondaire',
-  POI_image_1:   'img_poi_grand_rond',
-  POI_image_2:   'img_poi_petit_rond',
-  POI_image_3:   'img_poi_banniere',
-  POI_meta_duree:'txt_poi_duree',
-  POI_lien_1:    'lnk_poi_1',
-  // pictos POI (noms sémantiques + numérotés pour compatibilité backup) → voir PICTO_LAYER_MAPPINGS
-  POI_picto_interet:      'picto_interet',
-  POI_picto_pmr:          'picto_pmr',
-  POI_picto_escaliers:    'picto_escaliers',
-  POI_picto_toilettes:    'picto_toilettes',
-  POI_picto_restauration: 'picto_restauration',
-  POI_picto_famille:      'picto_famille',
-  POI_picto_1:            'picto_interet',
-  POI_picto_2:            'picto_pmr',
-  POI_picto_3:            'picto_escaliers',
-  POI_picto_4:            'picto_toilettes',
-  POI_picto_5:            'picto_restauration',
-  POI_picto_6:            'picto_famille',
+  // POI — champs texte/image/lien (fallback si field.indesign_layer absent du template)
+  // Les champs picto sont dans PICTO_LAYER_MAPPINGS
+  POI_titre_1:    'txt_poi_titre_1',
+  POI_texte_1:    'txt_poi_texte_1',
+  POI_texte_2:    'txt_poi_texte_2',
+  POI_image_1:    'img_poi_grand_rond',
+  POI_image_2:    'img_poi_petit_rond',
+  POI_image_3:    'img_poi_bas_page',
+  POI_meta_duree: 'txt_poi_duree',
+  POI_meta_1:     'txt_poi_duree',
+  POI_lien_1:     'lnk_poi_1',
 
   // INSPIRATION
   INSPIRATION_titre_theme:              'txt_inspi_titre',
@@ -116,16 +105,20 @@ export const FIELD_LAYER_MAPPINGS: Record<string, string> = {
 
 // ─── Picto layer mapping ─────────────────────────────────────────────────────
 
-/** Mapping des champs picto vers les calques InDesign */
+/**
+ * Mapping des champs picto vers le calque InDesign de base.
+ * Priorité : field.indesign_layer (template) > ce mapping > deriveLayerName().
+ * Les templates migrés définissent field.indesign_layer → ce tableau est un fallback.
+ */
 export const PICTO_LAYER_MAPPINGS: Record<string, string> = {
-  // Noms sémantiques (nouveaux templates post-add-poi-pictos.js)
+  // Noms sémantiques
   POI_picto_interet:     'picto_interet',
   POI_picto_pmr:         'picto_pmr',
   POI_picto_escaliers:   'picto_escaliers',
   POI_picto_toilettes:   'picto_toilettes',
   POI_picto_restauration:'picto_restauration',
   POI_picto_famille:     'picto_famille',
-  // Noms numérotés (anciens templates restaurés depuis backup)
+  // Noms numérotés — fallback pour templates non migrés
   POI_picto_1: 'picto_interet',
   POI_picto_2: 'picto_pmr',
   POI_picto_3: 'picto_escaliers',
@@ -194,6 +187,48 @@ export const PICTO_VALUE_MAPPINGS: Record<string, PictoMapping> = {
 export function resolvePictoMapping(fieldName: string, value: string): PictoMapping {
   const key = `${fieldName}:${value}`;
   return PICTO_VALUE_MAPPINGS[key] ?? { picto_key: null, label: value };
+}
+
+/**
+ * Table de fallback : résout le variant_layer depuis le nom de champ + valeur.
+ * Utilisé uniquement quand le template ne définit pas option_layers.
+ * Les templates récents ont option_layers → cette table n'est plus le chemin principal.
+ */
+const VARIANT_LAYER_FALLBACK: Record<string, string | null> = {
+  'POI_picto_interet:incontournable': 'picto_interet_1',
+  'POI_picto_interet:interessant':    'picto_interet_2',
+  'POI_picto_interet:a_voir':         'picto_interet_3',
+  'POI_picto_1:incontournable':       'picto_interet_1',
+  'POI_picto_1:interessant':          'picto_interet_2',
+  'POI_picto_1:a_voir':               'picto_interet_3',
+  'POI_picto_pmr:100': 'picto_pmr_full',
+  'POI_picto_pmr:50':  'picto_pmr_half',
+  'POI_picto_pmr:0':   'picto_pmr_none',
+  'POI_picto_2:100':   'picto_pmr_full',
+  'POI_picto_2:50':    'picto_pmr_half',
+  'POI_picto_2:0':     'picto_pmr_none',
+  'POI_picto_escaliers:oui':    'picto_escaliers',
+  'POI_picto_escaliers:non':    null,
+  'POI_picto_3:oui':            'picto_escaliers',
+  'POI_picto_3:non':            null,
+  'POI_picto_toilettes:oui':    'picto_toilettes',
+  'POI_picto_toilettes:non':    null,
+  'POI_picto_4:oui':            'picto_toilettes',
+  'POI_picto_4:non':            null,
+  'POI_picto_restauration:oui': 'picto_restauration',
+  'POI_picto_restauration:non': null,
+  'POI_picto_5:oui':            'picto_restauration',
+  'POI_picto_5:non':            null,
+  'POI_picto_famille:oui':      'picto_famille',
+  'POI_picto_famille:non':      null,
+  'POI_picto_6:oui':            'picto_famille',
+  'POI_picto_6:non':            null,
+};
+
+/** Résout variant_layer depuis le mapping de fallback (quand option_layers absent du template) */
+export function resolveVariantLayerFromMappings(fieldName: string, value: string): string | null {
+  const key = `${fieldName}:${value}`;
+  return VARIANT_LAYER_FALLBACK[key] ?? null;
 }
 
 /** Retourne vrai si un champ est de type picto */

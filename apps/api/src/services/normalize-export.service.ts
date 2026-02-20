@@ -244,57 +244,18 @@ export interface NormalizedGuideExportV2 {
   };
 }
 
-// ─── Table de variants picto ──────────────────────────────────────────────────
-
-const PICTO_VARIANT_TABLE: Record<string, string> = {
-  // Noms sémantiques (nouveaux templates)
-  'POI_picto_interet|incontournable': 'picto_interet_1',
-  'POI_picto_interet|interessant':    'picto_interet_2',
-  'POI_picto_interet|a_voir':         'picto_interet_3',
-  'POI_picto_pmr|100': 'picto_pmr_full',
-  'POI_picto_pmr|50':  'picto_pmr_half',
-  'POI_picto_pmr|0':   'picto_pmr_none',
-  'POI_picto_escaliers|oui':    'picto_escaliers_oui',
-  'POI_picto_escaliers|non':    'picto_escaliers_non',
-  'POI_picto_toilettes|oui':    'picto_toilettes_oui',
-  'POI_picto_toilettes|non':    'picto_toilettes_non',
-  'POI_picto_restauration|oui': 'picto_restauration_oui',
-  'POI_picto_restauration|non': 'picto_restauration_non',
-  'POI_picto_famille|oui':      'picto_famille_oui',
-  'POI_picto_famille|non':      'picto_famille_non',
-  // Alias numérotés (anciens templates restaurés depuis backup)
-  'POI_picto_1|incontournable': 'picto_interet_1',
-  'POI_picto_1|interessant':    'picto_interet_2',
-  'POI_picto_1|a_voir':         'picto_interet_3',
-  'POI_picto_2|100': 'picto_pmr_full',
-  'POI_picto_2|50':  'picto_pmr_half',
-  'POI_picto_2|0':   'picto_pmr_none',
-  'POI_picto_3|oui': 'picto_escaliers_oui',
-  'POI_picto_3|non': 'picto_escaliers_non',
-  'POI_picto_4|oui': 'picto_toilettes_oui',
-  'POI_picto_4|non': 'picto_toilettes_non',
-  'POI_picto_5|oui': 'picto_restauration_oui',
-  'POI_picto_5|non': 'picto_restauration_non',
-  'POI_picto_6|oui': 'picto_famille_oui',
-  'POI_picto_6|non': 'picto_famille_non',
-};
-
 // ─── Helpers exportés ─────────────────────────────────────────────────────────
 
 /**
- * Résout le variant_layer d'un picto selon sa valeur.
- * Priorité : mappings.picto_values (runtime) > PICTO_VARIANT_TABLE (statique) > null.
+ * Résout le variant_layer d'un picto.
+ * Depuis la v1.1, variant_layer est calculé par export.service.ts (via field.option_layers
+ * du template, ou VARIANT_LAYER_FALLBACK). Le normaliseur le passe simplement tel quel.
+ * Cette fonction reste pour la rétrocompatibilité des appels externes.
  */
 export function resolveVariantLayer(
-  picto: Pick<ActivePicto, 'field' | 'value'>,
-  pictoValueMap?: Record<string, Record<string, string>>
+  picto: Pick<ActivePicto, 'field' | 'value'> & { variant_layer?: string | null },
 ): string | null {
-  const key = `${picto.field}|${picto.value}`;
-  if (pictoValueMap) {
-    const runtime = pictoValueMap[picto.field]?.[picto.value];
-    if (runtime) return runtime;
-  }
-  return PICTO_VARIANT_TABLE[key] ?? null;
+  return picto.variant_layer ?? null;
 }
 
 /**
@@ -521,10 +482,6 @@ export function normalizeGuideExportV2(
 ): NormalizedGuideExportV2 {
   const v1 = normalizeGuideExport(raw, options);
 
-  const pictoValueMap = (v1.mappings as any)?.picto_values as
-    | Record<string, Record<string, string>>
-    | undefined;
-
   const statsV2: NormalizationStatsV2 = {
     ...v1.normalization.stats,
     variant_layers_resolved:  0,
@@ -535,9 +492,11 @@ export function normalizeGuideExportV2(
   const pagesV2: NormalizedPageV2[] = v1.pages.map(page => {
 
     // ── Pictos → variant_layer ─────────────────────────────────────────────
+    // variant_layer est déjà calculé par export.service.ts (via field.option_layers
+    // ou VARIANT_LAYER_FALLBACK). On le propage simplement ici.
     const pictosV2: Record<string, ActivePictoV2> = {};
     for (const [key, picto] of Object.entries(page.content.pictos)) {
-      const variantLayer = resolveVariantLayer(picto, pictoValueMap);
+      const variantLayer = (picto as any).variant_layer ?? null;
       if (variantLayer !== null) statsV2.variant_layers_resolved++;
       pictosV2[key] = { ...picto, variant_layer: variantLayer };
     }

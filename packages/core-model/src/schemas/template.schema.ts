@@ -96,6 +96,18 @@ export const TemplateFieldSchema = z.object({
    * Ex: "txt_poi_nom", "img_poi_grand_rond", "picto_interet"
    */
   indesign_layer: z.string().optional(),
+
+  /**
+   * Pour type=picto uniquement.
+   * Mappe chaque valeur d'option vers le calque InDesign variant exact.
+   * C'est la source de vérité pour la résolution du variant_layer à l'export.
+   *
+   * Ex:
+   *   { "interessant": "picto_interet_2", "incontournable": "picto_interet_1", "a_voir": "picto_interet_3" }
+   *   { "100": "picto_pmr_full", "50": "picto_pmr_half", "0": "picto_pmr_none" }
+   *   { "oui": "picto_escaliers", "non": null }  ← null = picto non affiché
+   */
+  option_layers: z.record(z.string(), z.string().nullable()).optional(),
 });
 
 export type TemplateField = z.infer<typeof TemplateFieldSchema>;

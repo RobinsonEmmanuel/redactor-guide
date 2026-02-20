@@ -34,6 +34,9 @@ var BULLET_LIST_FIELDS = { "POI_texte_2": true };
 // Champs gérés par injectPictoBar — exclus de l'injection texte standard
 var SKIP_IN_TEXT_STEP  = { "POI_meta_duree": true };
 
+// Champs à NE PAS masquer à l'étape A (ils gardent leur texte statique du gabarit)
+var SKIP_IN_MASK_STEP  = { "POI_lien_1": true };
+
 // ─── 1. Charger JSON ──────────────────────────────────────────────────────────
 var jsonFile = File.openDialog("Choisir le JSON du guide");
 if (!jsonFile) exit();
@@ -208,7 +211,54 @@ function injectImage(page, label, imageData) {
     }
 }
 
-// ─── 8. Barre de pictos avec reflow dynamique + durée ────────────────────────
+// ─── 8. Injecter un hyperlien sur un bloc texte ──────────────────────────────
+// Le texte du bloc reste inchangé (statique du gabarit), seul le lien est ajouté.
+function injectHyperlink(page, label, url) {
+    if (!url || String(url).replace(/^\s+|\s+$/, "") === "") return;
+    var blocks = findByLabelOnPage(page, label);
+    for (var i = 0; i < blocks.length; i++) {
+        if (!(blocks[i] instanceof TextFrame)) continue;
+        var tf = blocks[i];
+        tf.visible = true;
+
+        // Supprimer les hyperliens existants sur ce bloc (évite les doublons)
+        var existingLinks = doc.hyperlinks;
+        for (var h = existingLinks.length - 1; h >= 0; h--) {
+            try {
+                var src = existingLinks.item(h).source;
+                if (src && src.sourceText && src.sourceText.parentTextFrames &&
+                    src.sourceText.parentTextFrames.length > 0 &&
+                    src.sourceText.parentTextFrames[0] === tf) {
+                    existingLinks.item(h).remove();
+                }
+            } catch(e) {}
+        }
+
+        // Créer la destination URL
+        var dest;
+        try {
+            dest = doc.hyperlinkURLDestinations.add(url);
+        } catch(e) {
+            try { dest = doc.hyperlinkURLDestinations.itemByName(url); } catch(e2) { continue; }
+        }
+
+        // Créer la source sur tout le texte du bloc
+        var src;
+        try {
+            src = doc.hyperlinkTextSources.add(tf.texts.item(0));
+        } catch(e) { continue; }
+
+        // Créer l'hyperlien (sans encadré visible)
+        try {
+            doc.hyperlinks.add(src, dest, {
+                visible:     false,
+                highlight:   HyperlinkAppearanceHighlight.NONE
+            });
+        } catch(e) {}
+    }
+}
+
+// ─── 9. Barre de pictos avec reflow dynamique + durée ────────────────────────
 // Inclut les labels de base ET les variants pour masquer tous les blocs possibles
 var ALL_PICTO_LABELS = [
     "picto_interet",  "picto_interet_1", "picto_interet_2", "picto_interet_3",
@@ -332,9 +382,10 @@ for (var i = 0; i < data.pages.length; i++) {
     var imageContent = pageData.content.images;
     var pictoContent = pageData.content.pictos;
 
-    // Étape A : masquer tous les champs mappés
+    // Étape A : masquer tous les champs mappés (sauf les champs statiques du gabarit)
     for (var key in data.mappings.fields) {
         if (!data.mappings.fields.hasOwnProperty(key)) continue;
+        if (SKIP_IN_MASK_STEP[key]) continue;
         injectText(newPage, data.mappings.fields[key], null);
     }
 
@@ -366,6 +417,12 @@ for (var i = 0; i < data.pages.length; i++) {
     // Étape D : pictos + durée
     var durationVal = (textContent && textContent["POI_meta_duree"]) ? textContent["POI_meta_duree"] : null;
     injectPictoBar(newPage, pictoContent, durationVal);
+
+    // Étape E : hyperlien sur le lien bas de page → url_source de l'article
+    var linkLabel = data.mappings.fields["POI_lien_1"];
+    if (linkLabel) {
+        injectHyperlink(newPage, linkLabel, pageData.url_source);
+    }
 }
 
 alert("Pages POI g\u00e9n\u00e9r\u00e9es avec succ\u00e8s \u2714");

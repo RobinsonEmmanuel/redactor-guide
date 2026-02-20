@@ -238,9 +238,37 @@ async function main() {
     console.log(`   Champs actuels : ${poiTemplate.fields.length}`);
     poiTemplate.fields.forEach(f => console.log(`     - [${f.type}] ${f.name}`));
 
+    // Fusion non-destructive : on met à jour uniquement les propriétés structurelles
+    // (name, type, indesign_layer, option_layers, options, order, label, description,
+    //  ai_instructions, max_chars, list_size) sans jamais toucher à `validation`.
+    const existingByName = {};
+    for (const f of poiTemplate.fields) {
+      existingByName[f.name] = f;
+      // Indexer aussi par ancien nom pour retrouver les champs renommés
+    }
+    // Construire la liste fusionnée
+    const mergedFields = POI_FIELDS.map(newField => {
+      // Chercher le champ existant par son nom sémantique…
+      let existing = existingByName[newField.name];
+      // … ou par son ancien nom numéroté (cas de renommage)
+      if (!existing) {
+        for (const [oldName, newName] of Object.entries(FIELD_RENAME_MAP)) {
+          if (newName === newField.name && existingByName[oldName]) {
+            existing = existingByName[oldName];
+            break;
+          }
+        }
+      }
+      if (existing && existing.validation) {
+        console.log(`   Validation préservée sur ${newField.name}`);
+        return { ...newField, validation: existing.validation };
+      }
+      return newField;
+    });
+
     const templateResult = await templatesCol.updateOne(
       { name: 'POI' },
-      { $set: { fields: POI_FIELDS, updated_at: new Date().toISOString() } }
+      { $set: { fields: mergedFields, updated_at: new Date().toISOString() } }
     );
     console.log(`✅ Template mis à jour (${templateResult.modifiedCount} modifié)`);
 

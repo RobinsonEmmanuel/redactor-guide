@@ -56,7 +56,20 @@ export const FIELD_LAYER_MAPPINGS: Record<string, string> = {
   POI_image_2:   'img_poi_petit_rond',
   POI_image_3:   'img_poi_banniere',
   POI_meta_duree:'txt_poi_duree',
-  // pictos POI → voir PICTO_LAYER_MAPPINGS
+  POI_lien_1:    'lnk_poi_1',
+  // pictos POI (noms sémantiques + numérotés pour compatibilité backup) → voir PICTO_LAYER_MAPPINGS
+  POI_picto_interet:      'picto_interet',
+  POI_picto_pmr:          'picto_pmr',
+  POI_picto_escaliers:    'picto_escaliers',
+  POI_picto_toilettes:    'picto_toilettes',
+  POI_picto_restauration: 'picto_restauration',
+  POI_picto_famille:      'picto_famille',
+  POI_picto_1:            'picto_interet',
+  POI_picto_2:            'picto_pmr',
+  POI_picto_3:            'picto_escaliers',
+  POI_picto_4:            'picto_toilettes',
+  POI_picto_5:            'picto_restauration',
+  POI_picto_6:            'picto_famille',
 
   // INSPIRATION
   INSPIRATION_titre_theme:              'txt_inspi_titre',
@@ -105,12 +118,20 @@ export const FIELD_LAYER_MAPPINGS: Record<string, string> = {
 
 /** Mapping des champs picto vers les calques InDesign */
 export const PICTO_LAYER_MAPPINGS: Record<string, string> = {
+  // Noms sémantiques (nouveaux templates post-add-poi-pictos.js)
   POI_picto_interet:     'picto_interet',
   POI_picto_pmr:         'picto_pmr',
   POI_picto_escaliers:   'picto_escaliers',
   POI_picto_toilettes:   'picto_toilettes',
   POI_picto_restauration:'picto_restauration',
   POI_picto_famille:     'picto_famille',
+  // Noms numérotés (anciens templates restaurés depuis backup)
+  POI_picto_1: 'picto_interet',
+  POI_picto_2: 'picto_pmr',
+  POI_picto_3: 'picto_escaliers',
+  POI_picto_4: 'picto_toilettes',
+  POI_picto_5: 'picto_restauration',
+  POI_picto_6: 'picto_famille',
 };
 
 // ─── Picto value → abstract key mapping ─────────────────────────────────────
@@ -128,31 +149,45 @@ export interface PictoMapping {
  * (le script InDesign masque le calque).
  */
 export const PICTO_VALUE_MAPPINGS: Record<string, PictoMapping> = {
-  // ── Intérêt ─────────────────────────────────────────────────────────────
+  // ── Intérêt (noms sémantiques ET numérotés) ──────────────────────────────
   'POI_picto_interet:incontournable': { picto_key: 'PICTO_SMILEY_INCONTOURNABLE', label: 'Incontournable' },
   'POI_picto_interet:interessant':    { picto_key: 'PICTO_SMILEY_INTERESSANT',    label: 'Intéressant'    },
   'POI_picto_interet:a_voir':         { picto_key: 'PICTO_SMILEY_A_VOIR',         label: 'À voir'         },
+  'POI_picto_1:incontournable':       { picto_key: 'PICTO_SMILEY_INCONTOURNABLE', label: 'Incontournable' },
+  'POI_picto_1:interessant':          { picto_key: 'PICTO_SMILEY_INTERESSANT',    label: 'Intéressant'    },
+  'POI_picto_1:a_voir':               { picto_key: 'PICTO_SMILEY_A_VOIR',         label: 'À voir'         },
 
   // ── PMR ─────────────────────────────────────────────────────────────────
   'POI_picto_pmr:100': { picto_key: 'PICTO_PMR_FULL', label: 'Accessible 100%'        },
   'POI_picto_pmr:50':  { picto_key: 'PICTO_PMR_HALF', label: 'Partiellement accessible'},
   'POI_picto_pmr:0':   { picto_key: 'PICTO_PMR_NONE', label: 'Non accessible'          },
+  'POI_picto_2:100':   { picto_key: 'PICTO_PMR_FULL', label: 'Accessible 100%'        },
+  'POI_picto_2:50':    { picto_key: 'PICTO_PMR_HALF', label: 'Partiellement accessible'},
+  'POI_picto_2:0':     { picto_key: 'PICTO_PMR_NONE', label: 'Non accessible'          },
 
   // ── Escaliers ───────────────────────────────────────────────────────────
   'POI_picto_escaliers:oui': { picto_key: 'PICTO_ESCALIERS', label: 'Escaliers' },
   'POI_picto_escaliers:non': { picto_key: null,               label: ''          },
+  'POI_picto_3:oui':         { picto_key: 'PICTO_ESCALIERS', label: 'Escaliers' },
+  'POI_picto_3:non':         { picto_key: null,               label: ''          },
 
   // ── Toilettes ───────────────────────────────────────────────────────────
   'POI_picto_toilettes:oui': { picto_key: 'PICTO_TOILETTES', label: 'Toilettes disponibles' },
   'POI_picto_toilettes:non': { picto_key: null,               label: ''                      },
+  'POI_picto_4:oui':         { picto_key: 'PICTO_TOILETTES', label: 'Toilettes disponibles' },
+  'POI_picto_4:non':         { picto_key: null,               label: ''                      },
 
   // ── Restauration ────────────────────────────────────────────────────────
   'POI_picto_restauration:oui': { picto_key: 'PICTO_RESTAURATION', label: 'Restauration sur place' },
   'POI_picto_restauration:non': { picto_key: null,                  label: ''                       },
+  'POI_picto_5:oui':            { picto_key: 'PICTO_RESTAURATION', label: 'Restauration sur place' },
+  'POI_picto_5:non':            { picto_key: null,                  label: ''                       },
 
   // ── Famille ─────────────────────────────────────────────────────────────
   'POI_picto_famille:oui': { picto_key: 'PICTO_FAMILLE', label: 'Activités enfants/familles' },
   'POI_picto_famille:non': { picto_key: null,             label: ''                           },
+  'POI_picto_6:oui':       { picto_key: 'PICTO_FAMILLE', label: 'Activités enfants/familles' },
+  'POI_picto_6:non':       { picto_key: null,             label: ''                           },
 };
 
 /** Retourne le mapping picto pour un champ et sa valeur */

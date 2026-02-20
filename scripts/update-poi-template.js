@@ -288,11 +288,19 @@ async function main() {
       let changed = false;
 
       for (const [oldKey, newKey] of Object.entries(FIELD_RENAME_MAP)) {
-        if (oldKey in newContent && !(newKey in newContent)) {
+        const hasOld = oldKey in newContent;
+        const hasNew = newKey in newContent;
+        if (hasOld && !hasNew) {
+          // Renommage simple
           newContent[newKey] = newContent[oldKey];
           delete newContent[oldKey];
           changed = true;
           console.log(`   Page "${page.titre}" : ${oldKey} → ${newKey}`);
+        } else if (hasOld && hasNew) {
+          // Les deux clés coexistent : garder la valeur sémantique, supprimer l'ancienne
+          console.log(`   Page "${page.titre}" : suppression doublon ${oldKey} (gardé : ${newKey}=${newContent[newKey]})`);
+          delete newContent[oldKey];
+          changed = true;
         }
       }
 

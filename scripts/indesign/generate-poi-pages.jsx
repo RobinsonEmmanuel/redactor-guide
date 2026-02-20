@@ -90,9 +90,9 @@ function setTextWithBold(textFrame, rawText) {
     var boldStyle = doc.characterStyles.itemByName(BOLD_STYLE_NAME);
     if (!boldStyle.isValid) return;
     for (var r = 0; r < boldRanges.length; r++) {
-        textFrame.characters
-            .itemRange(boldRanges[r].start, boldRanges[r].end)
-            .appliedCharacterStyle = boldStyle;
+        for (var c = boldRanges[r].start; c <= boldRanges[r].end; c++) {
+            textFrame.characters.item(c).appliedCharacterStyle = boldStyle;
+        }
     }
 }
 
@@ -162,9 +162,9 @@ function injectBulletText(page, label, value) {
             var boldStyle = doc.characterStyles.itemByName(BOLD_STYLE_NAME);
             if (boldStyle.isValid) {
                 for (var r = 0; r < boldRanges.length; r++) {
-                    tf.characters
-                        .itemRange(boldRanges[r].start, boldRanges[r].end)
-                        .appliedCharacterStyle = boldStyle;
+                    for (var c = boldRanges[r].start; c <= boldRanges[r].end; c++) {
+                        tf.characters.item(c).appliedCharacterStyle = boldStyle;
+                    }
                 }
             }
         }

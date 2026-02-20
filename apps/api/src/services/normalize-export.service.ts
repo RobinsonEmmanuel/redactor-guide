@@ -381,12 +381,14 @@ export function normalizeGuideExport(
         stats.pictos_inactive_removed++;
         continue;
       }
-      const entry: ActivePicto = {
+      const entry: ActivePicto & { variant_layer?: string | null } = {
         field: key,
         picto_key: picto.picto_key ?? '',
         indesign_layer: picto.indesign_layer ?? key.toLowerCase(),
         label: picto.label ?? '',
         value: String(picto.value),
+        // Préserver variant_layer calculé par export.service.ts — lu par normalizeGuideExportV2
+        ...(picto.variant_layer !== undefined ? { variant_layer: picto.variant_layer } : {}),
       };
       cleanPictos[key] = entry;
       if (picto.picto_key !== null) {

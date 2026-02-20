@@ -190,6 +190,22 @@ export async function exportRoutes(fastify: FastifyInstance) {
         const zipName  = `guide_${dest}_${rawExport.meta.year}_${lang}.zip`;
 
         // ── 5. Streamer le ZIP directement vers le client ─────────────────
+        // reply.raw bypasse @fastify/cors → on injecte les headers CORS manuellement.
+        const requestOrigin = request.headers.origin ?? '';
+        const allowedOriginsPatterns: Array<string | RegExp> = [
+          'http://localhost:3001',
+          'http://localhost:3000',
+          /^https:\/\/.*\.vercel\.app$/,
+        ];
+        const originAllowed = allowedOriginsPatterns.some(p =>
+          typeof p === 'string' ? p === requestOrigin : p.test(requestOrigin)
+        );
+        if (originAllowed) {
+          reply.raw.setHeader('Access-Control-Allow-Origin', requestOrigin);
+          reply.raw.setHeader('Access-Control-Allow-Credentials', 'true');
+          reply.raw.setHeader('Vary', 'Origin');
+        }
+
         reply.raw.setHeader('Content-Type', 'application/zip');
         reply.raw.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
 

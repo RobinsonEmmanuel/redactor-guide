@@ -217,9 +217,10 @@ function injectImage(page, label, imageData) {
 }
 
 // ─── 8. Barre de pictos avec reflow dynamique + durée ────────────────────────
+// Inclut les labels de base ET les variants pour masquer tous les blocs possibles
 var ALL_PICTO_LABELS = [
-    "picto_interet_1", "picto_interet_2", "picto_interet_3",
-    "picto_pmr_full",  "picto_pmr_half",  "picto_pmr_none",
+    "picto_interet",  "picto_interet_1", "picto_interet_2", "picto_interet_3",
+    "picto_pmr",      "picto_pmr_full",  "picto_pmr_half",  "picto_pmr_none",
     "picto_escaliers",    "picto_escaliers_oui",
     "picto_toilettes",    "picto_toilettes_oui",
     "picto_restauration", "picto_restauration_oui",
@@ -246,7 +247,7 @@ var PICTO_ORDER = [
  */
 function injectPictoBar(page, pictoContent, durationValue) {
 
-    // 1. Masquer tous les pictos + texte durée
+    // 1. Masquer TOUS les blocs pictos (labels base + variants) + texte durée
     for (var p = 0; p < ALL_PICTO_LABELS.length; p++) {
         var pBlocks = findByLabelOnPage(page, ALL_PICTO_LABELS[p]);
         for (var b = 0; b < pBlocks.length; b++) {
@@ -260,20 +261,7 @@ function injectPictoBar(page, pictoContent, durationValue) {
 
     if (!pictoContent) return;
 
-    // 2. Référence de position (ancre ou fallback sur picto_interet_1)
-    var refX, refY;
-    var anchorBlocks = findByLabelOnPage(page, "picto_bar_anchor");
-    if (anchorBlocks.length > 0) {
-        refX = anchorBlocks[0].geometricBounds[1];
-        refY = anchorBlocks[0].geometricBounds[0];
-    } else {
-        var fallback = findByLabelOnPage(page, "picto_interet_1");
-        if (fallback.length === 0) return;
-        refX = fallback[0].geometricBounds[1];
-        refY = fallback[0].geometricBounds[0];
-    }
-
-    // 3. Collecter les pictos actifs dans l'ordre défini
+    // 2. Collecter les pictos actifs dans l'ordre défini
     var activePictos = [];
     for (var o = 0; o < PICTO_ORDER.length; o++) {
         var fieldKey = PICTO_ORDER[o];
@@ -286,12 +274,23 @@ function injectPictoBar(page, pictoContent, durationValue) {
         if (found.length > 0) activePictos.push(found[0]);
     }
 
-    // 4. Repositionner chaque picto avec move() (préserve le contenu intérieur)
+    if (activePictos.length === 0) return;
+
+    // 3. Référence : position du PREMIER picto actif (pas de picto_bar_anchor)
+    //    → le 1er picto ne bouge pas, les suivants se calent contre lui
+    var refBounds = activePictos[0].geometricBounds; // [top, left, bottom, right]
+    var refX = refBounds[1];
+    var refY = refBounds[0];
     var currentX = refX;
+
+    // 4. Repositionner chaque picto avec move() (préserve le contenu intérieur)
+    //    Utilise la largeur RÉELLE du bloc (pas la constante PICTO_W) pour éviter
+    //    tout décalage si les blocs ont des largeurs légèrement différentes.
     for (var a = 0; a < activePictos.length; a++) {
+        var pictoW = activePictos[a].geometricBounds[3] - activePictos[a].geometricBounds[1];
         moveItem(activePictos[a], currentX, refY);
         activePictos[a].visible = true;
-        currentX += PICTO_W + PICTO_GAP;
+        currentX += pictoW + PICTO_GAP;
     }
 
     // 5. Picto durée (clock) + texte durée en fin de barre
@@ -300,9 +299,10 @@ function injectPictoBar(page, pictoContent, durationValue) {
 
         var clockBlocks = findByLabelOnPage(page, "picto_duree");
         if (clockBlocks.length > 0) {
+            var clockW = clockBlocks[0].geometricBounds[3] - clockBlocks[0].geometricBounds[1];
             moveItem(clockBlocks[0], currentX, refY);
             clockBlocks[0].visible = true;
-            currentX += PICTO_W + PICTO_GAP;
+            currentX += clockW + PICTO_GAP;
         }
 
         var durText = findByLabelOnPage(page, "txt_poi_duree");

@@ -73,30 +73,42 @@ function moveItem(item, targetX, targetY) {
     item.move(null, [deltaX, deltaY]);
 }
 
-// ─── 4. Appliquer le gras **...** sur un TextFrame ───────────────────────────
-function setTextWithBold(textFrame, rawText) {
-    var parts = rawText.split("**");
-    var plainText = "";
-    var boldRanges = [];
-    var pos = 0;
-    for (var p = 0; p < parts.length; p++) {
-        if (parts[p] === "") continue;
-        if (p % 2 === 1) boldRanges.push({ start: pos, end: pos + parts[p].length - 1 });
-        plainText += parts[p];
-        pos += parts[p].length;
-    }
-    textFrame.contents = plainText;
-    if (boldRanges.length === 0) return;
+// ─── 4. Appliquer le gras via GREP (cherche **...**, applique style, supprime marqueurs)
+// Approche GREP : évite tout calcul d'indices de caractères (incompatible avec ExtendScript)
+function applyBoldMarkers(tf) {
     var boldStyle = doc.characterStyles.itemByName(BOLD_STYLE_NAME);
-    if (!boldStyle.isValid) return;
-    for (var r = 0; r < boldRanges.length; r++) {
-        for (var c = boldRanges[r].start; c <= boldRanges[r].end; c++) {
-            textFrame.characters.item(c).appliedCharacterStyle = boldStyle;
+
+    // Chercher les patterns **...** dans ce bloc texte
+    app.findGrepPreferences  = NothingEnum.NOTHING;
+    app.changeGrepPreferences = NothingEnum.NOTHING;
+    app.findGrepPreferences.findWhat = "\\*\\*[^*]+\\*\\*";
+    var matches = tf.findGrep();
+    app.findGrepPreferences = NothingEnum.NOTHING;
+
+    // Appliquer le style "Gras" à chaque correspondance (marqueurs inclus)
+    if (boldStyle.isValid) {
+        for (var m = 0; m < matches.length; m++) {
+            matches[m].appliedCharacterStyle = boldStyle;
         }
     }
+
+    // Supprimer les marqueurs ** — le texte garde le style gras
+    app.findGrepPreferences  = NothingEnum.NOTHING;
+    app.changeGrepPreferences = NothingEnum.NOTHING;
+    app.findGrepPreferences.findWhat  = "\\*\\*";
+    app.changeGrepPreferences.changeTo = "";
+    tf.changeGrep();
+    app.findGrepPreferences  = NothingEnum.NOTHING;
+    app.changeGrepPreferences = NothingEnum.NOTHING;
 }
 
-// ─── 5. Injecter texte (masque le bloc si vide / absent) ─────────────────────
+// ─── 5. Injecter texte simple avec gras optionnel ────────────────────────────
+function setTextWithBold(textFrame, rawText) {
+    textFrame.contents = rawText;   // définir avec les marqueurs ** en place
+    applyBoldMarkers(textFrame);    // GREP trouve, style, supprime **
+}
+
+// ─── 6. Injecter texte (masque le bloc si vide / absent) ─────────────────────
 function injectText(page, label, value) {
     var blocks = findByLabelOnPage(page, label);
     for (var i = 0; i < blocks.length; i++) {
@@ -118,8 +130,9 @@ function injectText(page, label, value) {
     }
 }
 
-// ─── 6. Injecter liste à puces avec mise en forme paragraphe ─────────────────
+// ─── 7. Injecter liste à puces avec mise en forme paragraphe ─────────────────
 function injectBulletText(page, label, value) {
+    var BULLET = "\u2022\t";
     var blocks = findByLabelOnPage(page, label);
     for (var i = 0; i < blocks.length; i++) {
         if (!(blocks[i] instanceof TextFrame)) continue;
@@ -127,6 +140,7 @@ function injectBulletText(page, label, value) {
         blocks[i].visible = true;
         var tf = blocks[i];
         tf.contents = "";
+
         var rawLines = value.split("\n");
         var items = [];
         for (var l = 0; l < rawLines.length; l++) {
@@ -135,53 +149,31 @@ function injectBulletText(page, label, value) {
         }
         if (items.length === 0) { blocks[i].visible = false; continue; }
 
-        // Tab après la puce pour alignement avec leftIndent
-        var BULLET = "\u2022\t";
+        // Construire le texte avec les marqueurs ** conservés (GREP les traitera)
         var fullText = "";
-        var boldRanges = [];
-
         for (var it = 0; it < items.length; it++) {
-            var lineStart = fullText.length + BULLET.length;
-            var parts = items[it].split("**");
-            var lineText = "";
-            var linePos = lineStart;
-            for (var p = 0; p < parts.length; p++) {
-                if (parts[p] === "") continue;
-                if (p % 2 === 1) boldRanges.push({ start: linePos, end: linePos + parts[p].length - 1 });
-                lineText += parts[p];
-                linePos += parts[p].length;
-            }
-            fullText += BULLET + lineText;
-            if (it < items.length - 1) fullText += "\r";
+            fullText += (it > 0 ? "\r" : "") + BULLET + items[it];
         }
 
         tf.contents = fullText;
 
-        // Appliquer le gras
-        if (boldRanges.length > 0) {
-            var boldStyle = doc.characterStyles.itemByName(BOLD_STYLE_NAME);
-            if (boldStyle.isValid) {
-                for (var r = 0; r < boldRanges.length; r++) {
-                    for (var c = boldRanges[r].start; c <= boldRanges[r].end; c++) {
-                        tf.characters.item(c).appliedCharacterStyle = boldStyle;
-                    }
-                }
-            }
+        // Appliquer le gras via GREP si des marqueurs ** sont présents
+        if (fullText.indexOf("**") !== -1) {
+            applyBoldMarkers(tf);
         }
 
         // Mise en forme paragraphe : hanging indent + espace après + tab stop
         for (var pg = 0; pg < tf.paragraphs.length; pg++) {
             var para = tf.paragraphs.item(pg);
-            para.leftIndent      = BULLET_LEFT_INDENT;   // 6.35 mm
-            para.firstLineIndent = BULLET_FIRST_LINE;    // -6.35 mm
-            para.spaceAfter      = BULLET_SPACE_AFTER;   // 7 mm
-            // Supprimer les anciens tab stops avant d'en ajouter un nouveau
+            para.leftIndent      = BULLET_LEFT_INDENT;
+            para.firstLineIndent = BULLET_FIRST_LINE;
+            para.spaceAfter      = BULLET_SPACE_AFTER;
             while (para.tabStops.length > 0) {
                 para.tabStops.item(0).remove();
             }
             var ts = para.tabStops.add();
             ts.alignment = TabStopAlignment.LEFT_ALIGN;
-            ts.position  = BULLET_LEFT_INDENT;           // tab stop à 6.35 mm
+            ts.position  = BULLET_LEFT_INDENT;
         }
     }
 }

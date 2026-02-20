@@ -289,16 +289,6 @@ var ALL_PICTO_LABELS = [
     "picto_duree"
 ];
 
-// Fallback local : résout le calque variant depuis picto_key quand variant_layer est null.
-// Utilisé jusqu'à ce que le backend déployé calcule variant_layer via field.option_layers.
-var PICTO_KEY_FALLBACK = {
-    "PICTO_SMILEY_INCONTOURNABLE": "picto_interet_1",
-    "PICTO_SMILEY_INTERESSANT":    "picto_interet_2",
-    "PICTO_SMILEY_A_VOIR":         "picto_interet_3",
-    "PICTO_PMR_FULL":              "picto_pmr_full",
-    "PICTO_PMR_HALF":              "picto_pmr_half",
-    "PICTO_PMR_NONE":              "picto_pmr_none"
-};
 
 /**
  * Positionne les pictos actifs en reflow horizontal.
@@ -336,17 +326,14 @@ function injectPictoBar(page, contentData, durationValue) {
     var activePictos = [];
     for (var o = 0; o < pictosActive.length; o++) {
         var entry = pictosActive[o];
-        // Résolution calque (priorité décroissante) :
-        //   1. variant_layer  — calculé par le backend depuis field.option_layers (JSON récent)
-        //   2. PICTO_KEY_FALLBACK[picto_key] — table locale pour les JSON sans variant_layer
-        //   3. indesign_layer — calque de base (fallback final)
-        var layer = entry.variant_layer
-            || (entry.picto_key && PICTO_KEY_FALLBACK[entry.picto_key])
-            || entry.indesign_layer;
+        // Résolution calque :
+        //   variant_layer (calque précis, ex: picto_interet_2) calculé par le backend
+        //   depuis field.option_layers du template.
+        //   indesign_layer (calque de base) utilisé uniquement si variant absent du gabarit.
+        var layer = entry.variant_layer || entry.indesign_layer;
         if (!layer) continue;
 
         var found = findByLabelOnPage(page, layer);
-        // Si le calque résolu n'existe pas dans ce gabarit, essayer indesign_layer
         if (found.length === 0 && entry.indesign_layer && layer !== entry.indesign_layer) {
             found = findByLabelOnPage(page, entry.indesign_layer);
         }

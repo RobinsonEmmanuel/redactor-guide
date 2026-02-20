@@ -277,14 +277,32 @@ var ALL_PICTO_LABELS = [
     "picto_duree"
 ];
 
+// Ordre d'affichage — couvre les 2 conventions de nommage :
+//   numérotée (POI_picto_1…6 — templates restaurés depuis backup)
+//   sémantique (POI_picto_interet… — nouveaux templates)
+// L'ordre interleave les deux pour que le numéroté soit testé en premier.
 var PICTO_ORDER = [
-    "POI_picto_interet",
-    "POI_picto_pmr",
-    "POI_picto_escaliers",
-    "POI_picto_toilettes",
-    "POI_picto_restauration",
-    "POI_picto_famille"
+    "POI_picto_1", "POI_picto_interet",
+    "POI_picto_2", "POI_picto_pmr",
+    "POI_picto_3", "POI_picto_escaliers",
+    "POI_picto_4", "POI_picto_toilettes",
+    "POI_picto_5", "POI_picto_restauration",
+    "POI_picto_6", "POI_picto_famille"
 ];
+
+// Résolution du calque InDesign depuis picto_key (quand variant_layer est null)
+var PICTO_KEY_TO_LAYER = {
+    "PICTO_SMILEY_INCONTOURNABLE": "picto_interet_1",
+    "PICTO_SMILEY_INTERESSANT":    "picto_interet_2",
+    "PICTO_SMILEY_A_VOIR":         "picto_interet_3",
+    "PICTO_PMR_FULL":              "picto_pmr_full",
+    "PICTO_PMR_HALF":              "picto_pmr_half",
+    "PICTO_PMR_NONE":              "picto_pmr_none",
+    "PICTO_ESCALIERS":             "picto_escaliers",
+    "PICTO_TOILETTES":             "picto_toilettes",
+    "PICTO_RESTAURATION":          "picto_restauration",
+    "PICTO_FAMILLE":               "picto_famille"
+};
 
 /**
  * Positionne les pictos actifs en reflow horizontal.
@@ -311,16 +329,32 @@ function injectPictoBar(page, pictoContent, durationValue) {
     if (!pictoContent) return;
 
     // 2. Collecter les pictos actifs dans l'ordre défini
+    // seenLayers évite les doublons quand les deux conventions de nommage
+    // (numérotée + sémantique) sont présentes en même temps dans PICTO_ORDER.
     var activePictos = [];
+    var seenLayers  = {};
     for (var o = 0; o < PICTO_ORDER.length; o++) {
-        var fieldKey = PICTO_ORDER[o];
+        var fieldKey  = PICTO_ORDER[o];
         var pictoData = pictoContent[fieldKey];
         if (!pictoData || !pictoData.picto_key) continue;
 
-        var found = [];
-        if (pictoData.variant_layer) found = findByLabelOnPage(page, pictoData.variant_layer);
-        if (found.length === 0 && pictoData.indesign_layer) found = findByLabelOnPage(page, pictoData.indesign_layer);
-        if (found.length > 0) activePictos.push(found[0]);
+        // Résolution calque : variant_layer (JSON v1.1) → PICTO_KEY_TO_LAYER → indesign_layer
+        var layer = pictoData.variant_layer || PICTO_KEY_TO_LAYER[pictoData.picto_key] || pictoData.indesign_layer;
+        if (!layer) continue;
+
+        // Anti-doublon : on ne traite pas deux fois le même calque InDesign
+        if (seenLayers[layer]) continue;
+
+        var found = findByLabelOnPage(page, layer);
+        // Fallback vers indesign_layer si le calque variant exact n'existe pas dans le gabarit
+        if (found.length === 0 && pictoData.indesign_layer && layer !== pictoData.indesign_layer) {
+            found = findByLabelOnPage(page, pictoData.indesign_layer);
+            layer = pictoData.indesign_layer;
+        }
+        if (found.length > 0) {
+            seenLayers[layer] = true;
+            activePictos.push(found[0]);
+        }
     }
 
     if (activePictos.length === 0) return;

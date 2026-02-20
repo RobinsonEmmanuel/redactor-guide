@@ -175,11 +175,13 @@ function injectBulletText(page, label, value) {
             para.leftIndent      = BULLET_LEFT_INDENT;   // 6.35 mm
             para.firstLineIndent = BULLET_FIRST_LINE;    // -6.35 mm
             para.spaceAfter      = BULLET_SPACE_AFTER;   // 7 mm
-            para.tabStops = [{
-                alignment:          TabStopAlignment.LEFT_ALIGN,
-                alignmentCharacter: ".",
-                position:           BULLET_LEFT_INDENT   // tab stop à 6.35 mm
-            }];
+            // Supprimer les anciens tab stops avant d'en ajouter un nouveau
+            while (para.tabStops.length > 0) {
+                para.tabStops.item(0).remove();
+            }
+            var ts = para.tabStops.add();
+            ts.alignment = TabStopAlignment.LEFT_ALIGN;
+            ts.position  = BULLET_LEFT_INDENT;           // tab stop à 6.35 mm
         }
     }
 }

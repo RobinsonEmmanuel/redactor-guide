@@ -40,6 +40,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
   const [preview, setPreview] = useState<any>(null);
   const [loadingPreview, setLoadingPreview] = useState(true);
   const [downloading, setDownloading] = useState<Record<string, boolean>>({});
+  const [downloadingZip, setDownloadingZip] = useState<Record<string, boolean>>({});
   const [downloadedFiles, setDownloadedFiles] = useState<string[]>([]);
 
   useEffect(() => {
@@ -105,25 +106,73 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     }
   };
 
+  /**
+   * Télécharge un ZIP complet (JSON + images) depuis /export/zip.
+   * Le serveur télécharge les images côté Railway et les empaquète.
+   */
+  const downloadZip = async (lang: string) => {
+    setDownloadingZip(prev => ({ ...prev, [lang]: true }));
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/export/zip?lang=${lang}`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) throw new Error(`Erreur ${res.status}`);
+
+      const blob = await res.blob();
+      const dest = preview?.meta?.destination?.toLowerCase().replace(/\s+/g, '_') || 'guide';
+      const year = preview?.meta?.year || new Date().getFullYear();
+      const filename = `guide_${dest}_${year}_${lang}.zip`;
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setDownloadedFiles(prev => [...prev.filter(f => !f.endsWith(`_${lang}.zip`)), filename]);
+    } catch (err) {
+      alert(`Erreur lors du téléchargement du ZIP en ${lang}`);
+    } finally {
+      setDownloadingZip(prev => ({ ...prev, [lang]: false }));
+    }
+  };
+
   return (
     <div className="h-full overflow-auto bg-gray-50">
       <div className="max-w-4xl mx-auto p-6 space-y-6">
 
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-bold text-gray-900">📦 Export InDesign</h2>
             <p className="text-sm text-gray-500 mt-1">JSON normalisé layout-ready pour data merge</p>
           </div>
           {selectedLanguages.length > 0 && (
-            <button
-              onClick={downloadAllSelected}
-              disabled={Object.values(downloading).some(Boolean)}
-              className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors shadow-sm disabled:opacity-50"
-            >
-              <ArrowDownTrayIcon className="w-4 h-4" />
-              Exporter {selectedLanguages.length > 1 ? `(${selectedLanguages.length} langues)` : selectedLanguages[0].toUpperCase()}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={downloadAllSelected}
+                disabled={Object.values(downloading).some(Boolean)}
+                title="JSON seul (sans images)"
+                className="flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-gray-50 text-gray-700 font-medium rounded-lg transition-colors shadow-sm border border-gray-300 disabled:opacity-50"
+              >
+                <ArrowDownTrayIcon className="w-4 h-4" />
+                JSON
+              </button>
+              <button
+                onClick={() => selectedLanguages.forEach(l => downloadZip(l))}
+                disabled={Object.values(downloadingZip).some(Boolean)}
+                title="ZIP complet : JSON + toutes les images téléchargées (opération longue)"
+                className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors shadow-sm disabled:opacity-50"
+              >
+                {Object.values(downloadingZip).some(Boolean)
+                  ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                  : <ArrowDownTrayIcon className="w-4 h-4" />
+                }
+                ZIP + images
+              </button>
+            </div>
           )}
         </div>
 
@@ -196,17 +245,32 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                     {isDownloaded && <CheckCircleIcon className="w-4 h-4 text-green-500 ml-auto" />}
                   </button>
                   {isSelected && (
-                    <button
-                      onClick={() => downloadExport(lang.code)}
-                      disabled={isDownloading}
-                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
-                      title={`Exporter ${lang.label}`}
-                    >
-                      {isDownloading
-                        ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                        : <ArrowDownTrayIcon className="w-4 h-4" />
-                      }
-                    </button>
+                    <div className="flex gap-1">
+                      {/* JSON seul */}
+                      <button
+                        onClick={() => downloadExport(lang.code)}
+                        disabled={isDownloading}
+                        className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+                        title={`JSON ${lang.label}`}
+                      >
+                        {isDownloading
+                          ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                          : <ArrowDownTrayIcon className="w-4 h-4" />
+                        }
+                      </button>
+                      {/* ZIP + images */}
+                      <button
+                        onClick={() => downloadZip(lang.code)}
+                        disabled={downloadingZip[lang.code]}
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
+                        title={`ZIP + images ${lang.label} (opération longue)`}
+                      >
+                        {downloadingZip[lang.code]
+                          ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                          : <span className="text-xs font-bold">ZIP</span>
+                        }
+                      </button>
+                    </div>
                   )}
                 </div>
               );
@@ -265,15 +329,30 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
           </div>
         </div>
 
+        {/* Note ZIP */}
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+          <p className="font-semibold mb-1">ZIP + images</p>
+          <p className="text-xs text-amber-700">
+            Le bouton <strong>ZIP</strong> télécharge toutes les images depuis WordPress côté serveur
+            puis te renvoie une archive prête pour InDesign. L'opération peut prendre
+            30–60 secondes selon le nombre d'images.
+          </p>
+        </div>
+
         {/* Fichiers téléchargés */}
         {downloadedFiles.length > 0 && (
           <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-            <h3 className="text-sm font-semibold text-green-800 mb-2">✅ Fichiers téléchargés</h3>
+            <h3 className="text-sm font-semibold text-green-800 mb-2">Fichiers téléchargés</h3>
             <div className="space-y-1">
               {downloadedFiles.map(filename => (
                 <div key={filename} className="flex items-center gap-2 text-sm text-green-700">
                   <CheckCircleIcon className="w-4 h-4 flex-shrink-0" />
                   <code className="font-mono text-xs">{filename}</code>
+                  {filename.endsWith('.zip') && (
+                    <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">
+                      JSON + images
+                    </span>
+                  )}
                 </div>
               ))}
             </div>

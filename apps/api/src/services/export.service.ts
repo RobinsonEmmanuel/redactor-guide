@@ -150,6 +150,7 @@ export class ExportService {
         language:     lang,
         version:      guide.version || '1.0.0',
         exported_at:  new Date().toISOString(),
+        api_build:    'v2.1.0-option_layers',
         stats: {
           total_pages:     allPages.length,
           exported:        exportablePages.length,

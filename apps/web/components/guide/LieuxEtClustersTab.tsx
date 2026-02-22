@@ -10,6 +10,7 @@ import {
   XCircleIcon,
   ArrowPathIcon,
   SparklesIcon,
+  TrashIcon,
 } from '@heroicons/react/24/outline';
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, useDraggable, useDroppable } from '@dnd-kit/core';
 import { authFetch } from '@/lib/api-client';
@@ -115,12 +116,14 @@ function DroppableCluster({
   cluster, 
   pois, 
   isExpanded, 
-  onToggle 
+  onToggle,
+  onDelete,
 }: { 
   cluster: ClusterMetadata | 'unassigned'; 
   pois: POI[];
   isExpanded: boolean;
   onToggle: () => void;
+  onDelete?: () => void;
 }) {
   const clusterId = cluster === 'unassigned' ? 'unassigned' : cluster.cluster_id;
   const clusterName = cluster === 'unassigned' ? 'Non affectés' : cluster.cluster_name;
@@ -139,31 +142,47 @@ function DroppableCluster({
         isOver ? 'ring-2 ring-blue-500 border-blue-500' : ''
       }`}
     >
-      <button
-        onClick={onToggle}
-        className={`w-full px-3 py-2 flex items-center justify-between transition-colors ${
-          isUnassigned ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'
-        }`}
-      >
-        <div className="flex items-center gap-2">
-          {isUnassigned ? (
-            <XCircleIcon className="w-4 h-4 text-red-600" />
+      <div className="flex items-center">
+        <button
+          onClick={onToggle}
+          className={`flex-1 px-3 py-2 flex items-center justify-between transition-colors ${
+            isUnassigned ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {isUnassigned ? (
+              <XCircleIcon className="w-4 h-4 text-red-600" />
+            ) : (
+              <MapPinIcon className="w-4 h-4 text-blue-600" />
+            )}
+            <span className="text-sm font-semibold text-gray-900">{clusterName}</span>
+            <span className={`px-1.5 py-0.5 text-xs rounded-full ${
+              isUnassigned ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-700'
+            }`}>
+              {pois.length}
+            </span>
+          </div>
+          {isExpanded ? (
+            <ChevronUpIcon className="w-4 h-4 text-gray-500" />
           ) : (
-            <MapPinIcon className="w-4 h-4 text-blue-600" />
+            <ChevronDownIcon className="w-4 h-4 text-gray-500" />
           )}
-          <span className="text-sm font-semibold text-gray-900">{clusterName}</span>
-          <span className={`px-1.5 py-0.5 text-xs rounded-full ${
-            isUnassigned ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-700'
-          }`}>
-            {pois.length}
-          </span>
-        </div>
-        {isExpanded ? (
-          <ChevronUpIcon className="w-4 h-4 text-gray-500" />
-        ) : (
-          <ChevronDownIcon className="w-4 h-4 text-gray-500" />
+        </button>
+        
+        {/* Bouton supprimer (uniquement pour les clusters non "unassigned") */}
+        {!isUnassigned && onDelete && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="px-3 py-2 text-red-500 hover:bg-red-50 transition-colors border-l border-gray-200"
+            title="Supprimer le cluster"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </button>
         )}
-      </button>
+      </div>
 
       {isExpanded && (
         <div className="p-2 space-y-0.5 max-h-64 overflow-y-auto">
@@ -494,6 +513,43 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     });
   };
 
+  const deleteCluster = async (clusterId: string, clusterName: string) => {
+    const affectedPois = pois.filter(p => p.cluster_id === clusterId);
+    
+    if (!confirm(
+      `Voulez-vous vraiment supprimer le cluster "${clusterName}" ?\n\n` +
+      `${affectedPois.length} POI(s) seront déplacés vers "Non affectés".`
+    )) {
+      return;
+    }
+
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/clusters/${clusterId}`, {
+        method: 'DELETE',
+      });
+
+      if (res.ok) {
+        // Recharger les POIs et les clusters
+        await Promise.all([loadPois(), loadMatching()]);
+        
+        // Retirer le cluster de la liste expanded s'il y était
+        setExpandedClusters(prev => {
+          const next = new Set(prev);
+          next.delete(clusterId);
+          return next;
+        });
+        
+        alert(`✅ Cluster "${clusterName}" supprimé. ${affectedPois.length} POI(s) déplacé(s) vers "Non affectés".`);
+      } else {
+        const errorData = await res.json();
+        alert(`❌ Erreur: ${errorData.error}`);
+      }
+    } catch (err) {
+      console.error('Erreur suppression cluster:', err);
+      alert('❌ Erreur lors de la suppression');
+    }
+  };
+
   // Filtrage pour la colonne de gauche
   const filteredPois = pois.filter(poi => {
     const matchesSearch = poi.nom.toLowerCase().includes(searchTerm.toLowerCase());
@@ -716,6 +772,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                   pois={poisByCluster[cluster.cluster_id] || []}
                   isExpanded={expandedClusters.has(cluster.cluster_id)}
                   onToggle={() => toggleCluster(cluster.cluster_id)}
+                  onDelete={() => deleteCluster(cluster.cluster_id, cluster.cluster_name)}
                 />
               ))}
 

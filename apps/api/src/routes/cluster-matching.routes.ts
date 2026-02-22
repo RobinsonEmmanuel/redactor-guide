@@ -599,4 +599,80 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
       }
     }
   );
+
+  /**
+   * DELETE /guides/:guideId/clusters/:clusterId
+   * Supprimer un cluster et réaffecter ses POIs à "non affecté"
+   */
+  fastify.delete<{
+    Params: { guideId: string; clusterId: string };
+  }>(
+    '/guides/:guideId/clusters/:clusterId',
+    async (request, reply) => {
+      const { guideId, clusterId } = request.params;
+
+      try {
+        console.log(`🗑️ [Cluster] Suppression cluster ${clusterId} du guide ${guideId}`);
+
+        // 1. Récupérer les POIs affectés à ce cluster
+        const poisSelection = await db.collection('pois_selection').findOne({ guide_id: guideId });
+        
+        if (poisSelection) {
+          // Compter les POIs affectés
+          const affectedPois = poisSelection.pois.filter((p: any) => p.cluster_id === clusterId);
+          console.log(`📍 ${affectedPois.length} POI(s) affecté(s) à ce cluster`);
+
+          // Réaffecter tous les POIs de ce cluster à null (non affecté)
+          const updatedPois = poisSelection.pois.map((p: any) => {
+            if (p.cluster_id === clusterId) {
+              return {
+                ...p,
+                cluster_id: null,
+                cluster_name: null,
+                matched_automatically: false,
+                updated_at: new Date(),
+              };
+            }
+            return p;
+          });
+
+          // Sauvegarder les POIs mis à jour
+          await db.collection('pois_selection').updateOne(
+            { guide_id: guideId },
+            {
+              $set: {
+                pois: updatedPois,
+                updated_at: new Date(),
+              },
+            }
+          );
+
+          console.log(`✅ ${affectedPois.length} POI(s) réaffecté(s) à "non affecté"`);
+        }
+
+        // 2. Supprimer le cluster des métadonnées
+        const result = await db.collection('cluster_assignments').updateOne(
+          { guide_id: guideId },
+          {
+            $pull: { clusters_metadata: { cluster_id: clusterId } } as any,
+            $set: { updated_at: new Date() },
+          }
+        );
+
+        if (result.matchedCount === 0) {
+          return reply.code(404).send({ error: 'Cluster ou guide non trouvé' });
+        }
+
+        console.log(`✅ [Cluster] Cluster ${clusterId} supprimé avec succès`);
+
+        reply.send({
+          success: true,
+          message: 'Cluster supprimé et POIs réaffectés',
+        });
+      } catch (error: any) {
+        console.error('❌ [Cluster] Erreur suppression:', error);
+        reply.code(500).send({ error: 'Erreur lors de la suppression du cluster', details: error.message });
+      }
+    }
+  );
 }

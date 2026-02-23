@@ -139,6 +139,7 @@ export const InfoSourceEnum = z.enum([
   'article_source',
   'tous_articles_site',
   'tous_articles_et_llm',
+  'non_applicable',
 ]);
 
 export type InfoSource = z.infer<typeof InfoSourceEnum>;
@@ -147,12 +148,14 @@ export const INFO_SOURCE_LABELS: Record<InfoSource, string> = {
   article_source: "L'article référencé dans les paramètres de la page",
   tous_articles_site: "L'ensemble des articles WordPress collectés du site",
   tous_articles_et_llm: "Les articles du site + la base de connaissances du LLM",
+  non_applicable: "Ne s'applique pas",
 };
 
 export const INFO_SOURCE_DESCRIPTIONS: Record<InfoSource, string> = {
   article_source: "L'IA se base uniquement sur l'article lié à cette page (ex : fiche POI, article inspiration)",
   tous_articles_site: "L'IA parcourt tous les articles WordPress ingérés pour trouver les informations pertinentes",
   tous_articles_et_llm: "L'IA utilise les articles du site et peut compléter avec ses propres connaissances sur la destination",
+  non_applicable: "Aucune source requise — le contenu de la page est généré sans contexte éditorial (ex : sommaire, page de garde)",
 };
 
 /**

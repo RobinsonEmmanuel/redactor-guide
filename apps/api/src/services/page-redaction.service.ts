@@ -76,7 +76,7 @@ export class PageRedactionService {
         articleContext = await this.buildGeneralContext(_guideId, page);
         console.log(`📚 Mode tous_articles_site`);
 
-      } else {
+      } else if (infoSource === 'tous_articles_et_llm') {
         // Mode tous_articles_et_llm : articles du site + connaissances propres du LLM
         article = null;
         const siteContext = await this.buildGeneralContext(_guideId, page);
@@ -85,6 +85,20 @@ export class PageRedactionService {
 === INSTRUCTIONS COMPLÉMENTAIRES ===
 Tu peux également t'appuyer sur tes propres connaissances sur cette destination pour enrichir et compléter le contenu généré, dans la mesure où les informations du site ne suffisent pas. Veille toutefois à rester cohérent avec le ton éditorial et les informations présentes dans les articles du site.`;
         console.log(`🧠 Mode tous_articles_et_llm`);
+
+      } else {
+        // Mode non_applicable : pas de contexte éditorial (ex: sommaire, page de garde)
+        article = null;
+        const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(_guideId) });
+        articleContext = [
+          `=== GUIDE ===`,
+          `Destination : ${guide?.destination ?? guide?.destinations?.[0] ?? 'N/A'}`,
+          `Année : ${guide?.year ?? 'N/A'}`,
+          `Langue cible : ${guide?.language ?? 'fr'}`,
+          page.titre ? `Page à rédiger : ${page.titre}` : '',
+          page.template_name ? `Template : ${page.template_name}` : '',
+        ].filter(Boolean).join('\n');
+        console.log(`⛔ Mode non_applicable — pas de contexte éditorial`);
       }
 
       // 5. Extraire les champs avec valeur par défaut (pas d'appel IA pour ceux-ci)

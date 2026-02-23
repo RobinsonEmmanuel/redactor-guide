@@ -34,7 +34,7 @@ interface TemplateField {
   list_size?: number;
 }
 
-type InfoSource = 'article_source' | 'tous_articles_site' | 'tous_articles_et_llm';
+type InfoSource = 'article_source' | 'tous_articles_site' | 'tous_articles_et_llm' | 'non_applicable';
 
 const INFO_SOURCE_OPTIONS: Array<{
   value: InfoSource;
@@ -59,6 +59,12 @@ const INFO_SOURCE_OPTIONS: Array<{
     label: "Articles du site + connaissances LLM",
     description: "L'IA utilise les articles du site et peut compléter avec ses propres connaissances sur la destination",
     icon: '🧠',
+  },
+  {
+    value: 'non_applicable',
+    label: "Ne s'applique pas",
+    description: "Aucune source requise — le contenu est généré sans contexte éditorial (ex : sommaire, page de garde)",
+    icon: '⛔',
   },
 ];
 

@@ -130,6 +130,32 @@ export const TemplateFieldSchema = z.object({
 export type TemplateField = z.infer<typeof TemplateFieldSchema>;
 
 /**
+ * Source d'information pour la génération IA d'une page
+ * - article_source      : uniquement l'article WordPress référencé dans les paramètres de la page
+ * - tous_articles_site  : l'ensemble des articles collectés depuis WordPress
+ * - tous_articles_et_llm: les articles du site + la base de connaissances propre du LLM
+ */
+export const InfoSourceEnum = z.enum([
+  'article_source',
+  'tous_articles_site',
+  'tous_articles_et_llm',
+]);
+
+export type InfoSource = z.infer<typeof InfoSourceEnum>;
+
+export const INFO_SOURCE_LABELS: Record<InfoSource, string> = {
+  article_source: "L'article référencé dans les paramètres de la page",
+  tous_articles_site: "L'ensemble des articles WordPress collectés du site",
+  tous_articles_et_llm: "Les articles du site + la base de connaissances du LLM",
+};
+
+export const INFO_SOURCE_DESCRIPTIONS: Record<InfoSource, string> = {
+  article_source: "L'IA se base uniquement sur l'article lié à cette page (ex : fiche POI, article inspiration)",
+  tous_articles_site: "L'IA parcourt tous les articles WordPress ingérés pour trouver les informations pertinentes",
+  tous_articles_et_llm: "L'IA utilise les articles du site et peut compléter avec ses propres connaissances sur la destination",
+};
+
+/**
  * Schéma pour un template éditorial
  */
 export const TemplateSchema = z.object({
@@ -143,6 +169,16 @@ export const TemplateSchema = z.object({
   
   /** Description du template */
   description: z.string().optional(),
+
+  /**
+   * Source d'information à utiliser lors de la génération IA des pages.
+   * Détermine le contexte fourni au LLM :
+   * - article_source      : article WordPress lié à la page
+   * - tous_articles_site  : tous les articles WordPress du site
+   * - tous_articles_et_llm: articles du site + connaissances propres du LLM
+   * Par défaut : article_source
+   */
+  info_source: InfoSourceEnum.default('article_source'),
   
   /** Liste ordonnée des champs du template */
   fields: z.array(TemplateFieldSchema),

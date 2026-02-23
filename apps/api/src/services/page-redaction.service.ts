@@ -51,26 +51,40 @@ export class PageRedactionService {
         throw new Error('Template non trouvé');
       }
 
-      // 3. Charger le contenu source (article spécifique OU contexte général du site)
+      // 3. Charger le contenu source selon la stratégie info_source du template
       let article: any;
       let articleContext: string;
 
-      if (page.url_source) {
-        // Mode POI / INSPIRATION : article WordPress spécifique
+      const infoSource: string = template.info_source ?? 'article_source';
+
+      if (infoSource === 'article_source') {
+        // Mode article spécifique : utilise l'article WordPress lié à la page
+        if (!page.url_source) {
+          throw new Error("Ce template utilise 'article_source' mais aucune url_source n'est définie sur la page");
+        }
         article = await this.loadArticleSource(page.url_source);
         if (!article) {
           throw new Error('Article WordPress source non trouvé');
         }
-        // 4a. Analyser les images de l'article si nécessaire
         await this.ensureImagesAnalyzed(article);
         articleContext = this.formatArticle(article);
-        console.log(`📄 Mode article spécifique : ${article.title}`);
-      } else {
-        // Mode contexte général : COUVERTURE, PRESENTATION_*, CLUSTER, SAISON, etc.
-        // Utiliser le contenu global du site (articles_raw) + métadonnées du guide
+        console.log(`📄 Mode article_source : ${article.title}`);
+
+      } else if (infoSource === 'tous_articles_site') {
+        // Mode tous articles : l'IA se base sur l'ensemble des articles WordPress collectés
         article = null;
         articleContext = await this.buildGeneralContext(_guideId, page);
-        console.log(`🌐 Mode contexte général (aucune url_source)`);
+        console.log(`📚 Mode tous_articles_site`);
+
+      } else {
+        // Mode tous_articles_et_llm : articles du site + connaissances propres du LLM
+        article = null;
+        const siteContext = await this.buildGeneralContext(_guideId, page);
+        articleContext = `${siteContext}
+
+=== INSTRUCTIONS COMPLÉMENTAIRES ===
+Tu peux également t'appuyer sur tes propres connaissances sur cette destination pour enrichir et compléter le contenu généré, dans la mesure où les informations du site ne suffisent pas. Veille toutefois à rester cohérent avec le ton éditorial et les informations présentes dans les articles du site.`;
+        console.log(`🧠 Mode tous_articles_et_llm`);
       }
 
       // 5. Extraire les champs avec valeur par défaut (pas d'appel IA pour ceux-ci)

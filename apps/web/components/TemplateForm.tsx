@@ -34,10 +34,39 @@ interface TemplateField {
   list_size?: number;
 }
 
+type InfoSource = 'article_source' | 'tous_articles_site' | 'tous_articles_et_llm';
+
+const INFO_SOURCE_OPTIONS: Array<{
+  value: InfoSource;
+  label: string;
+  description: string;
+  icon: string;
+}> = [
+  {
+    value: 'article_source',
+    label: "Article de la page",
+    description: "L'IA se base uniquement sur l'article WordPress lié à cette page (ex : fiche POI, article inspiration)",
+    icon: '📄',
+  },
+  {
+    value: 'tous_articles_site',
+    label: "Tous les articles du site",
+    description: "L'IA parcourt l'ensemble des articles WordPress collectés pour trouver les informations pertinentes",
+    icon: '📚',
+  },
+  {
+    value: 'tous_articles_et_llm',
+    label: "Articles du site + connaissances LLM",
+    description: "L'IA utilise les articles du site et peut compléter avec ses propres connaissances sur la destination",
+    icon: '🧠',
+  },
+];
+
 interface Template {
   _id?: string;
   name: string;
   description?: string;
+  info_source: InfoSource;
   fields: TemplateField[];
 }
 
@@ -59,6 +88,7 @@ export default function TemplateForm({ templateId }: TemplateFormProps) {
   const [template, setTemplate] = useState<Template>({
     name: '',
     description: '',
+    info_source: 'article_source',
     fields: [],
   });
   const [loading, setLoading] = useState(!!templateId);
@@ -275,6 +305,51 @@ export default function TemplateForm({ templateId }: TemplateFormProps) {
                   rows={3}
                   placeholder="Décrivez l'usage de ce template..."
                 />
+              </div>
+
+              {/* Source d'information pour la génération IA */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Source d'information pour la génération IA
+                </label>
+                <p className="text-xs text-gray-500 mb-3">
+                  Indique au LLM où chercher les informations pour générer le contenu de chaque page utilisant ce template.
+                </p>
+                <div className="space-y-2">
+                  {INFO_SOURCE_OPTIONS.map((option) => {
+                    const isSelected = template.info_source === option.value;
+                    return (
+                      <label
+                        key={option.value}
+                        className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                          isSelected
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-200 hover:border-gray-300 bg-white'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="info_source"
+                          value={option.value}
+                          checked={isSelected}
+                          onChange={() => setTemplate({ ...template, info_source: option.value })}
+                          className="mt-0.5 accent-blue-600"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-base">{option.icon}</span>
+                            <span className={`text-sm font-medium ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
+                              {option.label}
+                            </span>
+                          </div>
+                          <p className={`text-xs mt-0.5 ${isSelected ? 'text-blue-700' : 'text-gray-500'}`}>
+                            {option.description}
+                          </p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>

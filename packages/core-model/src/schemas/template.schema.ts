@@ -74,7 +74,15 @@ export const TemplateFieldSchema = z.object({
   
   /** Instructions pour l'IA lors du remplissage automatique (optionnel) */
   ai_instructions: z.string().optional(),
-  
+
+  /**
+   * Valeur par défaut à injecter directement sans passer par l'IA.
+   * Quand ce champ est renseigné, ai_instructions est ignoré.
+   * La valeur est copiée telle quelle dans le contenu de la page à la création.
+   * Exemples : lien statique, mention légale, texte récurrent...
+   */
+  default_value: z.string().optional(),
+
   /** Règles de validation du champ (optionnel) */
   validation: FieldValidationSchema.optional(),
   

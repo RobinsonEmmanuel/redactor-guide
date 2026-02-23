@@ -73,19 +73,42 @@ export class PageRedactionService {
         console.log(`🌐 Mode contexte général (aucune url_source)`);
       }
 
-      // 5. Charger les prompts
+      // 5. Extraire les champs avec valeur par défaut (pas d'appel IA pour ceux-ci)
+      const defaultContent: Record<string, string> = {};
+      const fieldsForAI = template.fields.filter((f: any) => {
+        if (f.default_value !== undefined && f.default_value !== null) {
+          defaultContent[f.name] = f.default_value;
+          console.log(`📌 Valeur par défaut appliquée pour ${f.name}`);
+          return false;
+        }
+        return true;
+      });
+
+      const templateForAI = { ...template, fields: fieldsForAI };
+
+      // Si tous les champs ont une valeur par défaut, pas besoin d'appeler l'IA
+      if (fieldsForAI.length === 0) {
+        console.log('✅ Tous les champs ont une valeur par défaut — pas d\'appel IA nécessaire');
+        return { content: defaultContent, status: 'success', retryCount: 0 };
+      }
+
+      // 6. Charger les prompts
       const promptRedaction = await this.loadPrompt('redaction_page');
       const promptRegles = await this.loadPrompt('regles_ecriture');
 
-      // 6. Générer avec retry automatique
+      // 7. Générer avec retry automatique (uniquement les champs sans default_value)
       const result = await this.generateWithRetry(
-        template,
+        templateForAI,
         articleContext,
         promptRedaction,
         promptRegles
       );
 
-      return result;
+      // 8. Fusionner valeurs par défaut + contenu généré par l'IA
+      return {
+        ...result,
+        content: { ...defaultContent, ...result.content },
+      };
     } catch (error: any) {
       console.error('❌ Erreur génération contenu:', error);
       return {

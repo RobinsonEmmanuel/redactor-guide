@@ -15,7 +15,8 @@ interface TemplateField {
   name: string;
   label?: string;
   description?: string;
-  ai_instructions?: string; // ✅ Ajout
+  ai_instructions?: string;
+  default_value?: string;
   validation?: {
     required?: boolean;
     max_length?: number;

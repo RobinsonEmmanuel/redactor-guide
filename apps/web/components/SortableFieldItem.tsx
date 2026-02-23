@@ -10,7 +10,8 @@ interface TemplateField {
   name: string;
   label?: string;
   description?: string;
-  ai_instructions?: string; // ✅ Ajout
+  ai_instructions?: string;
+  default_value?: string;
   validation?: {
     required?: boolean;
     max_length?: number;
@@ -117,61 +118,112 @@ export default function SortableFieldItem({
             />
           </div>
 
-          {/* Instructions IA */}
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-2">
-              <span className="text-purple-600">🤖</span>
-              Instructions pour l'IA (optionnel)
-            </label>
-            <textarea
-              value={field.ai_instructions || ''}
-              onChange={(e) => onChange({ ai_instructions: e.target.value })}
-              placeholder="Ex: Générer un titre court et accrocheur à partir du titre de l'article WordPress, maximum 60 caractères..."
-              rows={3}
-              className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-purple-50/30"
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              Guide l'IA pour remplir automatiquement ce champ à partir des articles WordPress
-            </p>
+          {/* Toggle : mode IA vs valeur par défaut */}
+          <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit">
+            <button
+              type="button"
+              onClick={() => onChange({ default_value: undefined })}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                !field.default_value
+                  ? 'bg-white text-purple-700 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <span>🤖</span> Généré par IA
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange({ ai_instructions: undefined, validation: undefined, default_value: field.default_value ?? '' })}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                field.default_value !== undefined
+                  ? 'bg-white text-emerald-700 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <span>📌</span> Valeur par défaut
+            </button>
           </div>
 
-          {/* Règles de validation */}
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-2">
-              <span className="text-red-600">🛡️</span>
-              Règles de validation (JSON optionnel)
-            </label>
-            <textarea
-              value={field.validation ? JSON.stringify(field.validation, null, 2) : ''}
-              onChange={(e) => {
-                try {
-                  const parsed = e.target.value.trim() ? JSON.parse(e.target.value) : undefined;
-                  onChange({ validation: parsed });
-                } catch (err) {
-                  // Invalid JSON, don't update yet
-                }
-              }}
-              placeholder={`{
+          {/* Mode : Valeur par défaut */}
+          {field.default_value !== undefined ? (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Valeur par défaut
+              </label>
+              {field.type === 'texte' || field.type === 'liste' ? (
+                <textarea
+                  value={field.default_value}
+                  onChange={(e) => onChange({ default_value: e.target.value })}
+                  placeholder="Contenu qui sera injecté directement dans toutes les nouvelles pages..."
+                  rows={3}
+                  className="w-full px-3 py-2 text-sm border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent bg-emerald-50/30"
+                />
+              ) : (
+                <input
+                  type="text"
+                  value={field.default_value}
+                  onChange={(e) => onChange({ default_value: e.target.value })}
+                  placeholder={
+                    field.type === 'lien' ? 'https://...' :
+                    field.type === 'image' ? 'URL de l\'image par défaut' :
+                    'Valeur par défaut...'
+                  }
+                  className="w-full px-3 py-2 text-sm border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent bg-emerald-50/30"
+                />
+              )}
+              <p className="mt-1 text-xs text-gray-500">
+                Cette valeur sera copiée directement — l'IA ne traitera pas ce champ.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Mode : Instructions IA */}
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Instructions pour l'IA (optionnel)
+                </label>
+                <textarea
+                  value={field.ai_instructions || ''}
+                  onChange={(e) => onChange({ ai_instructions: e.target.value })}
+                  placeholder="Ex: Générer un titre court et accrocheur à partir du titre de l'article WordPress, maximum 60 caractères..."
+                  rows={3}
+                  className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-purple-50/30"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Guide l'IA pour remplir automatiquement ce champ à partir des articles WordPress
+                </p>
+              </div>
+
+              {/* Règles de validation */}
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Règles de validation (JSON optionnel)
+                </label>
+                <textarea
+                  value={field.validation ? JSON.stringify(field.validation, null, 2) : ''}
+                  onChange={(e) => {
+                    try {
+                      const parsed = e.target.value.trim() ? JSON.parse(e.target.value) : undefined;
+                      onChange({ validation: parsed });
+                    } catch (err) {
+                      // JSON invalide, on attend que l'utilisateur finisse de saisir
+                    }
+                  }}
+                  placeholder={`{
   "required": true,
   "max_length": 120,
-  "min_length": 30,
-  "sentence_count": 1,
   "forbidden_words": ["incontournable", "magnifique"],
-  "forbidden_patterns": [":"],
-  "forbidden_temporal_terms": ["aujourd'hui", "actuellement"],
-  "messages": {
-    "required": "Ce champ est obligatoire",
-    "max_length": "Maximum 120 caractères"
-  },
   "severity": "error"
 }`}
-              rows={8}
-              className="w-full px-3 py-2 text-xs font-mono border border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent bg-red-50/20"
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              Validation automatique lors de la saisie (erreurs ou warnings selon severity)
-            </p>
-          </div>
+                  rows={6}
+                  className="w-full px-3 py-2 text-xs font-mono border border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent bg-red-50/20"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Validation automatique lors de la saisie (erreurs ou warnings selon severity)
+                </p>
+              </div>
+            </>
+          )}
 
           {/* Options spécifiques */}
           <div className="flex gap-4">

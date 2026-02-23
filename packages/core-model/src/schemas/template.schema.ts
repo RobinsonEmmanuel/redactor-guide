@@ -83,6 +83,15 @@ export const TemplateFieldSchema = z.object({
    */
   default_value: z.string().optional(),
 
+  /**
+   * Si true, l'IA ignore ce champ — aucune instruction n'est envoyée, aucune valeur n'est générée.
+   * La saisie est manuelle, page par page, dans l'éditeur de contenu.
+   * Utilisé pour les champs dont la valeur est unique à chaque page mais non générée
+   * (ex: URL d'image spécifique, lien externe particulier, durée de visite...).
+   * Ne s'applique que si default_value est absent.
+   */
+  skip_ai: z.boolean().optional(),
+
   /** Règles de validation du champ (optionnel) */
   validation: FieldValidationSchema.optional(),
   

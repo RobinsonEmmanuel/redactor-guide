@@ -81,6 +81,10 @@ export class PageRedactionService {
           console.log(`📌 Valeur par défaut appliquée pour ${f.name}`);
           return false;
         }
+        if (f.skip_ai) {
+          console.log(`✏️  Saisie manuelle — champ ignoré par l'IA : ${f.name}`);
+          return false;
+        }
         return true;
       });
 

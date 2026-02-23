@@ -127,7 +127,7 @@ export default function SortableFieldItem({
             const setMode = (m: 'ai' | 'default' | 'manual') => {
               if (m === 'ai')      onChange({ default_value: undefined, skip_ai: undefined });
               if (m === 'default') onChange({ ai_instructions: undefined, validation: undefined, skip_ai: undefined, default_value: field.default_value ?? '' });
-              if (m === 'manual')  onChange({ ai_instructions: undefined, validation: undefined, default_value: undefined, skip_ai: true });
+              if (m === 'manual')  onChange({ ai_instructions: undefined, default_value: undefined, skip_ai: true });
             };
             return (
               <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit">
@@ -182,13 +182,43 @@ export default function SortableFieldItem({
 
           {/* Mode : Saisie manuelle */}
           {field.skip_ai && (
-            <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <span className="text-amber-600 text-sm mt-0.5">✏️</span>
-              <p className="text-xs text-amber-800">
-                Ce champ sera <strong>laissé vide</strong> après la génération IA.
-                Tu le rempliras manuellement dans l'éditeur de contenu, page par page.
-              </p>
-            </div>
+            <>
+              <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <span className="text-amber-600 text-sm mt-0.5">✏️</span>
+                <p className="text-xs text-amber-800">
+                  Ce champ sera <strong>laissé vide</strong> après la génération IA.
+                  Tu le rempliras manuellement dans l'éditeur de contenu, page par page.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Règles de validation (JSON optionnel)
+                </label>
+                <textarea
+                  value={field.validation ? JSON.stringify(field.validation, null, 2) : ''}
+                  onChange={(e) => {
+                    try {
+                      const parsed = e.target.value.trim() ? JSON.parse(e.target.value) : undefined;
+                      onChange({ validation: parsed });
+                    } catch (err) {
+                      // JSON invalide, on attend que l'utilisateur finisse de saisir
+                    }
+                  }}
+                  placeholder={`{
+  "required": true,
+  "max_length": 120,
+  "forbidden_words": ["incontournable", "magnifique"],
+  "severity": "error"
+}`}
+                  rows={6}
+                  className="w-full px-3 py-2 text-xs font-mono border border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent bg-red-50/20"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Validation appliquée lors de la saisie manuelle dans l'éditeur de contenu
+                </p>
+              </div>
+            </>
           )}
 
           {/* Mode : Instructions IA */}

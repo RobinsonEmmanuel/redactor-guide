@@ -393,22 +393,72 @@ Retourne STRICTEMENT un objet JSON valide, sans texte additionnel :
           LISTE_ARTICLES_POI: validArticles.map((a: any) => `- ${a.title} (${a.url || a.slug})`).join('\n'),
         });
 
+        /**
+         * Normalise la réponse IA quel que soit le format retourné :
+         * { pois: [...] }, { articles: [{ slug, pois: [...] }] }, { "slug": [...] }, [...]
+         */
+        function normalizePoisFromResult(result: any): any[] | null {
+          if (!result || typeof result !== 'object') return null;
+
+          // Format attendu : { pois: [...] }
+          if (Array.isArray(result.pois)) return result.pois;
+
+          // Format tableau direct
+          if (Array.isArray(result)) return result;
+
+          // Format { articles: [{ slug, title?, pois: [...] }] }
+          if (Array.isArray(result.articles)) {
+            const flat: any[] = [];
+            for (const art of result.articles) {
+              const subPois = art.pois || art.lieux || art.points_of_interest;
+              if (Array.isArray(subPois)) {
+                subPois.forEach((p: any) => {
+                  flat.push({
+                    ...p,
+                    article_source: p.article_source || art.title || art.slug || '',
+                    url_source: p.url_source || art.url || art.slug || '',
+                  });
+                });
+              }
+            }
+            return flat.length > 0 ? flat : null;
+          }
+
+          // Format objet keyed par slug : { "slug-article": [ {...}, ...] }
+          const values = Object.values(result);
+          if (values.every(v => Array.isArray(v))) {
+            const flat: any[] = [];
+            for (const [slug, pois] of Object.entries(result)) {
+              (pois as any[]).forEach((p: any) => {
+                flat.push({
+                  ...p,
+                  article_source: p.article_source || slug,
+                  url_source: p.url_source || slug,
+                });
+              });
+            }
+            return flat.length > 0 ? flat : null;
+          }
+
+          return null;
+        }
+
         const MAX_RETRIES = 3;
         let batchSuccess = false;
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
           try {
             if (attempt > 1) {
-              const delay = attempt * 5000; // 5s, 10s entre les retries
+              const delay = attempt * 5000;
               console.log(`  ⏳ Batch ${batchNum} — retry ${attempt}/${MAX_RETRIES} dans ${delay / 1000}s...`);
               await new Promise(resolve => setTimeout(resolve, delay));
             }
 
-            // max_tokens élevé : un batch dense (ex: Teide) peut produire 30+ POIs × ~200 chars
             const result = await openaiService.generateJSON(extractionPrompt, 24000);
 
-            if (result.pois && Array.isArray(result.pois)) {
-              const enriched = result.pois.map((poi: any) => {
+            const poisList = normalizePoisFromResult(result);
+            if (poisList && poisList.length > 0) {
+              const enriched = poisList.map((poi: any) => {
                 // Corriger article_source si l'IA a renvoyé le titre du batch ou une valeur invalide
                 const isBatchTitle = !poi.article_source ||
                   poi.article_source.startsWith('Batch ') ||

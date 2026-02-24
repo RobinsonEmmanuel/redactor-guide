@@ -258,4 +258,3 @@ function normalizeArticle(a: any, targetLang: string) {
     updated_at:   a.updated_at ?? '',
   };
 }
-}

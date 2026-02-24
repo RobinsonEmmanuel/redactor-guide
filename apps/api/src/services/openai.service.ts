@@ -85,7 +85,7 @@ export class OpenAIService {
       }
 
       if (!content) {
-        console.error('Réponse OpenAI vide:', JSON.stringify(response, null, 2));
+        console.error('Réponse OpenAI vide (contenu extrait vide)');
         throw new Error('Aucune réponse de OpenAI');
       }
 

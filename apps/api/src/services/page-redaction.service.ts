@@ -677,13 +677,14 @@ INSTRUCTIONS STRICTES :
     }
 
     // 3. Articles du site WordPress
-    // gpt-4o-mini dispose de 128 000 tokens de contexte.
-    // Un article en markdown ≈ 1 000–2 000 tokens → on peut en passer 40+ confortablement.
-    // On préfère le markdown (2–3× plus compact que le HTML) et on ne tronque pas.
+    // GPT-5 mini dispose de 400 000 tokens de contexte d'entrée.
+    // Un article en markdown ≈ 1 000–2 000 tokens → on peut en passer ~150 confortablement
+    // (150 × 2 000 = 300 000 tokens, en laissant 100k pour le prompt + output).
+    // On préfère le markdown (2–3× plus compact que le HTML).
     const sampleArticles = await this.db
       .collection('articles_raw')
       .find({}, { projection: { title: 1, categories: 1, tags: 1, markdown: 1, html_brut: 1 } })
-      .limit(40)
+      .limit(150)
       .toArray();
 
     if (sampleArticles.length > 0) {

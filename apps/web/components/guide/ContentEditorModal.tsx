@@ -180,6 +180,11 @@ export default function ContentEditorModal({
   const [validating, setValidating] = useState(false);
   const [validationReport, setValidationReport] = useState<any | null>(null);
   const [showValidation, setShowValidation] = useState(false);
+  // Map field name → résultat de validation pour accès rapide inline
+  const validationByField: Record<string, any> = {};
+  if (validationReport?.results) {
+    for (const r of validationReport.results) validationByField[r.field] = r;
+  }
 
   useEffect(() => {
     setFormData(content || {});
@@ -307,6 +312,103 @@ export default function ContentEditorModal({
     );
   };
 
+  // ─── Composants validation inline ──────────────────────────────────────────
+
+  const ArticleConsistencyBadge = ({ fieldName }: { fieldName: string }) => {
+    const v = validationByField[fieldName];
+    if (!v || !v.article_consistency || v.article_consistency === 'not_checked') return null;
+    const cfg: Record<string, { bg: string; label: string; icon: string }> = {
+      present: { bg: 'bg-teal-100 text-teal-700', label: 'Dans l\'article', icon: '📄' },
+      partial: { bg: 'bg-purple-100 text-purple-700', label: 'Approximatif',   icon: '📝' },
+      absent:  { bg: 'bg-slate-100 text-slate-600', label: 'Hors article',     icon: '🔍' },
+    };
+    const c = cfg[v.article_consistency];
+    if (!c) return null;
+    return (
+      <span className={`ml-1.5 inline-flex items-center gap-1 text-xs font-medium px-1.5 py-0.5 rounded-full ${c.bg}`}
+        title={v.article_comment || ''}>
+        {c.icon} {c.label}
+      </span>
+    );
+  };
+
+  const ValidationBadge = ({ fieldName }: { fieldName: string }) => {
+    const v = validationByField[fieldName];
+    if (!v) return null;
+    const cfg = {
+      valid:     { bg: 'bg-emerald-100 text-emerald-700', icon: '✅' },
+      invalid:   { bg: 'bg-red-100 text-red-700',         icon: '❌' },
+      uncertain: { bg: 'bg-amber-100 text-amber-700',     icon: '⚠️' },
+    }[v.status as 'valid' | 'invalid' | 'uncertain'] ?? { bg: 'bg-gray-100 text-gray-600', icon: '?' };
+    return (
+      <>
+        <span className={`ml-2 inline-flex items-center gap-1 text-xs font-semibold px-1.5 py-0.5 rounded-full ${cfg.bg}`}>
+          {cfg.icon} {v.status === 'valid' ? 'Valide' : v.status === 'invalid' ? 'Incorrect' : 'Incertain'}
+        </span>
+        <ArticleConsistencyBadge fieldName={fieldName} />
+      </>
+    );
+  };
+
+  const ValidationBanner = ({ fieldName }: { fieldName: string }) => {
+    const v = validationByField[fieldName];
+    if (!v) return null;
+    const hasFactIssue = v.status !== 'valid';
+    const hasArticleIssue = v.article_consistency && v.article_consistency !== 'not_checked' && v.article_consistency !== 'present';
+    if (!hasFactIssue && !hasArticleIssue) return null;
+    const isInvalid = v.status === 'invalid';
+
+    return (
+      <div className="mt-2 space-y-1.5">
+        {/* Bandeau factuel (Perplexity) */}
+        {hasFactIssue && (
+          <div className={`rounded-lg border px-3 py-2.5 text-xs ${isInvalid ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
+            <p className={`font-medium mb-1 ${isInvalid ? 'text-red-700' : 'text-amber-700'}`}>
+              {isInvalid ? '❌ Information incorrecte' : '⚠️ Non confirmé'} — {v.comment}
+            </p>
+            {v.correction && (
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-gray-600 flex-1">
+                  Suggestion : <strong className={isInvalid ? 'text-red-800' : 'text-amber-800'}>{v.correction}</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleFieldChange(fieldName, v.correction)}
+                  className={`flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-md transition-colors ${isInvalid ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-amber-500 hover:bg-amber-600 text-white'}`}
+                >
+                  Appliquer
+                </button>
+              </div>
+            )}
+            {v.source_url && (
+              <a href={v.source_url} target="_blank" rel="noopener noreferrer"
+                className="mt-1.5 flex items-center gap-1 text-blue-600 hover:underline truncate">
+                🔗 {v.source_title || v.source_url}
+              </a>
+            )}
+          </div>
+        )}
+
+        {/* Bandeau cohérence article source */}
+        {hasArticleIssue && (
+          <div className={`rounded-lg border px-3 py-2 text-xs ${v.article_consistency === 'absent' ? 'border-slate-200 bg-slate-50' : 'border-purple-200 bg-purple-50'}`}>
+            <p className={`font-medium ${v.article_consistency === 'absent' ? 'text-slate-600' : 'text-purple-700'}`}>
+              {v.article_consistency === 'absent' ? '🔍 Hors article source' : '📝 Approximatif vs. article'}
+              {v.article_comment && <span className="font-normal"> — {v.article_comment}</span>}
+            </p>
+            {v.article_excerpt && (
+              <p className="mt-1 text-gray-500 italic">
+                Article : "{v.article_excerpt}"
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ────────────────────────────────────────────────────────────────────────────
+
   const renderField = (field: TemplateField) => {
     const fieldValue = formData[field.name] || '';
 
@@ -317,6 +419,7 @@ export default function ContentEditorModal({
           <div key={field.name} className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {field.label}
+              <ValidationBadge fieldName={field.name} />
             </label>
             {field.description && (
               <p className="text-xs text-gray-500 mb-2">{field.description}</p>
@@ -328,9 +431,12 @@ export default function ContentEditorModal({
               className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
                 isTitleOverLimit 
                   ? 'border-red-500 bg-red-50 text-red-900' 
+                  : validationByField[field.name]?.status === 'invalid' ? 'border-red-400'
+                  : validationByField[field.name]?.status === 'uncertain' ? 'border-amber-400'
                   : 'border-gray-300'
               }`}
             />
+            <ValidationBanner fieldName={field.name} />
             {field.max_chars && (
               <div className="mt-1 text-right">
                 {getCharacterCount(field.name, field.max_chars)}
@@ -351,6 +457,7 @@ export default function ContentEditorModal({
           <div key={field.name} className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {field.label}
+              <ValidationBadge fieldName={field.name} />
             </label>
             {field.description && (
               <p className="text-xs text-gray-500 mb-2">{field.description}</p>
@@ -362,9 +469,12 @@ export default function ContentEditorModal({
               className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
                 isOverLimit
                   ? 'border-red-500 bg-red-50 text-red-900'
+                  : validationByField[field.name]?.status === 'invalid' ? 'border-red-400'
+                  : validationByField[field.name]?.status === 'uncertain' ? 'border-amber-400'
                   : 'border-gray-300'
               }`}
             />
+            <ValidationBanner fieldName={field.name} />
             {field.max_chars && (
               <div className="mt-1 text-right">
                 {getCharacterCount(field.name, field.max_chars)}
@@ -473,6 +583,7 @@ export default function ContentEditorModal({
           <div key={field.name} className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {field.label}
+              <ValidationBadge fieldName={field.name} />
             </label>
             {field.description && (
               <p className="text-xs text-gray-500 mb-2">{field.description}</p>
@@ -483,11 +594,14 @@ export default function ContentEditorModal({
               onChange={(e) => handleFieldChange(field.name, e.target.value)}
               placeholder="Valeur courte et normée"
               className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                isMetaOverLimit 
-                  ? 'border-red-500 bg-red-50 text-red-900' 
+                isMetaOverLimit
+                  ? 'border-red-500 bg-red-50 text-red-900'
+                  : validationByField[field.name]?.status === 'invalid' ? 'border-red-400'
+                  : validationByField[field.name]?.status === 'uncertain' ? 'border-amber-400'
                   : 'border-gray-300'
               }`}
             />
+            <ValidationBanner fieldName={field.name} />
             {field.max_chars && (
               <div className="mt-1 text-right">
                 {getCharacterCount(field.name, field.max_chars)}
@@ -761,15 +875,40 @@ export default function ContentEditorModal({
                 <><ShieldCheckIcon className="h-4 w-4" />🔍 Contrôler le contenu</>
               )}
             </button>
-            {validationReport && !showValidation && (
-              <button
-                type="button"
-                onClick={() => setShowValidation(true)}
-                className="w-full text-xs text-center text-emerald-200 hover:text-white underline"
-              >
-                Voir le dernier rapport ({validationReport.results?.length} champs)
-              </button>
-            )}
+            {/* Synthèse des résultats dans la sidebar */}
+            {validationReport?.results && (() => {
+              const fact = { valid: 0, invalid: 0, uncertain: 0 };
+              const art = { present: 0, partial: 0, absent: 0, not_checked: 0 };
+              for (const r of validationReport.results) {
+                fact[r.status as keyof typeof fact] = (fact[r.status as keyof typeof fact] || 0) + 1;
+                const ac = r.article_consistency || 'not_checked';
+                art[ac as keyof typeof art] = (art[ac as keyof typeof art] || 0) + 1;
+              }
+              const hasArticleCheck = art.present + art.partial + art.absent > 0;
+              return (
+                <div className="mt-1 rounded-lg bg-white/10 border border-white/20 px-3 py-2.5 text-xs space-y-2">
+                  <div>
+                    <p className="text-white/60 font-semibold text-xs uppercase tracking-wide mb-1">Véracité (web)</p>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {fact.valid > 0 && <span className="px-2 py-0.5 bg-emerald-500/80 text-white rounded-full font-medium">✅ {fact.valid}</span>}
+                      {fact.invalid > 0 && <span className="px-2 py-0.5 bg-red-500/80 text-white rounded-full font-medium">❌ {fact.invalid}</span>}
+                      {fact.uncertain > 0 && <span className="px-2 py-0.5 bg-amber-500/80 text-white rounded-full font-medium">⚠️ {fact.uncertain}</span>}
+                    </div>
+                  </div>
+                  {hasArticleCheck && (
+                    <div>
+                      <p className="text-white/60 font-semibold text-xs uppercase tracking-wide mb-1">Cohérence article</p>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {art.present > 0 && <span className="px-2 py-0.5 bg-teal-500/80 text-white rounded-full font-medium">📄 {art.present}</span>}
+                        {art.partial > 0 && <span className="px-2 py-0.5 bg-purple-500/80 text-white rounded-full font-medium">📝 {art.partial}</span>}
+                        {art.absent > 0 && <span className="px-2 py-0.5 bg-slate-500/80 text-white rounded-full font-medium">🔍 {art.absent}</span>}
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-white/40 text-xs">↓ Détails dans le formulaire</p>
+                </div>
+              );
+            })()}
           </div>
 
           {requiresUrlForGeneration && !page.url_source && (
@@ -814,80 +953,6 @@ export default function ContentEditorModal({
           </button>
         </div>
       </div>
-
-      {/* Panneau de validation Perplexity */}
-      {showValidation && validationReport && (
-        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
-            {/* Header */}
-            <div className={`px-5 py-4 flex items-center justify-between rounded-t-xl ${validationReport.overall_status === 'valid' ? 'bg-emerald-600' : 'bg-orange-500'}`}>
-              <div>
-                <h3 className="text-white font-bold text-base">
-                  {validationReport.overall_status === 'valid' ? '✅ Contenu validé' : '⚠️ Corrections suggérées'}
-                </h3>
-                <p className="text-white/80 text-xs mt-0.5">
-                  {validationReport.results?.length} champs analysés · Perplexity grounding · {new Date(validationReport.validated_at).toLocaleString('fr-FR')}
-                </p>
-              </div>
-              <button onClick={() => setShowValidation(false)} className="text-white/80 hover:text-white">
-                <XMarkIcon className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Corps */}
-            <div className="overflow-y-auto flex-1 p-5 space-y-3">
-              {validationReport.results?.map((result: any, i: number) => (
-                <div key={i} className={`rounded-lg border p-3.5 ${
-                  result.status === 'valid' ? 'border-emerald-200 bg-emerald-50'
-                  : result.status === 'invalid' ? 'border-red-200 bg-red-50'
-                  : 'border-amber-200 bg-amber-50'
-                }`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                          result.status === 'valid' ? 'bg-emerald-200 text-emerald-800'
-                          : result.status === 'invalid' ? 'bg-red-200 text-red-800'
-                          : 'bg-amber-200 text-amber-800'
-                        }`}>
-                          {result.status === 'valid' ? '✅ Valide' : result.status === 'invalid' ? '❌ Incorrect' : '⚠️ Incertain'}
-                        </span>
-                        <span className="text-xs font-semibold text-gray-700">{result.label}</span>
-                      </div>
-                      <p className="text-xs text-gray-600 italic mb-1.5">"{result.value}"</p>
-                      {result.correction && (
-                        <p className="text-xs font-medium text-red-700 bg-red-100 rounded px-2 py-1 mb-1.5">
-                          Correction : {result.correction}
-                        </p>
-                      )}
-                      <p className="text-xs text-gray-500">{result.comment}</p>
-                    </div>
-                  </div>
-                  {result.source_url && (
-                    <a
-                      href={result.source_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-2 flex items-center gap-1 text-xs text-blue-600 hover:underline truncate"
-                    >
-                      🔗 {result.source_title || result.source_url}
-                    </a>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <div className="px-5 py-3 border-t border-gray-200 bg-gray-50 rounded-b-xl">
-              <button
-                onClick={() => setShowValidation(false)}
-                className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 text-sm transition-colors"
-              >
-                Fermer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Modal d'analyse des images */}
       {showImageAnalysis && (

@@ -2,11 +2,16 @@ export interface ValidationResult {
   field: string;
   label: string;
   value: string;
+  // Vérification factuelle (Perplexity grounding)
   status: 'valid' | 'invalid' | 'uncertain';
   correction?: string;
   source_url?: string;
   source_title?: string;
   comment: string;
+  // Cohérence avec l'article source (OpenAI)
+  article_consistency?: 'present' | 'absent' | 'partial' | 'not_checked';
+  article_excerpt?: string;
+  article_comment?: string;
 }
 
 export interface ContentValidationReport {

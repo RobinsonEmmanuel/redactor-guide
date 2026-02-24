@@ -1118,7 +1118,73 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         const name = poi_name || page.titre || 'POI';
         console.log(`🔍 [VALIDATE] Validation Perplexity de "${name}" (${fieldsToValidate.length} champs)`);
 
-        const report = await perplexity.validatePageContent(name, destination, fieldsToValidate);
+        // ── 1. Validation factuelle via Perplexity (en parallèle avec la récup article) ──
+        const [report, articleDoc] = await Promise.all([
+          perplexity.validatePageContent(name, destination, fieldsToValidate),
+          page.url_source
+            ? db.collection('articles_raw').findOne({ 'urls_by_lang.fr': page.url_source })
+            : Promise.resolve(null),
+        ]);
+
+        // ── 2. Vérification cohérence avec l'article source (si disponible) ──────────
+        if (articleDoc?.markdown) {
+          const openaiApiKey = process.env.OPENAI_API_KEY;
+          if (openaiApiKey) {
+            try {
+              const { OpenAIService } = await import('../services/openai.service');
+              const openai = new OpenAIService({ apiKey: openaiApiKey, model: 'gpt-5-mini', reasoningEffort: 'low' });
+
+              // Tronquer le markdown article pour rester dans le contexte (8000 chars max)
+              const articleExcerpt = (articleDoc.markdown as string).substring(0, 8000);
+
+              const fieldsJson = fieldsToValidate.map(f => `- ${f.label} (${f.name}): "${f.value}"`).join('\n');
+
+              const consistencyPrompt = `Tu es un éditeur vérifiant la cohérence entre un contenu rédigé et son article source.
+
+Article source (contenu WordPress) :
+---
+${articleExcerpt}
+---
+
+Contenu rédigé pour la fiche "${name}" :
+${fieldsJson}
+
+Pour chaque champ rédigé, vérifie s'il est basé sur l'article source :
+- "present" : l'info est clairement présente dans l'article
+- "partial" : l'info est partiellement dans l'article (approximation ou généralisation)  
+- "absent" : l'info ne figure pas dans l'article (inventée ou issue d'une autre source)
+
+Retourne UNIQUEMENT ce JSON :
+{ "consistency": [{ "field": "nom_du_champ", "article_consistency": "present|partial|absent", "article_excerpt": "citation courte de l'article source ou null", "article_comment": "explication max 80 caractères" }] }`;
+
+              const consistencyResult = await openai.generateJSON(consistencyPrompt, 6000);
+
+              if (consistencyResult?.consistency && Array.isArray(consistencyResult.consistency)) {
+                const consistencyMap: Record<string, any> = {};
+                for (const c of consistencyResult.consistency) consistencyMap[c.field] = c;
+
+                // Enrichir chaque résultat Perplexity avec la cohérence article
+                report.results = report.results.map((r: any) => ({
+                  ...r,
+                  article_consistency: consistencyMap[r.field]?.article_consistency ?? 'not_checked',
+                  article_excerpt: consistencyMap[r.field]?.article_excerpt ?? null,
+                  article_comment: consistencyMap[r.field]?.article_comment ?? null,
+                }));
+
+                console.log(`✅ [VALIDATE] Cohérence article vérifiée pour ${Object.keys(consistencyMap).length} champs`);
+              }
+            } catch (consistErr: any) {
+              console.warn(`⚠️ [VALIDATE] Cohérence article échouée (non bloquant): ${consistErr.message}`);
+              // Non bloquant : on continue avec la validation Perplexity seule
+            }
+          }
+        } else {
+          // Pas d'article source : marquer comme non vérifié
+          report.results = report.results.map((r: any) => ({
+            ...r,
+            article_consistency: 'not_checked' as const,
+          }));
+        }
 
         // Sauvegarder le rapport dans la page pour consultation ultérieure
         await db.collection('pages').updateOne(

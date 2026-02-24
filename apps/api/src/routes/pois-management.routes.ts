@@ -175,6 +175,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
           mono_count: job.mono_count ?? null,
           multi_count: job.multi_count ?? null,
           excluded_count: job.excluded_count ?? null,
+          deduplicated_pois: job.deduplicated_pois || [],
           error: job.error || null,
           created_at: job.created_at,
           updated_at: job.updated_at,
@@ -188,8 +189,8 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
 
   /**
    * POST /guides/:guideId/pois/jobs/:jobId/deduplicate
-   * Lance le dédoublonnage (exact + approchant) sur les preview_pois du job.
-   * Sauvegarde le résultat dans job.deduplicated_pois sans toucher à pois_selection.
+   * Déclenche le dédoublonnage de manière asynchrone via QStash.
+   * Répond immédiatement (pas de timeout) — le frontend poll le statut du job.
    */
   fastify.post<{ Params: { guideId: string; jobId: string } }>(
     '/guides/:guideId/pois/jobs/:jobId/deduplicate',
@@ -205,72 +206,43 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
         const rawPois: any[] = job.preview_pois || [];
         if (rawPois.length === 0) return reply.code(400).send({ error: 'Aucun POI extrait à dédoublonner' });
 
-        const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
-        const destination: string = guide?.destination ?? '';
-
-        const openaiApiKey = process.env.OPENAI_API_KEY;
-        if (!openaiApiKey) throw new Error('OPENAI_API_KEY non configurée');
-
-        const { OpenAIService } = await import('../services/openai.service');
-        const openaiService = new OpenAIService({ apiKey: openaiApiKey, model: 'gpt-5-mini', reasoningEffort: 'low' });
-
-        const PROMPT_ID_DEDUP = process.env.PROMPT_ID_POI_DEDUP ?? 'deduplication_POI_24022026';
-        const promptDedupDoc = await db.collection('prompts').findOne({ prompt_id: PROMPT_ID_DEDUP });
-
-        const poisJson = JSON.stringify(rawPois, null, 0);
-
-        const dedupPrompt = promptDedupDoc
-          ? openaiService.replaceVariables(promptDedupDoc.texte_prompt, {
-              DESTINATION: destination,
-              NB_POIS: String(rawPois.length),
-              POIS_BRUTS_JSON: poisJson,
-            })
-          : `Tu es un expert en consolidation de bases de données géographiques.
-Voici ${rawPois.length} POIs extraits depuis des articles sur ${destination}.
-Certains apparaissent en double (variantes orthographiques, langues différentes, appellations proches).
-LISTE : ${poisJson}
-1. Fusionne les doublons EXACTS (même poi_id ou nom)
-2. Fusionne les doublons APPROCHANTS (même lieu sous des noms différents)
-3. Pour chaque fusion : consolide autres_articles_mentions, garde article_source le plus représentatif
-4. Conserve TOUS les POIs uniques
-Retourne UNIQUEMENT : { "pois": [ ... ] }`;
-
-        console.log(`🔄 [DEDUP] Dédoublonnage de ${rawPois.length} POIs pour guide ${guideId}...`);
-
+        // Marquer le job comme en cours de déduplication
         await db.collection('pois_generation_jobs').updateOne(
           { _id: new ObjectId(jobId) },
           { $set: { status: 'deduplicating', updated_at: new Date() } }
         );
 
-        const dedupResult = await openaiService.generateJSON(dedupPrompt, 16000);
+        // Déclencher le worker via QStash (réponse immédiate, pas de timeout)
+        const qstashToken = env.QSTASH_TOKEN;
+        let workerUrl = env.INGEST_WORKER_URL || process.env.RAILWAY_PUBLIC_DOMAIN || process.env.API_URL;
+        if (workerUrl && !workerUrl.startsWith('http')) workerUrl = `https://${workerUrl}`;
 
-        let dedupPois: any[] = rawPois;
-        if (dedupResult.pois && Array.isArray(dedupResult.pois)) {
-          dedupPois = dedupResult.pois;
+        if (!qstashToken || !workerUrl) {
+          return reply.code(503).send({ error: 'QStash non configuré' });
         }
 
-        const removed = rawPois.length - dedupPois.length;
-        console.log(`✅ [DEDUP] ${dedupPois.length} POIs uniques (${removed} doublons supprimés)`);
-
-        await db.collection('pois_generation_jobs').updateOne(
-          { _id: new ObjectId(jobId) },
-          {
-            $set: {
-              status: 'dedup_complete',
-              deduplicated_pois: dedupPois,
-              dedup_count: dedupPois.length,
-              updated_at: new Date(),
-            },
-          }
-        );
-
-        return reply.send({
-          success: true,
-          raw_count: rawPois.length,
-          dedup_count: dedupPois.length,
-          removed,
-          pois: dedupPois,
+        const fullWorkerUrl = `${workerUrl}/api/v1/workers/deduplicate-pois`;
+        const qstashResponse = await fetch(`https://qstash.upstash.io/v2/publish/${fullWorkerUrl}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${qstashToken}`,
+            'Content-Type': 'application/json',
+            'Upstash-Retries': '0',
+          },
+          body: JSON.stringify({ guideId, jobId }),
         });
+
+        if (!qstashResponse.ok) {
+          const err = await qstashResponse.text();
+          await db.collection('pois_generation_jobs').updateOne(
+            { _id: new ObjectId(jobId) },
+            { $set: { status: 'extraction_complete', updated_at: new Date() } }
+          ).catch(() => {});
+          return reply.code(500).send({ error: `QStash error: ${err}` });
+        }
+
+        console.log(`✅ [DEDUP] Job ${jobId} envoyé à QStash pour dédoublonnage`);
+        return reply.send({ success: true, status: 'deduplicating', raw_count: rawPois.length });
 
       } catch (error: any) {
         console.error('❌ [DEDUP] Erreur:', error);

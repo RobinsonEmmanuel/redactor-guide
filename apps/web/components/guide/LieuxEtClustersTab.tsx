@@ -594,7 +594,11 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             if (status.excluded_count !== null) setExcludedCount(status.excluded_count);
             setJobStatus(status.status);
 
-            if (status.status === 'extraction_complete') {
+            if (status.status === 'dedup_complete') {
+              // Le worker de dédup a terminé : récupérer les POIs dédoublonnés
+              if (status.deduplicated_pois?.length) setDedupPois(status.deduplicated_pois);
+              setDeduplicating(false);
+            } else if (status.status === 'extraction_complete') {
               clearInterval(pollInterval);
               setGeneratingProgress(null);
               setGenerating(false);
@@ -602,6 +606,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               clearInterval(pollInterval);
               setGeneratingProgress(null);
               setGenerating(false);
+              setDeduplicating(false);
               if (status.status === 'failed') alert(`❌ Erreur: ${status.error || 'Erreur inconnue'}`);
             } else if (status.status === 'completed') {
               clearInterval(pollInterval);
@@ -634,22 +639,20 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     setDeduplicating(true);
     setDedupPois([]);
     try {
+      // Déclenche le worker via QStash — réponse immédiate, le polling prend la suite
       const res = await authFetch(
         `${apiUrl}/api/v1/guides/${guideId}/pois/jobs/${currentJobId}/deduplicate`,
         { method: 'POST' }
       );
-      if (res.ok) {
-        const data = await res.json();
-        setDedupPois(data.pois || []);
-        setJobStatus('dedup_complete');
-      } else {
+      if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         alert(`❌ Erreur dédoublonnage: ${err.error || 'Erreur inconnue'}`);
+        setDeduplicating(false);
       }
+      // Le statut 'deduplicating' sera détecté par le polling → setDeduplicating(false) quand dedup_complete
     } catch (err) {
       console.error('Erreur dédup:', err);
       alert('Erreur lors du dédoublonnage');
-    } finally {
       setDeduplicating(false);
     }
   };

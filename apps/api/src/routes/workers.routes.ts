@@ -587,6 +587,99 @@ Retourne STRICTEMENT un objet JSON valide, sans texte additionnel :
   });
 
   /**
+   * POST /workers/deduplicate-pois
+   * Worker asynchrone (appelé par QStash) pour dédoublonner les POIs extraits.
+   */
+  fastify.post('/workers/deduplicate-pois', async (request, reply) => {
+    const db = request.server.container.db;
+    const { guideId, jobId } = request.body as { guideId: string; jobId: string };
+
+    try {
+      console.log(`🔄 [WORKER-DEDUP] Dédoublonnage job ${jobId}`);
+
+      const job = await db.collection('pois_generation_jobs').findOne({ _id: new ObjectId(jobId) });
+      if (!job) throw new Error(`Job ${jobId} introuvable`);
+
+      const rawPois: any[] = job.preview_pois || [];
+      if (rawPois.length === 0) throw new Error('Aucun POI à dédoublonner');
+
+      const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+      const destination: string = guide?.destination ?? '';
+
+      const openaiApiKey = process.env.OPENAI_API_KEY;
+      if (!openaiApiKey) throw new Error('OPENAI_API_KEY non configurée');
+
+      const { OpenAIService } = await import('../services/openai.service');
+      const openaiService = new OpenAIService({ apiKey: openaiApiKey, model: 'gpt-5-mini', reasoningEffort: 'low' });
+
+      const PROMPT_ID_DEDUP = process.env.PROMPT_ID_POI_DEDUP ?? 'deduplication_POI_24022026';
+      const promptDedupDoc = await db.collection('prompts').findOne({ prompt_id: PROMPT_ID_DEDUP });
+
+      // Payload allégé : on n'envoie que les champs nécessaires au dédup
+      const poisCompact = rawPois.map((p: any) => ({
+        poi_id: p.poi_id,
+        nom: p.nom,
+        type: p.type,
+        article_source: p.article_source,
+        url_source: p.url_source,
+        autres_articles_mentions: p.autres_articles_mentions,
+      }));
+      const poisJson = JSON.stringify(poisCompact);
+
+      const dedupPrompt = promptDedupDoc
+        ? openaiService.replaceVariables(promptDedupDoc.texte_prompt, {
+            DESTINATION: destination,
+            NB_POIS: String(rawPois.length),
+            POIS_BRUTS_JSON: poisJson,
+          })
+        : `Tu es un expert en consolidation de données géographiques.
+Voici ${rawPois.length} POIs extraits d'articles sur ${destination}. Certains sont des doublons (orthographe, langues, appellations proches).
+LISTE : ${poisJson}
+1. Fusionne les doublons EXACTS (même poi_id ou nom identique)
+2. Fusionne les doublons APPROCHANTS (même lieu, noms différents)
+3. Pour chaque fusion : consolide autres_articles_mentions, garde article_source le plus représentatif
+4. Conserve TOUS les POIs uniques
+Retourne UNIQUEMENT : { "pois": [ { "poi_id": "...", "nom": "...", "type": "...", "article_source": "...", "url_source": "...", "autres_articles_mentions": [] } ] }`;
+
+      console.log(`🤖 [WORKER-DEDUP] Appel OpenAI pour ${rawPois.length} POIs...`);
+
+      const dedupResult = await openaiService.generateJSON(dedupPrompt, 32000);
+
+      let dedupPois: any[] = rawPois;
+      if (dedupResult.pois && Array.isArray(dedupResult.pois)) {
+        dedupPois = dedupResult.pois;
+      } else {
+        console.warn(`⚠️ [WORKER-DEDUP] Format inattendu, conservation des POIs bruts`);
+      }
+
+      const removed = rawPois.length - dedupPois.length;
+      console.log(`✅ [WORKER-DEDUP] ${dedupPois.length} POIs uniques (${removed} doublons supprimés)`);
+
+      await db.collection('pois_generation_jobs').updateOne(
+        { _id: new ObjectId(jobId) },
+        {
+          $set: {
+            status: 'dedup_complete',
+            deduplicated_pois: dedupPois,
+            dedup_count: dedupPois.length,
+            updated_at: new Date(),
+          },
+        }
+      );
+
+      return reply.send({ success: true, dedup_count: dedupPois.length, removed });
+
+    } catch (error: any) {
+      console.error(`❌ [WORKER-DEDUP] Erreur:`, error);
+      await db.collection('pois_generation_jobs').updateOne(
+        { _id: new ObjectId(jobId) },
+        { $set: { status: 'extraction_complete', error_dedup: error.message, updated_at: new Date() } }
+      ).catch(() => {});
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+
+  /**
    * POST /workers/translate-json
    * Worker pour traduire un JSON (appelé par QStash)
    */

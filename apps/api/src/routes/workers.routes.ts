@@ -152,26 +152,22 @@ export async function workersRoutes(fastify: FastifyInstance) {
 
       console.log(`📚 ${articles.length} articles chargés pour "${destination}"`);
 
-      // 3. Charger les prompts depuis la DB
-      // Prompt d'extraction (1 article → POIs)
-      const promptExtractionDoc = await db.collection('prompts').findOne({
-        categories: { $all: ['lieux', 'poi', 'sommaire'] },
-        actif: true,
-      });
+      // 3. Charger les prompts depuis la DB par leur ID unique
+      const PROMPT_ID_EXTRACTION = process.env.PROMPT_ID_POI_EXTRACTION ?? 'prompt_1770544848350_9j5m305ukj';
+      const PROMPT_ID_DEDUP      = process.env.PROMPT_ID_POI_DEDUP      ?? 'deduplication_POI_24022026';
+
+      const promptExtractionDoc = await db.collection('prompts').findOne({ prompt_id: PROMPT_ID_EXTRACTION });
       if (!promptExtractionDoc) {
-        throw new Error('Prompt d\'extraction POI non trouvé (catégories: lieux, poi, sommaire)');
+        throw new Error(`Prompt d'extraction POI non trouvé (id: ${PROMPT_ID_EXTRACTION})`);
       }
       console.log(`📋 Prompt extraction: ${promptExtractionDoc.prompt_nom || promptExtractionDoc.prompt_id}`);
 
       // Prompt de déduplication (optionnel — fallback intégré si absent)
-      const promptDedupDoc = await db.collection('prompts').findOne({
-        categories: { $all: ['lieux', 'poi', 'deduplication'] },
-        actif: true,
-      });
+      const promptDedupDoc = await db.collection('prompts').findOne({ prompt_id: PROMPT_ID_DEDUP });
       if (promptDedupDoc) {
         console.log(`📋 Prompt dédup: ${promptDedupDoc.prompt_nom || promptDedupDoc.prompt_id}`);
       } else {
-        console.log('📋 Prompt dédup: non trouvé en DB, utilisation du prompt par défaut');
+        console.log(`📋 Prompt dédup: id "${PROMPT_ID_DEDUP}" non trouvé, utilisation du prompt par défaut`);
       }
 
       // 4. Traitement article par article — 1 appel OpenAI par article

@@ -197,6 +197,14 @@ export async function workersRoutes(fastify: FastifyInstance) {
 
       for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
         const batchNum = batchIdx + 1;
+
+        // Vérifier à chaque batch si le job a été annulé
+        const currentJob = await db.collection('pois_generation_jobs').findOne({ _id: new ObjectId(jobId) });
+        if (!currentJob || currentJob.status === 'cancelled') {
+          console.log(`🛑 [WORKER] Job ${jobId} annulé — arrêt à batch ${batchNum}/${totalBatches}`);
+          return reply.send({ success: false, reason: 'cancelled' });
+        }
+
         const batchArticles = articles.slice(batchIdx * BATCH_SIZE, (batchIdx + 1) * BATCH_SIZE) as any[];
         const firstArticleNum = batchIdx * BATCH_SIZE + 1;
 

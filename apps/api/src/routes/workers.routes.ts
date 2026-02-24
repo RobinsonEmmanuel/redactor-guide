@@ -143,21 +143,22 @@ export async function workersRoutes(fastify: FastifyInstance) {
         throw new Error('Aucune destination définie pour ce guide');
       }
 
-      // 2. Récupérer les articles WordPress
+      // 2. Récupérer les articles WordPress filtrés par destination (regex insensible à la casse)
+      const destinationFilter = destination
+        ? { categories: { $regex: destination, $options: 'i' } }
+        : {};
+
       const articles = await db
         .collection('articles_raw')
-        .find({ 
-          site_id: guide.slug,
-          categories: { $in: [destination] }
-        })
-        .project({ title: 1, slug: 1, markdown: 1 })
+        .find(destinationFilter)
+        .project({ title: 1, slug: 1, markdown: 1, url: 1, urls_by_lang: 1 })
         .toArray();
 
       if (articles.length === 0) {
-        throw new Error('Aucun article WordPress trouvé pour cette destination');
+        throw new Error(`Aucun article WordPress trouvé pour la destination "${destination}"`);
       }
 
-      console.log(`📚 ${articles.length} articles chargés`);
+      console.log(`📚 ${articles.length} articles chargés pour "${destination}"`);
 
       // 3. Formater les articles pour l'IA
       const articlesFormatted = articles.map((a: any) => ({

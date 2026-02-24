@@ -33,19 +33,22 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
           return reply.code(404).send({ error: 'Guide non trouvé' });
         }
 
-        // 2. Vérifier qu'il y a des articles
-        const articlesCount = await db.collection('articles_raw').countDocuments({ 
-          site_id: guide.slug
-        });
+        // 2. Vérifier qu'il y a des articles filtrés par destination
+        const destination: string = guide.destination ?? guide.destinations?.[0] ?? '';
+        const destinationFilter = destination
+          ? { categories: { $regex: destination, $options: 'i' } }
+          : {};
+
+        const articlesCount = await db.collection('articles_raw').countDocuments(destinationFilter);
 
         if (articlesCount === 0) {
           return reply.code(400).send({ 
-            error: 'Aucun article trouvé', 
-            message: 'Récupérez d\'abord les articles WordPress' 
+            error: `Aucun article trouvé pour la destination "${destination}"`, 
+            message: 'Récupérez d\'abord les articles WordPress depuis l\'onglet Articles' 
           });
         }
 
-        console.log(`📚 ${articlesCount} articles disponibles pour génération POIs`);
+        console.log(`📚 ${articlesCount} articles disponibles pour "${destination}"`);
 
         // 3. Créer un job de génération
         const jobId = new ObjectId();

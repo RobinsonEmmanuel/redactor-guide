@@ -260,11 +260,30 @@ export default function TemplateForm({ templateId }: TemplateFormProps) {
         : `${apiUrl}/api/v1/templates`;
       const method = templateId ? 'PUT' : 'POST';
 
+      // Sanitiser les champs validation : s'assurer que required est bien un boolean
+      const sanitizedFields = template.fields.map((f) => {
+        if (!f.validation) return f;
+        const v = f.validation;
+        return {
+          ...f,
+          validation: {
+            ...v,
+            required: typeof v.required === 'boolean' ? v.required : undefined,
+            max_length: typeof v.max_length === 'number' ? v.max_length : undefined,
+            min_length: typeof v.min_length === 'number' ? v.min_length : undefined,
+            sentence_count: typeof v.sentence_count === 'number' ? v.sentence_count : undefined,
+            forbidden_words: Array.isArray(v.forbidden_words) ? v.forbidden_words : undefined,
+            forbidden_patterns: Array.isArray(v.forbidden_patterns) ? v.forbidden_patterns : undefined,
+            forbidden_temporal_terms: Array.isArray(v.forbidden_temporal_terms) ? v.forbidden_temporal_terms : undefined,
+          },
+        };
+      });
+
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(template),
+        body: JSON.stringify({ ...template, fields: sanitizedFields }),
       });
 
       if (res.ok) {

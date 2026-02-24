@@ -21,31 +21,31 @@ export type TemplateFieldType = z.infer<typeof TemplateFieldTypeEnum>;
  */
 export const FieldValidationSchema = z.object({
   /** Champ obligatoire ou non */
-  required: z.boolean().optional(),
+  required: z.boolean().optional().catch(undefined),
   
   /** Longueur maximale (caractères) */
-  max_length: z.number().int().positive().optional(),
+  max_length: z.number().int().positive().optional().catch(undefined),
   
   /** Longueur minimale (caractères) */
-  min_length: z.number().int().positive().optional(),
+  min_length: z.number().int().positive().optional().catch(undefined),
   
   /** Nombre de phrases attendu (pour texte) */
-  sentence_count: z.number().int().positive().optional(),
+  sentence_count: z.number().int().positive().optional().catch(undefined),
   
   /** Mots interdits (vocabulaire promotionnel, etc.) */
-  forbidden_words: z.array(z.string()).optional(),
+  forbidden_words: z.array(z.string()).optional().catch(undefined),
   
   /** Patterns interdits (regex ou texte simple) */
-  forbidden_patterns: z.array(z.string()).optional(),
+  forbidden_patterns: z.array(z.string()).optional().catch(undefined),
   
   /** Termes temporels interdits */
-  forbidden_temporal_terms: z.array(z.string()).optional(),
+  forbidden_temporal_terms: z.array(z.string()).optional().catch(undefined),
   
   /** Messages d'erreur personnalisés */
-  messages: z.record(z.string(), z.string()).optional(),
+  messages: z.record(z.string(), z.string()).optional().catch(undefined),
   
   /** Sévérité (error = bloquant, warning = avertissement) */
-  severity: z.enum(['error', 'warning']).default('error'),
+  severity: z.enum(['error', 'warning']).default('error').catch('error'),
 });
 
 export type FieldValidation = z.infer<typeof FieldValidationSchema>;
@@ -91,7 +91,7 @@ export const TemplateFieldSchema = z.object({
    * (ex: URL d'image spécifique, lien externe particulier, durée de visite...).
    * Ne s'applique que si default_value et service_id sont absents.
    */
-  skip_ai: z.boolean().optional(),
+  skip_ai: z.boolean().optional().catch(undefined),
 
   /**
    * Identifiant d'un FieldService enregistré dans la collection `field_services`.

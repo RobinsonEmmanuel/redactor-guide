@@ -90,7 +90,27 @@ export class PageRedactionService {
       } else if (infoSource === 'saison_auto_match') {
         // Mode saison : recherche automatique de l'article "Partir à [destination] en [mois]"
         // La saison est définie sur la page (field "saison") : printemps, ete, automne, hiver
-        const saison: string = page.saison || page.metadata?.saison || '';
+        // Fallback : on essaie de la déduire depuis le titre de la page
+        let saison: string = page.saison || page.metadata?.saison || '';
+
+        if (!saison && page.titre) {
+          const t = page.titre.toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // supprime les accents
+          if (t.includes('printemps'))                        saison = 'printemps';
+          else if (t.includes('ete') || t.includes('ete'))   saison = 'ete';
+          else if (t.includes('automne'))                    saison = 'automne';
+          else if (t.includes('hiver'))                      saison = 'hiver';
+          // Matching par mois de référence (ex: titre "Mai - Météo")
+          else if (t.includes('mai') || t.includes('mars') || t.includes('avril'))       saison = 'printemps';
+          else if (t.includes('juin') || t.includes('juillet') || t.includes('aout'))   saison = 'ete';
+          else if (t.includes('septembre') || t.includes('octobre') || t.includes('novembre')) saison = 'automne';
+          else if (t.includes('decembre') || t.includes('janvier') || t.includes('fevrier'))  saison = 'hiver';
+
+          if (saison) {
+            console.log(`🔍 Saison non définie → détectée depuis le titre "${page.titre}" : "${saison}"`);
+          }
+        }
+
         const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(_guideId) });
         const destination = guide?.destination ?? guide?.destinations?.[0] ?? '';
 

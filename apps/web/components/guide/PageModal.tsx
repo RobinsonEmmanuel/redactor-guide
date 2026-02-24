@@ -347,9 +347,13 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
                     </button>
                   ))}
                 </div>
-                {selectedSaison && (
+                {selectedSaison ? (
                   <p className="mt-2 text-xs text-blue-600">
                     L'IA recherchera automatiquement l'article "Partir à [destination] en {selectedSaison.mois}"
+                  </p>
+                ) : (
+                  <p className="mt-2 text-xs font-medium text-amber-700 flex items-center gap-1">
+                    ⚠️ Sélectionne une saison — sans elle l'IA ne trouvera pas l'article source
                   </p>
                 )}
               </div>

@@ -104,12 +104,6 @@ function BoldTextArea({ value, onChange, rows = 4, className }: BoldTextAreaProp
     });
   };
 
-  // Aperçu inline : **texte** → <strong>texte</strong>
-  const hasMarkers = value.includes('**');
-  const previewHtml = hasMarkers
-    ? value.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    : '';
-
   return (
     <div>
       {/* Barre d'outils */}
@@ -134,16 +128,6 @@ function BoldTextArea({ value, onChange, rows = 4, className }: BoldTextAreaProp
         rows={rows}
         className={className}
       />
-
-      {/* Aperçu du rendu gras */}
-      {hasMarkers && (
-        <div className="mt-1.5 px-3 py-2 bg-gray-50 border border-gray-200 rounded text-sm text-gray-700 leading-relaxed">
-          <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide block mb-0.5">
-            Aperçu InDesign
-          </span>
-          <span dangerouslySetInnerHTML={{ __html: previewHtml }} />
-        </div>
-      )}
     </div>
   );
 }

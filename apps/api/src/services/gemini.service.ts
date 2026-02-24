@@ -54,23 +54,40 @@ Retourne UNIQUEMENT un objet JSON valide sans markdown ni backticks :
         ?.map((c: any) => ({ uri: c.web?.uri || '', title: c.web?.title || '' }))
         .filter((c: any) => c.uri) || [];
 
-    // Nettoyer le JSON (Gemini peut ajouter des backticks même si demandé sans)
+    // ── Nettoyage robuste du JSON ──────────────────────────────────────────────
+    // 1. Enlever les blocs markdown ```json ... ``` ou ``` ... ```
     rawText = rawText
       .replace(/^```json\s*/i, '')
       .replace(/^```\s*/i, '')
       .replace(/\s*```$/i, '')
       .trim();
 
+    // 2. Extraire le bloc JSON principal (entre { et le dernier })
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error(`Pas de JSON trouvé dans la réponse Gemini: ${rawText.substring(0, 300)}`);
+    }
+    let jsonStr = jsonMatch[0];
+
+    // 3. Nettoyer les backticks à l'intérieur des valeurs de chaînes JSON
+    // Gemini peut écrire `valeur` dans les commentaires
+    // Stratégie : remplacer les backticks hors d'un contexte JSON valide
+    jsonStr = jsonStr.replace(/`/g, "'");
+
     let parsed: { results: ValidationResult[] };
     try {
-      parsed = JSON.parse(rawText);
-    } catch {
-      // Tentative d'extraction du JSON si du texte entoure le bloc
-      const match = rawText.match(/\{[\s\S]*\}/);
-      if (match) {
-        parsed = JSON.parse(match[0]);
-      } else {
-        throw new Error(`Impossible de parser la réponse Gemini: ${rawText.substring(0, 300)}`);
+      parsed = JSON.parse(jsonStr);
+    } catch (e1) {
+      // Dernière tentative : parser ligne par ligne en ignorant les lignes invalides
+      try {
+        // Remplacer les retours à la ligne non échappés dans les strings
+        const sanitized = jsonStr.replace(/[\u0000-\u001F\u007F]/g, (ch) => {
+          const safe: Record<string, string> = { '\n': '\\n', '\r': '\\r', '\t': '\\t' };
+          return safe[ch] ?? '';
+        });
+        parsed = JSON.parse(sanitized);
+      } catch {
+        throw new Error(`Impossible de parser la réponse Gemini: ${jsonStr.substring(0, 400)}`);
       }
     }
 

@@ -181,7 +181,12 @@ export default function TemplateForm({ templateId }: TemplateFormProps) {
   };
 
   const handleAddField = (type: TemplateField['type']) => {
-    const fieldIndex = template.fields.filter((f) => f.type === type).length + 1;
+    // Trouver le prochain index libre pour ce type (évite les collisions après suppression)
+    const existingNames = new Set(template.fields.map((f) => f.name));
+    let fieldIndex = 1;
+    while (existingNames.has(`${template.name}_${type}_${fieldIndex}`)) {
+      fieldIndex++;
+    }
     const fieldName = `${template.name}_${type}_${fieldIndex}`;
 
     const newField: TemplateField = {

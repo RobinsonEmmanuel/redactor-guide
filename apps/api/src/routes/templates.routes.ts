@@ -80,6 +80,15 @@ export async function templatesRoutes(fastify: FastifyInstance) {
         }
       }
 
+      // Valider l'unicité des noms de champs
+      const fieldNames = body.fields.map((f) => f.name);
+      const duplicates = fieldNames.filter((name, idx) => fieldNames.indexOf(name) !== idx);
+      if (duplicates.length > 0) {
+        return reply.status(400).send({
+          error: `Noms de champs en double : ${[...new Set(duplicates)].join(', ')}`,
+        });
+      }
+
       // Créer le template
       const now = new Date().toISOString();
       const template: Omit<Template, '_id'> = {
@@ -142,6 +151,15 @@ export async function templatesRoutes(fastify: FastifyInstance) {
               error: `Le champ "${field.name}" ne commence pas par "${templateName}_"`,
             });
           }
+        }
+
+        // Valider l'unicité des noms de champs
+        const fieldNames = body.fields.map((f) => f.name);
+        const duplicates = fieldNames.filter((name, idx) => fieldNames.indexOf(name) !== idx);
+        if (duplicates.length > 0) {
+          return reply.status(400).send({
+            error: `Noms de champs en double : ${[...new Set(duplicates)].join(', ')}`,
+          });
         }
       }
 

@@ -682,9 +682,13 @@ INSTRUCTIONS STRICTES :
     // On réserve ~120 000 tokens pour le prompt système + les instructions + l'output.
     // Budget articles : 280 000 tokens.
     //
+    // Filtrage : on ne charge que les articles dont la catégorie correspond
+    // à la destination du guide (ex: "Tenerife"). Les articles d'autres destinations
+    // (ex: "Gran Canaria") sont ignorés — inutiles pour la rédaction.
+    //
     // Stratégie :
     //   - Couche 1 : articles complets (markdown), triés du plus court au plus long
-    //     → on en inclut autant que le budget le permet (~30-40 articles selon leur taille)
+    //     → on en inclut autant que le budget le permet (~30 articles selon leur taille)
     //   - Couche 2 : index "titre | URL" pour les articles exclus (~30 tokens/article)
     //     → l'IA sait qu'ils existent même sans en connaître le contenu
     //
@@ -692,10 +696,18 @@ INSTRUCTIONS STRICTES :
     const TOKEN_BUDGET_ARTICLES = 280_000;
     const CHARS_PER_TOKEN = 4;
 
+    // Construire le filtre par destination (correspondance insensible à la casse)
+    const destination: string = guide?.destination ?? guide?.destinations?.[0] ?? '';
+    const destinationFilter = destination
+      ? { categories: { $regex: destination, $options: 'i' } }
+      : {};
+
     const allArticles = await this.db
       .collection('articles_raw')
-      .find({}, { projection: { title: 1, url: 1, categories: 1, tags: 1, markdown: 1, html_brut: 1 } })
+      .find(destinationFilter, { projection: { title: 1, url: 1, categories: 1, tags: 1, markdown: 1, html_brut: 1 } })
       .toArray();
+
+    console.log(`🗂️ Articles filtrés pour "${destination || 'toutes destinations'}": ${allArticles.length} articles`);
 
     // Trier du plus court au plus long pour maximiser le nombre d'articles complets inclus
     allArticles.sort((a, b) => {

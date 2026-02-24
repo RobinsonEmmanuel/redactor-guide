@@ -1050,4 +1050,90 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
     return { proposal: proposal.proposal, created_at: proposal.created_at, status: proposal.status };
   });
 
+  /**
+   * POST /guides/:guideId/chemin-de-fer/pages/:pageId/validate-content
+   * Valide le contenu d'une fiche via Perplexity (grounding web).
+   * Retourne un rapport de validation avec statut, correction et source pour chaque champ.
+   */
+  fastify.post<{ Params: { guideId: string; pageId: string }; Body: { content: Record<string, any>; poi_name?: string } }>(
+    '/guides/:guideId/chemin-de-fer/pages/:pageId/validate-content',
+    async (request, reply) => {
+      const db = request.server.container.db;
+      const { guideId, pageId } = request.params;
+      const { content, poi_name } = request.body;
+
+      try {
+        const perplexityApiKey = process.env.PERPLEXITY_API_KEY;
+        if (!perplexityApiKey) {
+          return reply.code(503).send({ error: 'PERPLEXITY_API_KEY non configurée' });
+        }
+
+        // Récupérer le guide (pour la destination) et la page (pour le template)
+        const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+        const destination: string = guide?.destination ?? 'destination inconnue';
+
+        const page = await db.collection('pages').findOne({ _id: new ObjectId(pageId) });
+        if (!page) return reply.code(404).send({ error: 'Page non trouvée' });
+
+        // Récupérer le template pour avoir les labels des champs
+        const template = page.template_id
+          ? await db.collection('templates').findOne({ _id: new ObjectId(page.template_id) })
+          : null;
+
+        const fieldLabelMap: Record<string, string> = {};
+        if (template?.fields) {
+          for (const f of template.fields) {
+            fieldLabelMap[f.name] = f.label || f.name;
+          }
+        }
+
+        // Construire la liste des champs à valider (texte uniquement, non vides)
+        const TEXT_TYPES = new Set(['titre', 'texte', 'meta']);
+        const fieldsToValidate: Array<{ name: string; label: string; value: string }> = [];
+
+        const pageContent: Record<string, any> = content || page.content || {};
+
+        for (const [key, val] of Object.entries(pageContent)) {
+          if (!val || typeof val !== 'string' || val.trim().length < 10) continue;
+          // Ignorer les URLs et les champs image
+          if (val.startsWith('http') || key.toLowerCase().includes('image') || key.toLowerCase().includes('url')) continue;
+
+          const fieldDef = template?.fields?.find((f: any) => f.name === key);
+          if (fieldDef && !TEXT_TYPES.has(fieldDef.type)) continue;
+
+          fieldsToValidate.push({
+            name: key,
+            label: fieldLabelMap[key] || key,
+            value: val.trim().substring(0, 300),
+          });
+        }
+
+        if (fieldsToValidate.length === 0) {
+          return reply.code(400).send({ error: 'Aucun champ textuel à valider dans ce contenu' });
+        }
+
+        const { PerplexityService } = await import('../services/perplexity.service');
+        const perplexity = new PerplexityService(perplexityApiKey);
+
+        const name = poi_name || page.titre || 'POI';
+        console.log(`🔍 [VALIDATE] Validation Perplexity de "${name}" (${fieldsToValidate.length} champs)`);
+
+        const report = await perplexity.validatePageContent(name, destination, fieldsToValidate);
+
+        // Sauvegarder le rapport dans la page pour consultation ultérieure
+        await db.collection('pages').updateOne(
+          { _id: new ObjectId(pageId) },
+          { $set: { last_validation: report, updated_at: new Date().toISOString() } }
+        );
+
+        console.log(`✅ [VALIDATE] Rapport généré: ${report.results.length} champs, statut: ${report.overall_status}`);
+        return reply.send(report);
+
+      } catch (error: any) {
+        console.error('❌ [VALIDATE] Erreur:', error);
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
+
 }

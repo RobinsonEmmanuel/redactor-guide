@@ -676,22 +676,25 @@ INSTRUCTIONS STRICTES :
       }
     }
 
-    // 3. Échantillon d'articles du site (5 articles pour donner le ton éditorial)
+    // 3. Articles du site WordPress
+    // gpt-4o-mini dispose de 128 000 tokens de contexte.
+    // Un article en markdown ≈ 1 000–2 000 tokens → on peut en passer 40+ confortablement.
+    // On préfère le markdown (2–3× plus compact que le HTML) et on ne tronque pas.
     const sampleArticles = await this.db
       .collection('articles_raw')
       .find({}, { projection: { title: 1, categories: 1, tags: 1, markdown: 1, html_brut: 1 } })
-      .limit(5)
+      .limit(40)
       .toArray();
 
     if (sampleArticles.length > 0) {
-      parts.push(`\n=== CONTENUS WORDPRESS DU SITE (échantillon) ===`);
-      parts.push(`Ces articles représentent le ton éditorial et les informations disponibles sur la destination.`);
+      parts.push(`\n=== CONTENUS WORDPRESS DU SITE (${sampleArticles.length} articles) ===`);
+      parts.push(`Ces articles constituent la base éditoriale et informative de la destination.`);
       for (const art of sampleArticles) {
         parts.push(`\n--- ${art.title ?? 'Article'} ---`);
         if (art.categories?.length) parts.push(`Catégories : ${art.categories.join(', ')}`);
-        // Utiliser markdown si disponible, sinon html_brut tronqué
+        // Markdown en priorité (compact) ; sinon html_brut sans troncature
         const content = art.markdown || art.html_brut || '';
-        parts.push(content.slice(0, 2000)); // Limiter la taille par article
+        parts.push(content);
       }
     }
 

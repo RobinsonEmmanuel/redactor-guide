@@ -145,88 +145,117 @@ export async function guidesRoutes(fastify: FastifyInstance) {
 
   /**
    * GET /guides/:id/articles
-   * Retourne les articles WordPress liés aux POIs du guide.
-   * Utilisé par PageModal pour la recherche et l'autocomplétion.
+   * Retourne les articles WordPress liés au guide.
    *
    * Query params:
-   *   - q      : filtre texte sur le titre (optionnel)
-   *   - limit  : nombre max de résultats (défaut: 500)
+   *   - q      : filtre texte sur le titre (optionnel) — utilisé par PageModal
+   *   - slug   : lookup exact par slug (optionnel)
+   *   - page   : numéro de page pour la pagination (défaut: 1)
+   *   - limit  : taille de page (défaut: 50, max: 200)
    *   - lang   : langue pour l'URL (défaut: langue du guide)
+   *
+   * Comportement selon les paramètres :
+   *   - slug présent   → lookup exact, pas de pagination
+   *   - q présent      → recherche titre sur tous les articles de la destination, pas de pagination
+   *   - aucun          → tous les articles de la destination, avec pagination
    */
   fastify.get<{
     Params: { id: string };
-    Querystring: { q?: string; slug?: string; limit?: string; lang?: string };
+    Querystring: { q?: string; slug?: string; page?: string; limit?: string; lang?: string };
   }>('/guides/:id/articles', async (request, reply) => {
     const db = request.server.container.db;
     const { id } = request.params;
-    const { q, slug: slugParam, limit: limitStr, lang } = request.query;
-    const limit = Math.min(parseInt(limitStr ?? '500', 10) || 500, 1000);
+    const { q, slug: slugParam, page: pageStr, limit: limitStr, lang } = request.query;
+
+    // Pagination
+    const page  = Math.max(1, parseInt(pageStr  ?? '1',  10) || 1);
+    const limit = Math.min(Math.max(1, parseInt(limitStr ?? '50', 10) || 50), 200);
+    const skip  = (page - 1) * limit;
 
     if (!ObjectId.isValid(id)) {
       return reply.status(400).send({ error: 'ID invalide' });
     }
 
     try {
-      // 1. Récupérer la langue du guide pour les URLs
+      // 1. Récupérer guide (langue + destination)
       const guide = await db.collection('guides').findOne(
         { _id: new ObjectId(id) },
-        { projection: { language: 1 } }
+        { projection: { language: 1, destination: 1, destinations: 1 } }
       );
-      const targetLang = lang || guide?.language || 'fr';
+      const targetLang  = lang || guide?.language || 'fr';
+      const destination: string = guide?.destination ?? guide?.destinations?.[0] ?? '';
 
-      // 2. Récupérer les slugs d'articles associés aux POIs du guide
-      const poisDoc = await db.collection('pois_selection').findOne({ guide_id: id });
-      const pois: any[] = poisDoc?.pois ?? [];
-
-      // Collecter tous les slugs uniques (article principal + mentions secondaires)
-      const slugSet = new Set<string>();
-      for (const poi of pois) {
-        if (poi.article_source) slugSet.add(poi.article_source);
-        for (const s of poi.autres_articles_mentions ?? []) slugSet.add(s);
-      }
-
-      // 3. Construire le filtre MongoDB
+      // 2. Construire le filtre MongoDB
       const filter: Record<string, unknown> = {};
 
       if (slugParam) {
-        // Lookup exact par slug (utilisé lors du drag-and-drop d'une suggestion POI)
+        // Lookup exact par slug (drag-and-drop POI)
         filter.slug = slugParam;
       } else if (q) {
-        // Recherche texte sur toute la collection (PageModal)
+        // Recherche texte sur les articles de la destination
         const regex = new RegExp(q, 'i');
         filter.$or = [{ title: regex }, { slug: regex }];
-      } else if (slugSet.size > 0) {
-        // Par défaut : articles liés aux POIs du guide
-        filter.slug = { $in: [...slugSet] };
+        if (destination) filter.categories = { $regex: destination, $options: 'i' };
+      } else {
+        // Vue liste : tous les articles de la destination, avec pagination
+        if (destination) {
+          filter.categories = { $regex: destination, $options: 'i' };
+        }
       }
 
-      // 4. Récupérer les articles
-      const rawArticles = await db
-        .collection('articles_raw')
-        .find(filter, { projection: { slug: 1, title: 1, urls_by_lang: 1 } })
-        .limit(limit)
-        .toArray();
+      const projection = { slug: 1, title: 1, urls_by_lang: 1, categories: 1, tags: 1, updated_at: 1 };
 
-      // 5. Normaliser vers le format attendu par PageModal et handleCreatePageFromProposal
-      const articles = rawArticles.map(a => ({
-        _id:          a._id.toString(),
-        titre:        a.title ?? a.slug,
-        slug:         a.slug,
-        url_francais: a.urls_by_lang?.[targetLang] ?? a.urls_by_lang?.['fr'] ?? '',
-        // Exposer urls_by_lang sous son vrai nom ET sous l'alias `urls`
-        urls_by_lang: a.urls_by_lang ?? {},
-        urls:         a.urls_by_lang ?? {},
-      }));
+      if (slugParam || q) {
+        // Pas de pagination pour les lookups et recherches
+        const rawArticles = await db
+          .collection('articles_raw')
+          .find(filter, { projection })
+          .limit(200)
+          .toArray();
+
+        const articles = rawArticles.map(a => normalizeArticle(a, targetLang));
+        return reply.send({ articles, total: articles.length, lang: targetLang });
+      }
+
+      // 3. Vue paginée
+      const [total, rawArticles] = await Promise.all([
+        db.collection('articles_raw').countDocuments(filter),
+        db.collection('articles_raw')
+          .find(filter, { projection })
+          .sort({ title: 1 })
+          .skip(skip)
+          .limit(limit)
+          .toArray(),
+      ]);
+
+      const totalPages = Math.ceil(total / limit);
+      const articles   = rawArticles.map(a => normalizeArticle(a, targetLang));
 
       return reply.send({
         articles,
-        total: articles.length,
-        lang:  targetLang,
-        guide_pois_slugs: [...slugSet].length,
+        total,
+        pagination: { page, limit, total, totalPages },
+        lang: targetLang,
       });
     } catch (error) {
       request.log.error(error);
       return reply.status(500).send({ error: 'Erreur lors du chargement des articles' });
     }
   });
+}
+
+function normalizeArticle(a: any, targetLang: string) {
+  return {
+    _id:          a._id.toString(),
+    titre:        a.title ?? a.slug,
+    title:        a.title ?? a.slug,
+    slug:         a.slug,
+    url_francais: a.urls_by_lang?.[targetLang] ?? a.urls_by_lang?.['fr'] ?? '',
+    urls_by_lang: a.urls_by_lang ?? {},
+    urls:         a.urls_by_lang ?? {},
+    categories:   a.categories ?? [],
+    tags:         a.tags ?? [],
+    updated_at:   a.updated_at ?? '',
+  };
+}
 }

@@ -7,9 +7,9 @@ import { ArrowPathIcon, EyeIcon, ChevronLeftIcon, ChevronRightIcon } from '@hero
 interface Article {
   _id: string;
   title: string;
+  titre: string;
   slug: string;
   urls_by_lang: Record<string, string>;
-  images?: string[];
   categories?: string[];
   tags?: string[];
   updated_at: string;
@@ -230,8 +230,15 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
               {displayedArticles.map((article) => (
                 <tr key={article._id} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-gray-900">{article.title}</div>
-                    <div className="text-sm text-gray-500">{article.slug}</div>
+                    <div className="text-sm font-medium text-gray-900">{article.title || article.titre}</div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs text-gray-400 font-mono">{article.slug}</span>
+                      {article.categories?.map((cat) => (
+                        <span key={cat} className="px-1.5 py-0.5 text-xs bg-blue-50 text-blue-600 rounded">
+                          {cat}
+                        </span>
+                      ))}
+                    </div>
                   </td>
                   {languages.map((lang: string) => (
                     <td key={lang} className="px-3 py-4 text-center">

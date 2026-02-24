@@ -226,9 +226,8 @@ Retourne STRICTEMENT un objet JSON valide, sans texte additionnel :
 
       try {
         const classifResult = await openaiService.generateJSON(
-          classificationSystemPrompt,
-          `Articles à classifier :\n${articleTitlesList}`,
-          { model: 'gpt-5-mini', reasoningEffort: 'low', max_tokens: 8000 }
+          `${classificationSystemPrompt}\n\nArticles à classifier :\n${articleTitlesList}`,
+          8000
         );
         aiClassifications = (classifResult as any).classifications || [];
         console.log(`✅ Classification IA : ${aiClassifications.length} articles classifiés`);

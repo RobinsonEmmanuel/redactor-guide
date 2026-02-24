@@ -143,11 +143,15 @@ export type TemplateField = z.infer<typeof TemplateFieldSchema>;
 /**
  * Source d'information pour la génération IA d'une page
  * - article_source      : uniquement l'article WordPress référencé dans les paramètres de la page
+ * - cluster_auto_match  : recherche automatique de l'article "Que faire à <nom du cluster>"
+ *                         parmi les articles WordPress ingérés, basée sur le titre de la page
  * - tous_articles_site  : l'ensemble des articles collectés depuis WordPress
  * - tous_articles_et_llm: les articles du site + la base de connaissances propre du LLM
+ * - non_applicable      : aucune source (sommaire, couverture, etc.)
  */
 export const InfoSourceEnum = z.enum([
   'article_source',
+  'cluster_auto_match',
   'tous_articles_site',
   'tous_articles_et_llm',
   'non_applicable',
@@ -157,6 +161,7 @@ export type InfoSource = z.infer<typeof InfoSourceEnum>;
 
 export const INFO_SOURCE_LABELS: Record<InfoSource, string> = {
   article_source: "L'article référencé dans les paramètres de la page",
+  cluster_auto_match: 'Recherche automatique "Que faire à [cluster]"',
   tous_articles_site: "L'ensemble des articles WordPress collectés du site",
   tous_articles_et_llm: "Les articles du site + la base de connaissances du LLM",
   non_applicable: "Ne s'applique pas",
@@ -164,6 +169,8 @@ export const INFO_SOURCE_LABELS: Record<InfoSource, string> = {
 
 export const INFO_SOURCE_DESCRIPTIONS: Record<InfoSource, string> = {
   article_source: "L'IA se base uniquement sur l'article lié à cette page (ex : fiche POI, article inspiration)",
+  cluster_auto_match:
+    "L'IA recherche automatiquement l'article dont le titre contient le nom du cluster (ex: \"Que faire à Puerto de la Cruz\"). Idéal pour les pages de type Cluster.",
   tous_articles_site: "L'IA parcourt tous les articles WordPress ingérés pour trouver les informations pertinentes",
   tous_articles_et_llm: "L'IA utilise les articles du site et peut compléter avec ses propres connaissances sur la destination",
   non_applicable: "Aucune source requise — le contenu de la page est généré sans contexte éditorial (ex : sommaire, page de garde)",

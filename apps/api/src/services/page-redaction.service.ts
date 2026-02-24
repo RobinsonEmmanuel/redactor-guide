@@ -70,6 +70,23 @@ export class PageRedactionService {
         articleContext = this.formatArticle(article);
         console.log(`📄 Mode article_source : ${article.title}`);
 
+      } else if (infoSource === 'cluster_auto_match') {
+        // Mode cluster : recherche automatique de l'article "Que faire à <nom du cluster>"
+        // Le nom du cluster est tiré du titre de la page ou des métadonnées
+        const clusterName = page.metadata?.cluster_name || page.titre || '';
+        article = await this.findBestClusterArticle(clusterName);
+
+        if (article) {
+          await this.ensureImagesAnalyzed(article);
+          articleContext = this.formatArticle(article);
+          console.log(`🔍 Mode cluster_auto_match : article trouvé → "${article.title}"`);
+        } else {
+          // Fallback : contexte général si aucun article correspondant n'est trouvé
+          console.warn(`⚠️ Mode cluster_auto_match : aucun article trouvé pour "${clusterName}" — fallback contexte général`);
+          article = null;
+          articleContext = await this.buildGeneralContext(_guideId, page);
+        }
+
       } else if (infoSource === 'tous_articles_site') {
         // Mode tous articles : l'IA se base sur l'ensemble des articles WordPress collectés
         article = null;
@@ -99,6 +116,13 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
           page.template_name ? `Template : ${page.template_name}` : '',
         ].filter(Boolean).join('\n');
         console.log(`⛔ Mode non_applicable — pas de contexte éditorial`);
+      }
+
+      // Injecter le commentaire interne de l'éditeur s'il est renseigné
+      // (valable pour tous les modes — donne des directives éditoriales page par page)
+      if (page.commentaire_interne?.trim()) {
+        articleContext += `\n\n=== NOTES DE L'ÉDITEUR ===\n${page.commentaire_interne.trim()}\nCes notes doivent orienter et affiner la rédaction de cette page spécifiquement.`;
+        console.log(`📝 Commentaire interne injecté dans le contexte`);
       }
 
       // 5. Extraire les champs avec valeur par défaut (pas d'appel IA pour ceux-ci)
@@ -353,6 +377,61 @@ INSTRUCTIONS STRICTES :
    */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Recherche automatique de l'article le plus pertinent pour une page Cluster.
+   *
+   * Stratégie de matching (ordre de priorité) :
+   *  1. Titre contient "que faire" ET le nom du cluster         → score maximal
+   *  2. Titre contient le nom du cluster uniquement             → score moyen
+   *  3. Titre contient des mots-clés significatifs du cluster   → score minimal (fallback)
+   *
+   * Exemples :
+   *  "Puerto de la Cruz" → "Que faire à Puerto de la Cruz (Tenerife): 15 incontournables"
+   *  "La Laguna"         → "Que faire à La Laguna, Tenerife"
+   */
+  private async findBestClusterArticle(clusterName: string): Promise<any | null> {
+    if (!clusterName.trim()) return null;
+
+    const name = clusterName.trim();
+
+    // Escape des caractères spéciaux pour la regex MongoDB
+    const escapeRegex = (s: string) => s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const namePattern = escapeRegex(name);
+
+    // 1. Priorité absolue : titre contient le nom du cluster ET "que faire"
+    const bestMatch = await this.db.collection('articles_raw').findOne({
+      $and: [
+        { title: { $regex: namePattern, $options: 'i' } },
+        { title: { $regex: 'que faire', $options: 'i' } },
+      ],
+    });
+    if (bestMatch) return bestMatch;
+
+    // 2. Titre contient le nom du cluster (sans contrainte sur "que faire")
+    const nameMatch = await this.db.collection('articles_raw').findOne({
+      title: { $regex: namePattern, $options: 'i' },
+    });
+    if (nameMatch) return nameMatch;
+
+    // 3. Fallback : chercher sur les mots significatifs (> 3 lettres) du nom
+    // Ex: "Puerto de la Cruz" → mots significatifs : ["Puerto", "Cruz"]
+    const significantWords = name.split(/\s+/).filter((w) => w.length > 3);
+    if (significantWords.length > 0) {
+      const wordPatterns = significantWords.map((w) => ({
+        title: { $regex: escapeRegex(w), $options: 'i' },
+      }));
+      const partialMatch = await this.db.collection('articles_raw').findOne({
+        $and: [
+          { title: { $regex: 'que faire', $options: 'i' } },
+          { $and: wordPatterns },
+        ],
+      });
+      if (partialMatch) return partialMatch;
+    }
+
+    return null;
   }
 
   /**

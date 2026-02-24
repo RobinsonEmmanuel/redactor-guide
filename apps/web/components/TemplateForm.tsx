@@ -35,7 +35,7 @@ interface TemplateField {
   list_size?: number;
 }
 
-type InfoSource = 'article_source' | 'tous_articles_site' | 'tous_articles_et_llm' | 'non_applicable';
+type InfoSource = 'article_source' | 'cluster_auto_match' | 'tous_articles_site' | 'tous_articles_et_llm' | 'non_applicable';
 
 const INFO_SOURCE_OPTIONS: Array<{
   value: InfoSource;
@@ -48,6 +48,12 @@ const INFO_SOURCE_OPTIONS: Array<{
     label: "Article de la page",
     description: "L'IA se base uniquement sur l'article WordPress lié à cette page (ex : fiche POI, article inspiration)",
     icon: '📄',
+  },
+  {
+    value: 'cluster_auto_match',
+    label: 'Recherche auto "Que faire à [cluster]"',
+    description: 'L\'IA recherche automatiquement l\'article "Que faire à [nom du cluster]" parmi les articles importés. Idéal pour les pages Cluster.',
+    icon: '🔍',
   },
   {
     value: 'tous_articles_site',

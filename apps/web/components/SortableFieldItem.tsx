@@ -6,7 +6,7 @@ import { Bars3Icon, TrashIcon } from '@heroicons/react/24/outline';
 
 interface TemplateField {
   id: string;
-  type: 'titre' | 'texte' | 'image' | 'lien' | 'meta' | 'liste';
+  type: 'titre' | 'texte' | 'image' | 'lien' | 'meta' | 'liste' | 'picto';
   name: string;
   label?: string;
   description?: string;
@@ -14,6 +14,7 @@ interface TemplateField {
   default_value?: string;
   skip_ai?: boolean;
   service_id?: string;
+  options?: string[];
   validation?: {
     required?: boolean;
     max_length?: number;
@@ -51,9 +52,10 @@ const FIELD_TYPE_COLORS: Record<TemplateField['type'], string> = {
   titre: 'bg-purple-100 text-purple-700',
   texte: 'bg-blue-100 text-blue-700',
   image: 'bg-green-100 text-green-700',
-  lien: 'bg-orange-100 text-orange-700',
-  meta: 'bg-gray-100 text-gray-700',
+  lien:  'bg-orange-100 text-orange-700',
+  meta:  'bg-gray-100 text-gray-700',
   liste: 'bg-pink-100 text-pink-700',
+  picto: 'bg-teal-100 text-teal-700',
 };
 
 export default function SortableFieldItem({
@@ -345,7 +347,7 @@ export default function SortableFieldItem({
             </>
           )}
 
-          {/* Options spécifiques */}
+          {/* Options spécifiques selon le type */}
           <div className="flex gap-4">
             {/* Calibre (pour titre et texte) */}
             {(field.type === 'titre' || field.type === 'texte') && (
@@ -386,6 +388,37 @@ export default function SortableFieldItem({
               </div>
             )}
           </div>
+
+          {/* Valeurs autorisées (picto) */}
+          {field.type === 'picto' && (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Valeurs autorisées *
+              </label>
+              <p className="text-xs text-gray-500 mb-2">
+                L'IA choisira <strong>exactement une</strong> valeur dans cette liste. Une valeur par ligne.
+              </p>
+              <textarea
+                value={(field.options ?? []).join('\n')}
+                onChange={(e) => {
+                  const vals = e.target.value.split('\n').map((v) => v.trim()).filter(Boolean);
+                  onChange({ options: vals.length ? vals : undefined });
+                }}
+                placeholder={'ex-soleil\nex-pluie\nex-nuage\nex-neige'}
+                rows={4}
+                className="w-full px-3 py-2 text-sm font-mono border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-teal-50/30"
+              />
+              {field.options && field.options.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {field.options.map((opt) => (
+                    <span key={opt} className="px-2 py-0.5 text-xs font-mono bg-teal-100 text-teal-700 rounded-full border border-teal-200">
+                      {opt}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Bouton supprimer */}

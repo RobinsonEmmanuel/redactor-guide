@@ -11,7 +11,7 @@ import { nanoid } from 'nanoid';
 
 interface TemplateField {
   id: string;
-  type: 'titre' | 'texte' | 'image' | 'lien' | 'meta' | 'liste';
+  type: 'titre' | 'texte' | 'image' | 'lien' | 'meta' | 'liste' | 'picto';
   name: string;
   label?: string;
   description?: string;
@@ -94,12 +94,13 @@ interface TemplateFormProps {
 }
 
 const FIELD_TYPES: Array<{ value: TemplateField['type']; label: string; description: string }> = [
-  { value: 'titre', label: 'Titre', description: 'Texte court servant de titre ou sous-titre' },
-  { value: 'texte', label: 'Texte', description: 'Texte informatif court, calibré' },
-  { value: 'image', label: 'Image', description: 'Référence à une image locale' },
-  { value: 'lien', label: 'Lien', description: 'URL pointant vers un contenu externe' },
-  { value: 'meta', label: 'Métadonnée', description: 'Métadonnée éditoriale normée' },
-  { value: 'liste', label: 'Liste', description: 'Liste courte avec nombre fixe de champs' },
+  { value: 'titre', label: 'Titre',       description: 'Texte court servant de titre ou sous-titre' },
+  { value: 'texte', label: 'Texte',       description: 'Texte informatif court, calibré en caractères' },
+  { value: 'image', label: 'Image',       description: 'Référence à une image (URL)' },
+  { value: 'lien',  label: 'Lien',        description: 'URL pointant vers un contenu externe' },
+  { value: 'meta',  label: 'Métadonnée', description: 'Valeur courte normée (durée, date, chiffre…)' },
+  { value: 'liste', label: 'Liste',       description: 'Liste courte avec nombre fixe d\'items' },
+  { value: 'picto', label: 'Picto',       description: 'Choix parmi une liste d\'icônes/valeurs prédéfinies' },
 ];
 
 export default function TemplateForm({ templateId }: TemplateFormProps) {

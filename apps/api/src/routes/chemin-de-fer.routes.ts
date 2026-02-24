@@ -948,6 +948,43 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           console.log(`🔗 [URL résolue] ${titre} → ${url_source}`);
         }
 
+        // ── Pages inspiration : résoudre les POIs → [{nom, url_source}] ──────
+        let inspiration_pois: Array<{ poi_id: string; nom: string; url_source: string | null }> | undefined;
+
+        if (p.metadata?.page_type === 'inspiration' && p.metadata.inspiration_pois_ids?.length) {
+          const allPois: any[] = pois?.pois ?? [];
+          inspiration_pois = [];
+
+          for (const poiId of p.metadata.inspiration_pois_ids as string[]) {
+            const poi = allPois.find((x: any) => x.poi_id === poiId);
+            if (!poi) continue;
+
+            let poiUrl: string | null = null;
+            const poiSlug: string | undefined = poi.article_source;
+            if (poiSlug) {
+              if (!(poiSlug in articleUrlCache)) {
+                const artDoc = await db.collection('articles_raw').findOne(
+                  { slug: poiSlug },
+                  { projection: { urls_by_lang: 1 } }
+                );
+                articleUrlCache[poiSlug] =
+                  artDoc?.urls_by_lang?.[guideLang] ??
+                  artDoc?.urls_by_lang?.['fr']      ??
+                  null;
+              }
+              poiUrl = articleUrlCache[poiSlug];
+            }
+
+            inspiration_pois.push({ poi_id: poi.poi_id, nom: poi.nom, url_source: poiUrl });
+          }
+
+          console.log(`💡 [Inspiration] "${titre}" → ${inspiration_pois.length} POI(s) résolus`);
+        }
+
+        const finalMetadata = inspiration_pois
+          ? { ...p.metadata, inspiration_pois }
+          : p.metadata ?? {};
+
         return {
           chemin_de_fer_id: cheminDeFerId,
           guide_id:         guideId,
@@ -959,7 +996,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           section_id:       p.section_name ?? null,
           url_source,
           content:          {},
-          metadata:         p.metadata ?? {},
+          metadata:         finalMetadata,
           fields:           p.fields   ?? [],
           created_at:       p.created_at,
           updated_at:       p.updated_at,

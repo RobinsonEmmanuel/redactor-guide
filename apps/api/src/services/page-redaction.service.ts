@@ -142,6 +142,62 @@ export class PageRedactionService {
           DESTINATION: destination,
         };
 
+      } else if (infoSource === 'inspiration_auto_match') {
+        // Mode inspiration : charge l'article source de chaque POI associé à la page
+        // Les POIs sont stockés dans page.metadata.inspiration_pois = [{nom, url_source}]
+        const inspirationPois: Array<{ nom: string; url_source: string | null }> =
+          page.metadata?.inspiration_pois ?? [];
+
+        const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(_guideId) });
+
+        if (inspirationPois.length === 0) {
+          console.warn(`⚠️ Mode inspiration_auto_match : aucun POI résolu sur la page "${page.titre}" — fallback contexte général`);
+          article = null;
+          articleContext = await this.buildGeneralContext(_guideId, page);
+        } else {
+          const parts: string[] = [];
+          const theme = page.metadata?.inspiration_title || page.titre || '';
+          parts.push(`=== THÈME INSPIRATION: ${theme} ===`);
+          parts.push(`Destination : ${guide?.destination ?? guide?.destinations?.[0] ?? 'N/A'}`);
+          parts.push(`Cette page présente ${inspirationPois.length} lieu(x) sur ce thème.`);
+          parts.push('');
+
+          let firstArticle: any = null;
+          let resolvedCount = 0;
+
+          for (const poi of inspirationPois) {
+            parts.push(`${'─'.repeat(50)}`);
+            parts.push(`📍 LIEU : ${poi.nom}`);
+
+            if (poi.url_source) {
+              const poiArticle = await this.loadArticleSource(poi.url_source);
+              if (poiArticle) {
+                if (!firstArticle) firstArticle = poiArticle;
+                await this.ensureImagesAnalyzed(poiArticle);
+                parts.push(this.formatArticle(poiArticle));
+                resolvedCount++;
+              } else {
+                parts.push(`(article non trouvé pour l'URL : ${poi.url_source})`);
+              }
+            } else {
+              parts.push(`(aucune URL source définie pour ce lieu)`);
+            }
+            parts.push('');
+          }
+
+          console.log(`💡 Mode inspiration_auto_match : ${resolvedCount}/${inspirationPois.length} article(s) chargé(s) pour "${theme}"`);
+
+          article = firstArticle;
+          articleContext = parts.join('\n');
+
+          // Variables disponibles dans ai_instructions
+          extraVars = {
+            INSPIRATION_TITRE:   theme,
+            INSPIRATION_LIEUX:   inspirationPois.map((p) => p.nom).join(', '),
+            INSPIRATION_NB_LIEUX: String(inspirationPois.length),
+          };
+        }
+
       } else if (infoSource === 'tous_articles_site') {
         // Mode tous articles : l'IA se base sur l'ensemble des articles WordPress collectés
         article = null;

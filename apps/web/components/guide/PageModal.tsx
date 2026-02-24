@@ -490,6 +490,48 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
             </div>
           )}
 
+          {/* POIs de la page inspiration (lecture seule, générés par le chemin de fer) */}
+          {page?.metadata?.inspiration_pois?.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Lieux de cette page inspiration
+              </label>
+              <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-lg space-y-2">
+                <p className="text-xs text-indigo-700 mb-3">
+                  <span className="font-medium">Thème :</span> {page.metadata.inspiration_title || '—'}
+                  {' · '}
+                  <span className="font-medium">{page.metadata.inspiration_pois.length} lieu(x)</span>
+                  {page.metadata.page_index && page.metadata.total_pages && (
+                    <> · page {page.metadata.page_index}/{page.metadata.total_pages}</>
+                  )}
+                </p>
+                {page.metadata.inspiration_pois.map((poi: { poi_id: string; nom: string; url_source: string | null }) => (
+                  <div key={poi.poi_id} className="flex items-start gap-3 p-2.5 bg-white border border-indigo-100 rounded-lg">
+                    <span className="text-indigo-500 mt-0.5 shrink-0">📍</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-indigo-900">{poi.nom}</p>
+                      {poi.url_source ? (
+                        <a
+                          href={poi.url_source}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-indigo-600 hover:underline truncate block mt-0.5"
+                        >
+                          {poi.url_source}
+                        </a>
+                      ) : (
+                        <p className="text-xs text-amber-600 mt-0.5">⚠️ Aucune URL source</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                <p className="text-xs text-indigo-500 mt-2">
+                  Ces lieux sont définis lors de la génération du chemin de fer. Regénère la structure pour les mettre à jour.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Commentaire */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">

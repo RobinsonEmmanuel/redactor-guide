@@ -27,6 +27,7 @@ interface PageDocument {
     autres_articles_mentions?: string[];
     inspiration_id?: string;
     inspiration_title?: string;
+    inspiration_pois_ids?: string[];
     saison?: string;
     page_type?: string;
     page_index?: number;
@@ -314,6 +315,12 @@ export class CheminDeFerBuilderService {
 
       // Créer les pages
       for (let pageIndex = 0; pageIndex < pagesCount; pageIndex++) {
+        // Slice des POIs appartenant à cette page (ex: page 1 → POIs 0..5, page 2 → POIs 6..11)
+        const pagePoiIds: string[] = associatedPois.slice(
+          pageIndex * poisPerPage,
+          (pageIndex + 1) * poisPerPage
+        );
+
         const inspirationPage = await this.createFixedPage(
           guideId,
           'INSPIRATION',
@@ -323,10 +330,11 @@ export class CheminDeFerBuilderService {
         inspirationPage.section_id = sectionId;
         inspirationPage.metadata = {
           ...inspirationPage.metadata,
-          inspiration_id: inspiration.inspiration_id,
-          inspiration_title: inspiration.titre,
-          page_type: 'inspiration',
-          page_index: pageIndex + 1,
+          inspiration_id:       inspiration.inspiration_id,
+          inspiration_title:    inspiration.titre,
+          inspiration_pois_ids: pagePoiIds,
+          page_type:   'inspiration',
+          page_index:  pageIndex + 1,
           total_pages: pagesCount,
         };
         pages.push(inspirationPage);

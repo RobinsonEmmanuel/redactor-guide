@@ -153,6 +153,7 @@ export const InfoSourceEnum = z.enum([
   'article_source',
   'cluster_auto_match',
   'saison_auto_match',
+  'inspiration_auto_match',
   'tous_articles_site',
   'tous_articles_et_llm',
   'non_applicable',
@@ -161,12 +162,13 @@ export const InfoSourceEnum = z.enum([
 export type InfoSource = z.infer<typeof InfoSourceEnum>;
 
 export const INFO_SOURCE_LABELS: Record<InfoSource, string> = {
-  article_source:     "L'article référencé dans les paramètres de la page",
-  cluster_auto_match: 'Recherche automatique "Que faire à [cluster]"',
-  saison_auto_match:  'Recherche automatique "Partir à [destination] en [mois]"',
-  tous_articles_site: "L'ensemble des articles WordPress collectés du site",
-  tous_articles_et_llm: "Les articles du site + la base de connaissances du LLM",
-  non_applicable:     "Ne s'applique pas",
+  article_source:          "L'article référencé dans les paramètres de la page",
+  cluster_auto_match:      'Recherche automatique "Que faire à [cluster]"',
+  saison_auto_match:       'Recherche automatique "Partir à [destination] en [mois]"',
+  inspiration_auto_match:  'Articles sources de tous les POIs de la page inspiration',
+  tous_articles_site:      "L'ensemble des articles WordPress collectés du site",
+  tous_articles_et_llm:    "Les articles du site + la base de connaissances du LLM",
+  non_applicable:          "Ne s'applique pas",
 };
 
 export const INFO_SOURCE_DESCRIPTIONS: Record<InfoSource, string> = {
@@ -176,6 +178,8 @@ export const INFO_SOURCE_DESCRIPTIONS: Record<InfoSource, string> = {
     "L'IA recherche automatiquement l'article dont le titre contient le nom du cluster (ex: \"Que faire à Puerto de la Cruz\"). Idéal pour les pages de type Cluster.",
   saison_auto_match:
     "L'IA recherche automatiquement l'article saisonnier correspondant (ex: \"Partir à Tenerife en mai\" pour le printemps). La saison est définie page par page dans le chemin de fer.",
+  inspiration_auto_match:
+    "L'IA charge automatiquement l'article WordPress source de chaque POI associé à la page inspiration. Tous les articles sont fournis en contexte pour une rédaction multi-lieux cohérente.",
   tous_articles_site:
     "L'IA parcourt tous les articles WordPress ingérés pour trouver les informations pertinentes",
   tous_articles_et_llm:

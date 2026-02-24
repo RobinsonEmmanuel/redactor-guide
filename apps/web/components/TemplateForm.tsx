@@ -35,7 +35,7 @@ interface TemplateField {
   list_size?: number;
 }
 
-type InfoSource = 'article_source' | 'cluster_auto_match' | 'saison_auto_match' | 'tous_articles_site' | 'tous_articles_et_llm' | 'non_applicable';
+type InfoSource = 'article_source' | 'cluster_auto_match' | 'saison_auto_match' | 'inspiration_auto_match' | 'tous_articles_site' | 'tous_articles_et_llm' | 'non_applicable';
 
 const INFO_SOURCE_OPTIONS: Array<{
   value: InfoSource;
@@ -60,6 +60,12 @@ const INFO_SOURCE_OPTIONS: Array<{
     label: 'Auto — "Partir à [destination] en [mois]"',
     description: "L'IA recherche automatiquement l'article saisonnier correspondant (ex: \"Partir à Tenerife en mai\" pour le printemps). La saison est définie page par page dans le chemin de fer.",
     icon: '🌸',
+  },
+  {
+    value: 'inspiration_auto_match',
+    label: 'Auto — Articles des POIs de la page inspiration',
+    description: "L'IA charge automatiquement l'article WordPress source de chaque POI associé à la page. Tous les articles sont fournis en contexte pour une rédaction multi-lieux cohérente.",
+    icon: '💡',
   },
   {
     value: 'tous_articles_site',

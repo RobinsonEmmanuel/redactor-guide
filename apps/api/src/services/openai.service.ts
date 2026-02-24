@@ -6,6 +6,19 @@ export interface OpenAIConfig {
   reasoningEffort?: 'low' | 'medium' | 'high';
 }
 
+/**
+ * Modèles qui supportent l'API Responses avec reasoning.
+ * Les modèles gpt-4o/gpt-4o-mini utilisent Chat Completions (pas de reasoning).
+ */
+function supportsReasoning(model: string): boolean {
+  return (
+    model.startsWith('gpt-5') ||
+    model.startsWith('o1') ||
+    model.startsWith('o3') ||
+    model.startsWith('o4')
+  );
+}
+
 export class OpenAIService {
   private client: OpenAI;
   private model: string;
@@ -20,36 +33,56 @@ export class OpenAIService {
   }
 
   /**
-   * Appeler OpenAI avec un prompt et récupérer une réponse JSON
-   * Utilise l'API Responses pour GPT-5-mini avec raisonnement
+   * Appeler OpenAI avec un prompt et récupérer une réponse JSON.
+   * - Modèles gpt-5 / o-series : API Responses avec reasoning
+   * - Modèles gpt-4o / gpt-4o-mini : API Chat Completions (pas de reasoning)
    */
   async generateJSON(prompt: string, maxOutputTokens: number = 12000): Promise<any> {
     try {
-      console.log(`🤖 Appel OpenAI - Modèle: ${this.model}, Max tokens: ${maxOutputTokens}, Reasoning: ${this.reasoningEffort}`);
-      
-      const response = await this.client.responses.create({
-        model: this.model,
-        reasoning: { effort: this.reasoningEffort },
-        max_output_tokens: maxOutputTokens,
-        input: [
-          {
-            role: 'user',
-            content: [
-              { 
-                type: 'input_text', 
-                text: `Tu es un assistant qui répond UNIQUEMENT en JSON valide, sans markdown ni formatage.\n\n${prompt}` 
-              }
-            ]
-          }
-        ]
-      });
+      const useReasoning = supportsReasoning(this.model);
+      console.log(`🤖 Appel OpenAI - Modèle: ${this.model}, Max tokens: ${maxOutputTokens}${useReasoning ? `, Reasoning: ${this.reasoningEffort}` : ''}`);
 
-      // Extraction correcte du texte selon la syntaxe GPT-5
-      const content = response.output
-        .flatMap((item: any) => item.content || [])
-        .filter((c: any) => c.type === 'output_text')
-        .map((c: any) => c.text)
-        .join('\n');
+      let content: string;
+
+      if (useReasoning) {
+        // API Responses (gpt-5-mini, o3, o4-mini…)
+        const response = await this.client.responses.create({
+          model: this.model,
+          reasoning: { effort: this.reasoningEffort },
+          max_output_tokens: maxOutputTokens,
+          input: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'input_text',
+                  text: `Tu es un assistant qui répond UNIQUEMENT en JSON valide, sans markdown ni formatage.\n\n${prompt}`,
+                },
+              ],
+            },
+          ],
+        } as any);
+
+        content = response.output
+          .flatMap((item: any) => item.content || [])
+          .filter((c: any) => c.type === 'output_text')
+          .map((c: any) => c.text)
+          .join('\n');
+      } else {
+        // Chat Completions (gpt-4o-mini, gpt-4o…)
+        const response = await this.client.chat.completions.create({
+          model: this.model,
+          max_tokens: maxOutputTokens,
+          messages: [
+            {
+              role: 'user',
+              content: `Tu es un assistant qui répond UNIQUEMENT en JSON valide, sans markdown ni formatage.\n\n${prompt}`,
+            },
+          ],
+        });
+
+        content = response.choices[0]?.message?.content ?? '';
+      }
 
       if (!content) {
         console.error('Réponse OpenAI vide:', JSON.stringify(response, null, 2));

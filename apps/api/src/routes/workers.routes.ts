@@ -128,7 +128,8 @@ export async function workersRoutes(fastify: FastifyInstance) {
       
       const openaiService = new OpenAIService({
         apiKey: openaiApiKey,
-        model: 'gpt-4o-mini',
+        model: 'gpt-5-mini',
+        reasoningEffort: 'low', // low suffit pour l'extraction structurée de POIs
       });
       const geocodingService = new GeocodingService();
 

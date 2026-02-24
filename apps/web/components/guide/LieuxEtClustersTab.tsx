@@ -213,6 +213,59 @@ function DroppableCluster({
   );
 }
 
+const POI_TYPE_COLORS: Record<string, string> = {
+  site_naturel: 'bg-green-100 text-green-700',
+  plage: 'bg-cyan-100 text-cyan-700',
+  panorama: 'bg-sky-100 text-sky-700',
+  village: 'bg-yellow-100 text-yellow-700',
+  ville: 'bg-yellow-100 text-yellow-700',
+  quartier: 'bg-orange-100 text-orange-700',
+  musée: 'bg-purple-100 text-purple-700',
+  site_culturel: 'bg-purple-100 text-purple-700',
+  autre: 'bg-gray-100 text-gray-600',
+};
+
+function PoiPreviewList({ pois }: { pois: any[] }) {
+  // Grouper par article_source
+  const grouped: Record<string, any[]> = {};
+  for (const poi of pois) {
+    const src = poi.article_source || 'Source inconnue';
+    if (!grouped[src]) grouped[src] = [];
+    grouped[src].push(poi);
+  }
+
+  return (
+    <div className="space-y-4">
+      {Object.entries(grouped).map(([articleTitle, articlePois]) => (
+        <div key={articleTitle} className="border border-gray-200 rounded-lg overflow-hidden">
+          <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
+            <span className="text-xs font-semibold text-gray-700 truncate flex-1 mr-2">{articleTitle}</span>
+            <span className="text-xs text-gray-400 flex-shrink-0">{articlePois.length} POI{articlePois.length > 1 ? 's' : ''}</span>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {articlePois.map((poi, idx) => (
+              <div key={`${poi.poi_id}-${idx}`} className="px-3 py-2 flex items-start gap-2">
+                <span className={`flex-shrink-0 text-xs px-1.5 py-0.5 rounded font-medium mt-0.5 ${POI_TYPE_COLORS[poi.type] || POI_TYPE_COLORS.autre}`}>
+                  {poi.type}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-gray-900">{poi.nom}</div>
+                  {poi.raison_selection && (
+                    <div className="text-xs text-gray-500 mt-0.5">{poi.raison_selection}</div>
+                  )}
+                </div>
+                {poi.mentions === 'principale' && (
+                  <span className="flex-shrink-0 text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">★</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtClustersTabProps) {
   // États POIs
   const [pois, setPois] = useState<POI[]>([]);
@@ -234,6 +287,11 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   const [showManualModal, setShowManualModal] = useState(false);
   const [showLibraryModal, setShowLibraryModal] = useState(false);
   const [showClusterModal, setShowClusterModal] = useState(false);
+
+  // États preview génération en temps réel
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [generatingProgress, setGeneratingProgress] = useState<string | null>(null);
+  const [previewPois, setPreviewPois] = useState<any[]>([]);
   
   // États bibliothèque
   const [libraryPois, setLibraryPois] = useState<Record<string, any[]>>({});
@@ -288,6 +346,10 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
   const generatePoisFromArticles = async () => {
     setGenerating(true);
+    setPreviewPois([]);
+    setGeneratingProgress('Initialisation...');
+    setShowPreviewModal(true);
+
     try {
       const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/generate`, {
         method: 'POST',
@@ -297,6 +359,8 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         const err = await res.json().catch(() => ({}));
         alert(`❌ Erreur: ${err.error || 'Erreur inconnue'}`);
         setGenerating(false);
+        setGeneratingProgress(null);
+        setShowPreviewModal(false);
         return;
       }
 
@@ -308,15 +372,20 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
           const checkRes = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/job-status/${jobId}`);
           if (checkRes.ok) {
             const status = await checkRes.json();
+
+            if (status.progress) setGeneratingProgress(status.progress);
+            if (status.preview_pois?.length) setPreviewPois(status.preview_pois);
+
             if (status.status === 'completed') {
               clearInterval(pollInterval);
+              setGeneratingProgress('Terminé');
               await loadPois();
               setGenerating(false);
-              alert(`✅ ${status.count || 0} lieu(x) identifié(s) !`);
-            } else if (status.status === 'failed') {
+            } else if (status.status === 'failed' || status.status === 'cancelled') {
               clearInterval(pollInterval);
+              setGeneratingProgress(null);
               setGenerating(false);
-              alert(`❌ Erreur lors de la génération: ${status.error || 'Erreur inconnue'}`);
+              if (status.status === 'failed') alert(`❌ Erreur: ${status.error || 'Erreur inconnue'}`);
             }
           }
         } catch (pollErr) {
@@ -324,16 +393,17 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         }
       }, 3000);
 
-      // Timeout 10 minutes (147 articles × ~2s + dédup)
       setTimeout(() => {
         clearInterval(pollInterval);
         setGenerating(false);
-        alert('⏱️ Timeout - Veuillez vérifier manuellement');
+        setGeneratingProgress(null);
       }, 10 * 60 * 1000);
 
     } catch (err) {
       console.error('Erreur génération:', err);
       setGenerating(false);
+      setGeneratingProgress(null);
+      setShowPreviewModal(false);
     }
   };
 
@@ -613,6 +683,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   const activePoi = activeDragId ? pois.find(p => p.poi_id === activeDragId) : null;
 
   return (
+    <>
     <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="h-full flex flex-col bg-gray-50">
         {/* Header compact */}
@@ -1067,5 +1138,65 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         </div>
       )}
     </DndContext>
+
+    {/* Modale preview génération temps réel */}
+    {showPreviewModal && (
+
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col mx-4">
+
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 flex-shrink-0">
+            <div className="flex items-center gap-3">
+              {generating ? (
+                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <span className="text-green-500 text-lg">✅</span>
+              )}
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">
+                  {generating ? 'Analyse en cours...' : 'Analyse terminée'}
+                </h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {generatingProgress && <span className="font-medium text-blue-600">{generatingProgress} — </span>}
+                  {previewPois.length} POI{previewPois.length > 1 ? 's' : ''} extraits
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowPreviewModal(false)}
+              className="text-gray-400 hover:text-gray-600 text-xl leading-none px-2"
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Corps scrollable */}
+          <div className="overflow-y-auto flex-1 px-5 py-4">
+            {previewPois.length === 0 ? (
+              <div className="flex items-center justify-center h-32 text-gray-400 text-sm">
+                En attente des premiers résultats...
+              </div>
+            ) : (
+              <PoiPreviewList pois={previewPois} />
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between flex-shrink-0 bg-gray-50 rounded-b-xl">
+            <span className="text-xs text-gray-500">
+              {generating ? 'La fenêtre peut être fermée, la génération continue en arrière-plan.' : 'Génération terminée — les POIs sont chargés.'}
+            </span>
+            <button
+              onClick={() => setShowPreviewModal(false)}
+              className="px-4 py-1.5 bg-gray-800 text-white text-sm rounded-lg hover:bg-gray-700 transition-colors"
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

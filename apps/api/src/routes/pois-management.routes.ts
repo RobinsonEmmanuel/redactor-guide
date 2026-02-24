@@ -169,6 +169,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
           count: job.count || 0,
           raw_count: job.raw_count || 0,
           progress: job.progress || null,
+          preview_pois: job.preview_pois || [],
           error: job.error || null,
           created_at: job.created_at,
           updated_at: job.updated_at,

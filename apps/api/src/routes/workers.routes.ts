@@ -290,6 +290,13 @@ export async function workersRoutes(fastify: FastifyInstance) {
               });
               allRawPois.push(...enriched);
               console.log(`  ✅ Batch ${batchNum}${attempt > 1 ? ` (après ${attempt} tentatives)` : ''}: ${enriched.length} POIs (total: ${allRawPois.length})`);
+
+              // Sauvegarde intermédiaire pour la preview temps réel
+              await db.collection('pois_generation_jobs').updateOne(
+                { _id: new ObjectId(jobId) },
+                { $set: { preview_pois: allRawPois, updated_at: new Date() } }
+              );
+
               batchSuccess = true;
               break;
             }

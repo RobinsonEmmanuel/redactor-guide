@@ -252,38 +252,57 @@ export async function workersRoutes(fastify: FastifyInstance) {
           LISTE_ARTICLES_POI: validArticles.map((a: any) => `- ${a.title} (${a.url || a.slug})`).join('\n'),
         });
 
-        try {
-          // max_tokens élevé : un batch dense (ex: Teide) peut produire 30+ POIs × ~200 chars
-          const result = await openaiService.generateJSON(extractionPrompt, 24000);
+        const MAX_RETRIES = 3;
+        let batchSuccess = false;
 
-          if (result.pois && Array.isArray(result.pois)) {
-            const enriched = result.pois.map((poi: any) => {
-              // Corriger article_source si l'IA a renvoyé le titre du batch ou une valeur invalide
-              const isBatchTitle = !poi.article_source ||
-                poi.article_source.startsWith('Batch ') ||
-                poi.article_source.startsWith('Lot de ');
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+          try {
+            if (attempt > 1) {
+              const delay = attempt * 5000; // 5s, 10s entre les retries
+              console.log(`  ⏳ Batch ${batchNum} — retry ${attempt}/${MAX_RETRIES} dans ${delay / 1000}s...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
 
-              if (isBatchTitle || !poi.url_source) {
-                // Chercher l'article réel par correspondance de titre ou URL
-                const matchByUrl = poi.url_source && (articleByUrl[poi.url_source]);
-                const matchByTitle = poi.article_source &&
-                  validArticles.find((a: any) =>
-                    a.title.toLowerCase().includes(poi.article_source.toLowerCase().substring(0, 20))
-                  );
-                const fallback = matchByUrl || matchByTitle || validArticles[0];
-                return {
-                  ...poi,
-                  article_source: isBatchTitle ? fallback.title : poi.article_source,
-                  url_source: poi.url_source && !isBatchTitle ? poi.url_source : (fallback.url || fallback.slug),
-                };
-              }
-              return poi;
-            });
-            allRawPois.push(...enriched);
-            console.log(`  ✅ Batch ${batchNum}: ${enriched.length} POIs (total: ${allRawPois.length})`);
+            // max_tokens élevé : un batch dense (ex: Teide) peut produire 30+ POIs × ~200 chars
+            const result = await openaiService.generateJSON(extractionPrompt, 24000);
+
+            if (result.pois && Array.isArray(result.pois)) {
+              const enriched = result.pois.map((poi: any) => {
+                // Corriger article_source si l'IA a renvoyé le titre du batch ou une valeur invalide
+                const isBatchTitle = !poi.article_source ||
+                  poi.article_source.startsWith('Batch ') ||
+                  poi.article_source.startsWith('Lot de ');
+
+                if (isBatchTitle || !poi.url_source) {
+                  const matchByUrl = poi.url_source && articleByUrl[poi.url_source];
+                  const matchByTitle = poi.article_source &&
+                    validArticles.find((a: any) =>
+                      a.title.toLowerCase().includes(poi.article_source.toLowerCase().substring(0, 20))
+                    );
+                  const fallback = matchByUrl || matchByTitle || validArticles[0];
+                  return {
+                    ...poi,
+                    article_source: isBatchTitle ? fallback.title : poi.article_source,
+                    url_source: poi.url_source && !isBatchTitle ? poi.url_source : (fallback.url || fallback.slug),
+                  };
+                }
+                return poi;
+              });
+              allRawPois.push(...enriched);
+              console.log(`  ✅ Batch ${batchNum}${attempt > 1 ? ` (après ${attempt} tentatives)` : ''}: ${enriched.length} POIs (total: ${allRawPois.length})`);
+              batchSuccess = true;
+              break;
+            }
+          } catch (batchError: any) {
+            console.error(`  ❌ Batch ${batchNum} — tentative ${attempt}/${MAX_RETRIES}: ${batchError.message}`);
+            if (attempt === MAX_RETRIES) {
+              console.error(`  ⛔ Batch ${batchNum} abandonné après ${MAX_RETRIES} tentatives`);
+            }
           }
-        } catch (batchError: any) {
-          console.error(`  ❌ Batch ${batchNum} échoué: ${batchError.message} — on continue`);
+        }
+
+        if (!batchSuccess) {
+          console.warn(`  ⚠️ Batch ${batchNum} ignoré (${MAX_RETRIES} échecs consécutifs)`);
         }
       }
 

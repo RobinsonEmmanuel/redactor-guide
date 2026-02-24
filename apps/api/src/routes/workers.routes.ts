@@ -102,6 +102,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
   /**
    * POST /workers/generate-pois
    * Worker pour générer les POIs depuis les articles WordPress via IA
+   * Traitement par batch pour un recensement exhaustif, suivi d'un appel de déduplication.
    * Appelé par QStash de manière asynchrone
    */
   fastify.post('/workers/generate-pois', async (request, reply) => {
@@ -109,9 +110,8 @@ export async function workersRoutes(fastify: FastifyInstance) {
     const { guideId, jobId } = request.body as { guideId: string; jobId: string };
 
     try {
-      console.log(`🚀 [WORKER] Génération POIs pour guide ${guideId}`);
+      console.log(`🚀 [WORKER] Génération POIs par batch pour guide ${guideId}`);
 
-      // Marquer le job comme "processing"
       await db.collection('pois_generation_jobs').updateOne(
         { _id: new ObjectId(jobId) },
         { $set: { status: 'processing', updated_at: new Date() } }
@@ -122,35 +122,28 @@ export async function workersRoutes(fastify: FastifyInstance) {
         throw new Error('OPENAI_API_KEY non configurée');
       }
 
-      // Importer les services nécessaires
       const { OpenAIService } = await import('../services/openai.service');
-      
+
       const openaiService = new OpenAIService({
         apiKey: openaiApiKey,
         model: 'gpt-5-mini',
-        reasoningEffort: 'low', // low suffit pour l'extraction structurée de POIs
+        reasoningEffort: 'low',
       });
 
       // 1. Charger le guide
       const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
-      if (!guide) {
-        throw new Error('Guide non trouvé');
-      }
+      if (!guide) throw new Error('Guide non trouvé');
 
-      const destination = guide.destination;
-      if (!destination) {
-        throw new Error('Aucune destination définie pour ce guide');
-      }
+      const destination: string = guide.destination;
+      if (!destination) throw new Error('Aucune destination définie pour ce guide');
 
-      // 2. Récupérer les articles WordPress filtrés par destination (regex insensible à la casse)
-      const destinationFilter = destination
-        ? { categories: { $regex: destination, $options: 'i' } }
-        : {};
+      // 2. Récupérer les articles WordPress filtrés par destination
+      const destinationFilter = { categories: { $regex: destination, $options: 'i' } };
 
       const articles = await db
         .collection('articles_raw')
         .find(destinationFilter)
-        .project({ title: 1, slug: 1, markdown: 1, url: 1, urls_by_lang: 1 })
+        .project({ title: 1, slug: 1, markdown: 1, url: 1 })
         .toArray();
 
       if (articles.length === 0) {
@@ -159,71 +152,153 @@ export async function workersRoutes(fastify: FastifyInstance) {
 
       console.log(`📚 ${articles.length} articles chargés pour "${destination}"`);
 
-      // 3. Formater les articles pour l'IA
-      const articlesFormatted = articles.map((a: any) => ({
-        title: a.title,
-        slug: a.slug,
-        content: a.markdown?.substring(0, 5000) || '', // Limiter à 5000 caractères par article
-      }));
+      // 3. Calcul dynamique de la taille de batch
+      // Budget : 400k (modèle) - 50k (reasoning) - 8k (output) - 5k (prompt) = 337k pour les articles
+      // Marge de sécurité à 83% → budget effectif 280k
+      const CHARS_PER_TOKEN = 4;
+      const TOKEN_BUDGET_PER_BATCH = 280_000;
+      const METADATA_TOKENS_PER_ARTICLE = 150; // titre + url + séparateurs
 
-      const listeArticles = articlesFormatted
-        .map((a: any) => `- ${a.title} (${a.slug})`)
-        .join('\n');
+      const totalContentTokens = articles.reduce((sum: number, a: any) => {
+        return sum + Math.ceil((a.markdown || '').length / CHARS_PER_TOKEN) + METADATA_TOKENS_PER_ARTICLE;
+      }, 0);
+      const avgTokensPerArticle = Math.ceil(totalContentTokens / articles.length);
+      const batchSize = Math.max(5, Math.min(50, Math.floor(TOKEN_BUDGET_PER_BATCH / avgTokensPerArticle)));
 
-      // 4. Charger le prompt système pour l'identification des lieux (Étape 3)
-      const promptPOI = await db.collection('prompts').findOne({ 
-        categories: { $all: ['lieux', 'poi', 'sommaire'] },
-        actif: true 
-      });
+      const totalBatches = Math.ceil(articles.length / batchSize);
+      console.log(`📊 Tokens moy/article: ${avgTokensPerArticle} | Batch size: ${batchSize} | Batches: ${totalBatches}`);
 
-      if (!promptPOI) {
-        throw new Error('Prompt de sélection des lieux non trouvé');
+      // 4. Traitement par batch — extraction des POIs
+      const allRawPois: any[] = [];
+
+      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+        const batch = articles.slice(batchIndex * batchSize, (batchIndex + 1) * batchSize);
+        const batchNum = batchIndex + 1;
+
+        console.log(`🔄 Batch ${batchNum}/${totalBatches}: analyse de ${batch.length} articles...`);
+
+        // Mise à jour du statut en temps réel
+        await db.collection('pois_generation_jobs').updateOne(
+          { _id: new ObjectId(jobId) },
+          {
+            $set: {
+              status: 'processing',
+              progress: `Batch ${batchNum}/${totalBatches}`,
+              updated_at: new Date(),
+            },
+          }
+        );
+
+        const articlesContent = batch
+          .map((a: any) => `## ${a.title}\nURL: ${a.url || a.slug}\n\n${a.markdown || '(contenu non disponible)'}`)
+          .join('\n\n---\n\n');
+
+        const extractionPrompt = `Tu es un expert en extraction de Points d'Intérêt (POI) depuis des articles de voyage.
+
+DESTINATION ANALYSÉE : ${destination}
+SITE : ${guide.wpConfig?.siteUrl || ''}
+
+Analyse en profondeur les ${batch.length} articles ci-dessous et extrais TOUS les POIs mentionnés :
+lieux touristiques, plages, parcs, musées, restaurants, hôtels, bars, activités, randonnées, marchés, miradors, quartiers, villages, etc.
+
+Un article peut évoquer plusieurs dizaines de POIs — sois exhaustif, ne saute aucun lieu cité.
+
+${articlesContent}
+
+Pour chaque POI retourne :
+- poi_id : identifiant unique en snake_case (ex: "playa_las_teresitas")
+- nom : nom officiel du lieu
+- type : "attraction" | "plage" | "parc" | "musee" | "restaurant" | "hotel" | "bar" | "activite" | "randonnee" | "marche" | "mirador" | "quartier" | "village" | "autre"
+- article_source : titre exact de l'article où ce POI est le plus détaillé
+- url_source : URL de cet article source
+- raison_selection : pourquoi ce POI mérite d'être recensé (1 phrase courte)
+- autres_articles_mentions : tableau des titres d'autres articles qui mentionnent ce POI
+
+Retourne UNIQUEMENT un JSON valide : { "pois": [ ... ] }`;
+
+        try {
+          const result = await openaiService.generateJSON(extractionPrompt, 12000);
+
+          if (result.pois && Array.isArray(result.pois)) {
+            allRawPois.push(...result.pois);
+            console.log(`  ✅ Batch ${batchNum}: ${result.pois.length} POIs extraits (total: ${allRawPois.length})`);
+          } else {
+            console.warn(`  ⚠️ Batch ${batchNum}: réponse inattendue, ignorée`);
+          }
+        } catch (batchError: any) {
+          console.error(`  ❌ Batch ${batchNum} échoué: ${batchError.message} — on continue`);
+        }
       }
 
-      console.log(`📋 Utilisation du prompt: ${promptPOI.prompt_nom || promptPOI.prompt_id}`);
-
-      const prompt = openaiService.replaceVariables(promptPOI.texte_prompt, {
-        SITE: guide.wpConfig?.siteUrl || '',
-        DESTINATION: destination,
-        LISTE_ARTICLES_POI: listeArticles,
-      });
-
-      // 5. Générer les POIs via OpenAI
-      console.log('🤖 Appel OpenAI pour génération POIs...');
-      const result = await openaiService.generateJSON(prompt, 12000);
-
-      if (!result.pois || !Array.isArray(result.pois)) {
-        throw new Error('Format de réponse invalide');
+      if (allRawPois.length === 0) {
+        throw new Error('Aucun POI extrait depuis les articles');
       }
 
-      console.log(`✅ ${result.pois.length} POI(s) généré(s)`);
+      console.log(`📊 Total POIs bruts extraits (avant déduplication): ${allRawPois.length}`);
 
-      // 6. Normaliser les POIs (sans géolocalisation)
-      const pois: any[] = result.pois.map((poi: any) => ({
+      // 5. Appel de déduplication (exact + approchant)
+      console.log(`🔄 Déduplication de ${allRawPois.length} POIs...`);
+
+      await db.collection('pois_generation_jobs').updateOne(
+        { _id: new ObjectId(jobId) },
+        { $set: { status: 'processing', progress: 'Déduplication', updated_at: new Date() } }
+      );
+
+      const poisJson = JSON.stringify(allRawPois, null, 0);
+
+      const dedupPrompt = `Tu es un expert en consolidation de bases de données géographiques.
+
+Voici ${allRawPois.length} POIs extraits par batches depuis des articles sur ${destination}.
+Certains POIs apparaissent en double ou en triple (même lieu cité dans plusieurs articles avec des noms légèrement différents, variantes orthographiques, noms en différentes langues, etc.).
+
+LISTE DES POIS BRUTS :
+${poisJson}
+
+Tâche :
+1. Identifie les doublons EXACTS (même poi_id ou même nom)
+2. Identifie les doublons APPROCHANTS (même lieu sous des appellations différentes, ex: "Teide" / "Pico del Teide" / "Mont Teide" / "Parc national du Teide")
+3. Pour chaque groupe de doublons, conserve le POI le plus complet et fusionne :
+   - "autres_articles_mentions" : réunion de toutes les sources
+   - "article_source" / "url_source" : garde le plus représentatif
+4. Conserve TOUS les POIs uniques, ne supprime rien d'autre que les doublons
+
+Retourne UNIQUEMENT un JSON valide : { "pois": [ ... ] }
+(même structure que l'entrée, après fusion)`;
+
+      let finalPois: any[] = allRawPois;
+
+      try {
+        const dedupResult = await openaiService.generateJSON(dedupPrompt, 16000);
+        if (dedupResult.pois && Array.isArray(dedupResult.pois)) {
+          finalPois = dedupResult.pois;
+          const removed = allRawPois.length - finalPois.length;
+          console.log(`✅ Déduplication: ${finalPois.length} POIs uniques (${removed} doublons supprimés)`);
+        } else {
+          console.warn('⚠️ Déduplication: réponse inattendue, on garde les POIs bruts');
+        }
+      } catch (dedupError: any) {
+        console.error(`❌ Déduplication échouée: ${dedupError.message} — on conserve les POIs bruts`);
+      }
+
+      // 6. Normaliser les POIs
+      const pois: any[] = finalPois.map((poi: any) => ({
         poi_id: poi.poi_id,
         nom: poi.nom,
         type: poi.type,
         source: 'article',
         article_source: poi.article_source,
+        url_source: poi.url_source || '',
         raison_selection: poi.raison_selection,
         autres_articles_mentions: poi.autres_articles_mentions || [],
       }));
-
-      console.log(`✅ ${pois.length} POI(s) normalisé(s)`);
 
       // 7. Sauvegarder la sélection
       const now = new Date();
       await db.collection('pois_selection').updateOne(
         { guide_id: guideId },
         {
-          $set: {
-            guide_id: guideId,
-            pois,
-            updated_at: now,
-          },
-          $setOnInsert: {
-            created_at: now,
-          },
+          $set: { guide_id: guideId, pois, updated_at: now },
+          $setOnInsert: { created_at: now },
         },
         { upsert: true }
       );
@@ -231,44 +306,41 @@ export async function workersRoutes(fastify: FastifyInstance) {
       // 8. Marquer le job comme "completed"
       await db.collection('pois_generation_jobs').updateOne(
         { _id: new ObjectId(jobId) },
-        { 
-          $set: { 
-            status: 'completed', 
+        {
+          $set: {
+            status: 'completed',
             count: pois.length,
-            updated_at: new Date() 
-          } 
+            raw_count: allRawPois.length,
+            progress: null,
+            updated_at: new Date(),
+          },
         }
       );
 
-      console.log(`✅ [WORKER] ${pois.length} POIs sauvegardés pour guide ${guideId}`);
+      console.log(`✅ [WORKER] ${pois.length} POIs sauvegardés pour guide ${guideId} (${allRawPois.length} extraits, ${allRawPois.length - pois.length} doublons supprimés)`);
 
-      return reply.send({ 
-        success: true, 
-        count: pois.length 
+      return reply.send({
+        success: true,
+        count: pois.length,
+        raw_count: allRawPois.length,
+        batches: totalBatches,
       });
 
     } catch (error: any) {
       console.error(`❌ [WORKER] Erreur génération POIs:`, error);
-      
-      // Marquer le job comme "failed"
+
       try {
         await db.collection('pois_generation_jobs').updateOne(
           { _id: new ObjectId(jobId) },
-          { 
-            $set: { 
-              status: 'failed',
-              error: error.message,
-              updated_at: new Date() 
-            } 
-          }
+          { $set: { status: 'failed', error: error.message, progress: null, updated_at: new Date() } }
         );
       } catch (dbError) {
         console.error('Erreur mise à jour statut job:', dbError);
       }
 
-      return reply.status(500).send({ 
+      return reply.status(500).send({
         error: 'Erreur lors de la génération des POIs',
-        details: error.message 
+        details: error.message,
       });
     }
   });

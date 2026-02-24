@@ -40,6 +40,7 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
   const [pois, setPois] = useState<POI[]>([]);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generatingProgress, setGeneratingProgress] = useState<string | null>(null);
   
   // Modal ajout manuel
   const [showManualModal, setShowManualModal] = useState(false);
@@ -95,7 +96,7 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
       const jobId = data.jobId;
 
       console.log(`📋 Job de génération lancé: ${jobId}`);
-      alert('🔄 Génération des lieux lancée en arrière-plan...');
+      setGeneratingProgress('Initialisation...');
 
       // 2. Polling pour vérifier le statut
       const checkStatus = async (): Promise<boolean> => {
@@ -110,19 +111,27 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
           }
 
           const statusData = await statusRes.json();
-          console.log(`📊 Statut job: ${statusData.status}`);
+          console.log(`📊 Statut job: ${statusData.status} ${statusData.progress || ''}`);
+
+          if (statusData.progress) {
+            setGeneratingProgress(statusData.progress);
+          }
 
           if (statusData.status === 'completed') {
-            // Recharger les POIs
+            setGeneratingProgress(null);
             await loadPois();
-            alert(`✅ ${statusData.count || 0} lieu(x) identifié(s) avec succès !`);
+            const removed = (statusData.raw_count || 0) - (statusData.count || 0);
+            alert(
+              `✅ ${statusData.count || 0} lieu(x) identifié(s) avec succès !\n` +
+              `(${statusData.raw_count || 0} extraits, ${removed} doublons supprimés)`
+            );
             return true;
           } else if (statusData.status === 'failed') {
+            setGeneratingProgress(null);
             alert(`❌ Erreur lors de la génération: ${statusData.error || 'Erreur inconnue'}`);
             return true;
           }
 
-          // Toujours en cours (pending ou processing)
           return false;
 
         } catch (error) {
@@ -140,17 +149,19 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
         }
       }, 3000);
 
-      // Timeout de 5 minutes
+      // Timeout de 10 minutes (5 batches × ~90s max + dédup)
       setTimeout(() => {
         clearInterval(pollInterval);
         setGenerating(false);
+        setGeneratingProgress(null);
         alert('⏱️ Timeout: la génération prend trop de temps. Rafraîchissez la page plus tard.');
-      }, 5 * 60 * 1000);
+      }, 10 * 60 * 1000);
       
     } catch (error: any) {
       console.error('❌ Erreur génération:', error);
       alert(`Erreur lors de la génération: ${error.message}`);
       setGenerating(false);
+      setGeneratingProgress(null);
     }
   };
 
@@ -309,7 +320,7 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
             {generating ? (
               <>
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Génération en cours...
+                {generatingProgress || 'Génération en cours...'}
               </>
             ) : (
               <>
@@ -319,6 +330,13 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
             )}
           </button>
         </div>
+
+        {generating && generatingProgress && (
+          <div className="mb-4 flex items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+            <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+            <span>{generatingProgress}</span>
+          </div>
+        )}
 
         {loading ? (
           <div className="text-center py-8 text-gray-500">Chargement...</div>

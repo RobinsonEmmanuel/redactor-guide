@@ -187,14 +187,115 @@ export async function workersRoutes(fastify: FastifyInstance) {
         console.log(`📋 Prompt dédup: id "${PROMPT_ID_DEDUP}" non trouvé, utilisation du prompt par défaut`);
       }
 
-      // 4. Traitement par batch de 5 articles — 1 appel OpenAI par batch
-      const BATCH_SIZE = 5;
+      // ─── Helpers de classification ────────────────────────────────────────────
+
+      /** Patterns de titre indiquant un article multi-POI */
+      const MULTI_POI_TITLE_PATTERNS = [
+        /que faire/i, /que visiter/i, /quoi faire/i,
+        /incontournable/i, /à ne pas manquer/i,
+        /meilleur(e?s?)\s/i, /top\s?\d+/i,
+        /itinéraire/i, /road.?trip/i,
+        /activité/i, /visite(s)?\s/i,
+        /où aller/i, /où dormir/i, /où manger/i, /où séjourner/i,
+        /\d+\s+(choses|endroits|lieux|plages|sites|restaurants|attractions)/i,
+      ];
+
+      /** Extrait les titres H2/H3 d'un contenu markdown */
+      function extractHeadings(markdown: string): string[] {
+        return markdown
+          .split('\n')
+          .filter(line => /^#{2,3}\s/.test(line))
+          .map(line => line.replace(/^#{2,3}\s+/, '').trim())
+          .filter(h => h.length > 2);
+      }
+
+      /** Nettoie le titre d'article pour obtenir le nom du POI mono-POI */
+      function extractPoiNameFromTitle(title: string): string {
+        // Supprimer tout ce qui suit ":", "(", "–", "—", "•" ou les patterns numériques de fin
+        return title
+          .split(/[:(–—•]|:\s|\s*[-–]\s*\d|\s*\(\d/)[0]
+          .trim();
+      }
+
+      /** Classe un article : 'mono' ou 'multi' */
+      function classifyArticle(title: string, markdown: string): 'mono' | 'multi' {
+        // 1. Si le titre correspond à un pattern multi-POI → multi
+        if (MULTI_POI_TITLE_PATTERNS.some(p => p.test(title))) return 'multi';
+
+        // 2. Extraire le nom du POI candidat depuis le titre
+        const poiName = extractPoiNameFromTitle(title);
+        if (!poiName) return 'multi';
+
+        // 3. Compter les occurrences du nom dans le markdown (insensible à la casse)
+        // On prend les 3 premiers mots significatifs pour la recherche
+        const keywords = poiName.split(/\s+/).filter(w => w.length > 3).slice(0, 3);
+        if (keywords.length === 0) return 'multi';
+
+        const searchPattern = new RegExp(keywords.join('.{0,20}'), 'gi');
+        const count = (markdown.match(searchPattern) || []).length;
+
+        return count >= 5 ? 'mono' : 'multi';
+      }
+
+      // ─── 4. Pré-classification de tous les articles ──────────────────────────
+
+      const monoArticles: any[] = [];
+      const multiArticles: any[] = [];
+
+      for (const article of articles as any[]) {
+        const markdown = article.markdown || '';
+        const type = classifyArticle(article.title, markdown);
+        if (type === 'mono') monoArticles.push(article);
+        else multiArticles.push(article);
+      }
+
+      console.log(`📊 Classification: ${monoArticles.length} articles mono-POI, ${multiArticles.length} articles multi-POI`);
+
       const allRawPois: any[] = [];
-      const previewBatches: any[] = []; // structure enrichie pour la modale
-      const total = articles.length;
+      const previewBatches: any[] = [];
+
+      // ─── 5a. Articles mono-POI : extraction directe, sans IA ────────────────
+
+      for (const article of monoArticles) {
+        const poiName = extractPoiNameFromTitle(article.title);
+        allRawPois.push({
+          poi_id: poiName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''),
+          nom: poiName,
+          type: 'site_naturel', // sera affiné par le dédup IA
+          article_source: article.title,
+          url_source: article.url || article.slug,
+          mentions: 'principale',
+          raison_selection: `Article dédié : "${article.title}"`,
+          autres_articles_mentions: [],
+          _extraction_mode: 'mono',
+        });
+      }
+
+      console.log(`✅ Mono-POI: ${monoArticles.length} POIs extraits directement`);
+
+      // Sauvegarde intermédiaire des mono-POIs
+      if (monoArticles.length > 0) {
+        previewBatches.push({
+          batch_num: 0,
+          total_batches: 0,
+          label: `${monoArticles.length} articles mono-POI (extraction directe)`,
+          articles: monoArticles.map((a: any) => ({ title: a.title, url: a.url || a.slug })),
+          pois: allRawPois.filter(p => p._extraction_mode === 'mono'),
+          is_mono_batch: true,
+        });
+        await db.collection('pois_generation_jobs').updateOne(
+          { _id: new ObjectId(jobId) },
+          { $set: { preview_pois: [...allRawPois], preview_batches: [...previewBatches], updated_at: new Date() } }
+        );
+      }
+
+      // ─── 5b. Articles multi-POI : extraction par batch via IA ───────────────
+
+      const BATCH_SIZE = 5;
+      const total = multiArticles.length;
       const totalBatches = Math.ceil(total / BATCH_SIZE);
 
-      console.log(`📊 ${total} articles → ${totalBatches} batches de ${BATCH_SIZE}`);
+      console.log(`📊 Multi-POI: ${total} articles → ${totalBatches} batches de ${BATCH_SIZE}`);
 
       for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
         const batchNum = batchIdx + 1;
@@ -206,7 +307,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
           return reply.send({ success: false, reason: 'cancelled' });
         }
 
-        const batchArticles = articles.slice(batchIdx * BATCH_SIZE, (batchIdx + 1) * BATCH_SIZE) as any[];
+        const batchArticles = multiArticles.slice(batchIdx * BATCH_SIZE, (batchIdx + 1) * BATCH_SIZE) as any[];
         const firstArticleNum = batchIdx * BATCH_SIZE + 1;
 
         console.log(`🔄 Batch ${batchNum}/${totalBatches} — articles ${firstArticleNum}-${firstArticleNum + batchArticles.length - 1}`);
@@ -223,16 +324,19 @@ export async function workersRoutes(fastify: FastifyInstance) {
           continue;
         }
 
-        // Construire le contenu groupé avec liste des titres + URLs en en-tête
-        // pour que le modèle utilise les bons article_source dans sa réponse
+        // Construire le contenu : index + H2/H3 de chaque article (pas le contenu complet)
         const articlesIndex = validArticles
           .map((a: any, idx: number) => `${idx + 1}. "${a.title}" — ${a.url || a.slug}`)
           .join('\n');
 
         const batchContent = validArticles
-          .map((a: any, idx: number) =>
-            `### Article ${idx + 1} : ${a.title}\nURL : ${a.url || a.slug}\n\n${a.markdown}`
-          )
+          .map((a: any, idx: number) => {
+            const headings = extractHeadings(a.markdown || '');
+            const headingsBlock = headings.length > 0
+              ? `H2/H3 détectés :\n${headings.map(h => `  - ${h}`).join('\n')}`
+              : '(aucun titre H2/H3 détecté)';
+            return `### Article ${idx + 1} : ${a.title}\nURL : ${a.url || a.slug}\n${headingsBlock}`;
+          })
           .join('\n\n---\n\n');
 
         // Construire un article_source lookup pour la correction post-réponse
@@ -247,9 +351,15 @@ export async function workersRoutes(fastify: FastifyInstance) {
         const extractionPrompt = openaiService.replaceVariables(promptExtractionDoc.texte_prompt, {
           SITE: guide.wpConfig?.siteUrl || '',
           DESTINATION: destination,
-          ARTICLE_TITRE: `Lot de ${validArticles.length} articles (batch ${batchNum}/${totalBatches})`,
+          ARTICLE_TITRE: `Lot de ${validArticles.length} articles multi-POI (batch ${batchNum}/${totalBatches})`,
           ARTICLE_URL: '',
           ARTICLE_CONTENU: `Articles analysés :\n${articlesIndex}\n\n---\n\n${batchContent}`,
+          ARTICLE_H2_H3: validArticles
+            .map((a: any) => {
+              const h = extractHeadings(a.markdown || '');
+              return `"${a.title}":\n${h.map(x => `  - ${x}`).join('\n') || '  (aucun)'}`;
+            })
+            .join('\n\n'),
           LISTE_ARTICLES_POI: validArticles.map((a: any) => `- ${a.title} (${a.url || a.slug})`).join('\n'),
         });
 
@@ -289,18 +399,21 @@ export async function workersRoutes(fastify: FastifyInstance) {
                 }
                 return poi;
               });
-              allRawPois.push(...enriched);
-              console.log(`  ✅ Batch ${batchNum}${attempt > 1 ? ` (après ${attempt} tentatives)` : ''}: ${enriched.length} POIs (total: ${allRawPois.length})`);
+              const enrichedWithMode = enriched.map((p: any) => ({ ...p, _extraction_mode: 'multi' }));
+              allRawPois.push(...enrichedWithMode);
+              console.log(`  ✅ Batch ${batchNum}${attempt > 1 ? ` (après ${attempt} tentatives)` : ''}: ${enrichedWithMode.length} POIs (total: ${allRawPois.length})`);
 
               // Sauvegarde intermédiaire avec métadonnées du batch pour la modale
               previewBatches.push({
                 batch_num: batchNum,
                 total_batches: totalBatches,
+                label: `Batch ${batchNum}/${totalBatches} — multi-POI`,
                 articles: validArticles.map((a: any) => ({
                   title: a.title,
                   url: a.url || a.slug,
+                  headings: extractHeadings(a.markdown || ''),
                 })),
-                pois: enriched,
+                pois: enrichedWithMode,
               });
 
               await db.collection('pois_generation_jobs').updateOne(

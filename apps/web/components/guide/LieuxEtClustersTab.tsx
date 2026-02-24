@@ -251,31 +251,43 @@ function PoiPreviewList({ batches, poisFallback }: { batches: any[]; poisFallbac
         {batches.map((batch: any) => (
           <div key={batch.batch_num} className="border border-gray-200 rounded-lg overflow-hidden">
             {/* Titre du batch */}
-            <div className="bg-blue-600 px-4 py-2 flex items-center justify-between">
+            <div className={`px-4 py-2 flex items-center justify-between ${batch.is_mono_batch ? 'bg-amber-500' : 'bg-blue-600'}`}>
               <span className="text-sm font-bold text-white">
-                Batch {batch.batch_num}/{batch.total_batches}
+                {batch.label || `Batch ${batch.batch_num}/${batch.total_batches}`}
               </span>
-              <span className="text-xs text-blue-200">
+              <span className={`text-xs ${batch.is_mono_batch ? 'text-amber-100' : 'text-blue-200'}`}>
                 {batch.pois?.length || 0} POI{(batch.pois?.length || 0) > 1 ? 's' : ''}
               </span>
             </div>
 
             {/* Articles du batch avec URLs */}
-            <div className="bg-blue-50 px-4 py-2 border-b border-blue-100">
-              <p className="text-xs font-semibold text-blue-700 mb-1.5">Articles analysés :</p>
-              <ul className="space-y-1">
+            <div className={`px-4 py-2 border-b ${batch.is_mono_batch ? 'bg-amber-50 border-amber-100' : 'bg-blue-50 border-blue-100'}`}>
+              <p className={`text-xs font-semibold mb-1.5 ${batch.is_mono_batch ? 'text-amber-700' : 'text-blue-700'}`}>
+                {batch.is_mono_batch ? '🎯 Articles mono-POI (extraction directe) :' : 'Articles analysés (H2/H3) :'}
+              </p>
+              <ul className="space-y-1.5">
                 {batch.articles?.map((article: any, idx: number) => (
-                  <li key={idx} className="flex items-start gap-1.5 text-xs">
-                    <span className="text-blue-400 flex-shrink-0 mt-0.5">{idx + 1}.</span>
-                    <a
-                      href={article.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-700 hover:text-blue-900 hover:underline truncate"
-                      title={article.url}
-                    >
-                      {article.title}
-                    </a>
+                  <li key={idx} className="text-xs">
+                    <div className="flex items-start gap-1.5">
+                      <span className={`flex-shrink-0 mt-0.5 ${batch.is_mono_batch ? 'text-amber-400' : 'text-blue-400'}`}>{idx + 1}.</span>
+                      <a
+                        href={article.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`hover:underline truncate font-medium ${batch.is_mono_batch ? 'text-amber-700 hover:text-amber-900' : 'text-blue-700 hover:text-blue-900'}`}
+                        title={article.url}
+                      >
+                        {article.title}
+                      </a>
+                    </div>
+                    {article.headings?.length > 0 && (
+                      <div className="ml-4 mt-0.5 text-gray-400 text-xs">
+                        {article.headings.slice(0, 5).map((h: string, hi: number) => (
+                          <span key={hi} className="mr-2">• {h}</span>
+                        ))}
+                        {article.headings.length > 5 && <span className="text-gray-300">+{article.headings.length - 5}</span>}
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>

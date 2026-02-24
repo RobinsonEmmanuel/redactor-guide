@@ -322,13 +322,13 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       try {
         // Marquer les jobs en cours comme "cancelled" pour que le worker s'arrête proprement
         const cancelResult = await db.collection('pois_generation_jobs').updateMany(
-          { guide_id: guideId, status: { $in: ['pending', 'processing'] } },
+          { guide_id: guideId, status: { $in: ['pending', 'processing', 'deduplicating'] } },
           { $set: { status: 'cancelled', updated_at: new Date() } }
         );
 
         // Supprimer les jobs terminés ou échoués (historique)
         const deleteResult = await db.collection('pois_generation_jobs').deleteMany(
-          { guide_id: guideId, status: { $in: ['completed', 'failed', 'cancelled'] } }
+          { guide_id: guideId, status: { $in: ['completed', 'failed', 'cancelled', 'extraction_complete', 'dedup_complete'] } }
         );
 
         const total = cancelResult.modifiedCount + deleteResult.deletedCount;

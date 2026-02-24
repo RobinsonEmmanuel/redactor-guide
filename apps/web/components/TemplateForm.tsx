@@ -6,7 +6,7 @@ import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useS
 import { arrayMove, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { ArrowLeftIcon, PlusIcon, TrashIcon } from '@heroicons/react/24/outline';
 import Sidebar from '@/components/Sidebar';
-import SortableFieldItem from '@/components/SortableFieldItem';
+import SortableFieldItem, { type AvailableService } from '@/components/SortableFieldItem';
 import { nanoid } from 'nanoid';
 
 interface TemplateField {
@@ -18,6 +18,7 @@ interface TemplateField {
   ai_instructions?: string;
   default_value?: string;
   skip_ai?: boolean;
+  service_id?: string;
   validation?: {
     required?: boolean;
     max_length?: number;
@@ -100,6 +101,7 @@ export default function TemplateForm({ templateId }: TemplateFormProps) {
   const [loading, setLoading] = useState(!!templateId);
   const [saving, setSaving] = useState(false);
   const [showAddField, setShowAddField] = useState(false);
+  const [availableServices, setAvailableServices] = useState<AvailableService[]>([]);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
@@ -115,7 +117,20 @@ export default function TemplateForm({ templateId }: TemplateFormProps) {
     if (templateId) {
       loadTemplate();
     }
+    loadServices();
   }, [templateId]);
+
+  const loadServices = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/field-services`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableServices(data);
+      }
+    } catch (err) {
+      console.error('Erreur chargement services:', err);
+    }
+  };
 
   const loadTemplate = async () => {
     try {
@@ -417,6 +432,7 @@ export default function TemplateForm({ templateId }: TemplateFormProps) {
                         key={field.id}
                         field={field}
                         templateName={template.name}
+                        availableServices={availableServices}
                         onRemove={() => handleRemoveField(field.id)}
                         onChange={(updates) => handleFieldChange(field.id, updates)}
                       />

@@ -1,4 +1,4 @@
-// v2.1.0 — variant_layer résolu depuis field.option_layers (template = source de vérité)
+// v2.2.0 — field services (2ème passe) + variant_layer résolu depuis field.option_layers
 import { Db, ObjectId } from 'mongodb';
 import {
   FIELD_LAYER_MAPPINGS,
@@ -9,6 +9,10 @@ import {
   resolveFieldLayer,
   resolveVariantLayerFromMappings,
 } from '../config/export-mappings.js';
+import {
+  FieldServiceRunner,
+  type ExportedPageSnapshot,
+} from './field-service-runner.service.js';
 
 const EXPORTED_STATUSES = ['generee_ia', 'relue', 'validee', 'texte_coule', 'visuels_montes'];
 
@@ -48,11 +52,13 @@ export class ExportService {
       }
     }
 
-    // ── 5. Construire les pages exportées ──────────────────────────────────
-    const pages = exportablePages.map((page, idx) => {
+    // ── 5. Construire les pages exportées — passe 1 ────────────────────────
+    // Les champs avec service_id sont intentionnellement ignorés ici ;
+    // ils seront calculés en passe 2, une fois toutes les pages connues.
+    const pages: ExportedPageSnapshot[] = exportablePages.map((page, idx) => {
       const template = templates[page.template_id];
       const content  = page.content || {};
-      const fields   = template?.fields || [];
+      const fields   = (template?.fields || []) as any[];
 
       const textFields:  Record<string, string>  = {};
       const imageFields: Record<string, { url: string; indesign_layer: string; local_filename: string; local_path: string }> = {};
@@ -65,6 +71,9 @@ export class ExportService {
       }> = {};
 
       for (const field of fields) {
+        // Les champs calculés par un service sont ignorés en passe 1
+        if (field.service_id) continue;
+
         const value = content[field.name];
         if (value === undefined || value === null || value === '') continue;
 
@@ -72,14 +81,13 @@ export class ExportService {
           const strValue  = String(value);
           const mapping   = resolvePictoMapping(field.name, strValue);
           // variant_layer : source de vérité = field.option_layers (défini dans le template)
-          // Fallback : PICTO_VARIANT_TABLE (rétrocompatiblité templates sans option_layers)
+          // Fallback : PICTO_VARIANT_TABLE (rétrocompat templates sans option_layers)
           const variantLayer: string | null =
-            (field as any).option_layers?.[strValue] ??
+            field.option_layers?.[strValue] ??
             resolveVariantLayerFromMappings(field.name, strValue);
           pictoFields[field.name] = {
             value: strValue,
             picto_key: mapping.picto_key,
-            // Priorité : field.indesign_layer > PICTO_LAYER_MAPPINGS > deriveLayerName()
             indesign_layer: resolveFieldLayer(field.name, field.indesign_layer),
             variant_layer: variantLayer,
             label: mapping.label,
@@ -90,7 +98,6 @@ export class ExportService {
           const fieldSlug = field.name.toLowerCase();
           imageFields[field.name] = {
             url: String(value),
-            // Priorité : field.indesign_layer > FIELD_LAYER_MAPPINGS > deriveLayerName()
             indesign_layer: resolveFieldLayer(field.name, field.indesign_layer),
             local_filename: `p${pageNum}_${tplSlug}_${fieldSlug}.jpg`,
             local_path: `images/${tplSlug}/`,
@@ -108,7 +115,6 @@ export class ExportService {
         titre: page.titre,
         status: page.statut_editorial,
         url_source: page.url_source || null,
-        // Identifiants entité — propagés depuis le chemin de fer builder
         entity_meta: {
           page_type:          page.metadata?.page_type          ?? null,
           cluster_id:         page.metadata?.cluster_id         ?? null,
@@ -124,8 +130,40 @@ export class ExportService {
           images: imageFields,
           pictos: pictoFields,
         },
-      };
+      } as ExportedPageSnapshot;
     });
+
+    // ── 5b. Passe 2 : calculer les champs service ──────────────────────────
+    // On a maintenant la liste complète des pages construites → on peut
+    // appeler chaque service avec le contexte global.
+    const runner = new FieldServiceRunner();
+
+    for (let i = 0; i < exportablePages.length; i++) {
+      const rawPage  = exportablePages[i];
+      const template = templates[rawPage.template_id];
+      const fields   = (template?.fields || []) as any[];
+
+      const serviceFields = fields.filter((f: any) => !!f.service_id);
+      if (serviceFields.length === 0) continue;
+
+      for (const field of serviceFields) {
+        try {
+          const result = await runner.run(field.service_id, {
+            guideId,
+            guide,
+            currentPage: rawPage,
+            allExportedPages: pages,
+            db,
+          });
+          // Injecter la valeur calculée dans le champ texte de la page
+          pages[i].content.text[field.name] = result.value;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[ExportService] Service "${field.service_id}" error on page ${rawPage._id}: ${msg}`);
+          pages[i].content.text[field.name] = '';
+        }
+      }
+    }
 
     // ── 6. Construire le mapping field→calque depuis les templates réels ──────
     // Priorité : field.indesign_layer > FIELD_LAYER_MAPPINGS > PICTO_LAYER_MAPPINGS > deriveLayerName()
@@ -150,7 +188,7 @@ export class ExportService {
         language:     lang,
         version:      guide.version || '1.0.0',
         exported_at:  new Date().toISOString(),
-        api_build:    'v2.1.0-option_layers',
+        api_build:    'v2.2.0-field_services',
         stats: {
           total_pages:     allPages.length,
           exported:        exportablePages.length,

@@ -23,6 +23,9 @@ export * from './schemas/article-raw.schema';
 // Template schemas
 export * from './schemas/template.schema';
 
+// Field service schemas
+export * from './schemas/field-service.schema';
+
 // Page schemas
 export * from './schemas/page.schema';
 

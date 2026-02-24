@@ -88,9 +88,20 @@ export const TemplateFieldSchema = z.object({
    * La saisie est manuelle, page par page, dans l'éditeur de contenu.
    * Utilisé pour les champs dont la valeur est unique à chaque page mais non générée
    * (ex: URL d'image spécifique, lien externe particulier, durée de visite...).
-   * Ne s'applique que si default_value est absent.
+   * Ne s'applique que si default_value et service_id sont absents.
    */
   skip_ai: z.boolean().optional(),
+
+  /**
+   * Identifiant d'un FieldService enregistré dans la collection `field_services`.
+   * Quand ce champ est renseigné, la valeur est calculée automatiquement à l'export
+   * par le service correspondant (ex: sommaire, statistiques...).
+   *
+   * Ce mode est exclusif : ai_instructions, default_value et skip_ai sont ignorés.
+   *
+   * Ex: "sommaire_generator", "stats_calculator"
+   */
+  service_id: z.string().optional(),
 
   /** Règles de validation du champ (optionnel) */
   validation: FieldValidationSchema.optional(),

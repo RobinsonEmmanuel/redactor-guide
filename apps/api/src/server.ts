@@ -114,6 +114,9 @@ export async function createServer(db: Db, _port: number) {
       await fastify.register(
         (await import('./routes/export.routes')).exportRoutes
       );
+      await fastify.register(
+        (await import('./routes/field-services.routes')).fieldServicesRoutes
+      );
 
       // Routes génériques avec :id en dernier
       fastify.get('/destinations', async () => {

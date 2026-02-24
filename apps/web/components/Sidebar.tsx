@@ -23,6 +23,7 @@ const menuItems = [
     subItems: [
       { name: 'Pages', href: '/templates' },
       { name: 'Guides', href: '/guide-templates' },
+      { name: 'Services', href: '/services' },
     ]
   },
   { name: 'Prompts', icon: SparklesIcon, href: '/prompts' },

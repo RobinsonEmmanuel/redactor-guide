@@ -13,6 +13,7 @@ interface TemplateField {
   ai_instructions?: string;
   default_value?: string;
   skip_ai?: boolean;
+  service_id?: string;
   validation?: {
     required?: boolean;
     max_length?: number;
@@ -29,9 +30,19 @@ interface TemplateField {
   list_size?: number;
 }
 
+export interface AvailableService {
+  _id: string;
+  service_id: string;
+  label: string;
+  description?: string;
+  output_type: 'text' | 'json';
+  implemented: boolean;
+}
+
 interface SortableFieldItemProps {
   field: TemplateField;
   templateName: string;
+  availableServices: AvailableService[];
   onRemove: () => void;
   onChange: (updates: Partial<TemplateField>) => void;
 }
@@ -48,6 +59,7 @@ const FIELD_TYPE_COLORS: Record<TemplateField['type'], string> = {
 export default function SortableFieldItem({
   field,
   templateName,
+  availableServices,
   onRemove,
   onChange,
 }: SortableFieldItemProps) {
@@ -119,18 +131,22 @@ export default function SortableFieldItem({
             />
           </div>
 
-          {/* Toggle : 3 modes de remplissage */}
+          {/* Toggle : 4 modes de remplissage */}
           {(() => {
-            const mode = field.default_value !== undefined ? 'default'
+            const mode = field.service_id ? 'service'
+              : field.default_value !== undefined ? 'default'
               : field.skip_ai ? 'manual'
               : 'ai';
-            const setMode = (m: 'ai' | 'default' | 'manual') => {
-              if (m === 'ai')      onChange({ default_value: undefined, skip_ai: undefined });
-              if (m === 'default') onChange({ ai_instructions: undefined, validation: undefined, skip_ai: undefined, default_value: field.default_value ?? '' });
-              if (m === 'manual')  onChange({ ai_instructions: undefined, default_value: undefined, skip_ai: true });
+
+            const setMode = (m: 'ai' | 'default' | 'manual' | 'service') => {
+              if (m === 'ai')      onChange({ default_value: undefined, skip_ai: undefined, service_id: undefined });
+              if (m === 'default') onChange({ ai_instructions: undefined, skip_ai: undefined, service_id: undefined, default_value: field.default_value ?? '' });
+              if (m === 'manual')  onChange({ ai_instructions: undefined, default_value: undefined, service_id: undefined, skip_ai: true });
+              if (m === 'service') onChange({ ai_instructions: undefined, default_value: undefined, skip_ai: undefined, service_id: availableServices[0]?.service_id ?? '' });
             };
+
             return (
-              <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit">
+              <div className="flex flex-wrap items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit">
                 <button type="button" onClick={() => setMode('ai')}
                   className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${mode === 'ai' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                   <span>🤖</span> Généré par IA
@@ -142,6 +158,10 @@ export default function SortableFieldItem({
                 <button type="button" onClick={() => setMode('manual')}
                   className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${mode === 'manual' ? 'bg-white text-amber-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                   <span>✏️</span> Saisie manuelle
+                </button>
+                <button type="button" onClick={() => setMode('service')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${mode === 'service' ? 'bg-white text-sky-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                  <span>⚙️</span> Calculé par service
                 </button>
               </div>
             );
@@ -221,8 +241,63 @@ export default function SortableFieldItem({
             </>
           )}
 
+          {/* Mode : Calculé par service */}
+          {field.service_id !== undefined && (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Service à appeler
+                </label>
+                {availableServices.length === 0 ? (
+                  <p className="text-xs text-gray-500 italic">
+                    Aucun service disponible. Lancez{' '}
+                    <code className="font-mono bg-gray-100 px-1 rounded">node scripts/seed-field-services.js</code>{' '}
+                    pour enregistrer les services natifs.
+                  </p>
+                ) : (
+                  <select
+                    value={field.service_id}
+                    onChange={(e) => onChange({ service_id: e.target.value })}
+                    className="w-full px-3 py-2 text-sm border border-sky-200 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent bg-sky-50/30"
+                  >
+                    <option value="">-- Sélectionner un service --</option>
+                    {availableServices.map((svc) => (
+                      <option key={svc.service_id} value={svc.service_id} disabled={!svc.implemented}>
+                        {svc.label}
+                        {!svc.implemented ? ' (non implémenté)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Description du service sélectionné */}
+              {field.service_id && (() => {
+                const svc = availableServices.find((s) => s.service_id === field.service_id);
+                if (!svc) return null;
+                return (
+                  <div className="flex items-start gap-2 p-3 bg-sky-50 border border-sky-200 rounded-lg">
+                    <span className="text-sky-600 text-sm mt-0.5">⚙️</span>
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-sky-800">{svc.label}</p>
+                      {svc.description && (
+                        <p className="text-xs text-sky-700">{svc.description}</p>
+                      )}
+                      <p className="text-xs text-sky-600">
+                        Sortie : <span className="font-mono">{svc.output_type}</span>
+                        {!svc.implemented && (
+                          <span className="ml-2 text-amber-600 font-medium">⚠️ Handler non implémenté</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
           {/* Mode : Instructions IA */}
-          {!field.default_value && !field.skip_ai && (
+          {!field.default_value && !field.skip_ai && !field.service_id && (
             <>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">

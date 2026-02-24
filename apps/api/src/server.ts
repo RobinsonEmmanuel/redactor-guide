@@ -51,8 +51,8 @@ export async function createServer(db: Db, _port: number) {
   await fastify.register(import('@fastify/cors'), {
     origin: [
       'http://localhost:3001', // Dev local
-      'https://*.vercel.app', // Vercel previews
-      /^https:\/\/.*\.vercel\.app$/, // Vercel regex pattern
+      /^https:\/\/.*\.vercel\.app$/,        // Vercel (previews + production)
+      /^https:\/\/.*\.up\.railway\.app$/,   // Railway (toutes les apps)
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     credentials: true,

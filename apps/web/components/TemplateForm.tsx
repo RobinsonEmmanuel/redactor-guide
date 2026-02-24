@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -14,6 +14,9 @@ interface TemplateField {
   type: 'titre' | 'texte' | 'image' | 'lien' | 'meta' | 'liste' | 'picto' | 'repetitif';
   sub_fields?: Array<{ name: string; type: 'titre' | 'texte' | 'image' | 'lien' | 'meta'; label?: string; ai_instructions?: string }>;
   max_repetitions?: number;
+  options?: string[];
+  option_layers?: Record<string, string | null>;
+  indesign_layer?: string;
   name: string;
   label?: string;
   description?: string;
@@ -124,6 +127,8 @@ export default function TemplateForm({ templateId }: TemplateFormProps) {
   const [saving, setSaving] = useState(false);
   const [showAddField, setShowAddField] = useState(false);
   const [availableServices, setAvailableServices] = useState<AvailableService[]>([]);
+  // Permet de distinguer le chargement initial d'un vrai changement de nom par l'utilisateur
+  const isInitialLoad = useRef(true);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
@@ -161,7 +166,12 @@ export default function TemplateForm({ templateId }: TemplateFormProps) {
       });
       if (res.ok) {
         const data = await res.json();
+        isInitialLoad.current = true;
         setTemplate(data);
+      } else {
+        const errorBody = await res.json().catch(() => ({}));
+        console.error(`Erreur ${res.status} lors du chargement du template:`, errorBody);
+        alert(`Impossible de charger le template (${res.status}): ${errorBody.error || 'Erreur inconnue'}`);
       }
     } catch (err) {
       console.error('Erreur chargement template:', err);
@@ -255,8 +265,12 @@ export default function TemplateForm({ templateId }: TemplateFormProps) {
       if (res.ok) {
         router.push('/templates');
       } else {
-        const error = await res.json();
-        alert(error.error || 'Erreur lors de la sauvegarde');
+        const error = await res.json().catch(() => ({}));
+        const detail = error.details
+          ? '\n\nDétails : ' + error.details.map((d: { message: string }) => d.message).join(', ')
+          : '';
+        alert(`Erreur ${res.status} lors de la sauvegarde : ${error.error || 'Erreur inconnue'}${detail}`);
+        console.error('Erreur sauvegarde template:', error);
       }
     } catch (err) {
       console.error('Erreur sauvegarde:', err);
@@ -282,6 +296,11 @@ export default function TemplateForm({ templateId }: TemplateFormProps) {
   };
 
   useEffect(() => {
+    if (isInitialLoad.current) {
+      // Ne pas régénérer les noms au chargement d'un template existant
+      isInitialLoad.current = false;
+      return;
+    }
     if (template.name && template.fields.length > 0) {
       regenerateFieldNames();
     }

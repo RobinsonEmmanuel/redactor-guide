@@ -157,7 +157,8 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
         templateForAI,
         articleContext,
         promptRedaction,
-        promptRegles
+        promptRegles,
+        article   // passé pour la substitution de variables dans les ai_instructions
       );
 
       // 8. Fusionner valeurs par défaut + contenu généré par l'IA
@@ -253,7 +254,8 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
     template: any,
     articleContext: string,
     promptRedaction: string,
-    promptRegles: string
+    promptRegles: string,
+    articleSource?: any   // article résolu (pour substitution de variables dans ai_instructions)
   ): Promise<RedactionResult> {
     let generatedContent: Record<string, any> = {};
     let retryCount = 0;
@@ -265,7 +267,8 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
       // Construire les instructions du template (avec règles de validation)
       const templateInstructions = this.buildTemplateInstructions(
         template,
-        previousErrors
+        previousErrors,
+        articleSource
       );
 
       // Construire le prompt (avec erreurs de la tentative précédente si retry)
@@ -533,15 +536,34 @@ INSTRUCTIONS STRICTES :
   }
 
   /**
-   * Construire les instructions pour chaque champ du template
+   * Construire les instructions pour chaque champ du template.
+   *
+   * Les ai_instructions de chaque champ peuvent contenir des variables substituées
+   * automatiquement depuis l'article source résolu :
+   *
+   *   {{URL_ARTICLE_SOURCE}}   → URL française de l'article (urls_by_lang.fr)
+   *   {{TITRE_ARTICLE_SOURCE}} → Titre de l'article
+   *
+   * Exemple d'usage dans ai_instructions d'un champ lien :
+   *   "Utiliser exactement cette URL : {{URL_ARTICLE_SOURCE}}"
    */
   private buildTemplateInstructions(
     template: any,
-    failedFields?: ValidationError[]
+    failedFields?: ValidationError[],
+    articleSource?: any
   ): string {
     const failedFieldNames = failedFields
       ? this.validatorService.getFailedFields(failedFields)
       : [];
+
+    // Variables disponibles pour la substitution dans les ai_instructions
+    const fieldVars: Record<string, string> = {
+      URL_ARTICLE_SOURCE:   articleSource?.urls_by_lang?.fr
+                            || articleSource?.url
+                            || articleSource?.urls_by_lang?.en
+                            || '',
+      TITRE_ARTICLE_SOURCE: articleSource?.title || '',
+    };
 
     const instructions = template.fields.map((field: any) => {
       const isFailed = failedFieldNames.includes(field.name);
@@ -563,7 +585,12 @@ INSTRUCTIONS STRICTES :
       }
 
       if (field.ai_instructions) {
-        parts.push(`Instructions: ${field.ai_instructions}`);
+        // Substitution des variables {{...}} dans les instructions du champ
+        const resolvedInstructions = this.openaiService.replaceVariables(
+          field.ai_instructions,
+          fieldVars
+        );
+        parts.push(`Instructions: ${resolvedInstructions}`);
       }
 
       // Pour les champs picto : lister les options autorisées et imposer un choix strict

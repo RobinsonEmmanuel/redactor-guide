@@ -152,81 +152,70 @@ export async function workersRoutes(fastify: FastifyInstance) {
 
       console.log(`📚 ${articles.length} articles chargés pour "${destination}"`);
 
-      // 3. Calcul dynamique de la taille de batch
-      // Budget : 400k (modèle) - 50k (reasoning) - 8k (output) - 5k (prompt) = 337k pour les articles
-      // Marge de sécurité à 83% → budget effectif 280k
-      const CHARS_PER_TOKEN = 4;
-      const TOKEN_BUDGET_PER_BATCH = 280_000;
-      const METADATA_TOKENS_PER_ARTICLE = 150; // titre + url + séparateurs
-
-      const totalContentTokens = articles.reduce((sum: number, a: any) => {
-        return sum + Math.ceil((a.markdown || '').length / CHARS_PER_TOKEN) + METADATA_TOKENS_PER_ARTICLE;
-      }, 0);
-      const avgTokensPerArticle = Math.ceil(totalContentTokens / articles.length);
-      const batchSize = Math.max(5, Math.min(50, Math.floor(TOKEN_BUDGET_PER_BATCH / avgTokensPerArticle)));
-
-      const totalBatches = Math.ceil(articles.length / batchSize);
-      console.log(`📊 Tokens moy/article: ${avgTokensPerArticle} | Batch size: ${batchSize} | Batches: ${totalBatches}`);
-
-      // 4. Traitement par batch — extraction des POIs
+      // 3. Traitement article par article — 1 appel OpenAI par article
       const allRawPois: any[] = [];
+      const total = articles.length;
 
-      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-        const batch = articles.slice(batchIndex * batchSize, (batchIndex + 1) * batchSize);
-        const batchNum = batchIndex + 1;
+      for (let i = 0; i < total; i++) {
+        const article = articles[i] as any;
+        const articleNum = i + 1;
 
-        console.log(`🔄 Batch ${batchNum}/${totalBatches}: analyse de ${batch.length} articles...`);
+        console.log(`🔄 Article ${articleNum}/${total}: "${article.title}"`);
 
-        // Mise à jour du statut en temps réel
-        await db.collection('pois_generation_jobs').updateOne(
-          { _id: new ObjectId(jobId) },
-          {
-            $set: {
-              status: 'processing',
-              progress: `Batch ${batchNum}/${totalBatches}`,
-              updated_at: new Date(),
-            },
-          }
-        );
+        // Mise à jour du statut toutes les 5 articles pour ne pas surcharger la DB
+        if (articleNum === 1 || articleNum % 5 === 0 || articleNum === total) {
+          await db.collection('pois_generation_jobs').updateOne(
+            { _id: new ObjectId(jobId) },
+            {
+              $set: {
+                status: 'processing',
+                progress: `Article ${articleNum}/${total}`,
+                updated_at: new Date(),
+              },
+            }
+          );
+        }
 
-        const articlesContent = batch
-          .map((a: any) => `## ${a.title}\nURL: ${a.url || a.slug}\n\n${a.markdown || '(contenu non disponible)'}`)
-          .join('\n\n---\n\n');
+        const content = article.markdown || '';
+        if (!content.trim()) {
+          console.log(`  ⚠️ Article ${articleNum}: contenu vide, ignoré`);
+          continue;
+        }
 
         const extractionPrompt = `Tu es un expert en extraction de Points d'Intérêt (POI) depuis des articles de voyage.
 
-DESTINATION ANALYSÉE : ${destination}
-SITE : ${guide.wpConfig?.siteUrl || ''}
+DESTINATION : ${destination}
+ARTICLE : ${article.title}
+URL : ${article.url || article.slug}
 
-Analyse en profondeur les ${batch.length} articles ci-dessous et extrais TOUS les POIs mentionnés :
+Analyse l'article ci-dessous et extrais TOUS les POIs mentionnés :
 lieux touristiques, plages, parcs, musées, restaurants, hôtels, bars, activités, randonnées, marchés, miradors, quartiers, villages, etc.
+Sois exhaustif — cet article peut citer des dizaines de POIs.
 
-Un article peut évoquer plusieurs dizaines de POIs — sois exhaustif, ne saute aucun lieu cité.
-
-${articlesContent}
+---
+${content}
+---
 
 Pour chaque POI retourne :
 - poi_id : identifiant unique en snake_case (ex: "playa_las_teresitas")
 - nom : nom officiel du lieu
 - type : "attraction" | "plage" | "parc" | "musee" | "restaurant" | "hotel" | "bar" | "activite" | "randonnee" | "marche" | "mirador" | "quartier" | "village" | "autre"
-- article_source : titre exact de l'article où ce POI est le plus détaillé
-- url_source : URL de cet article source
+- article_source : "${article.title}"
+- url_source : "${article.url || article.slug}"
 - raison_selection : pourquoi ce POI mérite d'être recensé (1 phrase courte)
-- autres_articles_mentions : tableau des titres d'autres articles qui mentionnent ce POI
 
-Retourne UNIQUEMENT un JSON valide : { "pois": [ ... ] }`;
+Retourne UNIQUEMENT un JSON valide : { "pois": [ ... ] }
+Si aucun POI identifiable, retourne : { "pois": [] }`;
 
         try {
-          const result = await openaiService.generateJSON(extractionPrompt, 12000);
+          const result = await openaiService.generateJSON(extractionPrompt, 4000);
 
           if (result.pois && Array.isArray(result.pois)) {
             allRawPois.push(...result.pois);
-            console.log(`  ✅ Batch ${batchNum}: ${result.pois.length} POIs extraits (total: ${allRawPois.length})`);
-          } else {
-            console.warn(`  ⚠️ Batch ${batchNum}: réponse inattendue, ignorée`);
+            console.log(`  ✅ ${result.pois.length} POIs (total: ${allRawPois.length})`);
           }
-        } catch (batchError: any) {
-          console.error(`  ❌ Batch ${batchNum} échoué: ${batchError.message} — on continue`);
+        } catch (articleError: any) {
+          console.error(`  ❌ Article ${articleNum} échoué: ${articleError.message} — on continue`);
         }
       }
 
@@ -323,7 +312,7 @@ Retourne UNIQUEMENT un JSON valide : { "pois": [ ... ] }
         success: true,
         count: pois.length,
         raw_count: allRawPois.length,
-        batches: totalBatches,
+        articles_processed: total,
       });
 
     } catch (error: any) {

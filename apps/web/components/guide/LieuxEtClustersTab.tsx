@@ -293,30 +293,44 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         method: 'POST',
       });
 
-      if (res.ok) {
-        const pollInterval = setInterval(async () => {
-          const checkRes = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/generation/status`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`❌ Erreur: ${err.error || 'Erreur inconnue'}`);
+        setGenerating(false);
+        return;
+      }
+
+      const data = await res.json();
+      const jobId = data.jobId;
+
+      const pollInterval = setInterval(async () => {
+        try {
+          const checkRes = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/job-status/${jobId}`);
           if (checkRes.ok) {
             const status = await checkRes.json();
             if (status.status === 'completed') {
               clearInterval(pollInterval);
               await loadPois();
               setGenerating(false);
-              alert('✅ Génération terminée !');
+              alert(`✅ ${status.count || 0} lieu(x) identifié(s) !`);
             } else if (status.status === 'failed') {
               clearInterval(pollInterval);
               setGenerating(false);
-              alert('❌ Erreur lors de la génération');
+              alert(`❌ Erreur lors de la génération: ${status.error || 'Erreur inconnue'}`);
             }
           }
-        }, 3000);
+        } catch (pollErr) {
+          console.error('Erreur polling:', pollErr);
+        }
+      }, 3000);
 
-        setTimeout(() => {
-          clearInterval(pollInterval);
-          setGenerating(false);
-          alert('⏱️ Timeout - Veuillez vérifier manuellement');
-        }, 180000);
-      }
+      // Timeout 10 minutes (147 articles × ~2s + dédup)
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        setGenerating(false);
+        alert('⏱️ Timeout - Veuillez vérifier manuellement');
+      }, 10 * 60 * 1000);
+
     } catch (err) {
       console.error('Erreur génération:', err);
       setGenerating(false);

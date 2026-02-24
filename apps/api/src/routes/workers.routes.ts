@@ -187,20 +187,8 @@ export async function workersRoutes(fastify: FastifyInstance) {
         console.log(`📋 Prompt dédup: id "${PROMPT_ID_DEDUP}" non trouvé, utilisation du prompt par défaut`);
       }
 
-      // ─── Helpers de classification ────────────────────────────────────────────
+      // ─── Helper : extraction H2/H3 (utilisé pour les articles multi-POI) ──────
 
-      /** Patterns de titre indiquant un article multi-POI */
-      const MULTI_POI_TITLE_PATTERNS = [
-        /que faire/i, /que visiter/i, /quoi faire/i,
-        /incontournable/i, /à ne pas manquer/i,
-        /meilleur(e?s?)\s/i, /top\s?\d+/i,
-        /itinéraire/i, /road.?trip/i,
-        /activité/i, /visite(s)?\s/i,
-        /où aller/i, /où dormir/i, /où manger/i, /où séjourner/i,
-        /\d+\s+(choses|endroits|lieux|plages|sites|restaurants|attractions)/i,
-      ];
-
-      /** Extrait les titres H2/H3 d'un contenu markdown */
       function extractHeadings(markdown: string): string[] {
         return markdown
           .split('\n')
@@ -209,47 +197,90 @@ export async function workersRoutes(fastify: FastifyInstance) {
           .filter(h => h.length > 2);
       }
 
-      /** Nettoie le titre d'article pour obtenir le nom du POI mono-POI */
-      function extractPoiNameFromTitle(title: string): string {
-        // Supprimer tout ce qui suit ":", "(", "–", "—", "•" ou les patterns numériques de fin
-        return title
-          .split(/[:(–—•]|:\s|\s*[-–]\s*\d|\s*\(\d/)[0]
-          .trim();
+      // ─── 4. Classification IA des articles ──────────────────────────────────
+      // Payload ultra-léger : on envoie uniquement les titres
+
+      console.log(`🤖 Classification IA de ${(articles as any[]).length} articles...`);
+
+      await db.collection('pois_generation_jobs').updateOne(
+        { _id: new ObjectId(jobId) },
+        { $set: { progress: `Classification IA de ${(articles as any[]).length} articles...`, updated_at: new Date() } }
+      );
+
+      const articleTitlesList = (articles as any[])
+        .map((a: any, i: number) => `${i}. ${a.title}`)
+        .join('\n');
+
+      const classificationSystemPrompt = `Tu es un expert en contenu touristique. Classifie chaque article dans l'une de ces 3 catégories :
+
+- "mono" : l'article est entièrement consacré à UN SEUL lieu touristique précis et localisable (une plage spécifique, un site naturel, un monument, un village, une piscine naturelle, un mirador, un belvédère, etc.). Le nom du lieu principal est dans le titre.
+- "multi" : l'article présente ou liste PLUSIEURS lieux touristiques distincts (guides "que faire à X", tops N lieux, itinéraires, listes de plages/jardins/villages, "pourquoi visiter", etc.)
+- "exclude" : l'article ne génère pas de POI pertinent pour un guide touristique. Exemples : hôtels/hébergements/apparthotels, transport/location de voiture/comment se déplacer, météo/saisons/quand partir/combien de jours, guides pratiques généraux, comparaisons de destinations.
+
+Pour les articles "mono", indique également le poi_name : le nom propre du lieu, sans les suffixes descriptifs comme "conseils + photos", "avis + photos", etc.
+
+Retourne STRICTEMENT un objet JSON valide, sans texte additionnel :
+{ "classifications": [{ "index": 0, "type": "mono|multi|exclude", "poi_name": "string ou null", "reason": "explication courte" }] }`;
+
+      let aiClassifications: Array<{ index: number; type: 'mono' | 'multi' | 'exclude'; poi_name: string | null; reason: string }> = [];
+
+      try {
+        const classifResult = await openaiService.generateJSON(
+          classificationSystemPrompt,
+          `Articles à classifier :\n${articleTitlesList}`,
+          { model: 'gpt-4o-mini', reasoningEffort: 'low', max_tokens: 8000 }
+        );
+        aiClassifications = (classifResult as any).classifications || [];
+        console.log(`✅ Classification IA : ${aiClassifications.length} articles classifiés`);
+      } catch (err: any) {
+        console.error(`❌ Erreur classification IA : ${err.message} — fallback classification "multi" pour tous`);
+        aiClassifications = (articles as any[]).map((_: any, i: number) => ({
+          index: i, type: 'multi' as const, poi_name: null, reason: 'fallback (erreur IA)',
+        }));
       }
-
-      /** Classe un article : 'mono' ou 'multi' */
-      function classifyArticle(title: string, markdown: string): 'mono' | 'multi' {
-        // 1. Si le titre correspond à un pattern multi-POI → multi
-        if (MULTI_POI_TITLE_PATTERNS.some(p => p.test(title))) return 'multi';
-
-        // 2. Extraire le nom du POI candidat depuis le titre
-        const poiName = extractPoiNameFromTitle(title);
-        if (!poiName) return 'multi';
-
-        // 3. Compter les occurrences du nom dans le markdown (insensible à la casse)
-        // On prend les 3 premiers mots significatifs pour la recherche
-        const keywords = poiName.split(/\s+/).filter(w => w.length > 3).slice(0, 3);
-        if (keywords.length === 0) return 'multi';
-
-        const searchPattern = new RegExp(keywords.join('.{0,20}'), 'gi');
-        const count = (markdown.match(searchPattern) || []).length;
-
-        return count >= 5 ? 'mono' : 'multi';
-      }
-
-      // ─── 4. Pré-classification de tous les articles ──────────────────────────
 
       const monoArticles: any[] = [];
       const multiArticles: any[] = [];
+      const excludedArticles: any[] = [];
+      const classificationLog: any[] = [];
 
-      for (const article of articles as any[]) {
-        const markdown = article.markdown || '';
-        const type = classifyArticle(article.title, markdown);
-        if (type === 'mono') monoArticles.push(article);
-        else multiArticles.push(article);
+      for (let i = 0; i < (articles as any[]).length; i++) {
+        const article = (articles as any[])[i];
+        const classif = aiClassifications.find(c => c.index === i) || { type: 'multi', poi_name: null, reason: 'non classifié' };
+        const headings = classif.type === 'multi' ? extractHeadings(article.markdown || '') : [];
+
+        classificationLog.push({
+          title: article.title,
+          url: article.url || article.slug,
+          type: classif.type,
+          reason: classif.reason,
+          poiName: classif.poi_name || undefined,
+          headingCount: headings.length || undefined,
+        });
+
+        if (classif.type === 'mono') {
+          monoArticles.push({ ...article, _poi_name: classif.poi_name || article.title, _classification: classif });
+        } else if (classif.type === 'multi') {
+          multiArticles.push({ ...article, _headings: headings, _classification: classif });
+        } else {
+          excludedArticles.push({ ...article, _classification: classif });
+        }
       }
 
-      console.log(`📊 Classification: ${monoArticles.length} articles mono-POI, ${multiArticles.length} articles multi-POI`);
+      console.log(`📊 Classification: ${monoArticles.length} mono-POI, ${multiArticles.length} multi-POI, ${excludedArticles.length} exclus`);
+
+      await db.collection('pois_generation_jobs').updateOne(
+        { _id: new ObjectId(jobId) },
+        {
+          $set: {
+            classification_log: classificationLog,
+            mono_count: monoArticles.length,
+            multi_count: multiArticles.length,
+            excluded_count: excludedArticles.length,
+            updated_at: new Date(),
+          },
+        }
+      );
 
       const allRawPois: any[] = [];
       const previewBatches: any[] = [];
@@ -257,11 +288,11 @@ export async function workersRoutes(fastify: FastifyInstance) {
       // ─── 5a. Articles mono-POI : extraction directe, sans IA ────────────────
 
       for (const article of monoArticles) {
-        const poiName = extractPoiNameFromTitle(article.title);
+        const poiName = article._poi_name || article.title;
         allRawPois.push({
           poi_id: poiName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''),
           nom: poiName,
-          type: 'site_naturel', // sera affiné par le dédup IA
+          type: 'site_naturel',
           article_source: article.title,
           url_source: article.url || article.slug,
           mentions: 'principale',

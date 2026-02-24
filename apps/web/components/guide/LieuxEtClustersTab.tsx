@@ -244,6 +244,100 @@ function PoiRow({ poi }: { poi: any }) {
 }
 
 // Affichage par batches (avec articles + URLs)
+function ClassificationTable({ log }: { log: any[] }) {
+  const [filter, setFilter] = useState<'all' | 'mono' | 'multi' | 'exclude'>('all');
+  const filtered = filter === 'all' ? log : log.filter(a => a.type === filter);
+
+  const counts = {
+    mono: log.filter(a => a.type === 'mono').length,
+    multi: log.filter(a => a.type === 'multi').length,
+    exclude: log.filter(a => a.type === 'exclude').length,
+  };
+
+  const rowStyle: Record<string, string> = {
+    mono: 'bg-amber-50',
+    multi: 'bg-blue-50',
+    exclude: 'bg-gray-50 opacity-60',
+  };
+
+  const badgeStyle: Record<string, string> = {
+    mono: 'bg-amber-200 text-amber-800',
+    multi: 'bg-blue-200 text-blue-800',
+    exclude: 'bg-gray-200 text-gray-600',
+  };
+
+  const badgeLabel: Record<string, string> = {
+    mono: '🎯 mono',
+    multi: '📋 multi',
+    exclude: '⛔ exclu',
+  };
+
+  return (
+    <div>
+      {/* Filtres */}
+      <div className="flex gap-2 mb-3 flex-wrap">
+        {(['all', 'mono', 'multi', 'exclude'] as const).map(f => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${
+              filter === f
+                ? f === 'mono' ? 'bg-amber-500 text-white'
+                : f === 'multi' ? 'bg-blue-600 text-white'
+                : f === 'exclude' ? 'bg-gray-500 text-white'
+                : 'bg-gray-700 text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {f === 'all' ? `Tous (${log.length})` : f === 'mono' ? `🎯 Mono (${counts.mono})` : f === 'multi' ? `📋 Multi (${counts.multi})` : `⛔ Exclus (${counts.exclude})`}
+          </button>
+        ))}
+      </div>
+
+      {/* Tableau */}
+      <table className="w-full text-xs border-collapse">
+        <thead>
+          <tr className="bg-gray-50 text-gray-500 uppercase tracking-wide">
+            <th className="text-left py-2 px-3 border border-gray-200 font-semibold">Type</th>
+            <th className="text-left py-2 px-3 border border-gray-200 font-semibold">Article</th>
+            <th className="text-left py-2 px-3 border border-gray-200 font-semibold">Raison IA</th>
+            <th className="text-left py-2 px-3 border border-gray-200 font-semibold">Détail</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filtered.map((entry, i) => (
+            <tr key={i} className={`border-b border-gray-100 ${rowStyle[entry.type] ?? ''}`}>
+              <td className="py-2 px-3 border border-gray-100">
+                <span className={`px-2 py-0.5 rounded-full font-semibold text-xs ${badgeStyle[entry.type] ?? ''}`}>
+                  {badgeLabel[entry.type] ?? entry.type}
+                </span>
+              </td>
+              <td className="py-2 px-3 border border-gray-100 max-w-xs">
+                {entry.url ? (
+                  <a href={entry.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline leading-snug line-clamp-2">
+                    {entry.title}
+                  </a>
+                ) : (
+                  <span className="text-gray-700 leading-snug line-clamp-2">{entry.title}</span>
+                )}
+              </td>
+              <td className="py-2 px-3 border border-gray-100 text-gray-600 italic">{entry.reason}</td>
+              <td className="py-2 px-3 border border-gray-100 text-gray-500">
+                {entry.type === 'mono' && entry.poiName && (
+                  <span>POI : <strong className="text-amber-700">{entry.poiName}</strong></span>
+                )}
+                {entry.type === 'multi' && entry.headingCount !== undefined && (
+                  <span>{entry.headingCount} H2/H3</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function PoiPreviewList({ batches, poisFallback }: { batches: any[]; poisFallback: any[] }) {
   if (batches.length > 0) {
     return (
@@ -363,6 +457,11 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   const [generatingProgress, setGeneratingProgress] = useState<string | null>(null);
   const [previewPois, setPreviewPois] = useState<any[]>([]);
   const [previewBatches, setPreviewBatches] = useState<any[]>([]);
+  const [classificationLog, setClassificationLog] = useState<any[]>([]);
+  const [monoCount, setMonoCount] = useState<number | null>(null);
+  const [multiCount, setMultiCount] = useState<number | null>(null);
+  const [excludedCount, setExcludedCount] = useState<number | null>(null);
+  const [previewTab, setPreviewTab] = useState<'batches' | 'classification'>('batches');
   const [jobStatus, setJobStatus] = useState<string | null>(null);
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [deduplicating, setDeduplicating] = useState(false);
@@ -424,6 +523,11 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     setGenerating(true);
     setPreviewPois([]);
     setPreviewBatches([]);
+    setClassificationLog([]);
+    setMonoCount(null);
+    setMultiCount(null);
+    setExcludedCount(null);
+    setPreviewTab('batches');
     setDedupPois([]);
     setJobStatus(null);
     setCurrentJobId(null);
@@ -457,6 +561,10 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             if (status.progress) setGeneratingProgress(status.progress);
             if (status.preview_pois?.length) setPreviewPois(status.preview_pois);
             if (status.preview_batches?.length) setPreviewBatches(status.preview_batches);
+            if (status.classification_log?.length) setClassificationLog(status.classification_log);
+            if (status.mono_count !== null) setMonoCount(status.mono_count);
+            if (status.multi_count !== null) setMultiCount(status.multi_count);
+            if (status.excluded_count !== null) setExcludedCount(status.excluded_count);
             setJobStatus(status.status);
 
             if (status.status === 'extraction_complete') {
@@ -1322,9 +1430,52 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             <button onClick={() => setShowPreviewModal(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none px-2">×</button>
           </div>
 
+          {/* Bandeau de synthèse classification (dès que disponible) */}
+          {(monoCount !== null || multiCount !== null) && (
+            <div className="flex items-center gap-4 px-5 py-2.5 bg-gray-50 border-b border-gray-200 text-xs flex-shrink-0">
+              <span className="text-gray-500 font-medium">Classification :</span>
+              <span className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-100 text-amber-800 rounded-full font-semibold">
+                🎯 {monoCount} mono-POI
+              </span>
+              <span className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-100 text-blue-800 rounded-full font-semibold">
+                📋 {multiCount} multi-POI
+              </span>
+              {excludedCount !== null && excludedCount > 0 && (
+                <span className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 text-gray-600 rounded-full font-semibold">
+                  ⛔ {excludedCount} exclus
+                </span>
+              )}
+              <span className="text-gray-400">
+                {(monoCount ?? 0) + (multiCount ?? 0) + (excludedCount ?? 0)} articles au total
+              </span>
+            </div>
+          )}
+
+          {/* Onglets POIs / Classification */}
+          {(previewBatches.length > 0 || classificationLog.length > 0) && (
+            <div className="flex border-b border-gray-200 flex-shrink-0">
+              <button
+                onClick={() => setPreviewTab('batches')}
+                className={`px-5 py-2 text-sm font-medium border-b-2 transition-colors ${previewTab === 'batches' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+              >
+                POIs extraits
+                {previewPois.length > 0 && <span className="ml-1.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">{previewPois.length}</span>}
+              </button>
+              <button
+                onClick={() => setPreviewTab('classification')}
+                className={`px-5 py-2 text-sm font-medium border-b-2 transition-colors ${previewTab === 'classification' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+              >
+                Contrôle classification
+                {classificationLog.length > 0 && <span className="ml-1.5 px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full">{classificationLog.length}</span>}
+              </button>
+            </div>
+          )}
+
           {/* Corps scrollable */}
           <div className="overflow-y-auto flex-1 px-5 py-4">
-            {jobStatus === 'dedup_complete' && dedupPois.length > 0 ? (
+            {previewTab === 'classification' && classificationLog.length > 0 ? (
+              <ClassificationTable log={classificationLog} />
+            ) : jobStatus === 'dedup_complete' && dedupPois.length > 0 ? (
               <PoiPreviewList batches={[]} poisFallback={dedupPois} />
             ) : previewBatches.length === 0 && previewPois.length === 0 ? (
               <div className="flex items-center justify-center h-32 text-gray-400 text-sm">

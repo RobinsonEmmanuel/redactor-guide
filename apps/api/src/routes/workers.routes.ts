@@ -152,7 +152,29 @@ export async function workersRoutes(fastify: FastifyInstance) {
 
       console.log(`📚 ${articles.length} articles chargés pour "${destination}"`);
 
-      // 3. Traitement article par article — 1 appel OpenAI par article
+      // 3. Charger les prompts depuis la DB
+      // Prompt d'extraction (1 article → POIs)
+      const promptExtractionDoc = await db.collection('prompts').findOne({
+        categories: { $all: ['lieux', 'poi', 'sommaire'] },
+        actif: true,
+      });
+      if (!promptExtractionDoc) {
+        throw new Error('Prompt d\'extraction POI non trouvé (catégories: lieux, poi, sommaire)');
+      }
+      console.log(`📋 Prompt extraction: ${promptExtractionDoc.prompt_nom || promptExtractionDoc.prompt_id}`);
+
+      // Prompt de déduplication (optionnel — fallback intégré si absent)
+      const promptDedupDoc = await db.collection('prompts').findOne({
+        categories: { $all: ['lieux', 'poi', 'deduplication'] },
+        actif: true,
+      });
+      if (promptDedupDoc) {
+        console.log(`📋 Prompt dédup: ${promptDedupDoc.prompt_nom || promptDedupDoc.prompt_id}`);
+      } else {
+        console.log('📋 Prompt dédup: non trouvé en DB, utilisation du prompt par défaut');
+      }
+
+      // 4. Traitement article par article — 1 appel OpenAI par article
       const allRawPois: any[] = [];
       const total = articles.length;
 
@@ -182,37 +204,28 @@ export async function workersRoutes(fastify: FastifyInstance) {
           continue;
         }
 
-        const extractionPrompt = `Tu es un expert en extraction de Points d'Intérêt (POI) depuis des articles de voyage.
-
-DESTINATION : ${destination}
-ARTICLE : ${article.title}
-URL : ${article.url || article.slug}
-
-Analyse l'article ci-dessous et extrais TOUS les POIs mentionnés :
-lieux touristiques, plages, parcs, musées, restaurants, hôtels, bars, activités, randonnées, marchés, miradors, quartiers, villages, etc.
-Sois exhaustif — cet article peut citer des dizaines de POIs.
-
----
-${content}
----
-
-Pour chaque POI retourne :
-- poi_id : identifiant unique en snake_case (ex: "playa_las_teresitas")
-- nom : nom officiel du lieu
-- type : "attraction" | "plage" | "parc" | "musee" | "restaurant" | "hotel" | "bar" | "activite" | "randonnee" | "marche" | "mirador" | "quartier" | "village" | "autre"
-- article_source : "${article.title}"
-- url_source : "${article.url || article.slug}"
-- raison_selection : pourquoi ce POI mérite d'être recensé (1 phrase courte)
-
-Retourne UNIQUEMENT un JSON valide : { "pois": [ ... ] }
-Si aucun POI identifiable, retourne : { "pois": [] }`;
+        const extractionPrompt = openaiService.replaceVariables(promptExtractionDoc.texte_prompt, {
+          SITE: guide.wpConfig?.siteUrl || '',
+          DESTINATION: destination,
+          ARTICLE_TITRE: article.title,
+          ARTICLE_URL: article.url || article.slug,
+          ARTICLE_CONTENU: content,
+          // Rétrocompat — au cas où l'ancien prompt utilise encore cette variable
+          LISTE_ARTICLES_POI: `- ${article.title} (${article.url || article.slug})`,
+        });
 
         try {
           const result = await openaiService.generateJSON(extractionPrompt, 4000);
 
           if (result.pois && Array.isArray(result.pois)) {
-            allRawPois.push(...result.pois);
-            console.log(`  ✅ ${result.pois.length} POIs (total: ${allRawPois.length})`);
+            // Garantir que article_source et url_source sont toujours renseignés
+            const enriched = result.pois.map((poi: any) => ({
+              ...poi,
+              article_source: poi.article_source || article.title,
+              url_source: poi.url_source || article.url || article.slug,
+            }));
+            allRawPois.push(...enriched);
+            console.log(`  ✅ ${enriched.length} POIs (total: ${allRawPois.length})`);
           }
         } catch (articleError: any) {
           console.error(`  ❌ Article ${articleNum} échoué: ${articleError.message} — on continue`);
@@ -235,10 +248,16 @@ Si aucun POI identifiable, retourne : { "pois": [] }`;
 
       const poisJson = JSON.stringify(allRawPois, null, 0);
 
-      const dedupPrompt = `Tu es un expert en consolidation de bases de données géographiques.
+      const dedupPrompt = promptDedupDoc
+        ? openaiService.replaceVariables(promptDedupDoc.texte_prompt, {
+            DESTINATION: destination,
+            NB_POIS: String(allRawPois.length),
+            POIS_BRUTS_JSON: poisJson,
+          })
+        : `Tu es un expert en consolidation de bases de données géographiques.
 
-Voici ${allRawPois.length} POIs extraits par batches depuis des articles sur ${destination}.
-Certains POIs apparaissent en double ou en triple (même lieu cité dans plusieurs articles avec des noms légèrement différents, variantes orthographiques, noms en différentes langues, etc.).
+Voici ${allRawPois.length} POIs extraits article par article depuis des articles sur ${destination}.
+Certains POIs apparaissent en double ou en triple (même lieu dans plusieurs articles, variantes orthographiques, noms en différentes langues, etc.).
 
 LISTE DES POIS BRUTS :
 ${poisJson}
@@ -247,9 +266,9 @@ Tâche :
 1. Identifie les doublons EXACTS (même poi_id ou même nom)
 2. Identifie les doublons APPROCHANTS (même lieu sous des appellations différentes, ex: "Teide" / "Pico del Teide" / "Mont Teide" / "Parc national du Teide")
 3. Pour chaque groupe de doublons, conserve le POI le plus complet et fusionne :
-   - "autres_articles_mentions" : réunion de toutes les sources
-   - "article_source" / "url_source" : garde le plus représentatif
-4. Conserve TOUS les POIs uniques, ne supprime rien d'autre que les doublons
+   - "autres_articles_mentions" : réunion de toutes les url_source / article_source
+   - "article_source" / "url_source" : garde le plus représentatif (article dédié > article liste)
+4. Conserve TOUS les POIs uniques sans en supprimer
 
 Retourne UNIQUEMENT un JSON valide : { "pois": [ ... ] }
 (même structure que l'entrée, après fusion)`;

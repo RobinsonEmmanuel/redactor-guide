@@ -165,6 +165,19 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
     }
   };
 
+  const clearJobs = async () => {
+    if (!confirm('Supprimer tous les jobs de génération pour ce guide ?')) return;
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/jobs`, { method: 'DELETE' });
+      if (res.ok) {
+        const data = await res.json();
+        alert(`✅ ${data.deleted} job(s) supprimé(s)`);
+      }
+    } catch (err) {
+      console.error('Erreur nettoyage jobs:', err);
+    }
+  };
+
   const addManualPoi = async () => {
     if (!manualForm.nom.trim()) {
       alert('Le nom du lieu est requis');
@@ -312,23 +325,33 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
               {pois.length} lieu(x) dans la sélection
             </p>
           </div>
-          <button
-            onClick={generatePoisFromArticles}
-            disabled={generating}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {generating ? (
-              <>
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                {generatingProgress || 'Génération en cours...'}
-              </>
-            ) : (
-              <>
-                <MagnifyingGlassIcon className="w-5 h-5" />
-                🔍 Identifier les lieux dans nos articles
-              </>
-            )}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={clearJobs}
+              disabled={generating}
+              title="Nettoyer les anciens jobs de génération"
+              className="flex items-center gap-1 px-3 py-2 text-sm text-gray-500 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              🧹 Nettoyer jobs
+            </button>
+            <button
+              onClick={generatePoisFromArticles}
+              disabled={generating}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {generating ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  {generatingProgress || 'Génération en cours...'}
+                </>
+              ) : (
+                <>
+                  <MagnifyingGlassIcon className="w-5 h-5" />
+                  🔍 Identifier les lieux dans nos articles
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
         {generating && generatingProgress && (

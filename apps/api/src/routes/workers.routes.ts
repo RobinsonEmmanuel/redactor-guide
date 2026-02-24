@@ -112,6 +112,23 @@ export async function workersRoutes(fastify: FastifyInstance) {
     try {
       console.log(`🚀 [WORKER] Génération POIs par batch pour guide ${guideId}`);
 
+      // Garde anti-doublon : refuser si un autre job est déjà en cours pour ce guide
+      const existingProcessing = await db.collection('pois_generation_jobs').findOne({
+        guide_id: guideId,
+        status: 'processing',
+        _id: { $ne: new ObjectId(jobId) },
+        // Ignorer les jobs bloqués depuis plus de 30 minutes
+        updated_at: { $gte: new Date(Date.now() - 30 * 60 * 1000) },
+      });
+      if (existingProcessing) {
+        console.warn(`⚠️ [WORKER] Job ${existingProcessing._id} déjà en cours pour guide ${guideId} — abandon du doublon ${jobId}`);
+        await db.collection('pois_generation_jobs').updateOne(
+          { _id: new ObjectId(jobId) },
+          { $set: { status: 'failed', error: 'Doublon : un job est déjà en cours', updated_at: new Date() } }
+        );
+        return reply.send({ success: false, reason: 'duplicate' });
+      }
+
       await db.collection('pois_generation_jobs').updateOne(
         { _id: new ObjectId(jobId) },
         { $set: { status: 'processing', updated_at: new Date() } }
@@ -170,61 +187,77 @@ export async function workersRoutes(fastify: FastifyInstance) {
         console.log(`📋 Prompt dédup: id "${PROMPT_ID_DEDUP}" non trouvé, utilisation du prompt par défaut`);
       }
 
-      // 4. Traitement article par article — 1 appel OpenAI par article
+      // 4. Traitement par batch de 5 articles — 1 appel OpenAI par batch
+      const BATCH_SIZE = 5;
       const allRawPois: any[] = [];
       const total = articles.length;
+      const totalBatches = Math.ceil(total / BATCH_SIZE);
 
-      for (let i = 0; i < total; i++) {
-        const article = articles[i] as any;
-        const articleNum = i + 1;
+      console.log(`📊 ${total} articles → ${totalBatches} batches de ${BATCH_SIZE}`);
 
-        console.log(`🔄 Article ${articleNum}/${total}: "${article.title}"`);
+      for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+        const batchNum = batchIdx + 1;
+        const batchArticles = articles.slice(batchIdx * BATCH_SIZE, (batchIdx + 1) * BATCH_SIZE) as any[];
+        const firstArticleNum = batchIdx * BATCH_SIZE + 1;
 
-        // Mise à jour du statut toutes les 5 articles pour ne pas surcharger la DB
-        if (articleNum === 1 || articleNum % 5 === 0 || articleNum === total) {
-          await db.collection('pois_generation_jobs').updateOne(
-            { _id: new ObjectId(jobId) },
-            {
-              $set: {
-                status: 'processing',
-                progress: `Article ${articleNum}/${total}`,
-                updated_at: new Date(),
-              },
-            }
-          );
-        }
+        console.log(`🔄 Batch ${batchNum}/${totalBatches} — articles ${firstArticleNum}-${firstArticleNum + batchArticles.length - 1}`);
 
-        const content = article.markdown || '';
-        if (!content.trim()) {
-          console.log(`  ⚠️ Article ${articleNum}: contenu vide, ignoré`);
+        await db.collection('pois_generation_jobs').updateOne(
+          { _id: new ObjectId(jobId) },
+          { $set: { status: 'processing', progress: `Batch ${batchNum}/${totalBatches}`, updated_at: new Date() } }
+        );
+
+        // Filtrer les articles vides
+        const validArticles = batchArticles.filter((a: any) => (a.markdown || '').trim());
+        if (validArticles.length === 0) {
+          console.log(`  ⚠️ Batch ${batchNum}: tous les articles sont vides, ignoré`);
           continue;
         }
+
+        // Construire le contenu groupé des articles du batch
+        const batchContent = validArticles
+          .map((a: any, idx: number) =>
+            `### Article ${idx + 1} : ${a.title}\nURL : ${a.url || a.slug}\n\n${a.markdown}`
+          )
+          .join('\n\n---\n\n');
+
+        const batchTitles = validArticles.map((a: any) => `"${a.title}"`).join(', ');
 
         const extractionPrompt = openaiService.replaceVariables(promptExtractionDoc.texte_prompt, {
           SITE: guide.wpConfig?.siteUrl || '',
           DESTINATION: destination,
-          ARTICLE_TITRE: article.title,
-          ARTICLE_URL: article.url || article.slug,
-          ARTICLE_CONTENU: content,
-          // Rétrocompat — au cas où l'ancien prompt utilise encore cette variable
-          LISTE_ARTICLES_POI: `- ${article.title} (${article.url || article.slug})`,
+          ARTICLE_TITRE: `Batch ${batchNum}/${totalBatches} (${validArticles.length} articles : ${batchTitles})`,
+          ARTICLE_URL: '',
+          ARTICLE_CONTENU: batchContent,
+          // Rétrocompat
+          LISTE_ARTICLES_POI: validArticles.map((a: any) => `- ${a.title} (${a.url || a.slug})`).join('\n'),
         });
 
         try {
-          const result = await openaiService.generateJSON(extractionPrompt, 4000);
+          const result = await openaiService.generateJSON(extractionPrompt, 8000);
 
           if (result.pois && Array.isArray(result.pois)) {
-            // Garantir que article_source et url_source sont toujours renseignés
-            const enriched = result.pois.map((poi: any) => ({
-              ...poi,
-              article_source: poi.article_source || article.title,
-              url_source: poi.url_source || article.url || article.slug,
-            }));
+            // Garantir article_source/url_source si le prompt ne les retourne pas
+            const enriched = result.pois.map((poi: any) => {
+              if (!poi.article_source || !poi.url_source) {
+                // Tenter de deviner l'article source parmi les articles du batch
+                const match = validArticles.find((a: any) =>
+                  (poi.article_source && a.title.includes(poi.article_source)) ||
+                  (poi.url_source && (a.url || a.slug) === poi.url_source)
+                ) || validArticles[0];
+                return {
+                  ...poi,
+                  article_source: poi.article_source || match.title,
+                  url_source: poi.url_source || match.url || match.slug,
+                };
+              }
+              return poi;
+            });
             allRawPois.push(...enriched);
-            console.log(`  ✅ ${enriched.length} POIs (total: ${allRawPois.length})`);
+            console.log(`  ✅ Batch ${batchNum}: ${enriched.length} POIs (total: ${allRawPois.length})`);
           }
-        } catch (articleError: any) {
-          console.error(`  ❌ Article ${articleNum} échoué: ${articleError.message} — on continue`);
+        } catch (batchError: any) {
+          console.error(`  ❌ Batch ${batchNum} échoué: ${batchError.message} — on continue`);
         }
       }
 

@@ -84,7 +84,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
               headers: {
                 'Authorization': `Bearer ${qstashToken}`,
                 'Content-Type': 'application/json',
-                'Upstash-Retries': '2',
+                'Upstash-Retries': '0',
               },
               body: JSON.stringify({ guideId, jobId: jobId.toString() }),
             });
@@ -167,12 +167,32 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
         return reply.send({
           status: job.status,
           count: job.count || 0,
+          raw_count: job.raw_count || 0,
+          progress: job.progress || null,
           error: job.error || null,
           created_at: job.created_at,
           updated_at: job.updated_at,
         });
       } catch (error: any) {
         console.error('❌ [POIs] Erreur statut job:', error);
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
+
+  /**
+   * DELETE /guides/:guideId/pois/jobs
+   * Supprime tous les jobs de génération POIs pour repartir sur une base propre
+   */
+  fastify.delete<{ Params: { guideId: string } }>(
+    '/guides/:guideId/pois/jobs',
+    async (request, reply) => {
+      const { guideId } = request.params;
+      try {
+        const result = await db.collection('pois_generation_jobs').deleteMany({ guide_id: guideId });
+        console.log(`🧹 [POIs] ${result.deletedCount} job(s) supprimé(s) pour guide ${guideId}`);
+        return reply.send({ deleted: result.deletedCount });
+      } catch (error: any) {
         return reply.code(500).send({ error: error.message });
       }
     }

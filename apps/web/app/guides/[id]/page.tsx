@@ -247,8 +247,8 @@ export default function GuideDetailPage() {
           onStepClick={handleWorkflowStepClick}
         />
 
-        {/* Tab Content - prend tout l'espace restant */}
-        <div className="flex-1 overflow-hidden">
+        {/* Tab Content - prend tout l'espace restant avec scroll */}
+        <div className="flex-1 overflow-y-auto">
           {activeTab === 'config' && (
             <ParametrageTab
               guide={guide}
@@ -259,7 +259,7 @@ export default function GuideDetailPage() {
           )}
 
           {activeTab === 'articles' && (
-            <div className="h-full p-6">
+            <div className="p-6">
               <ArticlesTab guideId={guideId} guide={guide} apiUrl={apiUrl} onArticlesImported={handleArticlesImported} />
             </div>
           )}

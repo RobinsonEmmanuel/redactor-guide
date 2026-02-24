@@ -337,6 +337,19 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     }
   };
 
+  const clearJobs = async () => {
+    if (!confirm('Supprimer tous les jobs de génération pour ce guide ?')) return;
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/jobs`, { method: 'DELETE' });
+      if (res.ok) {
+        const data = await res.json();
+        alert(`✅ ${data.deleted} job(s) supprimé(s)`);
+      }
+    } catch (err) {
+      console.error('Erreur nettoyage jobs:', err);
+    }
+  };
+
   const launchMatching = async () => {
     setMatching(true);
     try {
@@ -605,6 +618,15 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         {/* Header compact */}
         <div className="flex-shrink-0 bg-white border-b border-gray-200 px-4 py-2">
           <div className="flex items-center gap-2">
+            <button
+              onClick={clearJobs}
+              disabled={generating}
+              title="Nettoyer les anciens jobs de génération"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-gray-500 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+            >
+              🧹
+            </button>
+
             <button
               onClick={generatePoisFromArticles}
               disabled={generating}

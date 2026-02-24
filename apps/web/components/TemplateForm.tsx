@@ -35,7 +35,7 @@ interface TemplateField {
   list_size?: number;
 }
 
-type InfoSource = 'article_source' | 'cluster_auto_match' | 'tous_articles_site' | 'tous_articles_et_llm' | 'non_applicable';
+type InfoSource = 'article_source' | 'cluster_auto_match' | 'saison_auto_match' | 'tous_articles_site' | 'tous_articles_et_llm' | 'non_applicable';
 
 const INFO_SOURCE_OPTIONS: Array<{
   value: InfoSource;
@@ -46,31 +46,37 @@ const INFO_SOURCE_OPTIONS: Array<{
   {
     value: 'article_source',
     label: "Article de la page",
-    description: "L'IA se base uniquement sur l'article WordPress lié à cette page (ex : fiche POI, article inspiration)",
+    description: "L'IA se base uniquement sur l'article WordPress lié à cette page (ex : fiche POI, article inspiration).",
     icon: '📄',
   },
   {
     value: 'cluster_auto_match',
-    label: 'Recherche auto "Que faire à [cluster]"',
-    description: 'L\'IA recherche automatiquement l\'article "Que faire à [nom du cluster]" parmi les articles importés. Idéal pour les pages Cluster.',
+    label: 'Auto — "Que faire à [cluster]"',
+    description: "L'IA recherche automatiquement l'article \"Que faire à [nom du cluster]\" parmi les articles importés. Idéal pour les pages de type Cluster.",
     icon: '🔍',
+  },
+  {
+    value: 'saison_auto_match',
+    label: 'Auto — "Partir à [destination] en [mois]"',
+    description: "L'IA recherche automatiquement l'article saisonnier correspondant (ex: \"Partir à Tenerife en mai\" pour le printemps). La saison est définie page par page dans le chemin de fer.",
+    icon: '🌸',
   },
   {
     value: 'tous_articles_site',
     label: "Tous les articles du site",
-    description: "L'IA parcourt l'ensemble des articles WordPress collectés pour trouver les informations pertinentes",
+    description: "L'IA parcourt l'ensemble des articles WordPress collectés pour trouver les informations pertinentes.",
     icon: '📚',
   },
   {
     value: 'tous_articles_et_llm',
     label: "Articles du site + connaissances LLM",
-    description: "L'IA utilise les articles du site et peut compléter avec ses propres connaissances sur la destination",
+    description: "L'IA utilise les articles du site et peut compléter avec ses propres connaissances sur la destination.",
     icon: '🧠',
   },
   {
     value: 'non_applicable',
     label: "Ne s'applique pas",
-    description: "Aucune source requise — le contenu est généré sans contexte éditorial (ex : sommaire, page de garde)",
+    description: "Aucune source requise — le contenu est généré sans contexte éditorial (ex : sommaire, page de garde).",
     icon: '⛔',
   },
 ];
@@ -339,44 +345,31 @@ export default function TemplateForm({ templateId }: TemplateFormProps) {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Source d'information pour la génération IA
                 </label>
-                <p className="text-xs text-gray-500 mb-3">
+                <p className="text-xs text-gray-500 mb-2">
                   Indique au LLM où chercher les informations pour générer le contenu de chaque page utilisant ce template.
                 </p>
-                <div className="space-y-2">
-                  {INFO_SOURCE_OPTIONS.map((option) => {
-                    const isSelected = template.info_source === option.value;
-                    return (
-                      <label
-                        key={option.value}
-                        className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
-                          isSelected
-                            ? 'border-blue-500 bg-blue-50'
-                            : 'border-gray-200 hover:border-gray-300 bg-white'
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="info_source"
-                          value={option.value}
-                          checked={isSelected}
-                          onChange={() => setTemplate({ ...template, info_source: option.value })}
-                          className="mt-0.5 accent-blue-600"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-base">{option.icon}</span>
-                            <span className={`text-sm font-medium ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
-                              {option.label}
-                            </span>
-                          </div>
-                          <p className={`text-xs mt-0.5 ${isSelected ? 'text-blue-700' : 'text-gray-500'}`}>
-                            {option.description}
-                          </p>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
+                <select
+                  value={template.info_source}
+                  onChange={(e) => setTemplate({ ...template, info_source: e.target.value as InfoSource })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                >
+                  {INFO_SOURCE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.icon}  {option.label}
+                    </option>
+                  ))}
+                </select>
+                {/* Description de l'option sélectionnée */}
+                {(() => {
+                  const selected = INFO_SOURCE_OPTIONS.find((o) => o.value === template.info_source);
+                  if (!selected) return null;
+                  return (
+                    <div className="mt-2 flex items-start gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg">
+                      <span className="text-base shrink-0">{selected.icon}</span>
+                      <p className="text-xs text-blue-700">{selected.description}</p>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>

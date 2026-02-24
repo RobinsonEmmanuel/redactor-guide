@@ -391,20 +391,6 @@ Retourne STRICTEMENT un objet JSON valide, sans texte additionnel :
           continue;
         }
 
-        // Construire le contenu : index + H2/H3 de chaque article (pas le contenu complet)
-        const articlesIndex = validArticles
-          .map((a: any, idx: number) => `${idx + 1}. "${a.title}" — ${a.url || a.slug}`)
-          .join('\n');
-
-        const batchContent = validArticles
-          .map((a: any, idx: number) => {
-            const headings = extractHeadings(a.markdown || '');
-            const headingsBlock = headings.length > 0
-              ? `H2/H3 détectés :\n${headings.map(h => `  - ${h}`).join('\n')}`
-              : '(aucun titre H2/H3 détecté)';
-            return `### Article ${idx + 1} : ${a.title}\nURL : ${a.url || a.slug}\n${headingsBlock}`;
-          })
-          .join('\n\n---\n\n');
 
         // Construire un article_source lookup pour la correction post-réponse
         const articleByTitle: Record<string, any> = {};
@@ -415,20 +401,38 @@ Retourne STRICTEMENT un objet JSON valide, sans texte additionnel :
           if (a.slug) articleByUrl[a.slug] = a;
         }
 
-        const extractionPrompt = openaiService.replaceVariables(promptExtractionDoc.texte_prompt, {
-          SITE: guide.wpConfig?.siteUrl || '',
-          DESTINATION: destination,
-          ARTICLE_TITRE: `Lot de ${validArticles.length} articles multi-POI (batch ${batchNum}/${totalBatches})`,
-          ARTICLE_URL: '',
-          ARTICLE_CONTENU: `Articles analysés :\n${articlesIndex}\n\n---\n\n${batchContent}`,
-          ARTICLE_H2_H3: validArticles
-            .map((a: any) => {
-              const h = extractHeadings(a.markdown || '');
-              return `"${a.title}":\n${h.map(x => `  - ${x}`).join('\n') || '  (aucun)'}`;
-            })
-            .join('\n\n'),
-          LISTE_ARTICLES_POI: validArticles.map((a: any) => `- ${a.title} (${a.url || a.slug})`).join('\n'),
-        });
+        // Prompt dédié H2/H3 : plus fiable que d'injecter les headings dans le prompt utilisateur
+        // qui attend un contenu d'article complet.
+        const h2h3PerArticle = validArticles.map((a: any, idx: number) => {
+          const headings = extractHeadings(a.markdown || '');
+          // Filtrer les headings génériques (intro, conseils, FAQ, etc.)
+          const GENERIC = /^(introduction|présentation|conseils|conseil|pratique|infos?|FAQ|résumé|conclusion|en bref|contact|accès|horaire|tarif|prix|comment|pourquoi|où|quand|notre avis|notre sélection|pour aller plus loin|autres|suite)/i;
+          const poiCandidates = headings.filter(h => !GENERIC.test(h.trim()) && h.trim().length > 3);
+          return `Article ${idx + 1}: "${a.title}" (URL: ${a.url || a.slug})\nTitres H2/H3 candidats POI:\n${poiCandidates.map(h => `  • ${h}`).join('\n') || '  (aucun titre POI identifié)'}`;
+        }).join('\n\n');
+
+        const extractionPrompt = `Tu es un expert en sélection touristique pour des guides de voyage.
+
+Destination : ${destination}
+Site : ${guide.wpConfig?.siteUrl || ''}
+
+Pour chaque article ci-dessous, extrais UNIQUEMENT les lieux touristiques réels (POI) à partir des titres H2/H3.
+
+Règles de sélection :
+- Un POI est un lieu précis et localisable : musée, site naturel, plage, village, monument, panorama, jardin, etc.
+- Les titres numérotés ("1. Nom du lieu", "2. Nom du lieu") sont généralement des POIs
+- IGNORER les sections génériques : introduction, conseils pratiques, FAQ, tarifs, horaires, "pourquoi visiter", "notre avis"
+- IGNORER les hébergements et restaurants
+- article_source = titre de l'article dont est issu le POI
+- url_source = URL de l'article source
+
+Articles à traiter :
+${h2h3PerArticle}
+
+Exclusions strictes : hôtels, hébergements, restaurants, bars, commerces.
+
+Retourne STRICTEMENT un JSON valide sans texte additionnel :
+{ "pois": [ { "poi_id": "slug_unique", "nom": "Nom du POI", "type": "musée|site_culturel|village|ville|plage|site_naturel|panorama|quartier|autre", "article_source": "titre de l'article", "url_source": "url de l'article", "mentions": "principale", "raison_selection": "max 120 caractères", "autres_articles_mentions": [] } ] }`;
 
         const MAX_RETRIES = 3;
         let batchSuccess = false;

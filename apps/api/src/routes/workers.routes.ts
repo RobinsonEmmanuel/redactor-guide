@@ -190,6 +190,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
       // 4. Traitement par batch de 5 articles — 1 appel OpenAI par batch
       const BATCH_SIZE = 5;
       const allRawPois: any[] = [];
+      const previewBatches: any[] = []; // structure enrichie pour la modale
       const total = articles.length;
       const totalBatches = Math.ceil(total / BATCH_SIZE);
 
@@ -291,10 +292,20 @@ export async function workersRoutes(fastify: FastifyInstance) {
               allRawPois.push(...enriched);
               console.log(`  ✅ Batch ${batchNum}${attempt > 1 ? ` (après ${attempt} tentatives)` : ''}: ${enriched.length} POIs (total: ${allRawPois.length})`);
 
-              // Sauvegarde intermédiaire pour la preview temps réel
+              // Sauvegarde intermédiaire avec métadonnées du batch pour la modale
+              previewBatches.push({
+                batch_num: batchNum,
+                total_batches: totalBatches,
+                articles: validArticles.map((a: any) => ({
+                  title: a.title,
+                  url: a.url || a.slug,
+                })),
+                pois: enriched,
+              });
+
               await db.collection('pois_generation_jobs').updateOne(
                 { _id: new ObjectId(jobId) },
-                { $set: { preview_pois: allRawPois, updated_at: new Date() } }
+                { $set: { preview_pois: allRawPois, preview_batches: previewBatches, updated_at: new Date() } }
               );
 
               batchSuccess = true;

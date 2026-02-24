@@ -220,15 +220,86 @@ const POI_TYPE_COLORS: Record<string, string> = {
   village: 'bg-yellow-100 text-yellow-700',
   ville: 'bg-yellow-100 text-yellow-700',
   quartier: 'bg-orange-100 text-orange-700',
-  musée: 'bg-purple-100 text-purple-700',
   site_culturel: 'bg-purple-100 text-purple-700',
   autre: 'bg-gray-100 text-gray-600',
 };
 
-function PoiPreviewList({ pois }: { pois: any[] }) {
-  // Grouper par article_source
+function PoiRow({ poi }: { poi: any }) {
+  return (
+    <div className="px-3 py-2 flex items-start gap-2">
+      <span className={`flex-shrink-0 text-xs px-1.5 py-0.5 rounded font-medium mt-0.5 ${POI_TYPE_COLORS[poi.type] || POI_TYPE_COLORS.autre}`}>
+        {poi.type}
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-gray-900">{poi.nom}</div>
+        {poi.raison_selection && (
+          <div className="text-xs text-gray-500 mt-0.5">{poi.raison_selection}</div>
+        )}
+      </div>
+      {poi.mentions === 'principale' && (
+        <span className="flex-shrink-0 text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">★</span>
+      )}
+    </div>
+  );
+}
+
+// Affichage par batches (avec articles + URLs)
+function PoiPreviewList({ batches, poisFallback }: { batches: any[]; poisFallback: any[] }) {
+  if (batches.length > 0) {
+    return (
+      <div className="space-y-5">
+        {batches.map((batch: any) => (
+          <div key={batch.batch_num} className="border border-gray-200 rounded-lg overflow-hidden">
+            {/* Titre du batch */}
+            <div className="bg-blue-600 px-4 py-2 flex items-center justify-between">
+              <span className="text-sm font-bold text-white">
+                Batch {batch.batch_num}/{batch.total_batches}
+              </span>
+              <span className="text-xs text-blue-200">
+                {batch.pois?.length || 0} POI{(batch.pois?.length || 0) > 1 ? 's' : ''}
+              </span>
+            </div>
+
+            {/* Articles du batch avec URLs */}
+            <div className="bg-blue-50 px-4 py-2 border-b border-blue-100">
+              <p className="text-xs font-semibold text-blue-700 mb-1.5">Articles analysés :</p>
+              <ul className="space-y-1">
+                {batch.articles?.map((article: any, idx: number) => (
+                  <li key={idx} className="flex items-start gap-1.5 text-xs">
+                    <span className="text-blue-400 flex-shrink-0 mt-0.5">{idx + 1}.</span>
+                    <a
+                      href={article.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-700 hover:text-blue-900 hover:underline truncate"
+                      title={article.url}
+                    >
+                      {article.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* POIs trouvés */}
+            {batch.pois?.length > 0 ? (
+              <div className="divide-y divide-gray-100">
+                {batch.pois.map((poi: any, idx: number) => (
+                  <PoiRow key={`${poi.poi_id}-${idx}`} poi={poi} />
+                ))}
+              </div>
+            ) : (
+              <div className="px-4 py-3 text-xs text-gray-400 italic">Aucun POI extrait pour ce batch</div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Fallback : grouper par article_source si pas de batches
   const grouped: Record<string, any[]> = {};
-  for (const poi of pois) {
+  for (const poi of poisFallback) {
     const src = poi.article_source || 'Source inconnue';
     if (!grouped[src]) grouped[src] = [];
     grouped[src].push(poi);
@@ -243,21 +314,8 @@ function PoiPreviewList({ pois }: { pois: any[] }) {
             <span className="text-xs text-gray-400 flex-shrink-0">{articlePois.length} POI{articlePois.length > 1 ? 's' : ''}</span>
           </div>
           <div className="divide-y divide-gray-100">
-            {articlePois.map((poi, idx) => (
-              <div key={`${poi.poi_id}-${idx}`} className="px-3 py-2 flex items-start gap-2">
-                <span className={`flex-shrink-0 text-xs px-1.5 py-0.5 rounded font-medium mt-0.5 ${POI_TYPE_COLORS[poi.type] || POI_TYPE_COLORS.autre}`}>
-                  {poi.type}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-900">{poi.nom}</div>
-                  {poi.raison_selection && (
-                    <div className="text-xs text-gray-500 mt-0.5">{poi.raison_selection}</div>
-                  )}
-                </div>
-                {poi.mentions === 'principale' && (
-                  <span className="flex-shrink-0 text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">★</span>
-                )}
-              </div>
+            {articlePois.map((poi: any, idx: number) => (
+              <PoiRow key={`${poi.poi_id}-${idx}`} poi={poi} />
             ))}
           </div>
         </div>
@@ -292,6 +350,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [generatingProgress, setGeneratingProgress] = useState<string | null>(null);
   const [previewPois, setPreviewPois] = useState<any[]>([]);
+  const [previewBatches, setPreviewBatches] = useState<any[]>([]);
   const [jobStatus, setJobStatus] = useState<string | null>(null);
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [deduplicating, setDeduplicating] = useState(false);
@@ -352,6 +411,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   const generatePoisFromArticles = async () => {
     setGenerating(true);
     setPreviewPois([]);
+    setPreviewBatches([]);
     setDedupPois([]);
     setJobStatus(null);
     setCurrentJobId(null);
@@ -384,6 +444,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
             if (status.progress) setGeneratingProgress(status.progress);
             if (status.preview_pois?.length) setPreviewPois(status.preview_pois);
+            if (status.preview_batches?.length) setPreviewBatches(status.preview_batches);
             setJobStatus(status.status);
 
             if (status.status === 'extraction_complete') {
@@ -1252,13 +1313,13 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
           {/* Corps scrollable */}
           <div className="overflow-y-auto flex-1 px-5 py-4">
             {jobStatus === 'dedup_complete' && dedupPois.length > 0 ? (
-              <PoiPreviewList pois={dedupPois} />
-            ) : previewPois.length === 0 ? (
+              <PoiPreviewList batches={[]} poisFallback={dedupPois} />
+            ) : previewBatches.length === 0 && previewPois.length === 0 ? (
               <div className="flex items-center justify-center h-32 text-gray-400 text-sm">
                 En attente des premiers résultats...
               </div>
             ) : (
-              <PoiPreviewList pois={previewPois} />
+              <PoiPreviewList batches={previewBatches} poisFallback={previewPois} />
             )}
           </div>
 

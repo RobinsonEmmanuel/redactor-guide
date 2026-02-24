@@ -676,26 +676,69 @@ INSTRUCTIONS STRICTES :
       }
     }
 
-    // 3. Articles du site WordPress
-    // GPT-5 mini dispose de 400 000 tokens de contexte d'entrée.
-    // Un article en markdown ≈ 1 000–2 000 tokens → on peut en passer ~150 confortablement
-    // (150 × 2 000 = 300 000 tokens, en laissant 100k pour le prompt + output).
-    // On préfère le markdown (2–3× plus compact que le HTML).
-    const sampleArticles = await this.db
+    // 3. Articles du site WordPress — approche hybride à budget de tokens
+    //
+    // GPT-5 mini : 400 000 tokens de contexte.
+    // On réserve ~120 000 tokens pour le prompt système + les instructions + l'output.
+    // Budget articles : 280 000 tokens.
+    //
+    // Stratégie :
+    //   - Couche 1 : articles complets (markdown), triés du plus court au plus long
+    //     → on en inclut autant que le budget le permet (~30-40 articles selon leur taille)
+    //   - Couche 2 : index "titre | URL" pour les articles exclus (~30 tokens/article)
+    //     → l'IA sait qu'ils existent même sans en connaître le contenu
+    //
+    // Estimation tokens : 1 token ≈ 4 caractères (français/anglais mélangé)
+    const TOKEN_BUDGET_ARTICLES = 280_000;
+    const CHARS_PER_TOKEN = 4;
+
+    const allArticles = await this.db
       .collection('articles_raw')
-      .find({}, { projection: { title: 1, categories: 1, tags: 1, markdown: 1, html_brut: 1 } })
-      .limit(150)
+      .find({}, { projection: { title: 1, url: 1, categories: 1, tags: 1, markdown: 1, html_brut: 1 } })
       .toArray();
 
-    if (sampleArticles.length > 0) {
-      parts.push(`\n=== CONTENUS WORDPRESS DU SITE (${sampleArticles.length} articles) ===`);
-      parts.push(`Ces articles constituent la base éditoriale et informative de la destination.`);
-      for (const art of sampleArticles) {
-        parts.push(`\n--- ${art.title ?? 'Article'} ---`);
+    // Trier du plus court au plus long pour maximiser le nombre d'articles complets inclus
+    allArticles.sort((a, b) => {
+      const lenA = (a.markdown || a.html_brut || '').length;
+      const lenB = (b.markdown || b.html_brut || '').length;
+      return lenA - lenB;
+    });
+
+    const fullArticles: typeof allArticles = [];
+    const indexOnlyArticles: typeof allArticles = [];
+    let tokensBudgetUsed = 0;
+
+    for (const art of allArticles) {
+      const content = art.markdown || art.html_brut || '';
+      const estimatedTokens = Math.ceil(content.length / CHARS_PER_TOKEN);
+      if (tokensBudgetUsed + estimatedTokens <= TOKEN_BUDGET_ARTICLES) {
+        fullArticles.push(art);
+        tokensBudgetUsed += estimatedTokens;
+      } else {
+        indexOnlyArticles.push(art);
+      }
+    }
+
+    console.log(`📚 Contexte articles : ${fullArticles.length} complets (≈${tokensBudgetUsed.toLocaleString()} tokens), ${indexOnlyArticles.length} en index seulement`);
+
+    if (fullArticles.length > 0) {
+      parts.push(`\n=== CONTENUS WORDPRESS DU SITE — ARTICLES COMPLETS (${fullArticles.length} / ${allArticles.length}) ===`);
+      parts.push(`Ces articles constituent la base éditoriale et informative principale de la destination.`);
+      for (const art of fullArticles) {
+        parts.push(`\n--- ${art.title ?? 'Article'}${art.url ? ` | ${art.url}` : ''} ---`);
         if (art.categories?.length) parts.push(`Catégories : ${art.categories.join(', ')}`);
-        // Markdown en priorité (compact) ; sinon html_brut sans troncature
-        const content = art.markdown || art.html_brut || '';
-        parts.push(content);
+        parts.push(art.markdown || art.html_brut || '');
+      }
+    }
+
+    if (indexOnlyArticles.length > 0) {
+      parts.push(`\n=== INDEX DES AUTRES ARTICLES DISPONIBLES (${indexOnlyArticles.length} articles — contenu non chargé) ===`);
+      parts.push(`Ces articles existent sur le site mais n'ont pas pu être inclus en intégralité. Tu peux t'y référer par leur titre.`);
+      for (const art of indexOnlyArticles) {
+        const line = art.url
+          ? `- ${art.title ?? 'Sans titre'} → ${art.url}`
+          : `- ${art.title ?? 'Sans titre'}`;
+        parts.push(line);
       }
     }
 

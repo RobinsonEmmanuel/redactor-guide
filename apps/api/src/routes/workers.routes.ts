@@ -443,7 +443,19 @@ Retourne STRICTEMENT un objet JSON valide, sans texte additionnel :
 
             const result = await openaiService.generateJSON(extractionPrompt, 24000);
 
-            const poisList = normalizePoisFromResult(result);
+            const rawList = normalizePoisFromResult(result);
+
+            // Normalise les noms de champs (l'IA peut retourner name/nom, slug/poi_id, etc.)
+            const poisList = rawList === null ? null : rawList.map((p: any) => ({
+              poi_id: p.poi_id || p.id || p.slug || (p.nom || p.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+              nom: p.nom || p.name || p.titre || p.label || '',
+              type: p.type || p.category || p.categorie || 'autre',
+              article_source: p.article_source || p.source || p.slug_source || '',
+              url_source: p.url_source || p.url || p.source_url || '',
+              mentions: p.mentions || p.mention || 'principale',
+              raison_selection: p.raison_selection || p.reason || p.description || p.raison || '',
+              autres_articles_mentions: p.autres_articles_mentions || p.other_articles || [],
+            })).filter((p: any) => p.nom); // exclure les POIs sans nom
 
             if (poisList === null) {
               // Format non reconnu → on logue et on retry

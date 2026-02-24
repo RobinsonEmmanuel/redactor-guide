@@ -26,7 +26,7 @@ export * from './schemas/template.schema';
 // Field service schemas
 export * from './schemas/field-service.schema';
 
-// Page schemas
+// Page schemas (inclut SaisonEnum, SAISON_LABELS, SAISON_MOIS)
 export * from './schemas/page.schema';
 
 // Chemin de fer schemas

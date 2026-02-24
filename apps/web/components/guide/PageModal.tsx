@@ -36,6 +36,13 @@ const PAGE_TYPES = [
   { value: 'conseil', label: 'Conseil' },
 ];
 
+const SAISONS = [
+  { value: 'printemps', label: '🌸 Printemps', mois: 'mai' },
+  { value: 'ete',       label: '☀️ Été',       mois: 'août' },
+  { value: 'automne',   label: '🍂 Automne',   mois: 'octobre' },
+  { value: 'hiver',     label: '❄️ Hiver',     mois: 'janvier' },
+];
+
 const POI_TYPES = [
   { value: 'musée', label: 'Musée' },
   { value: 'site_culturel', label: 'Site culturel' },
@@ -99,11 +106,12 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
     titre: page?.titre || '',
     template_id: page?.template_id || '',
     type_de_page: page?.type_de_page || '',
-    poi_type_extracted: extractedData.poiType, // ✅ Type POI extrait
+    saison: page?.saison || '',
+    poi_type_extracted: extractedData.poiType,
     statut_editorial: page?.statut_editorial || 'draft',
     url_source: page?.url_source || '',
-    commentaire_interne: extractedData.userComment, // ✅ Commentaire nettoyé (sans métadonnées POI)
-    other_mentions: extractedData.otherMentions, // ✅ Autres mentions extraites
+    commentaire_interne: extractedData.userComment,
+    other_mentions: extractedData.otherMentions,
   });
 
   useEffect(() => {
@@ -182,12 +190,12 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
       reconstructedComment = formData.commentaire_interne;
     }
 
-    // Nettoyer les champs vides (notamment url_source qui doit être une URL valide ou undefined)
     const cleanedData = {
       ...formData,
       url_source: formData.url_source || undefined,
       commentaire_interne: reconstructedComment || undefined,
       type_de_page: formData.type_de_page || undefined,
+      saison: formData.saison || undefined,
       // Retirer les champs UI uniquement
       poi_type_extracted: undefined,
       other_mentions: undefined,
@@ -307,6 +315,46 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
               );
             })()}
           </div>
+
+          {/* Saison — affiché uniquement pour les templates SAISON */}
+          {(() => {
+            const selectedTemplate = templates.find(t => t._id === formData.template_id);
+            const isSaisonTemplate = selectedTemplate?.name.toLowerCase().includes('saison');
+            if (!isSaisonTemplate) return null;
+
+            const selectedSaison = SAISONS.find(s => s.value === formData.saison);
+            return (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Saison *
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {SAISONS.map((s) => (
+                    <button
+                      key={s.value}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, saison: s.value })}
+                      className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition-colors text-left ${
+                        formData.saison === s.value
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                      }`}
+                    >
+                      <div>{s.label}</div>
+                      <div className="text-xs font-normal text-gray-500 mt-0.5">
+                        Article : "Partir à … en {s.mois}"
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                {selectedSaison && (
+                  <p className="mt-2 text-xs text-blue-600">
+                    L'IA recherchera automatiquement l'article "Partir à [destination] en {selectedSaison.mois}"
+                  </p>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Statut */}
           <div>

@@ -1,6 +1,36 @@
 import { z } from 'zod';
 
 /**
+ * Saisons disponibles pour les pages de type SAISON
+ */
+export const SaisonEnum = z.enum([
+  'printemps',
+  'ete',
+  'automne',
+  'hiver',
+]);
+
+export type Saison = z.infer<typeof SaisonEnum>;
+
+export const SAISON_LABELS: Record<Saison, string> = {
+  printemps: 'Printemps',
+  ete: 'Été',
+  automne: 'Automne',
+  hiver: 'Hiver',
+};
+
+/**
+ * Mois de référence par saison (utilisé pour la recherche d'article)
+ * Ordre : mois principal en premier, puis alternatives
+ */
+export const SAISON_MOIS: Record<Saison, string[]> = {
+  printemps: ['mai', 'avril', 'mars'],
+  ete:       ['août', 'aout', 'juillet', 'juin'],
+  automne:   ['octobre', 'septembre', 'novembre'],
+  hiver:     ['janvier', 'décembre', 'decembre', 'février'],
+};
+
+/**
  * Types de page dans un guide
  */
 export const PageTypeEnum = z.enum([
@@ -77,6 +107,12 @@ export const PageSchema = z.object({
     display_name: z.string().optional(),
   }).optional(),
   
+  /**
+   * Saison de la page (pour les templates de type SAISON uniquement).
+   * Détermine l'article WordPress automatiquement recherché à la génération.
+   */
+  saison: SaisonEnum.optional(),
+
   /** Statut éditorial */
   statut_editorial: PageStatusEnum.default('draft'),
   

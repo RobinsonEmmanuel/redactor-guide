@@ -1,4 +1,5 @@
 import { Db, ObjectId } from 'mongodb';
+import { SAISON_MOIS } from '@redactor-guide/core-model';
 import { OpenAIService } from './openai.service';
 import { FieldValidatorService, ValidationError } from './field-validator.service';
 import { ImageAnalysisService, SelectionCriteria } from './image-analysis.service';
@@ -54,6 +55,7 @@ export class PageRedactionService {
       // 3. Charger le contenu source selon la stratégie info_source du template
       let article: any;
       let articleContext: string;
+      let extraVars: Record<string, string> = {};
 
       const infoSource: string = template.info_source ?? 'article_source';
 
@@ -72,7 +74,6 @@ export class PageRedactionService {
 
       } else if (infoSource === 'cluster_auto_match') {
         // Mode cluster : recherche automatique de l'article "Que faire à <nom du cluster>"
-        // Le nom du cluster est tiré du titre de la page ou des métadonnées
         const clusterName = page.metadata?.cluster_name || page.titre || '';
         article = await this.findBestClusterArticle(clusterName);
 
@@ -81,11 +82,45 @@ export class PageRedactionService {
           articleContext = this.formatArticle(article);
           console.log(`🔍 Mode cluster_auto_match : article trouvé → "${article.title}"`);
         } else {
-          // Fallback : contexte général si aucun article correspondant n'est trouvé
           console.warn(`⚠️ Mode cluster_auto_match : aucun article trouvé pour "${clusterName}" — fallback contexte général`);
           article = null;
           articleContext = await this.buildGeneralContext(_guideId, page);
         }
+
+      } else if (infoSource === 'saison_auto_match') {
+        // Mode saison : recherche automatique de l'article "Partir à [destination] en [mois]"
+        // La saison est définie sur la page (field "saison") : printemps, ete, automne, hiver
+        const saison: string = page.saison || page.metadata?.saison || '';
+        const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(_guideId) });
+        const destination = guide?.destination ?? guide?.destinations?.[0] ?? '';
+
+        const moisRef = saison ? (SAISON_MOIS[saison as keyof typeof SAISON_MOIS]?.[0] ?? '') : '';
+
+        if (!saison) {
+          console.warn(`⚠️ Mode saison_auto_match : aucune saison définie sur la page "${page.titre}" — fallback contexte général`);
+          article = null;
+          articleContext = await this.buildGeneralContext(_guideId, page);
+        } else {
+          article = await this.findSeasonArticle(saison, destination);
+
+          if (article) {
+            await this.ensureImagesAnalyzed(article);
+            articleContext = this.formatArticle(article);
+            console.log(`🌸 Mode saison_auto_match [${saison}/${moisRef}] : article trouvé → "${article.title}"`);
+          } else {
+            console.warn(`⚠️ Mode saison_auto_match : aucun article pour saison="${saison}" destination="${destination}" — fallback contexte général`);
+            article = null;
+            articleContext = await this.buildGeneralContext(_guideId, page);
+          }
+        }
+
+        // Variables supplémentaires pour la substitution dans ai_instructions
+        extraVars = {
+          SAISON: saison,
+          SAISON_LABEL: { printemps: 'Printemps', ete: 'Été', automne: 'Automne', hiver: 'Hiver' }[saison] ?? saison,
+          MOIS_REFERENCE: moisRef,
+          DESTINATION: destination,
+        };
 
       } else if (infoSource === 'tous_articles_site') {
         // Mode tous articles : l'IA se base sur l'ensemble des articles WordPress collectés
@@ -158,7 +193,8 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
         articleContext,
         promptRedaction,
         promptRegles,
-        article   // passé pour la substitution de variables dans les ai_instructions
+        article,    // passé pour la substitution de variables dans les ai_instructions
+        extraVars   // variables supplémentaires selon le mode (ex: SAISON, MOIS_REFERENCE)
       );
 
       // 8. Fusionner valeurs par défaut + contenu généré par l'IA
@@ -255,7 +291,8 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
     articleContext: string,
     promptRedaction: string,
     promptRegles: string,
-    articleSource?: any   // article résolu (pour substitution de variables dans ai_instructions)
+    articleSource?: any,                  // article résolu (pour substitution {{URL_ARTICLE_SOURCE}}, etc.)
+    extraVars: Record<string, string> = {} // variables supplémentaires (SAISON, MOIS_REFERENCE, etc.)
   ): Promise<RedactionResult> {
     let generatedContent: Record<string, any> = {};
     let retryCount = 0;
@@ -268,7 +305,8 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
       const templateInstructions = this.buildTemplateInstructions(
         template,
         previousErrors,
-        articleSource
+        articleSource,
+        extraVars
       );
 
       // Construire le prompt (avec erreurs de la tentative précédente si retry)
@@ -438,6 +476,71 @@ INSTRUCTIONS STRICTES :
   }
 
   /**
+   * Recherche automatique de l'article saisonnier le plus pertinent.
+   *
+   * Stratégie (ordre de priorité) :
+   *  1. Titre contient la destination + "partir" + mois principal  (ex: "Partir à Tenerife en mai")
+   *  2. Titre contient la destination + mois principal             (ex: "Tenerife en mai")
+   *  3. Titre contient la destination + mois alternatif (itère sur tous les mois de la saison)
+   *
+   * @param saison       - 'printemps' | 'ete' | 'automne' | 'hiver'
+   * @param destination  - Nom de la destination (ex: "Tenerife", "Gran Canaria")
+   */
+  private async findSeasonArticle(saison: string, destination: string): Promise<any | null> {
+    if (!saison || !destination) return null;
+
+    const months: string[] = SAISON_MOIS[saison as keyof typeof SAISON_MOIS] ?? [];
+    if (months.length === 0) return null;
+
+    const escapeRegex = (s: string) => s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+
+    // Mots significatifs de la destination (> 2 lettres) pour le matching partiel
+    const destWords = destination
+      .split(/\s+/)
+      .filter((w) => w.length > 2)
+      .map(escapeRegex);
+
+    if (destWords.length === 0) return null;
+
+    for (const month of months) {
+      const monthPattern = escapeRegex(month);
+
+      // Construire la condition de destination (au moins un mot significatif)
+      const destCondition = destWords.length === 1
+        ? { title: { $regex: destWords[0], $options: 'i' } }
+        : { $or: destWords.map((w) => ({ title: { $regex: w, $options: 'i' } })) };
+
+      // 1. "Partir à [destination] en [mois]"
+      const exactMatch = await this.db.collection('articles_raw').findOne({
+        $and: [
+          destCondition,
+          { title: { $regex: monthPattern, $options: 'i' } },
+          { title: { $regex: 'partir', $options: 'i' } },
+        ],
+      });
+      if (exactMatch) {
+        console.log(`   ✅ Match "partir+destination+mois" : "${exactMatch.title}"`);
+        return exactMatch;
+      }
+
+      // 2. [destination] + [mois] (sans "partir")
+      const looseMatch = await this.db.collection('articles_raw').findOne({
+        $and: [
+          destCondition,
+          { title: { $regex: monthPattern, $options: 'i' } },
+        ],
+      });
+      if (looseMatch) {
+        console.log(`   ✅ Match "destination+mois" : "${looseMatch.title}"`);
+        return looseMatch;
+      }
+    }
+
+    console.warn(`   ❌ Aucun article saisonnier pour saison="${saison}", destination="${destination}"`);
+    return null;
+  }
+
+  /**
    * Charger un article WordPress depuis la base
    */
   private async loadArticleSource(urlSource?: string): Promise<any> {
@@ -550,7 +653,8 @@ INSTRUCTIONS STRICTES :
   private buildTemplateInstructions(
     template: any,
     failedFields?: ValidationError[],
-    articleSource?: any
+    articleSource?: any,
+    extraVars: Record<string, string> = {}
   ): string {
     const failedFieldNames = failedFields
       ? this.validatorService.getFailedFields(failedFields)
@@ -563,6 +667,8 @@ INSTRUCTIONS STRICTES :
                             || articleSource?.urls_by_lang?.en
                             || '',
       TITRE_ARTICLE_SOURCE: articleSource?.title || '',
+      // Variables supplémentaires injectées selon le mode (saison, etc.)
+      ...extraVars,
     };
 
     const instructions = template.fields.map((field: any) => {

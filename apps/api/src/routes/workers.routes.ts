@@ -321,6 +321,43 @@ Retourne STRICTEMENT un objet JSON valide, sans texte additionnel :
 
       // ─── 5b. Articles multi-POI : extraction par batch via IA ───────────────
 
+      /**
+       * Normalise la réponse IA quel que soit le format retourné :
+       * { pois: [...] }, { articles: [{ slug, pois: [...] }] }, { "slug": [...] }, [...]
+       */
+      function normalizePoisFromResult(result: any): any[] | null {
+        if (!result || typeof result !== 'object') return null;
+        if (Array.isArray(result.pois)) return result.pois;
+        if (Array.isArray(result)) return result;
+        if (Array.isArray(result.articles)) {
+          const flat: any[] = [];
+          for (const art of result.articles) {
+            const subPois = art.pois || art.lieux || art.points_of_interest;
+            if (Array.isArray(subPois)) {
+              subPois.forEach((p: any) => flat.push({
+                ...p,
+                article_source: p.article_source || art.title || art.slug || '',
+                url_source: p.url_source || art.url || art.slug || '',
+              }));
+            }
+          }
+          return flat.length > 0 ? flat : [];
+        }
+        const values = Object.values(result);
+        if (values.length > 0 && values.every(v => Array.isArray(v))) {
+          const flat: any[] = [];
+          for (const [slug, pois] of Object.entries(result)) {
+            (pois as any[]).forEach((p: any) => flat.push({
+              ...p,
+              article_source: p.article_source || slug,
+              url_source: p.url_source || slug,
+            }));
+          }
+          return flat.length > 0 ? flat : [];
+        }
+        return null;
+      }
+
       const BATCH_SIZE = 5;
       const total = multiArticles.length;
       const totalBatches = Math.ceil(total / BATCH_SIZE);
@@ -393,56 +430,6 @@ Retourne STRICTEMENT un objet JSON valide, sans texte additionnel :
           LISTE_ARTICLES_POI: validArticles.map((a: any) => `- ${a.title} (${a.url || a.slug})`).join('\n'),
         });
 
-        /**
-         * Normalise la réponse IA quel que soit le format retourné :
-         * { pois: [...] }, { articles: [{ slug, pois: [...] }] }, { "slug": [...] }, [...]
-         */
-        function normalizePoisFromResult(result: any): any[] | null {
-          if (!result || typeof result !== 'object') return null;
-
-          // Format attendu : { pois: [...] }
-          if (Array.isArray(result.pois)) return result.pois;
-
-          // Format tableau direct
-          if (Array.isArray(result)) return result;
-
-          // Format { articles: [{ slug, title?, pois: [...] }] }
-          if (Array.isArray(result.articles)) {
-            const flat: any[] = [];
-            for (const art of result.articles) {
-              const subPois = art.pois || art.lieux || art.points_of_interest;
-              if (Array.isArray(subPois)) {
-                subPois.forEach((p: any) => {
-                  flat.push({
-                    ...p,
-                    article_source: p.article_source || art.title || art.slug || '',
-                    url_source: p.url_source || art.url || art.slug || '',
-                  });
-                });
-              }
-            }
-            return flat.length > 0 ? flat : null;
-          }
-
-          // Format objet keyed par slug : { "slug-article": [ {...}, ...] }
-          const values = Object.values(result);
-          if (values.every(v => Array.isArray(v))) {
-            const flat: any[] = [];
-            for (const [slug, pois] of Object.entries(result)) {
-              (pois as any[]).forEach((p: any) => {
-                flat.push({
-                  ...p,
-                  article_source: p.article_source || slug,
-                  url_source: p.url_source || slug,
-                });
-              });
-            }
-            return flat.length > 0 ? flat : null;
-          }
-
-          return null;
-        }
-
         const MAX_RETRIES = 3;
         let batchSuccess = false;
 
@@ -457,7 +444,28 @@ Retourne STRICTEMENT un objet JSON valide, sans texte additionnel :
             const result = await openaiService.generateJSON(extractionPrompt, 24000);
 
             const poisList = normalizePoisFromResult(result);
-            if (poisList && poisList.length > 0) {
+
+            if (poisList === null) {
+              // Format non reconnu → on logue et on retry
+              console.warn(`  ⚠️ Batch ${batchNum} — format JSON non reconnu, clés: ${Object.keys(result || {}).join(', ')} — retry`);
+              throw new Error(`Format JSON non reconnu: ${JSON.stringify(result).substring(0, 200)}`);
+            }
+
+            // poisList peut être vide (aucun POI dans ce batch) → on marque succès directement
+            if (poisList.length === 0) {
+              console.log(`  ✅ Batch ${batchNum}: aucun POI dans ce batch (0 résultat)`);
+              previewBatches.push({
+                batch_num: batchNum,
+                total_batches: totalBatches,
+                label: `Batch ${batchNum}/${totalBatches} — multi-POI`,
+                articles: validArticles.map((a: any) => ({ title: a.title, url: a.url || a.slug })),
+                pois: [],
+              });
+              batchSuccess = true;
+              break;
+            }
+
+            if (poisList.length > 0) {
               const enriched = poisList.map((poi: any) => {
                 // Corriger article_source si l'IA a renvoyé le titre du batch ou une valeur invalide
                 const isBatchTitle = !poi.article_source ||

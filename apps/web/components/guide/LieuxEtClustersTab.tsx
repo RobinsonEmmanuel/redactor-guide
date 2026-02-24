@@ -338,80 +338,94 @@ function ClassificationTable({ log }: { log: any[] }) {
   );
 }
 
+function BatchCard({ batch }: { batch: any }) {
+  const [articlesOpen, setArticlesOpen] = useState(false);
+  const isMono = !!batch.is_mono_batch;
+  const headerBg = isMono ? 'bg-amber-500' : 'bg-blue-600';
+  const sectionBg = isMono ? 'bg-amber-50' : 'bg-blue-50';
+  const textColor = isMono ? 'text-amber-700' : 'text-blue-700';
+  const dotColor = isMono ? 'text-amber-400' : 'text-blue-400';
+  const linkColor = isMono ? 'text-amber-700 hover:text-amber-900' : 'text-blue-700 hover:text-blue-900';
+  const borderColor = isMono ? 'border-amber-200' : 'border-blue-200';
+  const typeLabel = isMono ? '🎯 Mono-POI' : '📋 Multi-POI';
+
+  return (
+    <div className={`border rounded-lg overflow-hidden ${borderColor}`}>
+      {/* Header */}
+      <div className={`px-4 py-2.5 flex items-center justify-between ${headerBg}`}>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-bold text-white truncate">
+            {batch.label || `Batch ${batch.batch_num}/${batch.total_batches}`}
+          </span>
+          <span className="text-xs text-white/70 font-normal flex-shrink-0">{typeLabel}</span>
+        </div>
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <span className="text-xs text-white/80 font-semibold">
+            {batch.pois?.length || 0} POI{(batch.pois?.length || 0) > 1 ? 's' : ''}
+          </span>
+          {/* Toggle articles */}
+          <button
+            onClick={() => setArticlesOpen(o => !o)}
+            className="text-xs text-white/70 hover:text-white flex items-center gap-1 border border-white/30 rounded px-2 py-0.5 hover:border-white/60 transition-colors"
+          >
+            {articlesOpen ? '▲' : '▼'} {batch.articles?.length || 0} articles
+          </button>
+        </div>
+      </div>
+
+      {/* Articles (repliable) */}
+      {articlesOpen && (
+        <div className={`px-4 py-2 border-b border-gray-100 ${sectionBg}`}>
+          <ul className="space-y-1.5">
+            {batch.articles?.map((article: any, idx: number) => (
+              <li key={idx} className="text-xs">
+                <div className="flex items-start gap-1.5">
+                  <span className={`flex-shrink-0 mt-0.5 ${dotColor}`}>{idx + 1}.</span>
+                  <a
+                    href={article.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`hover:underline font-medium ${linkColor}`}
+                    title={article.url}
+                  >
+                    {article.title}
+                  </a>
+                </div>
+                {!isMono && article.headings?.length > 0 && (
+                  <div className={`ml-4 mt-0.5 text-xs ${textColor} opacity-70`}>
+                    {article.headings.slice(0, 4).map((h: string, hi: number) => (
+                      <span key={hi} className="mr-2">• {h}</span>
+                    ))}
+                    {article.headings.length > 4 && <span className="opacity-60">+{article.headings.length - 4} H2/H3</span>}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* POIs — toujours visibles */}
+      {batch.pois?.length > 0 ? (
+        <div className="divide-y divide-gray-100">
+          {batch.pois.map((poi: any, idx: number) => (
+            <PoiRow key={`${poi.poi_id}-${idx}`} poi={poi} />
+          ))}
+        </div>
+      ) : (
+        <div className="px-4 py-3 text-xs text-gray-400 italic">Aucun POI extrait pour ce batch</div>
+      )}
+    </div>
+  );
+}
+
 function PoiPreviewList({ batches, poisFallback }: { batches: any[]; poisFallback: any[] }) {
   if (batches.length > 0) {
     return (
       <div className="space-y-5">
-        {batches.map((batch: any) => {
-          const isMono = !!batch.is_mono_batch;
-          const headerBg = isMono ? 'bg-amber-500' : 'bg-blue-600';
-          const sectionBg = isMono ? 'bg-amber-50 border-amber-100' : 'bg-blue-50 border-blue-100';
-          const textColor = isMono ? 'text-amber-700' : 'text-blue-700';
-          const dotColor = isMono ? 'text-amber-400' : 'text-blue-400';
-          const linkColor = isMono ? 'text-amber-700 hover:text-amber-900' : 'text-blue-700 hover:text-blue-900';
-          const typeLabel = isMono ? '🎯 Mono-POI — extraction directe' : '📋 Multi-POI — extraction IA (H2/H3)';
-
-          return (
-            <div key={`${batch.batch_num}-${batch.label}`} className={`border rounded-lg overflow-hidden ${isMono ? 'border-amber-200' : 'border-blue-200'}`}>
-              {/* Header du batch */}
-              <div className={`px-4 py-2.5 flex items-center justify-between ${headerBg}`}>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-white">
-                    {batch.label || `Batch ${batch.batch_num}/${batch.total_batches}`}
-                  </span>
-                  <span className="text-xs text-white/70 font-normal">{typeLabel}</span>
-                </div>
-                <span className="text-xs text-white/80 font-semibold">
-                  {batch.pois?.length || 0} POI{(batch.pois?.length || 0) > 1 ? 's' : ''}
-                </span>
-              </div>
-
-              {/* Articles du batch avec URLs */}
-              <div className={`px-4 py-2 border-b ${sectionBg}`}>
-                <p className={`text-xs font-semibold mb-1.5 ${textColor}`}>
-                  Articles ({batch.articles?.length || 0}) :
-                </p>
-                <ul className="space-y-1.5">
-                  {batch.articles?.map((article: any, idx: number) => (
-                    <li key={idx} className="text-xs">
-                      <div className="flex items-start gap-1.5">
-                        <span className={`flex-shrink-0 mt-0.5 ${dotColor}`}>{idx + 1}.</span>
-                        <a
-                          href={article.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`hover:underline truncate font-medium ${linkColor}`}
-                          title={article.url}
-                        >
-                          {article.title}
-                        </a>
-                      </div>
-                      {!isMono && article.headings?.length > 0 && (
-                        <div className="ml-4 mt-0.5 text-gray-400 text-xs">
-                          {article.headings.slice(0, 5).map((h: string, hi: number) => (
-                            <span key={hi} className="mr-2">• {h}</span>
-                          ))}
-                          {article.headings.length > 5 && <span className="text-gray-300">+{article.headings.length - 5} H2/H3</span>}
-                        </div>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              {/* POIs trouvés */}
-              {batch.pois?.length > 0 ? (
-                <div className="divide-y divide-gray-100">
-                  {batch.pois.map((poi: any, idx: number) => (
-                    <PoiRow key={`${poi.poi_id}-${idx}`} poi={poi} />
-                  ))}
-                </div>
-              ) : (
-                <div className="px-4 py-3 text-xs text-gray-400 italic">Aucun POI extrait pour ce batch</div>
-              )}
-            </div>
-          );
-        })}
+        {batches.map((batch: any) => (
+          <BatchCard key={`${batch.batch_num}-${batch.label}`} batch={batch} />
+        ))}
       </div>
     );
   }

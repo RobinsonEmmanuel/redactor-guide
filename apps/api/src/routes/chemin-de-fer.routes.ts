@@ -1063,9 +1063,9 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       const { content, poi_name } = request.body;
 
       try {
-        const perplexityApiKey = process.env.PERPLEXITY_API_KEY;
-        if (!perplexityApiKey) {
-          return reply.code(503).send({ error: 'PERPLEXITY_API_KEY non configurée' });
+        const geminiApiKey = process.env.GEMINI_API_KEY;
+        if (!geminiApiKey) {
+          return reply.code(503).send({ error: 'GEMINI_API_KEY non configurée' });
         }
 
         // Récupérer le guide (pour la destination) et la page (pour le template)
@@ -1112,15 +1112,15 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           return reply.code(400).send({ error: 'Aucun champ textuel à valider dans ce contenu' });
         }
 
-        const { PerplexityService } = await import('../services/perplexity.service');
-        const perplexity = new PerplexityService(perplexityApiKey);
+        const { GeminiService } = await import('../services/gemini.service');
+        const gemini = new GeminiService(geminiApiKey);
 
         const name = poi_name || page.titre || 'POI';
-        console.log(`🔍 [VALIDATE] Validation Perplexity de "${name}" (${fieldsToValidate.length} champs)`);
+        console.log(`🔍 [VALIDATE] Validation Gemini Search Grounding de "${name}" (${fieldsToValidate.length} champs)`);
 
-        // ── 1. Validation factuelle via Perplexity (en parallèle avec la récup article) ──
+        // ── 1. Validation factuelle via Gemini + Search Grounding (en parallèle avec la récup article) ──
         const [report, articleDoc] = await Promise.all([
-          perplexity.validatePageContent(name, destination, fieldsToValidate),
+          gemini.validatePageContent(name, destination, fieldsToValidate),
           page.url_source
             ? db.collection('articles_raw').findOne({ 'urls_by_lang.fr': page.url_source })
             : Promise.resolve(null),
@@ -1192,7 +1192,7 @@ Retourne UNIQUEMENT ce JSON :
           { $set: { last_validation: report, updated_at: new Date().toISOString() } }
         );
 
-        console.log(`✅ [VALIDATE] Rapport généré: ${report.results.length} champs, statut: ${report.overall_status}`);
+        console.log(`✅ [VALIDATE] Rapport généré: ${report.results.length} champs, statut: ${report.overall_status}, ${report.grounding_sources?.length || 0} sources grounding`);
         return reply.send(report);
 
       } catch (error: any) {

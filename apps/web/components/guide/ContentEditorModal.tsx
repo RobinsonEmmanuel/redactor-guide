@@ -909,6 +909,25 @@ export default function ContentEditorModal({
                 </div>
               );
             })()}
+
+            {/* Sources grounding Gemini */}
+            {validationReport?.grounding_sources?.length > 0 && (
+              <div className="mt-1 rounded-lg bg-white/10 border border-white/20 px-3 py-2.5 text-xs">
+                <p className="text-white/60 font-semibold text-xs uppercase tracking-wide mb-1.5">Sources Google</p>
+                <ul className="space-y-1">
+                  {validationReport.grounding_sources.slice(0, 5).map((s: any, i: number) => (
+                    <li key={i}>
+                      <a href={s.uri} target="_blank" rel="noopener noreferrer"
+                        className="text-blue-300 hover:text-blue-100 hover:underline truncate flex items-center gap-1 text-xs"
+                        title={s.uri}>
+                        <span className="flex-shrink-0 text-white/40">[{i + 1}]</span>
+                        <span className="truncate">{s.title || s.uri}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
 
           {requiresUrlForGeneration && !page.url_source && (

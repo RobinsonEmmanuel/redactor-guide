@@ -8,6 +8,7 @@ import ImageSelectorModal from './ImageSelectorModal';
 interface Template {
   _id: string;
   name: string;
+  info_source?: string;
   fields: TemplateField[];
 }
 
@@ -776,7 +777,16 @@ export default function ContentEditorModal({
         <ImageSelectorModal
           guideId={guideId}
           pageId={page._id}
-          scope={page.url_source ? 'page' : 'guide'}
+          scope={
+            // "Ne s'applique pas" → toutes les images analysées de la destination
+            template?.info_source === 'non_applicable' ||
+            template?.info_source === 'tous_articles_site' ||
+            template?.info_source === 'tous_articles_et_llm'
+              ? 'guide'
+              : page.url_source
+              ? 'page'
+              : 'guide'
+          }
           currentImageUrl={formData[currentImageField]}
           apiUrl={apiUrl}
           onSelect={handleImageSelected}

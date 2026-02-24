@@ -124,14 +124,12 @@ export async function workersRoutes(fastify: FastifyInstance) {
 
       // Importer les services nécessaires
       const { OpenAIService } = await import('../services/openai.service');
-      const { GeocodingService } = await import('../services/geocoding.service');
       
       const openaiService = new OpenAIService({
         apiKey: openaiApiKey,
         model: 'gpt-5-mini',
         reasoningEffort: 'low', // low suffit pour l'extraction structurée de POIs
       });
-      const geocodingService = new GeocodingService();
 
       // 1. Charger le guide
       const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
@@ -200,29 +198,18 @@ export async function workersRoutes(fastify: FastifyInstance) {
 
       console.log(`✅ ${result.pois.length} POI(s) généré(s)`);
 
-      // 6. Enrichir avec géolocalisation
-      const pays = geocodingService.getCountryFromDestination(destination);
-      const poisWithCoords: any[] = [];
+      // 6. Normaliser les POIs (sans géolocalisation)
+      const pois: any[] = result.pois.map((poi: any) => ({
+        poi_id: poi.poi_id,
+        nom: poi.nom,
+        type: poi.type,
+        source: 'article',
+        article_source: poi.article_source,
+        raison_selection: poi.raison_selection,
+        autres_articles_mentions: poi.autres_articles_mentions || [],
+      }));
 
-      for (const poi of result.pois) {
-        const coordsResult = await geocodingService.geocodePlace(poi.nom, pays);
-        
-        poisWithCoords.push({
-          poi_id: poi.poi_id,
-          nom: poi.nom,
-          type: poi.type,
-          source: 'article',
-          article_source: poi.article_source,
-          raison_selection: poi.raison_selection,
-          autres_articles_mentions: poi.autres_articles_mentions || [],
-          coordinates: coordsResult || undefined,
-        });
-
-        // Rate limiting Nominatim (1 req/sec)
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-
-      console.log(`📍 ${poisWithCoords.filter(p => p.coordinates).length}/${poisWithCoords.length} POI(s) géolocalisé(s)`);
+      console.log(`✅ ${pois.length} POI(s) normalisé(s)`);
 
       // 7. Sauvegarder la sélection
       const now = new Date();
@@ -231,7 +218,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
         {
           $set: {
             guide_id: guideId,
-            pois: poisWithCoords,
+            pois,
             updated_at: now,
           },
           $setOnInsert: {
@@ -247,17 +234,17 @@ export async function workersRoutes(fastify: FastifyInstance) {
         { 
           $set: { 
             status: 'completed', 
-            count: poisWithCoords.length,
+            count: pois.length,
             updated_at: new Date() 
           } 
         }
       );
 
-      console.log(`✅ [WORKER] POIs sauvegardés pour guide ${guideId}`);
+      console.log(`✅ [WORKER] ${pois.length} POIs sauvegardés pour guide ${guideId}`);
 
       return reply.send({ 
         success: true, 
-        count: poisWithCoords.length 
+        count: pois.length 
       });
 
     } catch (error: any) {

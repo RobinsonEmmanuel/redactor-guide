@@ -11,6 +11,7 @@ export const TemplateFieldTypeEnum = z.enum([
   'meta',
   'liste',
   'picto',
+  'repetitif',
 ]);
 
 export type TemplateFieldType = z.infer<typeof TemplateFieldTypeEnum>;
@@ -62,8 +63,8 @@ export const TemplateFieldSchema = z.object({
   
   /** Nom du champ (ex: POI_titre_1) - sera généré automatiquement selon la convention */
   name: z.string().regex(
-    /^[A-Z][A-Z0-9_]*_(titre|texte|image|lien|meta|liste|picto)_[a-z0-9_]+$/,
-    'Format: <TEMPLATE>_<TYPE>_<INDEX> (ex: POI_titre_1, POI_meta_duree, POI_picto_interet)'
+    /^[A-Z][A-Z0-9_]*_(titre|texte|image|lien|meta|liste|picto|repetitif)_[a-z0-9_]+$/,
+    'Format: <TEMPLATE>_<TYPE>_<INDEX> (ex: POI_titre_1, POI_meta_duree, POI_picto_interet, INSPIRATION_repetitif_poi_cards)'
   ),
   
   /** Label pour l'affichage (optionnel) */
@@ -117,6 +118,24 @@ export const TemplateFieldSchema = z.object({
 
   /** Si type=picto, liste des valeurs autorisées (ex: ['oui', 'non'] ou ['incontournable', 'interessant', 'a_voir']) */
   options: z.array(z.string()).optional(),
+
+  /**
+   * Si type=repetitif : gabarit des sous-champs à répéter.
+   * Chaque entrée décrit un champ de l'objet JSON répété.
+   * Ex: [ { name:"image", type:"image", label:"Photo" }, { name:"titre", type:"titre" }, { name:"hashtag", type:"meta" } ]
+   */
+  sub_fields: z.array(z.object({
+    name:            z.string().min(1),
+    type:            z.enum(['titre', 'texte', 'image', 'lien', 'meta']),
+    label:           z.string().optional(),
+    ai_instructions: z.string().optional(),
+  })).optional(),
+
+  /**
+   * Si type=repetitif : nombre maximum de répétitions autorisées.
+   * L'IA génère entre 1 et max_repetitions entrées selon le contenu disponible.
+   */
+  max_repetitions: z.number().int().min(1).optional(),
 
   /**
    * Nom du calque InDesign cible pour ce champ.
@@ -247,24 +266,26 @@ export type UpdateTemplate = z.infer<typeof UpdateTemplateSchema>;
  * Labels pour les types de champs (affichage frontend)
  */
 export const FIELD_TYPE_LABELS: Record<TemplateFieldType, string> = {
-  titre: 'Titre',
-  texte: 'Texte',
-  image: 'Image',
-  lien: 'Lien',
-  meta: 'Métadonnée',
-  liste: 'Liste',
-  picto: 'Pictogramme',
+  titre:     'Titre',
+  texte:     'Texte',
+  image:     'Image',
+  lien:      'Lien',
+  meta:      'Métadonnée',
+  liste:     'Liste',
+  picto:     'Pictogramme',
+  repetitif: 'Répétitif',
 };
 
 /**
  * Descriptions des types de champs
  */
 export const FIELD_TYPE_DESCRIPTIONS: Record<TemplateFieldType, string> = {
-  titre: 'Texte court servant de titre ou sous-titre',
-  texte: 'Texte informatif court, calibré, non narratif long',
-  image: 'Référence à une image locale copiée depuis WordPress',
-  lien: 'URL pointant vers un contenu externe',
-  meta: 'Métadonnée éditoriale normée, non narrative',
-  liste: 'Élément de liste courte, avec nombre fixe de champs',
-  picto: 'Valeur parmi une liste d\'options prédéfinies (ex: oui/non, incontournable/intéressant/à voir)',
+  titre:     'Texte court servant de titre ou sous-titre',
+  texte:     'Texte informatif court, calibré, non narratif long',
+  image:     'Référence à une image locale copiée depuis WordPress',
+  lien:      'URL pointant vers un contenu externe',
+  meta:      'Métadonnée éditoriale normée, non narrative',
+  liste:     'Élément de liste courte, avec nombre fixe de champs',
+  picto:     'Valeur parmi une liste d\'options prédéfinies (ex: oui/non, incontournable/intéressant/à voir)',
+  repetitif: 'Gabarit de sous-champs répété N fois (photo + titre + hashtag × 6, etc.)',
 };

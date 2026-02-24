@@ -11,14 +11,23 @@ interface Template {
   fields: TemplateField[];
 }
 
+interface SubField {
+  name: string;
+  type: 'titre' | 'texte' | 'image' | 'lien' | 'meta';
+  label?: string;
+  ai_instructions?: string;
+}
+
 interface TemplateField {
   name: string;
-  type: 'titre' | 'texte' | 'image' | 'lien' | 'meta' | 'liste' | 'picto';
+  type: 'titre' | 'texte' | 'image' | 'lien' | 'meta' | 'liste' | 'picto' | 'repetitif';
   label: string;
   description?: string;
   ai_instructions?: string;
   max_chars?: number;
   options?: string[];
+  sub_fields?: SubField[];
+  max_repetitions?: number;
 }
 
 // Labels et icônes pour les valeurs de picto
@@ -524,6 +533,115 @@ export default function ContentEditorModal({
             )}
           </div>
         );
+
+      case 'repetitif': {
+        // La valeur est un tableau d'objets (ou une string JSON brute de l'IA)
+        let items: Record<string, string>[] = [];
+        try {
+          const raw = formData[field.name];
+          items = typeof raw === 'string' ? JSON.parse(raw) : (Array.isArray(raw) ? raw : []);
+        } catch { items = []; }
+
+        const subFields = field.sub_fields ?? [];
+        const maxRep = field.max_repetitions ?? 20;
+
+        const updateItems = (next: Record<string, string>[]) => {
+          handleFieldChange(field.name, next);
+        };
+
+        return (
+          <div key={field.name} className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-gray-700">
+                {field.label || field.name}
+                <span className="ml-2 text-xs font-normal text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-full">
+                  répétitif · {items.length}/{maxRep}
+                </span>
+              </label>
+              {items.length < maxRep && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const blank = subFields.reduce((acc: Record<string, string>, sf) => { acc[sf.name] = ''; return acc; }, {});
+                    updateItems([...items, blank]);
+                  }}
+                  className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-rose-600 border border-rose-300 rounded-md hover:bg-rose-50"
+                >
+                  + Ajouter
+                </button>
+              )}
+            </div>
+            {field.description && (
+              <p className="text-xs text-gray-500 mb-3">{field.description}</p>
+            )}
+
+            {items.length === 0 ? (
+              <div className="text-center py-6 border-2 border-dashed border-rose-200 rounded-lg text-xs text-gray-400">
+                Aucune entrée — génère le contenu par IA ou clique sur "+ Ajouter"
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {items.map((item, idx) => (
+                  <div key={idx} className="border border-rose-100 rounded-lg overflow-hidden">
+                    {/* Header de l'entrée */}
+                    <div className="flex items-center justify-between px-3 py-1.5 bg-rose-50 border-b border-rose-100">
+                      <span className="text-xs font-medium text-rose-700">Entrée {idx + 1}</span>
+                      <button
+                        type="button"
+                        onClick={() => updateItems(items.filter((_, i) => i !== idx))}
+                        className="text-xs text-red-400 hover:text-red-600"
+                      >
+                        ✕ Supprimer
+                      </button>
+                    </div>
+                    {/* Sous-champs */}
+                    <div className="p-3 grid grid-cols-1 gap-2">
+                      {subFields.map((sf) => (
+                        <div key={sf.name} className="flex items-start gap-2">
+                          <label className="text-xs text-gray-500 w-24 shrink-0 pt-2">
+                            {sf.label || sf.name}
+                            <span className="block font-mono text-gray-400 text-[10px]">{sf.type}</span>
+                          </label>
+                          {sf.type === 'image' ? (
+                            <div className="flex-1 flex gap-2 items-center">
+                              <input
+                                type="text"
+                                value={item[sf.name] || ''}
+                                onChange={(e) => {
+                                  const next = [...items];
+                                  next[idx] = { ...item, [sf.name]: e.target.value };
+                                  updateItems(next);
+                                }}
+                                placeholder="https://…"
+                                className="flex-1 px-2 py-1.5 text-xs border border-gray-200 rounded-md"
+                              />
+                              {item[sf.name] && (
+                                <img src={item[sf.name]} alt="" className="h-8 w-8 object-cover rounded border" onError={(e) => (e.currentTarget.style.display = 'none')} />
+                              )}
+                            </div>
+                          ) : (
+                            <input
+                              type="text"
+                              value={item[sf.name] || ''}
+                              onChange={(e) => {
+                                const next = [...items];
+                                next[idx] = { ...item, [sf.name]: e.target.value };
+                                updateItems(next);
+                              }}
+                              placeholder={sf.type === 'lien' ? 'https://…' : `${sf.label || sf.name}…`}
+                              className="flex-1 px-2 py-1.5 text-xs border border-gray-200 rounded-md"
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      }
 
       default:
         return null;

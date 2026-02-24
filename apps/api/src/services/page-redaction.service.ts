@@ -758,6 +758,39 @@ INSTRUCTIONS STRICTES :
         parts.push(`Label: ${field.label}`);
       }
 
+      // ── Champ répétitif ──────────────────────────────────────────────────────
+      if (field.type === 'repetitif') {
+        const maxRep = field.max_repetitions ?? 'N';
+        parts.push(`⚠️ FORMAT OBLIGATOIRE: JSON array — tableau d'objets répétés`);
+        parts.push(`Nombre d'entrées: entre 1 et ${maxRep} (selon les contenus disponibles)`);
+
+        if (field.ai_instructions) {
+          parts.push(`Instructions générales: ${this.openaiService.replaceVariables(field.ai_instructions, fieldVars)}`);
+        }
+
+        if (field.sub_fields && field.sub_fields.length > 0) {
+          parts.push(`Sous-champs de chaque objet du tableau:`);
+          for (const sf of field.sub_fields) {
+            const sfInstr = sf.ai_instructions
+              ? ` — ${this.openaiService.replaceVariables(sf.ai_instructions, fieldVars)}`
+              : '';
+            parts.push(`  • "${sf.name}" (${sf.type}${sf.label ? ` — ${sf.label}` : ''})${sfInstr}`);
+          }
+
+          // Exemple de format attendu
+          const exampleObj = field.sub_fields.reduce((acc: Record<string, string>, sf: any) => {
+            acc[sf.name] = sf.type === 'image' ? 'https://...' : sf.type === 'lien' ? 'https://...' : '...';
+            return acc;
+          }, {});
+          parts.push(`Format JSON attendu:`);
+          parts.push(`[\n  ${JSON.stringify(exampleObj)},\n  … (max ${maxRep} entrées)\n]`);
+          parts.push(`⚠️ Répondre UNIQUEMENT avec le tableau JSON pour ce champ, sans texte autour.`);
+        }
+
+        return parts.join('\n');
+      }
+
+      // ── Champs classiques ────────────────────────────────────────────────────
       if (field.max_chars) {
         parts.push(`⚠️ CALIBRAGE OBLIGATOIRE: ${field.max_chars} caractères MAXIMUM (ne JAMAIS dépasser, viser 95% du calibre)`);
       }
@@ -767,7 +800,6 @@ INSTRUCTIONS STRICTES :
       }
 
       if (field.ai_instructions) {
-        // Substitution des variables {{...}} dans les instructions du champ
         const resolvedInstructions = this.openaiService.replaceVariables(
           field.ai_instructions,
           fieldVars
@@ -775,13 +807,11 @@ INSTRUCTIONS STRICTES :
         parts.push(`Instructions: ${resolvedInstructions}`);
       }
 
-      // Pour les champs picto : lister les options autorisées et imposer un choix strict
       if (field.type === 'picto' && field.options && field.options.length > 0) {
         parts.push(`⚠️ VALEUR OBLIGATOIRE: Choisir EXACTEMENT UNE valeur parmi cette liste (rien d'autre) : ${field.options.map((o: string) => `"${o}"`).join(', ')}`);
         parts.push(`✅ Répondre avec la valeur EXACTE (sans guillemets, sans espaces supplémentaires)`);
       }
 
-      // Ajouter les règles de validation si présentes
       if (field.validation) {
         const validationRules = this.formatValidationRules(field.validation);
         if (validationRules) {

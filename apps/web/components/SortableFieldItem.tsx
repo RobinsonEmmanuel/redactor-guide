@@ -4,9 +4,16 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Bars3Icon, TrashIcon } from '@heroicons/react/24/outline';
 
+interface SubField {
+  name: string;
+  type: 'titre' | 'texte' | 'image' | 'lien' | 'meta';
+  label?: string;
+  ai_instructions?: string;
+}
+
 interface TemplateField {
   id: string;
-  type: 'titre' | 'texte' | 'image' | 'lien' | 'meta' | 'liste' | 'picto';
+  type: 'titre' | 'texte' | 'image' | 'lien' | 'meta' | 'liste' | 'picto' | 'repetitif';
   name: string;
   label?: string;
   description?: string;
@@ -15,6 +22,8 @@ interface TemplateField {
   skip_ai?: boolean;
   service_id?: string;
   options?: string[];
+  sub_fields?: SubField[];
+  max_repetitions?: number;
   validation?: {
     required?: boolean;
     max_length?: number;
@@ -49,14 +58,23 @@ interface SortableFieldItemProps {
 }
 
 const FIELD_TYPE_COLORS: Record<TemplateField['type'], string> = {
-  titre: 'bg-purple-100 text-purple-700',
-  texte: 'bg-blue-100 text-blue-700',
-  image: 'bg-green-100 text-green-700',
-  lien:  'bg-orange-100 text-orange-700',
-  meta:  'bg-gray-100 text-gray-700',
-  liste: 'bg-pink-100 text-pink-700',
-  picto: 'bg-teal-100 text-teal-700',
+  titre:     'bg-purple-100 text-purple-700',
+  texte:     'bg-blue-100 text-blue-700',
+  image:     'bg-green-100 text-green-700',
+  lien:      'bg-orange-100 text-orange-700',
+  meta:      'bg-gray-100 text-gray-700',
+  liste:     'bg-pink-100 text-pink-700',
+  picto:     'bg-teal-100 text-teal-700',
+  repetitif: 'bg-rose-100 text-rose-700',
 };
+
+const SUB_FIELD_TYPES: Array<{ value: SubField['type']; label: string; icon: string }> = [
+  { value: 'image',  label: 'Image',  icon: '🖼️' },
+  { value: 'titre',  label: 'Titre',  icon: '🔤' },
+  { value: 'texte',  label: 'Texte',  icon: '📝' },
+  { value: 'meta',   label: 'Méta',   icon: '🏷️' },
+  { value: 'lien',   label: 'Lien',   icon: '🔗' },
+];
 
 export default function SortableFieldItem({
   field,
@@ -388,6 +406,146 @@ export default function SortableFieldItem({
               </div>
             )}
           </div>
+
+          {/* Gabarit répétitif */}
+          {field.type === 'repetitif' && (
+            <div className="space-y-4">
+              {/* Nombre max de répétitions */}
+              <div className="flex items-center gap-4">
+                <div className="w-40">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Répétitions max *
+                  </label>
+                  <input
+                    type="number"
+                    value={field.max_repetitions || ''}
+                    onChange={(e) => onChange({ max_repetitions: e.target.value ? parseInt(e.target.value) : undefined })}
+                    placeholder="Ex: 6"
+                    min="1"
+                    className="w-full px-3 py-2 text-sm border border-rose-200 rounded-lg focus:ring-2 focus:ring-rose-500 bg-rose-50/30"
+                  />
+                </div>
+                <div className="flex-1 flex items-end pb-1">
+                  <p className="text-xs text-gray-500">
+                    L'IA génère entre 1 et {field.max_repetitions || '?'} entrées selon les contenus disponibles.
+                  </p>
+                </div>
+              </div>
+
+              {/* Sous-champs du gabarit */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-medium text-gray-700">
+                    Gabarit — sous-champs par entrée *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const existing = field.sub_fields ?? [];
+                      onChange({ sub_fields: [...existing, { name: `champ_${existing.length + 1}`, type: 'texte' }] });
+                    }}
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-rose-600 border border-rose-300 rounded-md hover:bg-rose-50"
+                  >
+                    + Ajouter un sous-champ
+                  </button>
+                </div>
+
+                {(!field.sub_fields || field.sub_fields.length === 0) ? (
+                  <p className="text-xs text-gray-400 italic py-2">
+                    Aucun sous-champ défini. Ajoute les champs qui composent chaque entrée répétée (image, titre, hashtag…).
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {field.sub_fields.map((sf, idx) => (
+                      <div key={idx} className="flex items-start gap-2 p-3 bg-white border border-rose-100 rounded-lg">
+                        {/* Type */}
+                        <select
+                          value={sf.type}
+                          onChange={(e) => {
+                            const next = [...(field.sub_fields ?? [])];
+                            next[idx] = { ...sf, type: e.target.value as SubField['type'] };
+                            onChange({ sub_fields: next });
+                          }}
+                          className="w-24 px-2 py-1.5 text-xs border border-gray-200 rounded-md bg-gray-50"
+                        >
+                          {SUB_FIELD_TYPES.map((t) => (
+                            <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
+                          ))}
+                        </select>
+
+                        {/* Nom */}
+                        <input
+                          type="text"
+                          value={sf.name}
+                          onChange={(e) => {
+                            const next = [...(field.sub_fields ?? [])];
+                            next[idx] = { ...sf, name: e.target.value };
+                            onChange({ sub_fields: next });
+                          }}
+                          placeholder="nom (ex: image, titre, hashtag)"
+                          className="w-36 px-2 py-1.5 text-xs font-mono border border-gray-200 rounded-md"
+                        />
+
+                        {/* Label */}
+                        <input
+                          type="text"
+                          value={sf.label ?? ''}
+                          onChange={(e) => {
+                            const next = [...(field.sub_fields ?? [])];
+                            next[idx] = { ...sf, label: e.target.value || undefined };
+                            onChange({ sub_fields: next });
+                          }}
+                          placeholder="Label affiché"
+                          className="flex-1 px-2 py-1.5 text-xs border border-gray-200 rounded-md"
+                        />
+
+                        {/* Instructions IA */}
+                        <input
+                          type="text"
+                          value={sf.ai_instructions ?? ''}
+                          onChange={(e) => {
+                            const next = [...(field.sub_fields ?? [])];
+                            next[idx] = { ...sf, ai_instructions: e.target.value || undefined };
+                            onChange({ sub_fields: next });
+                          }}
+                          placeholder="Instructions IA (optionnel)"
+                          className="flex-1 px-2 py-1.5 text-xs border border-purple-200 rounded-md bg-purple-50/20"
+                        />
+
+                        {/* Supprimer */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = (field.sub_fields ?? []).filter((_, i) => i !== idx);
+                            onChange({ sub_fields: next.length ? next : undefined });
+                          }}
+                          className="text-red-400 hover:text-red-600 p-1 mt-0.5 shrink-0"
+                          title="Supprimer"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Aperçu JSON */}
+                {field.sub_fields && field.sub_fields.length > 0 && (
+                  <div className="mt-3 p-3 bg-gray-900 rounded-lg">
+                    <p className="text-xs text-gray-400 mb-1 font-mono">// Format JSON généré par l'IA :</p>
+                    <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap">
+{`[
+  {
+${field.sub_fields.map(sf => `    "${sf.name}": "…"`).join(',\n')}
+  },
+  … (max ${field.max_repetitions || 'N'} entrées)
+]`}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Valeurs autorisées (picto) */}
           {field.type === 'picto' && (

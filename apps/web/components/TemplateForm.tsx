@@ -11,7 +11,9 @@ import { nanoid } from 'nanoid';
 
 interface TemplateField {
   id: string;
-  type: 'titre' | 'texte' | 'image' | 'lien' | 'meta' | 'liste' | 'picto';
+  type: 'titre' | 'texte' | 'image' | 'lien' | 'meta' | 'liste' | 'picto' | 'repetitif';
+  sub_fields?: Array<{ name: string; type: 'titre' | 'texte' | 'image' | 'lien' | 'meta'; label?: string; ai_instructions?: string }>;
+  max_repetitions?: number;
   name: string;
   label?: string;
   description?: string;
@@ -106,7 +108,8 @@ const FIELD_TYPES: Array<{ value: TemplateField['type']; label: string; descript
   { value: 'lien',  label: 'Lien',        description: 'URL pointant vers un contenu externe' },
   { value: 'meta',  label: 'Métadonnée', description: 'Valeur courte normée (durée, date, chiffre…)' },
   { value: 'liste', label: 'Liste',       description: 'Liste courte avec nombre fixe d\'items' },
-  { value: 'picto', label: 'Picto',       description: 'Choix parmi une liste d\'icônes/valeurs prédéfinies' },
+  { value: 'picto',     label: 'Picto',      description: 'Choix parmi une liste d\'icônes/valeurs prédéfinies' },
+  { value: 'repetitif', label: 'Répétitif', description: 'Gabarit de sous-champs répété N fois (ex: photo + titre + hashtag × 6)' },
 ];
 
 export default function TemplateForm({ templateId }: TemplateFormProps) {

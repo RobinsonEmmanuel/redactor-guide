@@ -222,41 +222,59 @@ export async function workersRoutes(fastify: FastifyInstance) {
           continue;
         }
 
-        // Construire le contenu groupé des articles du batch
+        // Construire le contenu groupé avec liste des titres + URLs en en-tête
+        // pour que le modèle utilise les bons article_source dans sa réponse
+        const articlesIndex = validArticles
+          .map((a: any, idx: number) => `${idx + 1}. "${a.title}" — ${a.url || a.slug}`)
+          .join('\n');
+
         const batchContent = validArticles
           .map((a: any, idx: number) =>
             `### Article ${idx + 1} : ${a.title}\nURL : ${a.url || a.slug}\n\n${a.markdown}`
           )
           .join('\n\n---\n\n');
 
-        const batchTitles = validArticles.map((a: any) => `"${a.title}"`).join(', ');
+        // Construire un article_source lookup pour la correction post-réponse
+        const articleByTitle: Record<string, any> = {};
+        const articleByUrl: Record<string, any> = {};
+        for (const a of validArticles) {
+          articleByTitle[a.title.toLowerCase()] = a;
+          if (a.url) articleByUrl[a.url] = a;
+          if (a.slug) articleByUrl[a.slug] = a;
+        }
 
         const extractionPrompt = openaiService.replaceVariables(promptExtractionDoc.texte_prompt, {
           SITE: guide.wpConfig?.siteUrl || '',
           DESTINATION: destination,
-          ARTICLE_TITRE: `Batch ${batchNum}/${totalBatches} (${validArticles.length} articles : ${batchTitles})`,
+          ARTICLE_TITRE: `Lot de ${validArticles.length} articles (batch ${batchNum}/${totalBatches})`,
           ARTICLE_URL: '',
-          ARTICLE_CONTENU: batchContent,
-          // Rétrocompat
+          ARTICLE_CONTENU: `Articles analysés :\n${articlesIndex}\n\n---\n\n${batchContent}`,
           LISTE_ARTICLES_POI: validArticles.map((a: any) => `- ${a.title} (${a.url || a.slug})`).join('\n'),
         });
 
         try {
-          const result = await openaiService.generateJSON(extractionPrompt, 8000);
+          // max_tokens élevé : un batch dense (ex: Teide) peut produire 30+ POIs × ~200 chars
+          const result = await openaiService.generateJSON(extractionPrompt, 24000);
 
           if (result.pois && Array.isArray(result.pois)) {
-            // Garantir article_source/url_source si le prompt ne les retourne pas
             const enriched = result.pois.map((poi: any) => {
-              if (!poi.article_source || !poi.url_source) {
-                // Tenter de deviner l'article source parmi les articles du batch
-                const match = validArticles.find((a: any) =>
-                  (poi.article_source && a.title.includes(poi.article_source)) ||
-                  (poi.url_source && (a.url || a.slug) === poi.url_source)
-                ) || validArticles[0];
+              // Corriger article_source si l'IA a renvoyé le titre du batch ou une valeur invalide
+              const isBatchTitle = !poi.article_source ||
+                poi.article_source.startsWith('Batch ') ||
+                poi.article_source.startsWith('Lot de ');
+
+              if (isBatchTitle || !poi.url_source) {
+                // Chercher l'article réel par correspondance de titre ou URL
+                const matchByUrl = poi.url_source && (articleByUrl[poi.url_source]);
+                const matchByTitle = poi.article_source &&
+                  validArticles.find((a: any) =>
+                    a.title.toLowerCase().includes(poi.article_source.toLowerCase().substring(0, 20))
+                  );
+                const fallback = matchByUrl || matchByTitle || validArticles[0];
                 return {
                   ...poi,
-                  article_source: poi.article_source || match.title,
-                  url_source: poi.url_source || match.url || match.slug,
+                  article_source: isBatchTitle ? fallback.title : poi.article_source,
+                  url_source: poi.url_source && !isBatchTitle ? poi.url_source : (fallback.url || fallback.slug),
                 };
               }
               return poi;

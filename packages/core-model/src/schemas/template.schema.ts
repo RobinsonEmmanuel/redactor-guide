@@ -32,6 +32,12 @@ export const FieldValidationSchema = z.object({
   /** Nombre de phrases attendu (pour texte) */
   sentence_count: z.number().int().positive().optional().catch(undefined),
   
+  /**
+   * Pattern regex que la valeur DOIT respecter (validation positive).
+   * Ex: "^https?://.+\\.(jpg|jpeg|png|webp)$" pour une URL d'image.
+   */
+  pattern: z.string().optional().catch(undefined),
+
   /** Mots interdits (vocabulaire promotionnel, etc.) */
   forbidden_words: z.array(z.string()).optional().catch(undefined),
   

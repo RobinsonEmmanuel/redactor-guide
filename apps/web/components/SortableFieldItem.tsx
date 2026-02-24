@@ -247,6 +247,7 @@ export default function SortableFieldItem({
                   }}
                   placeholder={`{
   "required": true,
+  "pattern": "^https?://.+\\.(jpg|jpeg|png|webp)$",
   "max_length": 120,
   "forbidden_words": ["incontournable", "magnifique"],
   "severity": "error"
@@ -351,6 +352,7 @@ export default function SortableFieldItem({
                   }}
                   placeholder={`{
   "required": true,
+  "pattern": "^https?://.+\\.(jpg|jpeg|png|webp)$",
   "max_length": 120,
   "forbidden_words": ["incontournable", "magnifique"],
   "severity": "error"

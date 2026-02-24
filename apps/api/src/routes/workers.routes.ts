@@ -317,102 +317,30 @@ export async function workersRoutes(fastify: FastifyInstance) {
         throw new Error('Aucun POI extrait depuis les articles');
       }
 
-      console.log(`📊 Total POIs bruts extraits (avant déduplication): ${allRawPois.length}`);
+      console.log(`📊 ${allRawPois.length} POIs bruts extraits — en attente du dédoublonnage manuel`);
 
-      // 5. Appel de déduplication (exact + approchant)
-      console.log(`🔄 Déduplication de ${allRawPois.length} POIs...`);
-
-      await db.collection('pois_generation_jobs').updateOne(
-        { _id: new ObjectId(jobId) },
-        { $set: { status: 'processing', progress: 'Déduplication', updated_at: new Date() } }
-      );
-
-      const poisJson = JSON.stringify(allRawPois, null, 0);
-
-      const dedupPrompt = promptDedupDoc
-        ? openaiService.replaceVariables(promptDedupDoc.texte_prompt, {
-            DESTINATION: destination,
-            NB_POIS: String(allRawPois.length),
-            POIS_BRUTS_JSON: poisJson,
-          })
-        : `Tu es un expert en consolidation de bases de données géographiques.
-
-Voici ${allRawPois.length} POIs extraits article par article depuis des articles sur ${destination}.
-Certains POIs apparaissent en double ou en triple (même lieu dans plusieurs articles, variantes orthographiques, noms en différentes langues, etc.).
-
-LISTE DES POIS BRUTS :
-${poisJson}
-
-Tâche :
-1. Identifie les doublons EXACTS (même poi_id ou même nom)
-2. Identifie les doublons APPROCHANTS (même lieu sous des appellations différentes, ex: "Teide" / "Pico del Teide" / "Mont Teide" / "Parc national du Teide")
-3. Pour chaque groupe de doublons, conserve le POI le plus complet et fusionne :
-   - "autres_articles_mentions" : réunion de toutes les url_source / article_source
-   - "article_source" / "url_source" : garde le plus représentatif (article dédié > article liste)
-4. Conserve TOUS les POIs uniques sans en supprimer
-
-Retourne UNIQUEMENT un JSON valide : { "pois": [ ... ] }
-(même structure que l'entrée, après fusion)`;
-
-      let finalPois: any[] = allRawPois;
-
-      try {
-        const dedupResult = await openaiService.generateJSON(dedupPrompt, 16000);
-        if (dedupResult.pois && Array.isArray(dedupResult.pois)) {
-          finalPois = dedupResult.pois;
-          const removed = allRawPois.length - finalPois.length;
-          console.log(`✅ Déduplication: ${finalPois.length} POIs uniques (${removed} doublons supprimés)`);
-        } else {
-          console.warn('⚠️ Déduplication: réponse inattendue, on garde les POIs bruts');
-        }
-      } catch (dedupError: any) {
-        console.error(`❌ Déduplication échouée: ${dedupError.message} — on conserve les POIs bruts`);
-      }
-
-      // 6. Normaliser les POIs
-      const pois: any[] = finalPois.map((poi: any) => ({
-        poi_id: poi.poi_id,
-        nom: poi.nom,
-        type: poi.type,
-        source: 'article',
-        article_source: poi.article_source,
-        url_source: poi.url_source || '',
-        raison_selection: poi.raison_selection,
-        autres_articles_mentions: poi.autres_articles_mentions || [],
-      }));
-
-      // 7. Sauvegarder la sélection
-      const now = new Date();
-      await db.collection('pois_selection').updateOne(
-        { guide_id: guideId },
-        {
-          $set: { guide_id: guideId, pois, updated_at: now },
-          $setOnInsert: { created_at: now },
-        },
-        { upsert: true }
-      );
-
-      // 8. Marquer le job comme "completed"
+      // 5. Marquer l'extraction comme terminée (sans déduplication ni sauvegarde dans pois_selection)
+      // Le dédoublonnage et la confirmation sont déclenchés manuellement depuis l'interface
       await db.collection('pois_generation_jobs').updateOne(
         { _id: new ObjectId(jobId) },
         {
           $set: {
-            status: 'completed',
-            count: pois.length,
+            status: 'extraction_complete',
             raw_count: allRawPois.length,
+            preview_pois: allRawPois,
             progress: null,
             updated_at: new Date(),
           },
         }
       );
 
-      console.log(`✅ [WORKER] ${pois.length} POIs sauvegardés pour guide ${guideId} (${allRawPois.length} extraits, ${allRawPois.length - pois.length} doublons supprimés)`);
+      console.log(`✅ [WORKER] Extraction terminée: ${allRawPois.length} POIs bruts pour guide ${guideId} — en attente du dédoublonnage manuel`);
 
       return reply.send({
         success: true,
-        count: pois.length,
         raw_count: allRawPois.length,
         articles_processed: total,
+        status: 'extraction_complete',
       });
 
     } catch (error: any) {

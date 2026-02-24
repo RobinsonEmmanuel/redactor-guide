@@ -182,6 +182,159 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * POST /guides/:guideId/pois/jobs/:jobId/deduplicate
+   * Lance le dédoublonnage (exact + approchant) sur les preview_pois du job.
+   * Sauvegarde le résultat dans job.deduplicated_pois sans toucher à pois_selection.
+   */
+  fastify.post<{ Params: { guideId: string; jobId: string } }>(
+    '/guides/:guideId/pois/jobs/:jobId/deduplicate',
+    async (request, reply) => {
+      const { guideId, jobId } = request.params;
+
+      try {
+        if (!ObjectId.isValid(jobId)) return reply.code(400).send({ error: 'Job ID invalide' });
+
+        const job = await db.collection('pois_generation_jobs').findOne({ _id: new ObjectId(jobId) });
+        if (!job) return reply.code(404).send({ error: 'Job non trouvé' });
+
+        const rawPois: any[] = job.preview_pois || [];
+        if (rawPois.length === 0) return reply.code(400).send({ error: 'Aucun POI extrait à dédoublonner' });
+
+        const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+        const destination: string = guide?.destination ?? '';
+
+        const openaiApiKey = process.env.OPENAI_API_KEY;
+        if (!openaiApiKey) throw new Error('OPENAI_API_KEY non configurée');
+
+        const { OpenAIService } = await import('../services/openai.service');
+        const openaiService = new OpenAIService({ apiKey: openaiApiKey, model: 'gpt-5-mini', reasoningEffort: 'low' });
+
+        const PROMPT_ID_DEDUP = process.env.PROMPT_ID_POI_DEDUP ?? 'deduplication_POI_24022026';
+        const promptDedupDoc = await db.collection('prompts').findOne({ prompt_id: PROMPT_ID_DEDUP });
+
+        const poisJson = JSON.stringify(rawPois, null, 0);
+
+        const dedupPrompt = promptDedupDoc
+          ? openaiService.replaceVariables(promptDedupDoc.texte_prompt, {
+              DESTINATION: destination,
+              NB_POIS: String(rawPois.length),
+              POIS_BRUTS_JSON: poisJson,
+            })
+          : `Tu es un expert en consolidation de bases de données géographiques.
+Voici ${rawPois.length} POIs extraits depuis des articles sur ${destination}.
+Certains apparaissent en double (variantes orthographiques, langues différentes, appellations proches).
+LISTE : ${poisJson}
+1. Fusionne les doublons EXACTS (même poi_id ou nom)
+2. Fusionne les doublons APPROCHANTS (même lieu sous des noms différents)
+3. Pour chaque fusion : consolide autres_articles_mentions, garde article_source le plus représentatif
+4. Conserve TOUS les POIs uniques
+Retourne UNIQUEMENT : { "pois": [ ... ] }`;
+
+        console.log(`🔄 [DEDUP] Dédoublonnage de ${rawPois.length} POIs pour guide ${guideId}...`);
+
+        await db.collection('pois_generation_jobs').updateOne(
+          { _id: new ObjectId(jobId) },
+          { $set: { status: 'deduplicating', updated_at: new Date() } }
+        );
+
+        const dedupResult = await openaiService.generateJSON(dedupPrompt, 16000);
+
+        let dedupPois: any[] = rawPois;
+        if (dedupResult.pois && Array.isArray(dedupResult.pois)) {
+          dedupPois = dedupResult.pois;
+        }
+
+        const removed = rawPois.length - dedupPois.length;
+        console.log(`✅ [DEDUP] ${dedupPois.length} POIs uniques (${removed} doublons supprimés)`);
+
+        await db.collection('pois_generation_jobs').updateOne(
+          { _id: new ObjectId(jobId) },
+          {
+            $set: {
+              status: 'dedup_complete',
+              deduplicated_pois: dedupPois,
+              dedup_count: dedupPois.length,
+              updated_at: new Date(),
+            },
+          }
+        );
+
+        return reply.send({
+          success: true,
+          raw_count: rawPois.length,
+          dedup_count: dedupPois.length,
+          removed,
+          pois: dedupPois,
+        });
+
+      } catch (error: any) {
+        console.error('❌ [DEDUP] Erreur:', error);
+        await db.collection('pois_generation_jobs').updateOne(
+          { _id: new ObjectId(jobId) },
+          { $set: { status: 'extraction_complete', updated_at: new Date() } }
+        ).catch(() => {});
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
+
+  /**
+   * POST /guides/:guideId/pois/confirm
+   * Remplace pois_selection par les POIs dédoublonnés du job (après confirmation utilisateur).
+   */
+  fastify.post<{ Params: { guideId: string }; Body: { jobId: string } }>(
+    '/guides/:guideId/pois/confirm',
+    async (request, reply) => {
+      const { guideId } = request.params;
+      const { jobId } = request.body as { jobId: string };
+
+      try {
+        if (!ObjectId.isValid(jobId)) return reply.code(400).send({ error: 'Job ID invalide' });
+
+        const job = await db.collection('pois_generation_jobs').findOne({ _id: new ObjectId(jobId) });
+        if (!job) return reply.code(404).send({ error: 'Job non trouvé' });
+
+        const rawDedupPois: any[] = job.deduplicated_pois || job.preview_pois || [];
+        if (rawDedupPois.length === 0) return reply.code(400).send({ error: 'Aucun POI à sauvegarder' });
+
+        const pois = rawDedupPois.map((poi: any) => ({
+          poi_id: poi.poi_id,
+          nom: poi.nom,
+          type: poi.type,
+          source: 'article',
+          article_source: poi.article_source,
+          url_source: poi.url_source || '',
+          mentions: poi.mentions || 'secondaire',
+          raison_selection: poi.raison_selection,
+          autres_articles_mentions: poi.autres_articles_mentions || [],
+        }));
+
+        const now = new Date();
+        await db.collection('pois_selection').updateOne(
+          { guide_id: guideId },
+          {
+            $set: { guide_id: guideId, pois, updated_at: now },
+            $setOnInsert: { created_at: now },
+          },
+          { upsert: true }
+        );
+
+        await db.collection('pois_generation_jobs').updateOne(
+          { _id: new ObjectId(jobId) },
+          { $set: { status: 'completed', count: pois.length, updated_at: new Date() } }
+        );
+
+        console.log(`✅ [CONFIRM] ${pois.length} POIs sauvegardés dans pois_selection pour guide ${guideId}`);
+        return reply.send({ success: true, count: pois.length });
+
+      } catch (error: any) {
+        console.error('❌ [CONFIRM] Erreur:', error);
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
+
+  /**
    * DELETE /guides/:guideId/pois/jobs
    * Supprime tous les jobs de génération POIs pour repartir sur une base propre
    */

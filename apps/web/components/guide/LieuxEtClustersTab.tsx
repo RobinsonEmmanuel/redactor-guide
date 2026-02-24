@@ -292,6 +292,11 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [generatingProgress, setGeneratingProgress] = useState<string | null>(null);
   const [previewPois, setPreviewPois] = useState<any[]>([]);
+  const [jobStatus, setJobStatus] = useState<string | null>(null);
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  const [deduplicating, setDeduplicating] = useState(false);
+  const [dedupPois, setDedupPois] = useState<any[]>([]);
+  const [confirming, setConfirming] = useState(false);
   
   // États bibliothèque
   const [libraryPois, setLibraryPois] = useState<Record<string, any[]>>({});
@@ -347,6 +352,9 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   const generatePoisFromArticles = async () => {
     setGenerating(true);
     setPreviewPois([]);
+    setDedupPois([]);
+    setJobStatus(null);
+    setCurrentJobId(null);
     setGeneratingProgress('Initialisation...');
     setShowPreviewModal(true);
 
@@ -366,6 +374,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
       const data = await res.json();
       const jobId = data.jobId;
+      setCurrentJobId(jobId);
 
       const pollInterval = setInterval(async () => {
         try {
@@ -375,17 +384,22 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
             if (status.progress) setGeneratingProgress(status.progress);
             if (status.preview_pois?.length) setPreviewPois(status.preview_pois);
+            setJobStatus(status.status);
 
-            if (status.status === 'completed') {
+            if (status.status === 'extraction_complete') {
               clearInterval(pollInterval);
-              setGeneratingProgress('Terminé');
-              await loadPois();
+              setGeneratingProgress(null);
               setGenerating(false);
             } else if (status.status === 'failed' || status.status === 'cancelled') {
               clearInterval(pollInterval);
               setGeneratingProgress(null);
               setGenerating(false);
               if (status.status === 'failed') alert(`❌ Erreur: ${status.error || 'Erreur inconnue'}`);
+            } else if (status.status === 'completed') {
+              clearInterval(pollInterval);
+              setGeneratingProgress(null);
+              setGenerating(false);
+              await loadPois();
             }
           }
         } catch (pollErr) {
@@ -404,6 +418,64 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
       setGenerating(false);
       setGeneratingProgress(null);
       setShowPreviewModal(false);
+    }
+  };
+
+  const launchDedup = async () => {
+    if (!currentJobId) return;
+    setDeduplicating(true);
+    setDedupPois([]);
+    try {
+      const res = await authFetch(
+        `${apiUrl}/api/v1/guides/${guideId}/pois/jobs/${currentJobId}/deduplicate`,
+        { method: 'POST' }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setDedupPois(data.pois || []);
+        setJobStatus('dedup_complete');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`❌ Erreur dédoublonnage: ${err.error || 'Erreur inconnue'}`);
+      }
+    } catch (err) {
+      console.error('Erreur dédup:', err);
+      alert('Erreur lors du dédoublonnage');
+    } finally {
+      setDeduplicating(false);
+    }
+  };
+
+  const confirmSave = async () => {
+    if (!currentJobId) return;
+    const existingCount = pois.length;
+    const newCount = dedupPois.length || previewPois.length;
+    const confirmed = window.confirm(
+      `Voulez-vous remplacer les ${existingCount} POI(s) existants par les ${newCount} POI(s) dédoublonnés ?\n\nCette action est irréversible.`
+    );
+    if (!confirmed) return;
+
+    setConfirming(true);
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: currentJobId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        await loadPois();
+        setJobStatus('completed');
+        setShowPreviewModal(false);
+        alert(`✅ ${data.count} POI(s) sauvegardés avec succès !`);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`❌ Erreur: ${err.error || 'Erreur inconnue'}`);
+      }
+    } catch (err) {
+      console.error('Erreur confirmation:', err);
+    } finally {
+      setConfirming(false);
     }
   };
 
@@ -1148,32 +1220,40 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 flex-shrink-0">
             <div className="flex items-center gap-3">
-              {generating ? (
+              {generating || deduplicating ? (
                 <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              ) : (
+              ) : jobStatus === 'dedup_complete' ? (
+                <span className="text-blue-500 text-lg">🔁</span>
+              ) : jobStatus === 'completed' ? (
                 <span className="text-green-500 text-lg">✅</span>
+              ) : (
+                <span className="text-orange-500 text-lg">⏳</span>
               )}
               <div>
                 <h2 className="text-base font-semibold text-gray-900">
-                  {generating ? 'Analyse en cours...' : 'Analyse terminée'}
+                  {generating ? 'Extraction en cours...'
+                    : deduplicating ? 'Dédoublonnage en cours...'
+                    : jobStatus === 'extraction_complete' ? 'Extraction terminée — à dédoublonner'
+                    : jobStatus === 'dedup_complete' ? 'Dédoublonnage terminé — à valider'
+                    : 'Analyse terminée'}
                 </h2>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {generatingProgress && <span className="font-medium text-blue-600">{generatingProgress} — </span>}
-                  {previewPois.length} POI{previewPois.length > 1 ? 's' : ''} extraits
+                  {jobStatus === 'dedup_complete'
+                    ? <><span className="text-green-600 font-medium">{dedupPois.length} POIs dédoublonnés</span> <span className="text-gray-400">(sur {previewPois.length} bruts)</span></>
+                    : <>{previewPois.length} POI{previewPois.length > 1 ? 's' : ''} extraits</>
+                  }
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => setShowPreviewModal(false)}
-              className="text-gray-400 hover:text-gray-600 text-xl leading-none px-2"
-            >
-              ×
-            </button>
+            <button onClick={() => setShowPreviewModal(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none px-2">×</button>
           </div>
 
           {/* Corps scrollable */}
           <div className="overflow-y-auto flex-1 px-5 py-4">
-            {previewPois.length === 0 ? (
+            {jobStatus === 'dedup_complete' && dedupPois.length > 0 ? (
+              <PoiPreviewList pois={dedupPois} />
+            ) : previewPois.length === 0 ? (
               <div className="flex items-center justify-center h-32 text-gray-400 text-sm">
                 En attente des premiers résultats...
               </div>
@@ -1183,16 +1263,50 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
           </div>
 
           {/* Footer */}
-          <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between flex-shrink-0 bg-gray-50 rounded-b-xl">
-            <span className="text-xs text-gray-500">
-              {generating ? 'La fenêtre peut être fermée, la génération continue en arrière-plan.' : 'Génération terminée — les POIs sont chargés.'}
+          <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between flex-shrink-0 bg-gray-50 rounded-b-xl gap-3">
+            <span className="text-xs text-gray-500 flex-1">
+              {generating
+                ? 'La fenêtre peut être fermée, la génération continue en arrière-plan.'
+                : jobStatus === 'extraction_complete'
+                ? `${previewPois.length} POIs temporaires — lancez le dédoublonnage avant de sauvegarder.`
+                : jobStatus === 'dedup_complete'
+                ? `Validez pour remplacer les ${pois.length} POIs existants par les ${dedupPois.length} POIs dédoublonnés.`
+                : ''}
             </span>
-            <button
-              onClick={() => setShowPreviewModal(false)}
-              className="px-4 py-1.5 bg-gray-800 text-white text-sm rounded-lg hover:bg-gray-700 transition-colors"
-            >
-              Fermer
-            </button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {jobStatus === 'extraction_complete' && !generating && (
+                <button
+                  onClick={launchDedup}
+                  disabled={deduplicating}
+                  className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {deduplicating ? (
+                    <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Dédoublonnage...</>
+                  ) : (
+                    <>🔁 Lancer le dédoublonnage</>
+                  )}
+                </button>
+              )}
+              {jobStatus === 'dedup_complete' && (
+                <button
+                  onClick={confirmSave}
+                  disabled={confirming}
+                  className="flex items-center gap-1.5 px-4 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {confirming ? (
+                    <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Sauvegarde...</>
+                  ) : (
+                    <>✅ Valider et remplacer ({dedupPois.length} POIs)</>
+                  )}
+                </button>
+              )}
+              <button
+                onClick={() => setShowPreviewModal(false)}
+                className="px-4 py-1.5 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Fermer
+              </button>
+            </div>
           </div>
         </div>
       </div>

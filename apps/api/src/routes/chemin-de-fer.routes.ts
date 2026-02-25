@@ -1149,10 +1149,16 @@ ${articleExcerpt}
 Contenu rédigé pour la fiche "${name}" :
 ${fieldsJson}
 
-Pour chaque champ rédigé, vérifie s'il est basé sur l'article source :
-- "present" : l'info est clairement présente dans l'article
-- "partial" : l'info est partiellement dans l'article (approximation ou généralisation)  
-- "absent" : l'info ne figure pas dans l'article (inventée ou issue d'une autre source)
+RÈGLE IMPORTANTE : tu évalues si ce qui est ÉCRIT dans chaque champ est fidèle à l'article source.
+Tu ne demandes PAS si le champ est exhaustif ou s'il cite tout l'article.
+Un champ court (ex : un nom, une adresse) est "present" dès qu'on peut le retrouver ou le déduire de l'article.
+
+- "present" : les informations écrites dans le champ sont confirmées par l'article source
+- "partial" : une partie est confirmée, une autre semble approximative ou légèrement différente  
+- "absent" : les informations écrites dans le champ sont introuvables dans l'article (inventées ou hors-source)
+
+Pour "article_excerpt" : cite la phrase de l'article qui correspond au champ (ou null si absent).
+Pour "article_comment" : explique brièvement POURQUOI tu as choisi ce statut (max 80 caractères).
 
 Retourne UNIQUEMENT ce JSON :
 { "consistency": [{ "field": "nom_du_champ", "article_consistency": "present|partial|absent", "article_excerpt": "citation courte de l'article source ou null", "article_comment": "explication max 80 caractères" }] }`;

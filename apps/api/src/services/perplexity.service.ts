@@ -1,17 +1,30 @@
+export interface ValidationPoint {
+  point: string;           // Description de l'information vérifiée
+  source_display?: string; // Nom lisible de la source (ex: "Wikipedia")
+  source_url?: string;     // URL de la source
+}
+
+export interface InvalidPoint extends ValidationPoint {
+  correction: string;      // Valeur alternative trouvée par les sources
+}
+
 export interface ValidationResult {
   field: string;
   label: string;
   value: string;
-  // Vérification factuelle (Perplexity grounding)
+  // Vérification factuelle (Gemini Search Grounding)
   status: 'valid' | 'invalid' | 'uncertain';
-  correction?: string;
-  source_url?: string;
-  source_title?: string;
-  comment: string;
+  validated_points?: ValidationPoint[];  // Informations confirmées par les sources
+  invalid_points?: InvalidPoint[];       // Informations contredites par les sources
+  correction?: string | null;
+  source_url?: string | null;
+  source_title?: string | null;
+  source_display_name?: string;
+  comment?: string | null;
   // Cohérence avec l'article source (OpenAI)
   article_consistency?: 'present' | 'absent' | 'partial' | 'not_checked';
-  article_excerpt?: string;
-  article_comment?: string;
+  article_excerpt?: string | null;
+  article_comment?: string | null;
 }
 
 export interface ContentValidationReport {

@@ -74,17 +74,17 @@ export class GeminiService {
 
     const researchPrompt = `Tu es un fact-checker expert en tourisme. Utilise tes sources web pour vérifier chaque information sur "${poiName}" (${destination}).
 
+IMPORTANT : n'utilise PAS canarias-lovers.com comme source (c'est notre propre site, non neutre).
+
 Informations à vérifier :
 ${fieldsText}
 
-Pour CHAQUE point, fournis une analyse détaillée :
-1. Verdict : correct / incorrect / incertain
-2. Ce que tu as trouvé en ligne (valeur réelle confirmée par tes sources)
-3. Si incorrect : quelle est la valeur correcte et pourquoi
-4. Explication détaillée de ta vérification (2-3 phrases minimum) : que disent tes sources ? Y a-t-il des contradictions entre sources ?
-5. URL de la source principale utilisée
+Pour CHAQUE champ, détaille :
+1. Quelles informations sont confirmées par tes sources (avec la source)
+2. Quelles informations sont contredites ou différentes de ce que trouvent tes sources (avec la valeur trouvée et la source)
+3. Ce qui est incertain ou non trouvable
 
-Pour les champs de type picto (ex. niveau de recommandation, accessibilité) : vérifie si la valeur choisie est cohérente avec la réputation et les caractéristiques réelles du lieu.`;
+Pour les champs picto (niveau de recommandation, accessibilité, présence de toilettes, escaliers, restauration, activités enfants) : vérifie si la valeur choisie est cohérente avec les descriptions en ligne du lieu.`;
 
     const groundingResult = await groundingModel.generateContent({
       contents: [{ role: 'user', parts: [{ text: researchPrompt }] }],
@@ -125,10 +125,16 @@ ${fieldsText}
 
 Convertis ce résultat en JSON strict. Retourne UNIQUEMENT l'objet JSON, sans markdown, sans backticks, sans texte avant ou après.
 
-IMPORTANT pour le champ "comment" : sois précis et détaillé. Indique ce que tu as trouvé, ce qui est confirmé, ce qui diffère. Minimum 1 phrase complète, maximum 300 caractères.
+Pour chaque champ, liste séparément :
+- "validated_points" : tableau des informations confirmées par les sources (chaque entrée : "point" = description, "source_display" = nom du site, "source_url" = URL ou null)
+- "invalid_points" : tableau des informations contredites (chaque entrée : "point" = ce qui diffère, "correction" = valeur trouvée par les sources, "source_display" = nom du site, "source_url" = URL)
+- Si tout est confirmé : validated_points non vide, invalid_points vide []
+- Si rien ne peut être vérifié : les deux tableaux vides []
 
-Format attendu (un objet par champ, champs disponibles : ${fieldsList}) :
-{"results":[{"field":"nom_du_champ","label":"Libellé du champ","value":"valeur originale fournie","status":"valid|invalid|uncertain","correction":"valeur corrigée ou null","source_url":"URL ou null","source_title":"Titre source ou null","comment":"explication détaillée de la vérification, ce qui est confirmé ou non, max 300 caractères"}]}`;
+N'inclus JAMAIS canarias-lovers.com dans les source_url.
+
+Format attendu (champs disponibles : ${fieldsList}) :
+{"results":[{"field":"nom_du_champ","label":"Libellé","value":"valeur originale","status":"valid|invalid|uncertain","validated_points":[{"point":"info confirmée","source_display":"Wikipedia","source_url":"URL ou null"}],"invalid_points":[{"point":"info incorrecte","correction":"valeur réelle","source_display":"Site","source_url":"URL"}],"comment":"résumé global max 200 chars"}]}`;
 
     const jsonResult = await jsonModel.generateContent({
       contents: [{ role: 'user', parts: [{ text: jsonPrompt }] }],
@@ -161,25 +167,36 @@ Format attendu (un objet par champ, champs disponibles : ${fieldsList}) :
       throw new Error(`Impossible de parser le JSON Gemini: ${jsonMatch[0].substring(0, 400)}`);
     }
 
-    // Enrichir avec les sources grounding si l'IA n'a pas fourni d'URL
+    // Normaliser les résultats et enrichir les source_url manquantes avec les grounding chunks
     const results = parsed.results.map((r, idx) => {
-      const chunk = groundingChunks[idx] ?? (r.status !== 'valid' ? groundingChunks[0] : null);
-      if (!r.source_url && chunk) {
-        return {
-          ...r,
-          source_url: chunk.uri,
-          source_title: chunk.title,
-          source_display_name: chunk.display_name,
-        };
+      const fallbackChunk = groundingChunks[idx] ?? (r.status !== 'valid' ? groundingChunks[0] : null);
+
+      // Enrichir les points sans source_url
+      const enrichPoints = <T extends { source_url?: string; source_display?: string }>(points: T[] = []): T[] =>
+        points.map((p, pi) => {
+          if (!p.source_url && groundingChunks[pi]) {
+            return { ...p, source_url: groundingChunks[pi].uri, source_display: p.source_display || groundingChunks[pi].display_name };
+          }
+          if (p.source_url) {
+            return { ...p, source_display: p.source_display || extractSourceDisplayName(p.source_url, '') };
+          }
+          return p;
+        });
+
+      const enriched = {
+        ...r,
+        validated_points: enrichPoints(r.validated_points ?? []),
+        invalid_points: enrichPoints(r.invalid_points ?? []),
+      };
+
+      // Source principale du champ
+      if (!enriched.source_url && fallbackChunk) {
+        return { ...enriched, source_url: fallbackChunk.uri, source_title: fallbackChunk.title, source_display_name: fallbackChunk.display_name };
       }
-      // Calculer display_name pour les sources déjà fournies par l'IA
-      if (r.source_url) {
-        return {
-          ...r,
-          source_display_name: extractSourceDisplayName(r.source_url, r.source_title || ''),
-        };
+      if (enriched.source_url) {
+        return { ...enriched, source_display_name: extractSourceDisplayName(enriched.source_url, enriched.source_title || '') };
       }
-      return r;
+      return enriched;
     });
 
     return {

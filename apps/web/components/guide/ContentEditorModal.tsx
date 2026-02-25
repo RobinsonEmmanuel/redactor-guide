@@ -296,6 +296,27 @@ export default function ContentEditorModal({
     );
   };
 
+  // ─── Badge catégorie de source ──────────────────────────────────────────────
+  const SOURCE_TYPE_CFG: Record<string, { label: string; color: string }> = {
+    official:      { label: 'Officiel',      color: 'bg-emerald-100 text-emerald-700' },
+    institutional: { label: 'Institutionnel', color: 'bg-teal-100 text-teal-700' },
+    media_high:    { label: 'Presse inter.', color: 'bg-blue-100 text-blue-700' },
+    media_local:   { label: 'Presse locale', color: 'bg-sky-100 text-sky-700' },
+    commercial:    { label: 'Commercial',    color: 'bg-amber-100 text-amber-700' },
+    ugc:           { label: 'Avis/forum',    color: 'bg-gray-100 text-gray-500' },
+  };
+
+  const SourceTypeBadge = ({ type }: { type?: string }) => {
+    if (!type) return null;
+    const cfg = SOURCE_TYPE_CFG[type];
+    if (!cfg) return null;
+    return (
+      <span className={`ml-1 text-[10px] font-medium px-1 py-px rounded ${cfg.color}`}>
+        {cfg.label}
+      </span>
+    );
+  };
+
   // ─── Bloc validation compact par champ ─────────────────────────────────────
 
   const FieldValidationBlock = ({ fieldName }: { fieldName: string }) => {
@@ -342,6 +363,7 @@ export default function ContentEditorModal({
             <span className="flex-shrink-0 font-bold mt-0.5">✓</span>
             <span>
               {p.point}
+              <SourceTypeBadge type={p.source_type} />
               {p.source_display && (
                 p.source_url
                   ? <a href={p.source_url} target="_blank" rel="noopener noreferrer"
@@ -371,6 +393,7 @@ export default function ContentEditorModal({
                   </button>
                 </span>
               )}
+              <SourceTypeBadge type={p.source_type} />
               {p.source_display && (
                 p.source_url
                   ? <a href={p.source_url} target="_blank" rel="noopener noreferrer"

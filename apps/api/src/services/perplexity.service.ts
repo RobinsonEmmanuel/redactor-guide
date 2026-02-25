@@ -1,11 +1,15 @@
+export type SourceType = 'official' | 'institutional' | 'media_high' | 'media_local' | 'commercial' | 'ugc';
+
 export interface ValidationPoint {
-  point: string;           // Description de l'information vérifiée
-  source_display?: string; // Nom lisible de la source (ex: "Wikipedia")
-  source_url?: string;     // URL de la source
+  point: string;
+  source_ref?: number;
+  source_display?: string;
+  source_url?: string;
+  source_type?: SourceType;
 }
 
 export interface InvalidPoint extends ValidationPoint {
-  correction: string;      // Valeur alternative trouvée par les sources
+  correction: string;
 }
 
 export interface ValidationResult {

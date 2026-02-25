@@ -17,6 +17,8 @@ export const PromptIntentEnum = z.enum([
   'selection_pois',
   'pages_inspiration',
   'regles_ecriture',
+  'validation_factuelle_poi',
+  'validation_coherence_article',
 ]);
 
 export type PromptIntent = z.infer<typeof PromptIntentEnum>;
@@ -127,6 +129,8 @@ export const PROMPT_INTENT_LABELS: Record<PromptIntent, string> = {
   selection_pois: 'Sélection des POI (lieux)',
   pages_inspiration: 'Pages inspiration',
   regles_ecriture: 'Règles d\'écriture',
+  validation_factuelle_poi: 'Validation factuelle POI',
+  validation_coherence_article: 'Validation cohérence article',
 };
 
 /**
@@ -146,4 +150,6 @@ export const PROMPT_INTENT_COLORS: Record<PromptIntent, string> = {
   selection_pois: 'bg-emerald-100 text-emerald-700',
   pages_inspiration: 'bg-violet-100 text-violet-700',
   regles_ecriture: 'bg-slate-100 text-slate-700',
+  validation_factuelle_poi: 'bg-amber-100 text-amber-700',
+  validation_coherence_article: 'bg-rose-100 text-rose-700',
 };

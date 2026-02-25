@@ -337,7 +337,7 @@ export default function ContentEditorModal({
         })()}
 
         {/* Points validés */}
-        {hasValidated && v.validated_points!.map((p, i) => (
+        {hasValidated && v.validated_points!.map((p: any, i: number) => (
           <div key={i} className="flex items-start gap-1.5 text-emerald-700 leading-snug">
             <span className="flex-shrink-0 font-bold mt-0.5">✓</span>
             <span>
@@ -353,7 +353,7 @@ export default function ContentEditorModal({
         ))}
 
         {/* Points invalides */}
-        {hasInvalid && v.invalid_points!.map((p, i) => (
+        {hasInvalid && v.invalid_points!.map((p: any, i: number) => (
           <div key={i} className="flex items-start gap-1.5 text-red-700 leading-snug">
             <span className="flex-shrink-0 font-bold mt-0.5">✗</span>
             <span className="flex-1">

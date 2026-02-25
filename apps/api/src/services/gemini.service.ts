@@ -1,6 +1,45 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { ValidationResult, ContentValidationReport } from './perplexity.service';
 
+/**
+ * Extrait un nom de source lisible depuis le titre et l'URI Gemini.
+ * Gemini retourne souvent des URLs vertexaisearch.cloud.google.com (redirections opaques).
+ * On préfère donc extraire le nom du site depuis le titre (ex: "Page - Wikipedia" → "wikipedia.org").
+ */
+function extractSourceDisplayName(uri: string, title: string): string {
+  // Si c'est une URL normale (non-redirect), extraire le hostname directement
+  if (!uri.includes('vertexaisearch.cloud.google.com')) {
+    try {
+      return new URL(uri).hostname.replace(/^www\./, '');
+    } catch {
+      // fall through
+    }
+  }
+
+  // Extraire le nom de site depuis le titre (pattern "Titre - NomSite" ou "Titre | NomSite")
+  if (title) {
+    const separators = [' - ', ' | ', ' – ', ' — '];
+    for (const sep of separators) {
+      const parts = title.split(sep);
+      if (parts.length > 1) {
+        const lastPart = parts[parts.length - 1].trim();
+        // Garder si c'est court (probablement un nom de site)
+        if (lastPart.length > 0 && lastPart.length < 60) {
+          // Essayer de transformer en hostname-like si ça ressemble à un domaine
+          const lc = lastPart.toLowerCase().replace(/\s+/g, '');
+          if (lc.includes('.') && !lc.includes(' ')) return lc;
+          // Sinon retourner tel quel (ex: "Wikipedia", "Gobierno de Canarias")
+          return lastPart;
+        }
+      }
+    }
+    // Pas de séparateur : tronquer le titre
+    return title.length > 45 ? title.substring(0, 42) + '…' : title;
+  }
+
+  return 'source';
+}
+
 export class GeminiService {
   private apiKey: string;
 
@@ -33,17 +72,19 @@ export class GeminiService {
       tools: [{ googleSearch: {} }] as any,
     });
 
-    const researchPrompt = `Tu es un fact-checker expert en tourisme.
-Recherche des informations fiables sur "${poiName}" (${destination}) et vérifie chaque point ci-dessous.
+    const researchPrompt = `Tu es un fact-checker expert en tourisme. Utilise tes sources web pour vérifier chaque information sur "${poiName}" (${destination}).
 
 Informations à vérifier :
 ${fieldsText}
 
-Pour chaque point indique :
-- si l'information est correcte, incorrecte ou incertaine
-- la valeur correcte si elle est inexacte
-- une courte explication factuelle (max 120 caractères)
-- l'URL de la source utilisée si disponible`;
+Pour CHAQUE point, fournis une analyse détaillée :
+1. Verdict : correct / incorrect / incertain
+2. Ce que tu as trouvé en ligne (valeur réelle confirmée par tes sources)
+3. Si incorrect : quelle est la valeur correcte et pourquoi
+4. Explication détaillée de ta vérification (2-3 phrases minimum) : que disent tes sources ? Y a-t-il des contradictions entre sources ?
+5. URL de la source principale utilisée
+
+Pour les champs de type picto (ex. niveau de recommandation, accessibilité) : vérifie si la valeur choisie est cohérente avec la réputation et les caractéristiques réelles du lieu.`;
 
     const groundingResult = await groundingModel.generateContent({
       contents: [{ role: 'user', parts: [{ text: researchPrompt }] }],
@@ -54,9 +95,13 @@ Pour chaque point indique :
     const researchText = groundingResponse.text();
 
     const candidate = (groundingResponse as any).candidates?.[0];
-    const groundingChunks: Array<{ uri: string; title: string }> =
+    const groundingChunks: Array<{ uri: string; title: string; display_name: string }> =
       candidate?.groundingMetadata?.groundingChunks
-        ?.map((c: any) => ({ uri: c.web?.uri || '', title: c.web?.title || '' }))
+        ?.map((c: any) => {
+          const uri = c.web?.uri || '';
+          const title = c.web?.title || '';
+          return { uri, title, display_name: extractSourceDisplayName(uri, title) };
+        })
         .filter((c: any) => c.uri) || [];
 
     // ── Passe 2 : structuration JSON sans outils ───────────────────────────────
@@ -80,14 +125,16 @@ ${fieldsText}
 
 Convertis ce résultat en JSON strict. Retourne UNIQUEMENT l'objet JSON, sans markdown, sans backticks, sans texte avant ou après.
 
+IMPORTANT pour le champ "comment" : sois précis et détaillé. Indique ce que tu as trouvé, ce qui est confirmé, ce qui diffère. Minimum 1 phrase complète, maximum 300 caractères.
+
 Format attendu (un objet par champ, champs disponibles : ${fieldsList}) :
-{"results":[{"field":"nom_du_champ","label":"Libellé du champ","value":"valeur originale fournie","status":"valid|invalid|uncertain","correction":"valeur corrigée ou null","source_url":"URL ou null","source_title":"Titre source ou null","comment":"explication max 120 caractères"}]}`;
+{"results":[{"field":"nom_du_champ","label":"Libellé du champ","value":"valeur originale fournie","status":"valid|invalid|uncertain","correction":"valeur corrigée ou null","source_url":"URL ou null","source_title":"Titre source ou null","comment":"explication détaillée de la vérification, ce qui est confirmé ou non, max 300 caractères"}]}`;
 
     const jsonResult = await jsonModel.generateContent({
       contents: [{ role: 'user', parts: [{ text: jsonPrompt }] }],
       generationConfig: {
         temperature: 0,
-        maxOutputTokens: 4096,
+        maxOutputTokens: 8192,
         responseMimeType: 'application/json',
       },
     });
@@ -116,11 +163,21 @@ Format attendu (un objet par champ, champs disponibles : ${fieldsList}) :
 
     // Enrichir avec les sources grounding si l'IA n'a pas fourni d'URL
     const results = parsed.results.map((r, idx) => {
-      if (!r.source_url && groundingChunks[idx]) {
-        return { ...r, source_url: groundingChunks[idx].uri, source_title: groundingChunks[idx].title };
+      const chunk = groundingChunks[idx] ?? (r.status !== 'valid' ? groundingChunks[0] : null);
+      if (!r.source_url && chunk) {
+        return {
+          ...r,
+          source_url: chunk.uri,
+          source_title: chunk.title,
+          source_display_name: chunk.display_name,
+        };
       }
-      if (!r.source_url && r.status !== 'valid' && groundingChunks[0]) {
-        return { ...r, source_url: groundingChunks[0].uri, source_title: groundingChunks[0].title };
+      // Calculer display_name pour les sources déjà fournies par l'IA
+      if (r.source_url) {
+        return {
+          ...r,
+          source_display_name: extractSourceDisplayName(r.source_url, r.source_title || ''),
+        };
       }
       return r;
     });

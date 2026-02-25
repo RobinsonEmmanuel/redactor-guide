@@ -366,8 +366,9 @@ export default function ContentEditorModal({
             )}
             {v.source_url && (
               <a href={v.source_url} target="_blank" rel="noopener noreferrer"
+                title={v.source_title || v.source_url}
                 className="mt-1.5 flex items-center gap-1 text-blue-600 hover:underline truncate">
-                🔗 {v.source_title || v.source_url}
+                🔗 {v.source_display_name || v.source_title || v.source_url}
               </a>
             )}
           </div>
@@ -926,7 +927,7 @@ export default function ContentEditorModal({
                     <a key={i} href={s.uri} target="_blank" rel="noopener noreferrer"
                       title={s.title || s.uri}
                       className="text-xs text-blue-500 hover:text-blue-700 hover:underline bg-blue-50 px-1.5 py-0.5 rounded">
-                      [{i + 1}] {new URL(s.uri).hostname.replace('www.', '')}
+                      [{i + 1}] {s.display_name || s.title || s.uri}
                     </a>
                   ))}
                 </div>

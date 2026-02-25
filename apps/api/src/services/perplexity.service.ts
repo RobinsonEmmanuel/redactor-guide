@@ -19,7 +19,7 @@ export interface ContentValidationReport {
   overall_status: 'valid' | 'issues_found' | 'error';
   results: ValidationResult[];
   raw_response?: string;
-  grounding_sources?: Array<{ uri: string; title: string }>;
+  grounding_sources?: Array<{ uri: string; title: string; display_name: string }>;
 }
 
 export class PerplexityService {

@@ -1087,25 +1087,54 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           }
         }
 
-        // Construire la liste des champs à valider (texte uniquement, non vides)
+        // Libellés lisibles pour les valeurs de pictos
+        const PICTO_VALUE_LABELS: Record<string, string> = {
+          incontournable: 'Incontournable (lieu exceptionnel, à ne pas manquer)',
+          interessant:    'Intéressant (vaut le détour)',
+          a_voir:         'À voir (si on passe dans le secteur)',
+          '100':          'Accessible 100% (PMR, accès complet)',
+          '50':           'Partiellement accessible (PMR, accès limité)',
+          '0':            'Non accessible (PMR)',
+          oui:            'Oui',
+          non:            'Non',
+        };
+
+        // Construire la liste des champs à valider (texte + picto, non vides)
         const TEXT_TYPES = new Set(['titre', 'texte', 'meta']);
-        const fieldsToValidate: Array<{ name: string; label: string; value: string }> = [];
+        const PICTO_TYPE = 'picto';
+        const fieldsToValidate: Array<{ name: string; label: string; value: string; fieldType?: string }> = [];
 
         const pageContent: Record<string, any> = content || page.content || {};
 
         for (const [key, val] of Object.entries(pageContent)) {
-          if (!val || typeof val !== 'string' || val.trim().length < 10) continue;
+          if (!val || typeof val !== 'string' || val.trim().length === 0) continue;
           // Ignorer les URLs et les champs image
           if (val.startsWith('http') || key.toLowerCase().includes('image') || key.toLowerCase().includes('url')) continue;
 
           const fieldDef = template?.fields?.find((f: any) => f.name === key);
-          if (fieldDef && !TEXT_TYPES.has(fieldDef.type)) continue;
+          const fieldType = fieldDef?.type;
 
-          fieldsToValidate.push({
-            name: key,
-            label: fieldLabelMap[key] || key,
-            value: val.trim().substring(0, 300),
-          });
+          if (fieldType === PICTO_TYPE) {
+            // Champ picto : valeur courte mais on enrichit le label avec la signification
+            const pictoLabel = PICTO_VALUE_LABELS[val.trim()] ?? val.trim();
+            const optionLabels = (fieldDef.options ?? [])
+              .map((o: string) => `"${o}" = ${PICTO_VALUE_LABELS[o] ?? o}`)
+              .join(', ');
+            fieldsToValidate.push({
+              name: key,
+              label: `${fieldLabelMap[key] || key} [picto — options : ${optionLabels}]`,
+              value: `${val.trim()} (= ${pictoLabel})`,
+              fieldType: PICTO_TYPE,
+            });
+          } else {
+            if (val.trim().length < 10) continue;
+            if (fieldDef && !TEXT_TYPES.has(fieldType)) continue;
+            fieldsToValidate.push({
+              name: key,
+              label: fieldLabelMap[key] || key,
+              value: val.trim().substring(0, 400),
+            });
+          }
         }
 
         if (fieldsToValidate.length === 0) {

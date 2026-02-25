@@ -494,6 +494,13 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   const [deduplicating, setDeduplicating] = useState(false);
   const [dedupPois, setDedupPois] = useState<any[]>([]);
   const [confirming, setConfirming] = useState(false);
+
+  // États validation humaine (après dedup_complete)
+  const [showValidationModal, setShowValidationModal] = useState(false);
+  const [validationPois, setValidationPois] = useState<any[]>([]);
+  const [excludedPoiIds, setExcludedPoiIds] = useState<Set<string>>(new Set());
+  const [validationSearch, setValidationSearch] = useState('');
+  const [validationTypeFilter, setValidationTypeFilter] = useState<string>('all');
   
   // États bibliothèque
   const [libraryPois, setLibraryPois] = useState<Record<string, any[]>>({});
@@ -556,11 +563,10 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
       const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/latest-job`);
       if (!res.ok) return;
       const data = await res.json();
-      if (data.job) {
+        if (data.job) {
         const { jobId, status, raw_count, preview_pois, preview_batches,
                 classification_log, mono_count, multi_count, excluded_count,
                 deduplicated_pois } = data.job;
-        setPendingJobRawCount(raw_count || preview_pois.length);
         setCurrentJobId(jobId);
         setJobStatus(status);
         if (preview_pois.length) setPreviewPois(preview_pois);
@@ -569,7 +575,17 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         if (mono_count !== null) setMonoCount(mono_count);
         if (multi_count !== null) setMultiCount(multi_count);
         if (excluded_count !== null) setExcludedCount(excluded_count);
-        if (deduplicated_pois.length) setDedupPois(deduplicated_pois);
+
+        if (status === 'dedup_complete' && deduplicated_pois.length) {
+          // Ouvrir directement le modal de validation
+          setDedupPois(deduplicated_pois);
+          setValidationPois(deduplicated_pois);
+          setExcludedPoiIds(new Set());
+          setShowValidationModal(true);
+        } else {
+          // Extraction en attente → bouton "Reprendre"
+          setPendingJobRawCount(raw_count || preview_pois.length);
+        }
       }
     } catch (err) {
       console.error('Erreur vérification job en attente:', err);
@@ -626,9 +642,17 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             setJobStatus(status.status);
 
             if (status.status === 'dedup_complete') {
-              // Le worker de dédup a terminé (via le polling de génération)
               clearInterval(pollInterval);
-              if (status.deduplicated_pois?.length) setDedupPois(status.deduplicated_pois);
+              const finalPois = status.deduplicated_pois || [];
+              if (finalPois.length) {
+                setDedupPois(finalPois);
+                setValidationPois(finalPois);
+                setExcludedPoiIds(new Set());
+                setValidationSearch('');
+                setValidationTypeFilter('all');
+                setShowValidationModal(true);
+                setShowPreviewModal(false);
+              }
               setDeduplicating(false);
               setPendingJobRawCount(null);
             } else if (status.status === 'extraction_complete') {
@@ -698,7 +722,16 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
           if (status.status === 'dedup_complete') {
             clearInterval(dedupPoll);
-            if (status.deduplicated_pois?.length) setDedupPois(status.deduplicated_pois);
+            const finalPois = status.deduplicated_pois || [];
+            if (finalPois.length) {
+              setDedupPois(finalPois);
+              setValidationPois(finalPois);
+              setExcludedPoiIds(new Set());
+              setValidationSearch('');
+              setValidationTypeFilter('all');
+              setShowValidationModal(true);
+              setShowPreviewModal(false);
+            }
             setDeduplicating(false);
             setPendingJobRawCount(null);
           } else if (status.status === 'failed' || status.status === 'cancelled') {
@@ -727,27 +760,23 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     }
   };
 
-  const confirmSave = async () => {
+  const confirmSave = async (poisToSave?: any[]) => {
     if (!currentJobId) return;
-    const existingCount = pois.length;
-    const newCount = dedupPois.length || previewPois.length;
-    const confirmed = window.confirm(
-      `Voulez-vous remplacer les ${existingCount} POI(s) existants par les ${newCount} POI(s) dédoublonnés ?\n\nCette action est irréversible.`
-    );
-    if (!confirmed) return;
+    const finalPois = poisToSave ?? (dedupPois.length ? dedupPois : previewPois);
 
     setConfirming(true);
     try {
       const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: currentJobId }),
+        body: JSON.stringify({ jobId: currentJobId, validatedPois: finalPois }),
       });
       if (res.ok) {
         const data = await res.json();
         await loadPois();
         setJobStatus('completed');
         setShowPreviewModal(false);
+        setShowValidationModal(false);
         setPendingJobRawCount(null);
         alert(`✅ ${data.count} POI(s) sauvegardés avec succès !`);
       } else {
@@ -1626,15 +1655,15 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               )}
               {jobStatus === 'dedup_complete' && (
                 <button
-                  onClick={confirmSave}
-                  disabled={confirming}
-                  className="flex items-center gap-1.5 px-4 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  onClick={() => {
+                    setValidationPois(dedupPois);
+                    setExcludedPoiIds(new Set());
+                    setShowValidationModal(true);
+                    setShowPreviewModal(false);
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
                 >
-                  {confirming ? (
-                    <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Sauvegarde...</>
-                  ) : (
-                    <>✅ Valider et remplacer ({dedupPois.length} POIs)</>
-                  )}
+                  ✅ Valider la liste ({dedupPois.length} POIs)
                 </button>
               )}
               <button
@@ -1648,6 +1677,249 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         </div>
       </div>
     )}
+    {/* ─── Modal de validation humaine des POIs dédoublonnés ─────────────────── */}
+    {showValidationModal && (() => {
+      const TYPE_COLORS: Record<string, { bg: string; text: string; label: string }> = {
+        POI:          { bg: 'bg-blue-100',   text: 'text-blue-800',   label: 'POI' },
+        RESTAURANT:   { bg: 'bg-orange-100', text: 'text-orange-800', label: 'Restaurant' },
+        HOTEL:        { bg: 'bg-purple-100', text: 'text-purple-800', label: 'Hôtel' },
+        ACTIVITE:     { bg: 'bg-green-100',  text: 'text-green-800',  label: 'Activité' },
+        SHOPPING:     { bg: 'bg-pink-100',   text: 'text-pink-800',   label: 'Shopping' },
+        INSPIRATION:  { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Inspiration' },
+      };
+      const allTypes = Array.from(new Set(validationPois.map(p => p.type || 'POI'))).sort();
+      const activePois = validationPois.filter(p => !excludedPoiIds.has(p.poi_id));
+      const filteredPois = validationPois.filter(p => {
+        const matchesType = validationTypeFilter === 'all' || p.type === validationTypeFilter;
+        const matchesSearch = !validationSearch.trim()
+          || p.nom?.toLowerCase().includes(validationSearch.toLowerCase())
+          || p.article_source?.toLowerCase().includes(validationSearch.toLowerCase());
+        return matchesType && matchesSearch;
+      });
+      const excludedInView = filteredPois.filter(p => excludedPoiIds.has(p.poi_id)).length;
+      const activeInView = filteredPois.length - excludedInView;
+
+      const toggleExclude = (poiId: string) => {
+        setExcludedPoiIds(prev => {
+          const next = new Set(prev);
+          if (next.has(poiId)) next.delete(poiId); else next.add(poiId);
+          return next;
+        });
+      };
+      const excludeAll = () => setExcludedPoiIds(new Set(filteredPois.map(p => p.poi_id)));
+      const restoreAll = () => setExcludedPoiIds(prev => {
+        const next = new Set(prev);
+        filteredPois.forEach(p => next.delete(p.poi_id));
+        return next;
+      });
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col mx-4">
+
+            {/* ── En-tête ── */}
+            <div className="flex items-start justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <span>🔍</span> Validation de la liste des POIs
+                </h2>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  Revoyez chaque entrée avant de confirmer. Les lignes supprimées ne seront pas sauvegardées.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowValidationModal(false)}
+                className="text-gray-400 hover:text-gray-600 text-2xl leading-none px-1 mt-0.5"
+              >×</button>
+            </div>
+
+            {/* ── Bandeau statistiques ── */}
+            <div className="flex items-center gap-5 px-6 py-3 bg-gray-50 border-b border-gray-200 flex-shrink-0 flex-wrap">
+              <div className="flex items-center gap-1.5 text-sm">
+                <span className="w-2.5 h-2.5 rounded-full bg-gray-400 inline-block" />
+                <span className="text-gray-500">Bruts :</span>
+                <span className="font-semibold text-gray-700">{previewPois.length}</span>
+              </div>
+              <span className="text-gray-300">→</span>
+              <div className="flex items-center gap-1.5 text-sm">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-400 inline-block" />
+                <span className="text-gray-500">Après dédup :</span>
+                <span className="font-semibold text-blue-700">{validationPois.length}</span>
+                {previewPois.length > 0 && (
+                  <span className="text-xs text-gray-400">
+                    (−{previewPois.length - validationPois.length} doublons)
+                  </span>
+                )}
+              </div>
+              <span className="text-gray-300">→</span>
+              <div className="flex items-center gap-1.5 text-sm">
+                <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" />
+                <span className="text-gray-500">Sélectionnés :</span>
+                <span className="font-bold text-green-700">{activePois.length}</span>
+                {excludedPoiIds.size > 0 && (
+                  <span className="ml-1 text-xs text-red-500">(−{excludedPoiIds.size} retirés)</span>
+                )}
+              </div>
+            </div>
+
+            {/* ── Filtres ── */}
+            <div className="flex items-center gap-3 px-6 py-3 border-b border-gray-100 flex-shrink-0 flex-wrap">
+              <input
+                type="text"
+                value={validationSearch}
+                onChange={e => setValidationSearch(e.target.value)}
+                placeholder="Rechercher par nom ou source…"
+                className="flex-1 min-w-48 px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <div className="flex items-center gap-1 flex-shrink-0 flex-wrap">
+                <button
+                  onClick={() => setValidationTypeFilter('all')}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${validationTypeFilter === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                >
+                  Tous ({validationPois.length})
+                </button>
+                {allTypes.map(type => {
+                  const c = TYPE_COLORS[type] ?? { bg: 'bg-gray-100', text: 'text-gray-700', label: type };
+                  const count = validationPois.filter(p => p.type === type).length;
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => setValidationTypeFilter(type === validationTypeFilter ? 'all' : type)}
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${validationTypeFilter === type ? `${c.bg} ${c.text} ring-2 ring-offset-1 ring-current` : `${c.bg} ${c.text} hover:opacity-80`}`}
+                    >
+                      {c.label} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-2 ml-auto flex-shrink-0">
+                <button onClick={restoreAll} className="text-xs text-blue-600 hover:text-blue-800 underline">Tout restaurer</button>
+                <span className="text-gray-300">|</span>
+                <button onClick={excludeAll} className="text-xs text-red-500 hover:text-red-700 underline">Tout exclure</button>
+                <span className="text-gray-400 text-xs ml-1">{activeInView}/{filteredPois.length} visibles</span>
+              </div>
+            </div>
+
+            {/* ── Liste scrollable ── */}
+            <div className="overflow-y-auto flex-1">
+              {filteredPois.length === 0 ? (
+                <div className="flex items-center justify-center h-32 text-gray-400 text-sm">
+                  Aucun POI ne correspond aux filtres.
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-white border-b border-gray-200 z-10">
+                    <tr className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      <th className="px-4 py-2 w-8"></th>
+                      <th className="px-4 py-2">Nom</th>
+                      <th className="px-4 py-2 w-32">Type</th>
+                      <th className="px-4 py-2">Source article</th>
+                      <th className="px-4 py-2 w-28">Mentions</th>
+                      <th className="px-4 py-2 w-12 text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredPois.map((poi, idx) => {
+                      const isExcluded = excludedPoiIds.has(poi.poi_id);
+                      const c = TYPE_COLORS[poi.type] ?? { bg: 'bg-gray-100', text: 'text-gray-700', label: poi.type };
+                      const extraMentions = poi.autres_articles_mentions?.length || 0;
+                      return (
+                        <tr
+                          key={poi.poi_id}
+                          className={`border-b border-gray-50 transition-colors ${isExcluded ? 'bg-red-50 opacity-50' : idx % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-gray-50/50 hover:bg-gray-50'}`}
+                        >
+                          <td className="px-4 py-2 text-center text-xs text-gray-300">{idx + 1}</td>
+                          <td className="px-4 py-2">
+                            <span className={`font-medium ${isExcluded ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+                              {poi.nom}
+                            </span>
+                            {extraMentions > 0 && !isExcluded && (
+                              <span
+                                className="ml-2 text-xs text-gray-400 cursor-default"
+                                title={poi.autres_articles_mentions.join(', ')}
+                              >
+                                +{extraMentions} source{extraMentions > 1 ? 's' : ''}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${c.bg} ${c.text}`}>
+                              {c.label}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-gray-500 truncate max-w-xs" title={poi.article_source}>
+                            {poi.article_source || '—'}
+                          </td>
+                          <td className="px-4 py-2">
+                            <span className={`text-xs ${poi.mentions === 'principal' ? 'text-green-700 font-medium' : 'text-gray-400'}`}>
+                              {poi.mentions === 'principal' ? '★ Principal' : 'Secondaire'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-center">
+                            <button
+                              onClick={() => toggleExclude(poi.poi_id)}
+                              title={isExcluded ? 'Restaurer ce POI' : 'Exclure ce POI'}
+                              className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${isExcluded ? 'bg-blue-100 text-blue-600 hover:bg-blue-200' : 'bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600'}`}
+                            >
+                              {isExcluded ? (
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
+                                </svg>
+                              ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                                  <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C9.327 4.025 10.157 4 11 4h-1zm-2.5 9a.75.75 0 011.5 0v3a.75.75 0 01-1.5 0v-3zm4.5 0a.75.75 0 011.5 0v3a.75.75 0 01-1.5 0v-3z" clipRule="evenodd" />
+                                </svg>
+                              )}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* ── Footer ── */}
+            <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between flex-shrink-0 bg-gray-50 rounded-b-2xl gap-4">
+              <div className="text-sm text-gray-600">
+                {excludedPoiIds.size > 0 ? (
+                  <span>
+                    <span className="font-semibold text-red-600">{excludedPoiIds.size} POI{excludedPoiIds.size > 1 ? 's' : ''} exclus</span>
+                    {' — '}
+                    <span className="font-semibold text-green-700">{activePois.length} seront sauvegardés</span>
+                  </span>
+                ) : (
+                  <span>
+                    <span className="font-semibold text-green-700">{activePois.length} POIs</span> prêts à être sauvegardés
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowValidationModal(false)}
+                  className="px-4 py-2 text-sm text-gray-600 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={() => confirmSave(activePois)}
+                  disabled={confirming || activePois.length === 0}
+                  className="flex items-center gap-2 px-5 py-2 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                >
+                  {confirming ? (
+                    <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Sauvegarde…</>
+                  ) : (
+                    <>✅ Confirmer et sauvegarder ({activePois.length} POIs)</>
+                  )}
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      );
+    })()}
     </>
   );
 }

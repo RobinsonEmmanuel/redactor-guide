@@ -304,11 +304,11 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
    * POST /guides/:guideId/pois/confirm
    * Remplace pois_selection par les POIs dédoublonnés du job (après confirmation utilisateur).
    */
-  fastify.post<{ Params: { guideId: string }; Body: { jobId: string } }>(
+  fastify.post<{ Params: { guideId: string }; Body: { jobId: string; validatedPois?: any[] } }>(
     '/guides/:guideId/pois/confirm',
     async (request, reply) => {
       const { guideId } = request.params;
-      const { jobId } = request.body as { jobId: string };
+      const { jobId, validatedPois } = request.body as { jobId: string; validatedPois?: any[] };
 
       try {
         if (!ObjectId.isValid(jobId)) return reply.code(400).send({ error: 'Job ID invalide' });
@@ -316,7 +316,10 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
         const job = await db.collection('pois_generation_jobs').findOne({ _id: new ObjectId(jobId) });
         if (!job) return reply.code(404).send({ error: 'Job non trouvé' });
 
-        const rawDedupPois: any[] = job.deduplicated_pois || job.preview_pois || [];
+        // Si une liste validée est fournie par l'UI, on l'utilise directement
+        const rawDedupPois: any[] = validatedPois?.length
+          ? validatedPois
+          : (job.deduplicated_pois || job.preview_pois || []);
         if (rawDedupPois.length === 0) return reply.code(400).send({ error: 'Aucun POI à sauvegarder' });
 
         const pois = rawDedupPois.map((poi: any) => ({

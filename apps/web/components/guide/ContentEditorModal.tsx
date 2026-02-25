@@ -835,19 +835,6 @@ export default function ContentEditorModal({
     );
   }
 
-  // ─── Calcul synthèse validation ──────────────────────────────────────────────
-  const validationSummary = (() => {
-    if (!validationReport?.results) return null;
-    const fact = { valid: 0, invalid: 0, uncertain: 0 };
-    const art = { present: 0, partial: 0, absent: 0, not_checked: 0 };
-    for (const r of validationReport.results) {
-      fact[r.status as keyof typeof fact] = (fact[r.status as keyof typeof fact] || 0) + 1;
-      const ac = r.article_consistency || 'not_checked';
-      art[ac as keyof typeof art] = (art[ac as keyof typeof art] || 0) + 1;
-    }
-    return { fact, art, hasArticleCheck: art.present + art.partial + art.absent > 0 };
-  })();
-
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
@@ -922,68 +909,6 @@ export default function ContentEditorModal({
 
         {/* ── Zone scrollable : résumé validation + formulaire ──────────────── */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-auto">
-
-          {/* Bandeau résumé validation (affiché une fois la validation terminée) */}
-          {validationSummary && (
-            <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-3 flex flex-wrap items-center gap-4 shadow-sm">
-              {/* Véracité web */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Véracité</span>
-                <div className="flex gap-1">
-                  {validationSummary.fact.valid > 0 && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">✅ {validationSummary.fact.valid}</span>
-                  )}
-                  {validationSummary.fact.invalid > 0 && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">❌ {validationSummary.fact.invalid}</span>
-                  )}
-                  {validationSummary.fact.uncertain > 0 && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">⚠️ {validationSummary.fact.uncertain}</span>
-                  )}
-                </div>
-              </div>
-
-              {/* Cohérence article */}
-              {validationSummary.hasArticleCheck && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Article</span>
-                  <div className="flex gap-1">
-                    {validationSummary.art.present > 0 && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-700">📄 {validationSummary.art.present}</span>
-                    )}
-                    {validationSummary.art.partial > 0 && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">📝 {validationSummary.art.partial}</span>
-                    )}
-                    {validationSummary.art.absent > 0 && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">🔍 {validationSummary.art.absent}</span>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Sources Google */}
-              {validationReport?.grounding_sources?.length > 0 && (
-                <div className="flex items-center gap-2 ml-auto flex-wrap">
-                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Sources</span>
-                  {validationReport.grounding_sources.slice(0, 5).map((s: any, i: number) => (
-                    <a key={i} href={s.uri} target="_blank" rel="noopener noreferrer"
-                      title={s.title || s.uri}
-                      className="text-xs text-blue-500 hover:text-blue-700 hover:underline bg-blue-50 px-1.5 py-0.5 rounded">
-                      [{i + 1}] {s.display_name || s.title || s.uri}
-                    </a>
-                  ))}
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setValidationReport(null)}
-                className="ml-auto text-gray-300 hover:text-gray-500 transition-colors"
-                title="Fermer le résumé"
-              >
-                <XMarkIcon className="h-4 w-4" />
-              </button>
-            </div>
-          )}
 
           {/* Champs du formulaire */}
           <div className="px-6 py-6 max-w-3xl mx-auto">

@@ -512,9 +512,13 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     cluster_name: '',
   });
 
+  // Job en attente détecté au chargement (reprise après rafraîchissement)
+  const [pendingJobRawCount, setPendingJobRawCount] = useState<number | null>(null);
+
   useEffect(() => {
     loadPois();
     loadMatching();
+    checkForPendingJob();
   }, [guideId]);
 
   const loadPois = async () => {
@@ -546,6 +550,32 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     }
   };
 
+  // Vérifie au montage si un job est en attente d'action (extraction_complete / dedup_complete)
+  const checkForPendingJob = async () => {
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/latest-job`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.job) {
+        const { jobId, status, raw_count, preview_pois, preview_batches,
+                classification_log, mono_count, multi_count, excluded_count,
+                deduplicated_pois } = data.job;
+        setPendingJobRawCount(raw_count || preview_pois.length);
+        setCurrentJobId(jobId);
+        setJobStatus(status);
+        if (preview_pois.length) setPreviewPois(preview_pois);
+        if (preview_batches.length) setPreviewBatches(preview_batches);
+        if (classification_log.length) setClassificationLog(classification_log);
+        if (mono_count !== null) setMonoCount(mono_count);
+        if (multi_count !== null) setMultiCount(multi_count);
+        if (excluded_count !== null) setExcludedCount(excluded_count);
+        if (deduplicated_pois.length) setDedupPois(deduplicated_pois);
+      }
+    } catch (err) {
+      console.error('Erreur vérification job en attente:', err);
+    }
+  };
+
   const generatePoisFromArticles = async () => {
     setGenerating(true);
     setPreviewPois([]);
@@ -558,6 +588,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     setDedupPois([]);
     setJobStatus(null);
     setCurrentJobId(null);
+    setPendingJobRawCount(null);
     setGeneratingProgress('Initialisation...');
     setShowPreviewModal(true);
 
@@ -678,6 +709,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         await loadPois();
         setJobStatus('completed');
         setShowPreviewModal(false);
+        setPendingJobRawCount(null);
         alert(`✅ ${data.count} POI(s) sauvegardés avec succès !`);
       } else {
         const err = await res.json().catch(() => ({}));
@@ -998,6 +1030,18 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                 </>
               )}
             </button>
+
+            {/* Bouton de reprise si un job est en attente après rafraîchissement */}
+            {pendingJobRawCount !== null && !generating && !showPreviewModal && (
+              <button
+                onClick={() => setShowPreviewModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-600 text-xs font-medium transition-colors animate-pulse"
+                title="Une extraction est en attente de dédoublonnage"
+              >
+                <ArrowPathIcon className="w-3.5 h-3.5" />
+                Reprendre ({pendingJobRawCount} POIs)
+              </button>
+            )}
 
             <button
               onClick={launchMatching}

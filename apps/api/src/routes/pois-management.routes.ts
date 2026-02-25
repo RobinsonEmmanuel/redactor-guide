@@ -143,6 +143,51 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * GET /guides/:guideId/pois/latest-job
+   * Retourne le job le plus récent nécessitant une action (extraction_complete, deduplicating, dedup_complete)
+   * Permet de reprendre le workflow après un rafraîchissement de page.
+   */
+  fastify.get<{ Params: { guideId: string } }>(
+    '/guides/:guideId/pois/latest-job',
+    async (request, reply) => {
+      const { guideId } = request.params;
+      try {
+        const job = await db.collection('pois_generation_jobs').findOne(
+          {
+            guide_id: guideId,
+            status: { $in: ['extraction_complete', 'deduplicating', 'dedup_complete'] },
+          },
+          { sort: { created_at: -1 } }
+        );
+
+        if (!job) {
+          return reply.send({ job: null });
+        }
+
+        return reply.send({
+          job: {
+            jobId: job._id.toString(),
+            status: job.status,
+            raw_count: job.raw_count || job.preview_pois?.length || 0,
+            preview_pois: job.preview_pois || [],
+            preview_batches: job.preview_batches || [],
+            classification_log: job.classification_log || [],
+            mono_count: job.mono_count ?? null,
+            multi_count: job.multi_count ?? null,
+            excluded_count: job.excluded_count ?? null,
+            deduplicated_pois: job.deduplicated_pois || [],
+            created_at: job.created_at,
+            updated_at: job.updated_at,
+          },
+        });
+      } catch (error: any) {
+        console.error('❌ [POIs] Erreur latest-job:', error);
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
+
+  /**
    * GET /guides/:guideId/pois/job-status/:jobId
    * Vérifie le statut d'un job de génération POIs
    */

@@ -1122,7 +1122,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
               fieldType: PICTO_TYPE,
             });
           } else {
-            if (val.trim().length < 10) continue;
+            if (val.trim().length < 2) continue;
             if (fieldDef && !TEXT_TYPES.has(fieldType)) continue;
             fieldsToValidate.push({
               name: key,

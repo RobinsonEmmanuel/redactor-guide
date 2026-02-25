@@ -1063,11 +1063,6 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       const { content, poi_name } = request.body;
 
       try {
-        const geminiApiKey = process.env.GEMINI_API_KEY;
-        if (!geminiApiKey) {
-          return reply.code(503).send({ error: 'GEMINI_API_KEY non configurée' });
-        }
-
         // Récupérer le guide (pour la destination) et la page (pour le template)
         const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
         const destination: string = guide?.destination ?? 'destination inconnue';
@@ -1141,15 +1136,42 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           return reply.code(400).send({ error: 'Aucun champ textuel à valider dans ce contenu' });
         }
 
-        const { GeminiService } = await import('../services/gemini.service');
-        const gemini = new GeminiService(geminiApiKey);
+        const perplexityApiKey = process.env.PERPLEXITY_API_KEY;
+        if (!perplexityApiKey) {
+          return reply.code(503).send({ error: 'PERPLEXITY_API_KEY non configurée' });
+        }
+
+        const { PerplexityService } = await import('../services/perplexity.service');
+        const perplexity = new PerplexityService(perplexityApiKey, 'sonar');
 
         const name = poi_name || page.titre || 'POI';
-        console.log(`🔍 [VALIDATE] Validation Gemini Search Grounding de "${name}" (${fieldsToValidate.length} champs)`);
 
-        // ── 1. Validation factuelle via Gemini + Search Grounding (en parallèle avec la récup article) ──
+        // ── Charger le prompt Perplexity depuis la DB ─────────────────────────
+        const PROMPT_ID_FACTUEL = process.env.PROMPT_ID_FACTUEL ?? 'validation_factuelle_poi';
+        const factuelPromptDoc = await db.collection('prompts').findOne({ prompt_id: PROMPT_ID_FACTUEL });
+
+        const fieldsText = fieldsToValidate.map(f => `- ${f.label} (${f.name}) : "${f.value}"`).join('\n');
+        const nomsChamps = fieldsToValidate.map(f => `"${f.name}"`).join(', ');
+
+        let renderedPrompt: string;
+        if (factuelPromptDoc?.texte_prompt) {
+          // replaceVariables via une fonction locale (OpenAIService non disponible ici sans instance)
+          renderedPrompt = factuelPromptDoc.texte_prompt
+            .replace(/\{\{NOM_POI\}\}/g, name)
+            .replace(/\{\{DESTINATION\}\}/g, destination)
+            .replace(/\{\{CHAMPS_A_VERIFIER\}\}/g, fieldsText)
+            .replace(/\{\{NOMS_CHAMPS\}\}/g, nomsChamps);
+          console.log(`📋 [VALIDATE] Prompt factuel chargé depuis DB (${PROMPT_ID_FACTUEL})`);
+        } else {
+          console.warn(`⚠️ [VALIDATE] Prompt factuel non trouvé (id: ${PROMPT_ID_FACTUEL}), fallback`);
+          renderedPrompt = `Tu es un fact-checker. Vérifie chaque information sur "${name}" (${destination}) via tes sources web. NE PAS utiliser canarias-lovers.com.\n\n${fieldsText}\n\nRetourne UNIQUEMENT du JSON : {"results":[{"field":"...","label":"...","value":"...","status":"valid|invalid|uncertain","validated_points":[{"point":"...","source_ref":1}],"invalid_points":[{"point":"...","correction":"...","source_ref":1}],"comment":"..."}]}`;
+        }
+
+        console.log(`🔍 [VALIDATE] Validation Perplexity Sonar de "${name}" (${fieldsToValidate.length} champs)`);
+
+        // ── 1. Validation factuelle Perplexity + récupération article en parallèle ──
         const [report, articleDoc] = await Promise.all([
-          gemini.validatePageContent(name, destination, fieldsToValidate),
+          perplexity.validatePageContent(renderedPrompt),
           page.url_source
             ? db.collection('articles_raw').findOne({ 'urls_by_lang.fr': page.url_source })
             : Promise.resolve(null),

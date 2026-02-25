@@ -1136,32 +1136,24 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
 
               // Tronquer le markdown article pour rester dans le contexte (8000 chars max)
               const articleExcerpt = (articleDoc.markdown as string).substring(0, 8000);
-
               const fieldsJson = fieldsToValidate.map(f => `- ${f.label} (${f.name}): "${f.value}"`).join('\n');
 
-              const consistencyPrompt = `Tu es un éditeur vérifiant la cohérence entre un contenu rédigé et son article source.
+              // ── Charger le prompt depuis la collection (fallback intégré si absent) ──
+              const PROMPT_ID_CONSISTENCY = process.env.PROMPT_ID_CONSISTENCY ?? 'validation_coherence_article';
+              const consistencyPromptDoc = await db.collection('prompts').findOne({ prompt_id: PROMPT_ID_CONSISTENCY });
 
-Article source (contenu WordPress) :
----
-${articleExcerpt}
----
-
-Contenu rédigé pour la fiche "${name}" :
-${fieldsJson}
-
-RÈGLE IMPORTANTE : tu évalues si ce qui est ÉCRIT dans chaque champ est fidèle à l'article source.
-Tu ne demandes PAS si le champ est exhaustif ou s'il cite tout l'article.
-Un champ court (ex : un nom, une adresse) est "present" dès qu'on peut le retrouver ou le déduire de l'article.
-
-- "present" : les informations écrites dans le champ sont confirmées par l'article source
-- "partial" : une partie est confirmée, une autre semble approximative ou légèrement différente  
-- "absent" : les informations écrites dans le champ sont introuvables dans l'article (inventées ou hors-source)
-
-Pour "article_excerpt" : cite la phrase de l'article qui correspond au champ (ou null si absent).
-Pour "article_comment" : explique brièvement POURQUOI tu as choisi ce statut (max 80 caractères).
-
-Retourne UNIQUEMENT ce JSON :
-{ "consistency": [{ "field": "nom_du_champ", "article_consistency": "present|partial|absent", "article_excerpt": "citation courte de l'article source ou null", "article_comment": "explication max 80 caractères" }] }`;
+              let consistencyPrompt: string;
+              if (consistencyPromptDoc?.texte_prompt) {
+                consistencyPrompt = openai.replaceVariables(consistencyPromptDoc.texte_prompt, {
+                  ARTICLE_SOURCE: articleExcerpt,
+                  NOM_POI: name,
+                  CHAMPS_REDIGES: fieldsJson,
+                });
+                console.log(`📋 [VALIDATE] Prompt cohérence chargé depuis DB (${PROMPT_ID_CONSISTENCY})`);
+              } else {
+                console.warn(`⚠️ [VALIDATE] Prompt cohérence non trouvé en DB (id: ${PROMPT_ID_CONSISTENCY}), utilisation du fallback`);
+                consistencyPrompt = `Tu es un éditeur vérifiant la cohérence entre un contenu rédigé et son article source.\n\nArticle source :\n---\n${articleExcerpt}\n---\n\nContenu rédigé pour "${name}" :\n${fieldsJson}\n\nÉvalue si ce qui est ÉCRIT dans chaque champ est confirmé par l'article (present/partial/absent).\n\nRetourne UNIQUEMENT ce JSON :\n{ "consistency": [{ "field": "nom_du_champ", "article_consistency": "present|partial|absent", "article_excerpt": "citation ou null", "article_comment": "explication max 80 caractères" }] }`;
+              }
 
               const consistencyResult = await openai.generateJSON(consistencyPrompt, 6000);
 

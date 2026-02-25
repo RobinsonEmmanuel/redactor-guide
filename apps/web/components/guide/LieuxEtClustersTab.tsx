@@ -626,9 +626,11 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             setJobStatus(status.status);
 
             if (status.status === 'dedup_complete') {
-              // Le worker de dédup a terminé : récupérer les POIs dédoublonnés
+              // Le worker de dédup a terminé (via le polling de génération)
+              clearInterval(pollInterval);
               if (status.deduplicated_pois?.length) setDedupPois(status.deduplicated_pois);
               setDeduplicating(false);
+              setPendingJobRawCount(null);
             } else if (status.status === 'extraction_complete') {
               clearInterval(pollInterval);
               setGeneratingProgress(null);
@@ -669,8 +671,9 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     if (!currentJobId) return;
     setDeduplicating(true);
     setDedupPois([]);
+
     try {
-      // Déclenche le worker via QStash — réponse immédiate, le polling prend la suite
+      // Déclenche le worker via QStash — réponse immédiate
       const res = await authFetch(
         `${apiUrl}/api/v1/guides/${guideId}/pois/jobs/${currentJobId}/deduplicate`,
         { method: 'POST' }
@@ -679,8 +682,44 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         const err = await res.json().catch(() => ({}));
         alert(`❌ Erreur dédoublonnage: ${err.error || 'Erreur inconnue'}`);
         setDeduplicating(false);
+        return;
       }
-      // Le statut 'deduplicating' sera détecté par le polling → setDeduplicating(false) quand dedup_complete
+
+      // Polling dédié — indépendant du polling d'extraction
+      const jobId = currentJobId;
+      const dedupPoll = setInterval(async () => {
+        try {
+          const checkRes = await authFetch(
+            `${apiUrl}/api/v1/guides/${guideId}/pois/job-status/${jobId}`
+          );
+          if (!checkRes.ok) return;
+          const status = await checkRes.json();
+          setJobStatus(status.status);
+
+          if (status.status === 'dedup_complete') {
+            clearInterval(dedupPoll);
+            if (status.deduplicated_pois?.length) setDedupPois(status.deduplicated_pois);
+            setDeduplicating(false);
+            setPendingJobRawCount(null);
+          } else if (status.status === 'failed' || status.status === 'cancelled') {
+            clearInterval(dedupPoll);
+            setDeduplicating(false);
+            alert(`❌ Dédoublonnage échoué: ${status.error || 'Erreur inconnue'}`);
+          }
+        } catch (pollErr) {
+          console.error('Erreur polling dédup:', pollErr);
+        }
+      }, 3000);
+
+      // Timeout de sécurité : 10 minutes
+      setTimeout(() => {
+        clearInterval(dedupPoll);
+        if (deduplicating) {
+          setDeduplicating(false);
+          alert('⏱️ Timeout dédoublonnage — vérifiez les logs Railway et rechargez la page.');
+        }
+      }, 10 * 60 * 1000);
+
     } catch (err) {
       console.error('Erreur dédup:', err);
       alert('Erreur lors du dédoublonnage');

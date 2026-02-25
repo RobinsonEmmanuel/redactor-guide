@@ -598,6 +598,113 @@ Retourne STRICTEMENT un JSON valide sans texte additionnel :
     const db = request.server.container.db;
     const { guideId, jobId } = request.body as { guideId: string; jobId: string };
 
+    // ─── Helpers ────────────────────────────────────────────────────────────────
+
+    /** Normalise un nom pour comparaison : minuscules, sans accents, sans ponctuation */
+    function normalizeName(s: string): string {
+      return s.toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // supprime les accents
+        .replace(/[^a-z0-9 ]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    /** Distance de Levenshtein entre deux chaînes */
+    function levenshtein(a: string, b: string): number {
+      const m = a.length, n = b.length;
+      const d: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+        Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+      );
+      for (let i = 1; i <= m; i++)
+        for (let j = 1; j <= n; j++)
+          d[i][j] = a[i-1] === b[j-1] ? d[i-1][j-1] : 1 + Math.min(d[i-1][j], d[i][j-1], d[i-1][j-1]);
+      return d[m][n];
+    }
+
+    /**
+     * Phase 1 : déduplication algorithmique pure, sans LLM.
+     *
+     * Fusionne les POIs dont :
+     *  (a) le nom normalisé est identique (doublons exacts)
+     *  (b) la distance de Levenshtein entre noms normalisés est ≤ 2
+     *  (c) l'un des noms normalisés est entièrement contenu dans l'autre
+     *      ET les deux partagent le même premier mot significatif (≥ 4 chars)
+     *
+     * Pour chaque groupe, le POI conservé est celui qui possède le nom le plus court
+     * (le plus canonique) et les autres_articles_mentions sont consolidés.
+     */
+    function deduplicateAlgorithmically(pois: any[]): { pois: any[]; groups: string[][] } {
+      const norms = pois.map(p => normalizeName(p.nom));
+      const n = pois.length;
+      const parent = Array.from({ length: n }, (_, i) => i);
+
+      function find(i: number): number {
+        if (parent[i] !== i) parent[i] = find(parent[i]);
+        return parent[i];
+      }
+      function union(i: number, j: number) {
+        parent[find(i)] = find(j);
+      }
+
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const ni = norms[i], nj = norms[j];
+
+          // (a) identiques
+          if (ni === nj) { union(i, j); continue; }
+
+          // (b) Levenshtein ≤ 2 (seuil adaptatif selon longueur)
+          const maxLen = Math.max(ni.length, nj.length);
+          const threshold = maxLen <= 10 ? 1 : 2;
+          if (levenshtein(ni, nj) <= threshold) { union(i, j); continue; }
+
+          // (c) l'un contient l'autre + même premier mot significatif
+          const firstWordI = ni.split(' ').find((w: string) => w.length >= 4) ?? '';
+          const firstWordJ = nj.split(' ').find((w: string) => w.length >= 4) ?? '';
+          if (firstWordI && firstWordI === firstWordJ && (ni.includes(nj) || nj.includes(ni))) {
+            union(i, j);
+          }
+        }
+      }
+
+      // Construire les groupes
+      const groups: Map<number, number[]> = new Map();
+      for (let i = 0; i < n; i++) {
+        const root = find(i);
+        if (!groups.has(root)) groups.set(root, []);
+        groups.get(root)!.push(i);
+      }
+
+      const fusedPois: any[] = [];
+      const fusionGroups: string[][] = [];
+
+      for (const members of groups.values()) {
+        // Choisir le représentant : nom le plus court (le plus canonique)
+        const sorted = members.sort((a, b) => pois[a].nom.length - pois[b].nom.length);
+        const rep = pois[sorted[0]];
+
+        // Consolider les mentions
+        const allMentions = new Set<string>([
+          ...(rep.autres_articles_mentions || []),
+          ...sorted.slice(1).flatMap((idx: number) => pois[idx].autres_articles_mentions || []),
+        ]);
+        if (rep.article_source) allMentions.delete(rep.article_source);
+
+        fusedPois.push({
+          ...rep,
+          autres_articles_mentions: Array.from(allMentions),
+        });
+
+        if (members.length > 1) {
+          fusionGroups.push(members.map((idx: number) => pois[idx].nom));
+        }
+      }
+
+      return { pois: fusedPois, groups: fusionGroups };
+    }
+
+    // ─── Worker ─────────────────────────────────────────────────────────────────
+
     try {
       console.log(`🔄 [WORKER-DEDUP] Dédoublonnage job ${jobId}`);
 
@@ -610,17 +717,28 @@ Retourne STRICTEMENT un JSON valide sans texte additionnel :
       const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
       const destination: string = guide?.destination ?? '';
 
+      // ── Phase 1 : déduplication algorithmique ─────────────────────────────────
+      const { pois: afterAlgo, groups: algoGroups } = deduplicateAlgorithmically(rawPois);
+      const removedAlgo = rawPois.length - afterAlgo.length;
+      console.log(`🔢 [WORKER-DEDUP] Phase 1 algo : ${afterAlgo.length} POIs (${removedAlgo} fusionnés)`);
+      if (algoGroups.length > 0) {
+        algoGroups.slice(0, 20).forEach(g =>
+          console.log(`  ↳ fusionné : ${g.join(' | ')}`)
+        );
+      }
+
+      // ── Phase 2 : LLM sur les POIs restants ──────────────────────────────────
       const openaiApiKey = process.env.OPENAI_API_KEY;
       if (!openaiApiKey) throw new Error('OPENAI_API_KEY non configurée');
 
       const { OpenAIService } = await import('../services/openai.service');
-      const openaiService = new OpenAIService({ apiKey: openaiApiKey, model: 'gpt-5-mini', reasoningEffort: 'low' });
+      // reasoningEffort 'medium' pour un meilleur résultat maintenant que le volume est réduit
+      const openaiService = new OpenAIService({ apiKey: openaiApiKey, model: 'gpt-5-mini', reasoningEffort: 'medium' });
 
       const PROMPT_ID_DEDUP = process.env.PROMPT_ID_POI_DEDUP ?? 'deduplication_POI_24022026';
       const promptDedupDoc = await db.collection('prompts').findOne({ prompt_id: PROMPT_ID_DEDUP });
 
-      // Payload allégé : on n'envoie que les champs nécessaires au dédup
-      const poisCompact = rawPois.map((p: any) => ({
+      const poisCompact = afterAlgo.map((p: any) => ({
         poi_id: p.poi_id,
         nom: p.nom,
         type: p.type,
@@ -633,31 +751,42 @@ Retourne STRICTEMENT un JSON valide sans texte additionnel :
       const dedupPrompt = promptDedupDoc
         ? openaiService.replaceVariables(promptDedupDoc.texte_prompt, {
             DESTINATION: destination,
-            NB_POIS: String(rawPois.length),
+            NB_POIS: String(afterAlgo.length),
             POIS_BRUTS_JSON: poisJson,
           })
-        : `Tu es un expert en consolidation de données géographiques.
-Voici ${rawPois.length} POIs extraits d'articles sur ${destination}. Certains sont des doublons (orthographe, langues, appellations proches).
-LISTE : ${poisJson}
-1. Fusionne les doublons EXACTS (même poi_id ou nom identique)
-2. Fusionne les doublons APPROCHANTS (même lieu, noms différents)
-3. Pour chaque fusion : consolide autres_articles_mentions, garde article_source le plus représentatif
-4. Conserve TOUS les POIs uniques
-Retourne UNIQUEMENT : { "pois": [ { "poi_id": "...", "nom": "...", "type": "...", "article_source": "...", "url_source": "...", "autres_articles_mentions": [] } ] }`;
+        : `Tu es un expert en consolidation de données géographiques pour des guides de voyage.
+Voici ${afterAlgo.length} POIs pré-filtrés sur la destination "${destination}".
+Certains doublons résiduels subsistent encore. Ton rôle est de les identifier et les fusionner.
 
-      console.log(`🤖 [WORKER-DEDUP] Appel OpenAI pour ${rawPois.length} POIs...`);
+RÈGLES STRICTES :
+1. Fusionne les paires ou groupes qui désignent EXACTEMENT le même lieu physique :
+   - Noms en langues différentes (ex: "Pyramides de Güímar" = "Pyramids of Güímar")
+   - Même lieu avec préfixe/suffixe différent (ex: "Le Musée du Carnaval" = "Musée du Carnaval (Santa Cruz)")
+   - Même lieu avec article différent (ex: "Playa de Fañabé" = "Playa Fañabé")
+   - Même lieu avec/sans précision géographique (ex: "Aqualand" = "Aqualand Costa Adeje")
+2. NE PAS fusionner des lieux DISTINCTS qui partagent juste un mot commun (ex: plusieurs plages différentes)
+3. Pour chaque fusion : conserve le nom le plus précis et reconnaissable, consolide les mentions
+4. Conserve TOUS les POIs qui sont des lieux distincts même si leurs noms se ressemblent
+
+LISTE DES POIS : ${poisJson}
+
+Retourne UNIQUEMENT le JSON (sans markdown) : { "pois": [ { "poi_id": "...", "nom": "...", "type": "...", "article_source": "...", "url_source": "...", "autres_articles_mentions": [] } ] }`;
+
+      console.log(`🤖 [WORKER-DEDUP] Phase 2 LLM pour ${afterAlgo.length} POIs (réduit depuis ${rawPois.length})...`);
 
       const dedupResult = await openaiService.generateJSON(dedupPrompt, 32000);
 
-      let dedupPois: any[] = rawPois;
+      let dedupPois: any[] = afterAlgo;
       if (dedupResult.pois && Array.isArray(dedupResult.pois)) {
         dedupPois = dedupResult.pois;
       } else {
-        console.warn(`⚠️ [WORKER-DEDUP] Format inattendu, conservation des POIs bruts`);
+        console.warn(`⚠️ [WORKER-DEDUP] Phase 2 format inattendu, utilisation du résultat Phase 1`);
       }
 
-      const removed = rawPois.length - dedupPois.length;
-      console.log(`✅ [WORKER-DEDUP] ${dedupPois.length} POIs uniques (${removed} doublons supprimés)`);
+      const removedLLM = afterAlgo.length - dedupPois.length;
+      const totalRemoved = rawPois.length - dedupPois.length;
+      console.log(`✅ [WORKER-DEDUP] Phase 2 LLM : ${dedupPois.length} POIs (${removedLLM} supplémentaires)`);
+      console.log(`✅ [WORKER-DEDUP] TOTAL : ${dedupPois.length} POIs uniques (${totalRemoved} doublons sur ${rawPois.length})`);
 
       await db.collection('pois_generation_jobs').updateOne(
         { _id: new ObjectId(jobId) },
@@ -666,12 +795,14 @@ Retourne UNIQUEMENT : { "pois": [ { "poi_id": "...", "nom": "...", "type": "..."
             status: 'dedup_complete',
             deduplicated_pois: dedupPois,
             dedup_count: dedupPois.length,
+            dedup_algo_removed: removedAlgo,
+            dedup_llm_removed: removedLLM,
             updated_at: new Date(),
           },
         }
       );
 
-      return reply.send({ success: true, dedup_count: dedupPois.length, removed });
+      return reply.send({ success: true, dedup_count: dedupPois.length, removed: totalRemoved, removed_algo: removedAlgo, removed_llm: removedLLM });
 
     } catch (error: any) {
       console.error(`❌ [WORKER-DEDUP] Erreur:`, error);

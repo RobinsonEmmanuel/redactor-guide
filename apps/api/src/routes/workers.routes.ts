@@ -727,60 +727,92 @@ Retourne STRICTEMENT un JSON valide sans texte additionnel :
         );
       }
 
-      // ── Phase 2 : LLM sur les POIs restants ──────────────────────────────────
+      // ── Phase 2 : LLM par chunks (max 80 POIs / appel) ──────────────────────
       const openaiApiKey = process.env.OPENAI_API_KEY;
       if (!openaiApiKey) throw new Error('OPENAI_API_KEY non configurée');
 
       const { OpenAIService } = await import('../services/openai.service');
-      // reasoningEffort 'medium' pour un meilleur résultat maintenant que le volume est réduit
       const openaiService = new OpenAIService({ apiKey: openaiApiKey, model: 'gpt-5-mini', reasoningEffort: 'medium' });
 
       const PROMPT_ID_DEDUP = process.env.PROMPT_ID_POI_DEDUP ?? 'deduplication_POI_24022026';
       const promptDedupDoc = await db.collection('prompts').findOne({ prompt_id: PROMPT_ID_DEDUP });
 
-      const poisCompact = afterAlgo.map((p: any) => ({
-        poi_id: p.poi_id,
-        nom: p.nom,
-        type: p.type,
-        article_source: p.article_source,
-        url_source: p.url_source,
-        autres_articles_mentions: p.autres_articles_mentions,
-      }));
-      const poisJson = JSON.stringify(poisCompact);
-
-      const dedupPrompt = promptDedupDoc
-        ? openaiService.replaceVariables(promptDedupDoc.texte_prompt, {
+      /** Construit le prompt de dédup pour un sous-ensemble de POIs */
+      const buildDedupPrompt = (pois: any[]): string => {
+        const compact = pois.map((p: any) => ({
+          poi_id: p.poi_id,
+          nom: p.nom,
+          type: p.type,
+          article_source: p.article_source,
+          url_source: p.url_source,
+          autres_articles_mentions: p.autres_articles_mentions,
+        }));
+        const json = JSON.stringify(compact);
+        if (promptDedupDoc) {
+          return openaiService.replaceVariables(promptDedupDoc.texte_prompt, {
             DESTINATION: destination,
-            NB_POIS: String(afterAlgo.length),
-            POIS_BRUTS_JSON: poisJson,
-          })
-        : `Tu es un expert en consolidation de données géographiques pour des guides de voyage.
-Voici ${afterAlgo.length} POIs pré-filtrés sur la destination "${destination}".
-Certains doublons résiduels subsistent encore. Ton rôle est de les identifier et les fusionner.
+            NB_POIS: String(pois.length),
+            POIS_BRUTS_JSON: json,
+          });
+        }
+        return `Tu es un expert en consolidation de données géographiques pour des guides de voyage.
+Destination : "${destination}". Tu traites ${pois.length} POIs.
+Certains doublons résiduels subsistent. Identifie et fusionne uniquement les POIs qui désignent EXACTEMENT le même lieu physique.
 
-RÈGLES STRICTES :
-1. Fusionne les paires ou groupes qui désignent EXACTEMENT le même lieu physique :
-   - Noms en langues différentes (ex: "Pyramides de Güímar" = "Pyramids of Güímar")
-   - Même lieu avec préfixe/suffixe différent (ex: "Le Musée du Carnaval" = "Musée du Carnaval (Santa Cruz)")
-   - Même lieu avec article différent (ex: "Playa de Fañabé" = "Playa Fañabé")
-   - Même lieu avec/sans précision géographique (ex: "Aqualand" = "Aqualand Costa Adeje")
-2. NE PAS fusionner des lieux DISTINCTS qui partagent juste un mot commun (ex: plusieurs plages différentes)
-3. Pour chaque fusion : conserve le nom le plus précis et reconnaissable, consolide les mentions
-4. Conserve TOUS les POIs qui sont des lieux distincts même si leurs noms se ressemblent
+RÈGLES :
+1. Fusionne : noms en langues différentes, variantes orthographiques, même lieu avec article ou précision différente.
+2. NE PAS fusionner des lieux DISTINCTS même s'ils partagent un mot (ex: deux plages différentes).
+3. En cas de doute : conserve les deux.
+4. Ta réponse doit contenir entre ${Math.ceil(pois.length * 0.5)} et ${pois.length} POIs — jamais moins.
 
-LISTE DES POIS : ${poisJson}
+LISTE : ${json}
 
-Retourne UNIQUEMENT le JSON (sans markdown) : { "pois": [ { "poi_id": "...", "nom": "...", "type": "...", "article_source": "...", "url_source": "...", "autres_articles_mentions": [] } ] }`;
+Retourne UNIQUEMENT le JSON (sans markdown) : { "pois": [ { "poi_id": "...", "nom": "...", "type": "...", "article_source": "...", "url_source": "...", "autres_articles_mentions": [], "alias_names": [], "dedup_confidence": "certain|probable|faible" } ] }`;
+      };
 
-      console.log(`🤖 [WORKER-DEDUP] Phase 2 LLM pour ${afterAlgo.length} POIs (réduit depuis ${rawPois.length})...`);
+      /** Appelle le LLM sur un lot, avec garde-fou sur le ratio de sortie */
+      const dedupChunk = async (pois: any[], chunkLabel: string): Promise<any[]> => {
+        const result = await openaiService.generateJSON(buildDedupPrompt(pois), 16000);
+        if (!result.pois || !Array.isArray(result.pois)) {
+          console.warn(`⚠️ [WORKER-DEDUP] ${chunkLabel} — format inattendu, fallback`);
+          return pois;
+        }
+        const ratio = result.pois.length / pois.length;
+        if (ratio < 0.35) {
+          console.warn(`⚠️ [WORKER-DEDUP] ${chunkLabel} — ratio suspect (${result.pois.length}/${pois.length} = ${(ratio * 100).toFixed(0)}%), fallback`);
+          return pois;
+        }
+        console.log(`✅ [WORKER-DEDUP] ${chunkLabel} : ${pois.length} → ${result.pois.length} POIs`);
+        return result.pois;
+      };
 
-      const dedupResult = await openaiService.generateJSON(dedupPrompt, 32000);
-
+      const CHUNK_SIZE = 80;
       let dedupPois: any[] = afterAlgo;
-      if (dedupResult.pois && Array.isArray(dedupResult.pois)) {
-        dedupPois = dedupResult.pois;
+
+      if (afterAlgo.length <= CHUNK_SIZE) {
+        // ─ Cas simple : un seul appel ─────────────────────────────────────────
+        console.log(`🤖 [WORKER-DEDUP] Phase 2 LLM — ${afterAlgo.length} POIs en 1 appel`);
+        dedupPois = await dedupChunk(afterAlgo, 'Appel unique');
       } else {
-        console.warn(`⚠️ [WORKER-DEDUP] Phase 2 format inattendu, utilisation du résultat Phase 1`);
+        // ─ Cas volumeux : traitement par chunks ───────────────────────────────
+        const totalChunks = Math.ceil(afterAlgo.length / CHUNK_SIZE);
+        console.log(`🤖 [WORKER-DEDUP] Phase 2 LLM — ${afterAlgo.length} POIs en ${totalChunks} chunks de ${CHUNK_SIZE}`);
+
+        const chunkResults: any[] = [];
+        for (let i = 0; i < totalChunks; i++) {
+          const chunk = afterAlgo.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+          const label = `Chunk ${i + 1}/${totalChunks}`;
+          const chunkDeduped = await dedupChunk(chunk, label);
+          chunkResults.push(...chunkDeduped);
+        }
+
+        // ─ Passe finale si le résultat consolidé tient encore dans un chunk ──
+        if (chunkResults.length > CHUNK_SIZE) {
+          console.log(`🤖 [WORKER-DEDUP] Passe finale sur ${chunkResults.length} POIs consolidés...`);
+          dedupPois = await dedupChunk(chunkResults, 'Passe finale');
+        } else {
+          dedupPois = chunkResults;
+        }
       }
 
       const removedLLM = afterAlgo.length - dedupPois.length;

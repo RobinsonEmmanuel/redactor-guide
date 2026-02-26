@@ -24,7 +24,6 @@ interface TemplateField {
   options?: string[];
   sub_fields?: SubField[];
   max_repetitions?: number;
-  indesign_layer?: string;
   validation?: {
     required?: boolean;
     max_length?: number;
@@ -68,14 +67,6 @@ const FIELD_TYPE_COLORS: Record<TemplateField['type'], string> = {
   picto:     'bg-teal-100 text-teal-700',
   repetitif: 'bg-rose-100 text-rose-700',
 };
-
-/**
- * Le nom du calque InDesign est identique au nom du champ de template.
- * Nomme tes frames InDesign exactement comme tes champs (ex: POI_titre_1).
- */
-function deriveLayerName(fieldName: string): string {
-  return fieldName;
-}
 
 const SUB_FIELD_TYPES: Array<{ value: SubField['type']; label: string; icon: string }> = [
   { value: 'image',  label: 'Image',  icon: '🖼️' },
@@ -375,41 +366,6 @@ export default function SortableFieldItem({
               </div>
             </>
           )}
-
-          {/* Calque InDesign */}
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Calque InDesign
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={field.indesign_layer ?? ''}
-                onChange={(e) => onChange({ indesign_layer: e.target.value || undefined })}
-                placeholder={`auto → ${deriveLayerName(field.name)}`}
-                className={`flex-1 px-3 py-2 text-sm font-mono border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                  field.indesign_layer
-                    ? 'border-amber-300 bg-amber-50/30 text-amber-900'
-                    : 'border-gray-300 text-gray-400'
-                }`}
-              />
-              {field.indesign_layer && (
-                <button
-                  type="button"
-                  onClick={() => onChange({ indesign_layer: undefined })}
-                  className="px-2 py-2 text-xs text-amber-700 border border-amber-300 rounded-lg hover:bg-amber-100 shrink-0"
-                  title="Réinitialiser (utiliser le nom auto-dérivé)"
-                >
-                  ↺ Auto
-                </button>
-              )}
-            </div>
-            <p className="mt-1 text-xs text-gray-400">
-              {field.indesign_layer
-                ? `Valeur explicite — remplace l'auto-dérivé (${deriveLayerName(field.name)})`
-                : `Nom auto-dérivé depuis le nom du champ`}
-            </p>
-          </div>
 
           {/* Options spécifiques selon le type */}
           <div className="flex gap-4">

@@ -1097,54 +1097,65 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               )}
             </button>
 
-            {/* Bouton de reprise si extraction en attente */}
-            {pendingJobRawCount !== null && !generating && !deduplicating && jobStatus === 'extraction_complete' && (
+            {/* Bouton de reprise si extraction en attente — s'affiche dès qu'un job est détecté,
+                indépendamment du jobStatus exact pour éviter les blocages */}
+            {pendingJobRawCount !== null && !generating && !deduplicating && (
               <button
                 onClick={() => setShowPreviewModal(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-600 text-xs font-medium transition-colors"
-                title="Voir les POIs extraits"
+                title="Voir les POIs extraits en attente de dédoublonnage"
               >
                 <ArrowPathIcon className="w-3.5 h-3.5" />
                 Voir l'extraction ({pendingJobRawCount})
               </button>
             )}
 
-            {/* Étape 2 : Dédoublonnage */}
-            <button
-              onClick={() => {
-                if (jobStatus === 'dedup_complete' && dedupPois.length) {
-                  // Dedup déjà fait → ouvrir directement la validation
-                  setValidationPois(dedupPois);
-                  setExcludedPoiIds(new Set());
-                  setShowValidationModal(true);
-                } else if (jobStatus === 'extraction_complete' && currentJobId) {
-                  // Lancer le dédoublonnage
-                  setShowPreviewModal(true);
-                  launchDedup();
-                }
-              }}
-              disabled={!currentJobId || generating || deduplicating || (jobStatus !== 'extraction_complete' && jobStatus !== 'dedup_complete')}
-              title={
-                jobStatus === 'dedup_complete' ? 'Voir les résultats du dédoublonnage'
-                : jobStatus === 'extraction_complete' ? 'Lancer le dédoublonnage des POIs extraits'
-                : 'Disponible après l\'identification des POIs'
-              }
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed ${
-                jobStatus === 'dedup_complete'
-                  ? 'bg-green-600 text-white hover:bg-green-700'
-                  : jobStatus === 'extraction_complete'
-                  ? 'bg-teal-600 text-white hover:bg-teal-700'
-                  : 'bg-gray-200 text-gray-400'
-              }`}
-            >
-              {deduplicating ? (
-                <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Dédoublonnage...</>
-              ) : jobStatus === 'dedup_complete' ? (
-                <>✅ 2. Voir la sélection ({dedupPois.length})</>
-              ) : (
-                <>🔁 2. Dédoublonner</>
-              )}
-            </button>
+            {/* Étape 2 : Dédoublonnage
+                Actif dès qu'un jobId existe et que l'extraction est terminée (peu importe le status exact).
+                Les états terminaux (completed/failed/cancelled) désactivent le bouton. */}
+            {(() => {
+              const isTerminal = jobStatus === 'completed' || jobStatus === 'failed' || jobStatus === 'cancelled';
+              const hasJob = !!currentJobId && !generating && !deduplicating;
+              const isDedupDone = jobStatus === 'dedup_complete' && dedupPois.length > 0;
+              const canDedup = hasJob && !isTerminal && (jobStatus === 'extraction_complete' || pendingJobRawCount !== null);
+              const isEnabled = isDedupDone || canDedup;
+
+              return (
+                <button
+                  onClick={() => {
+                    if (isDedupDone) {
+                      setValidationPois(dedupPois);
+                      setExcludedPoiIds(new Set());
+                      setShowValidationModal(true);
+                    } else if (hasJob) {
+                      setShowPreviewModal(true);
+                      launchDedup();
+                    }
+                  }}
+                  disabled={!isEnabled}
+                  title={
+                    isDedupDone ? 'Voir les résultats du dédoublonnage'
+                    : canDedup ? 'Lancer le dédoublonnage des POIs extraits'
+                    : 'Disponible après l\'identification des POIs'
+                  }
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed ${
+                    isDedupDone
+                      ? 'bg-green-600 text-white hover:bg-green-700'
+                      : canDedup
+                      ? 'bg-teal-600 text-white hover:bg-teal-700'
+                      : 'bg-gray-200 text-gray-400'
+                  }`}
+                >
+                  {deduplicating ? (
+                    <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Dédoublonnage...</>
+                  ) : isDedupDone ? (
+                    <>✅ 2. Voir la sélection ({dedupPois.length})</>
+                  ) : (
+                    <>🔁 2. Dédoublonner</>
+                  )}
+                </button>
+              );
+            })()}
 
             {/* Séparateur */}
             <div className="w-px h-5 bg-gray-200" />

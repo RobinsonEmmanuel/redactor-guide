@@ -634,25 +634,25 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
     const db = request.server.container.db;
 
     try {
-      // 1. Récupérer tous les slugs d'articles liés aux POIs du guide
-      const poisDoc = await db.collection('pois_selection').findOne({ guide_id: guideId });
-      const pois: any[] = poisDoc?.pois ?? [];
+      // 1. Récupérer la destination du guide pour filtrer les articles
+      const guide = await db.collection('guides').findOne(
+        { _id: new (require('mongodb').ObjectId)(guideId) },
+        { projection: { destination: 1 } }
+      );
+      const destination: string = guide?.destination ?? '';
 
-      const slugSet = new Set<string>();
-      for (const poi of pois) {
-        if (poi.article_source) slugSet.add(poi.article_source);
-        for (const s of poi.autres_articles_mentions ?? []) slugSet.add(s);
-      }
-
-      if (slugSet.size === 0) {
-        return reply.send({ images: [], total: 0 });
-      }
-
-      // 2. Filtrer sur le titre si ?q= fourni
+      // 2. Requêter TOUS les articles de la destination ayant des images analysées
+      //    (pas seulement ceux liés aux POIs — nécessaire pour COUVERTURE, CLUSTER, etc.)
       const filter: Record<string, unknown> = {
-        slug: { $in: [...slugSet] },
         images_analysis: { $exists: true, $not: { $size: 0 } },
       };
+
+      // Filtre par destination si disponible
+      if (destination) {
+        filter.categories = { $regex: destination, $options: 'i' };
+      }
+
+      // Filtre texte sur le titre de l'article si ?q= fourni
       if (q) {
         filter.title = { $regex: q, $options: 'i' };
       }

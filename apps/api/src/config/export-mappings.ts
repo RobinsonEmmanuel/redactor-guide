@@ -20,26 +20,10 @@ export const FIELD_LAYER_MAPPINGS: Record<string, string> = {};
 
 /**
  * Mapping des champs picto vers le calque InDesign de base.
- * Priorité : field.indesign_layer (template) > ce mapping > deriveLayerName().
- * Avec la nouvelle convention, deriveLayerName retourne le nom du champ tel quel,
- * donc ce tableau n'est utile que pour les templates hérités non conformes.
+ * Vide : le calque InDesign est identique au nom du champ (ex: POI_picto_interet).
+ * Nomme tes frames picto InDesign exactement comme tes champs de template.
  */
-export const PICTO_LAYER_MAPPINGS: Record<string, string> = {
-  // Noms sémantiques
-  POI_picto_interet:     'picto_interet',
-  POI_picto_pmr:         'picto_pmr',
-  POI_picto_escaliers:   'picto_escaliers',
-  POI_picto_toilettes:   'picto_toilettes',
-  POI_picto_restauration:'picto_restauration',
-  POI_picto_famille:     'picto_famille',
-  // Noms numérotés — fallback pour templates non migrés
-  POI_picto_1: 'picto_interet',
-  POI_picto_2: 'picto_pmr',
-  POI_picto_3: 'picto_escaliers',
-  POI_picto_4: 'picto_toilettes',
-  POI_picto_5: 'picto_restauration',
-  POI_picto_6: 'picto_famille',
-};
+export const PICTO_LAYER_MAPPINGS: Record<string, string> = {};
 
 // ─── Picto value → abstract key mapping ─────────────────────────────────────
 

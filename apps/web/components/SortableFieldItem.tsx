@@ -70,20 +70,11 @@ const FIELD_TYPE_COLORS: Record<TemplateField['type'], string> = {
 };
 
 /**
- * Reproduit la logique de deriveLayerName du backend pour afficher le nom auto-dérivé
- * en placeholder dans le champ indesign_layer.
+ * Le nom du calque InDesign est identique au nom du champ de template.
+ * Nomme tes frames InDesign exactement comme tes champs (ex: POI_titre_1).
  */
 function deriveLayerName(fieldName: string): string {
-  const match = fieldName.match(/^([A-Z][A-Z0-9_]*)_(titre|texte|image|picto|meta|liste|lien)_(.+)$/i);
-  if (!match) return fieldName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
-  const [, template, typeRaw, slug] = match;
-  const tpl  = template.toLowerCase();
-  const type = typeRaw.toLowerCase();
-  const prefix: Record<string, string> = {
-    titre: 'txt', texte: 'txt', meta: 'txt', liste: 'txt',
-    lien: 'lnk', image: 'img', picto: 'picto',
-  };
-  return `${prefix[type] ?? 'txt'}_${tpl}_${slug.toLowerCase()}`;
+  return fieldName;
 }
 
 const SUB_FIELD_TYPES: Array<{ value: SubField['type']; label: string; icon: string }> = [

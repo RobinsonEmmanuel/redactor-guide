@@ -42,9 +42,11 @@ export default function ImageSelectorModal({
   const [selectedImage, setSelectedImage] = useState<string | null>(currentImageUrl || null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'relevance' | 'clarity' | 'composition'>('relevance');
+  // activeScope peut être basculé par l'utilisateur, initialisé depuis la prop scope
+  const [activeScope, setActiveScope] = useState<'page' | 'guide'>(scope);
 
-  useEffect(() => { loadImages(); }, []);
-  useEffect(() => { if (scope === 'guide') loadImages(); }, [sortBy]);
+  useEffect(() => { loadImages(); }, [activeScope]);
+  useEffect(() => { if (activeScope === 'guide') loadImages(); }, [sortBy]);
 
   const loadImages = async () => {
     setLoading(true);
@@ -54,7 +56,7 @@ export default function ImageSelectorModal({
         .find(row => row.startsWith('accessToken='))
         ?.split('=')[1];
 
-      const url = scope === 'guide'
+      const url = activeScope === 'guide'
         ? `${apiUrl}/api/v1/guides/${guideId}/images?sort=${sortBy}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ''}`
         : `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${pageId}/image-analysis`;
 
@@ -81,6 +83,13 @@ export default function ImageSelectorModal({
     loadImages();
   };
 
+  const handleScopeChange = (newScope: 'page' | 'guide') => {
+    if (newScope === activeScope) return;
+    setSearchQuery('');
+    setImages([]);
+    setActiveScope(newScope);
+  };
+
   const handleSelect = () => {
     if (selectedImage) {
       onSelect(selectedImage);
@@ -99,8 +108,8 @@ export default function ImageSelectorModal({
               <div>
                 <h2 className="text-xl font-semibold">Sélectionner une image</h2>
                 <p className="text-sm text-purple-100 mt-0.5">
-                  {scope === 'guide' ? 'Toutes les images analysées du guide' : 'Images de l\'article lié'}
-                  {' · '}{images.length} image{images.length !== 1 ? 's' : ''}
+                  {images.length} image{images.length !== 1 ? 's' : ''}
+                  {activeScope === 'guide' && searchQuery && ` · "${searchQuery}"`}
                 </p>
               </div>
             </div>
@@ -109,32 +118,59 @@ export default function ImageSelectorModal({
             </button>
           </div>
 
-          {/* Filtres (scope guide uniquement) */}
-          {scope === 'guide' && (
-            <div className="flex gap-2 mt-1">
-              <form onSubmit={handleSearch} className="flex-1 flex gap-2">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="Filtrer par article source..."
-                  className="flex-1 px-3 py-1.5 rounded-lg text-sm text-gray-900 bg-white/90 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-white/50"
-                />
-                <button type="submit" className="px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors">
-                  Filtrer
-                </button>
-              </form>
-              <select
-                value={sortBy}
-                onChange={e => setSortBy(e.target.value as any)}
-                className="px-2 py-1.5 rounded-lg text-sm text-gray-900 bg-white/90 focus:outline-none"
+          {/* Toggle source + filtres */}
+          <div className="flex flex-col gap-2">
+            {/* Toggle Article / Destination */}
+            <div className="flex bg-white/10 rounded-lg p-0.5 w-fit">
+              <button
+                onClick={() => handleScopeChange('page')}
+                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+                  activeScope === 'page'
+                    ? 'bg-white text-purple-700 shadow-sm'
+                    : 'text-white/80 hover:text-white'
+                }`}
               >
-                <option value="relevance">Pertinence</option>
-                <option value="clarity">Clarté</option>
-                <option value="composition">Composition</option>
-              </select>
+                Article lié
+              </button>
+              <button
+                onClick={() => handleScopeChange('guide')}
+                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+                  activeScope === 'guide'
+                    ? 'bg-white text-purple-700 shadow-sm'
+                    : 'text-white/80 hover:text-white'
+                }`}
+              >
+                Toute la destination
+              </button>
             </div>
-          )}
+
+            {/* Filtres recherche + tri (scope destination uniquement) */}
+            {activeScope === 'guide' && (
+              <div className="flex gap-2">
+                <form onSubmit={handleSearch} className="flex-1 flex gap-2">
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    placeholder="Filtrer par article source..."
+                    className="flex-1 px-3 py-1.5 rounded-lg text-sm text-gray-900 bg-white/90 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-white/50"
+                  />
+                  <button type="submit" className="px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors">
+                    Filtrer
+                  </button>
+                </form>
+                <select
+                  value={sortBy}
+                  onChange={e => setSortBy(e.target.value as any)}
+                  className="px-2 py-1.5 rounded-lg text-sm text-gray-900 bg-white/90 focus:outline-none"
+                >
+                  <option value="relevance">Pertinence</option>
+                  <option value="clarity">Clarté</option>
+                  <option value="composition">Composition</option>
+                </select>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Content */}
@@ -152,7 +188,11 @@ export default function ImageSelectorModal({
                 <PhotoIcon className="h-12 w-12 text-gray-300 mx-auto mb-4" />
                 <p className="text-gray-600 mb-2">Aucune image disponible</p>
                 <p className="text-sm text-gray-500">
-                  Les images de l'article n'ont pas encore été analysées
+                  {activeScope === 'page'
+                    ? "Les images de l'article n'ont pas encore été analysées"
+                    : searchQuery
+                    ? `Aucune image trouvée pour "${searchQuery}"`
+                    : "Aucune image analysée pour cette destination"}
                 </p>
               </div>
             </div>
@@ -184,8 +224,8 @@ export default function ImageSelectorModal({
                     </div>
                   )}
 
-                  {/* Source article (scope guide) */}
-                  {scope === 'guide' && image.source_article_title && !image.is_iconic_view && (
+                  {/* Source article (scope destination) */}
+                  {activeScope === 'guide' && image.source_article_title && !image.is_iconic_view && (
                     <div className="absolute bottom-2 left-2 right-2 z-10">
                       <span className="block text-[9px] font-medium bg-black/60 text-white px-1.5 py-0.5 rounded truncate">
                         {image.source_article_title}
@@ -197,7 +237,7 @@ export default function ImageSelectorModal({
                   {image.is_iconic_view && (
                     <div className="absolute bottom-2 left-2 z-10 flex flex-col gap-0.5 items-start">
                       <span className="bg-purple-600 text-white text-[10px] font-medium px-1.5 py-0.5 rounded">⭐ Iconique</span>
-                      {scope === 'guide' && image.source_article_title && (
+                      {activeScope === 'guide' && image.source_article_title && (
                         <span className="bg-black/60 text-white text-[9px] font-medium px-1.5 py-0.5 rounded max-w-[120px] truncate block">
                           {image.source_article_title}
                         </span>

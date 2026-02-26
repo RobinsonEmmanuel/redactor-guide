@@ -475,6 +475,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   
   // États modals
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [showCleanMenu, setShowCleanMenu] = useState(false);
   const [showManualModal, setShowManualModal] = useState(false);
   const [showLibraryModal, setShowLibraryModal] = useState(false);
   const [showClusterModal, setShowClusterModal] = useState(false);
@@ -791,15 +792,43 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   };
 
   const clearJobs = async () => {
-    if (!confirm('Supprimer tous les jobs de génération pour ce guide ?')) return;
+    if (!confirm('Supprimer tous les jobs de génération pour ce guide ?\nL\'identification des POIs sera perdue.')) return;
     try {
       const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/jobs`, { method: 'DELETE' });
       if (res.ok) {
         const data = await res.json();
-        alert(`✅ ${data.deleted} job(s) supprimé(s)`);
+        setCurrentJobId(null);
+        setJobStatus(null);
+        setPendingJobRawCount(null);
+        setPreviewPois([]);
+        setPreviewBatches([]);
+        setDedupPois([]);
+        alert(`✅ ${data.total} job(s) supprimé(s)`);
       }
     } catch (err) {
       console.error('Erreur nettoyage jobs:', err);
+    }
+  };
+
+  const resetDedup = async () => {
+    if (!confirm('Annuler le dédoublonnage et revenir à l\'identification ?\nLes POIs extraits sont conservés.')) return;
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/jobs/reset-dedup`, { method: 'PATCH' });
+      if (res.ok) {
+        const data = await res.json();
+        setJobStatus('extraction_complete');
+        setDedupPois([]);
+        setValidationPois([]);
+        setPendingJobRawCount(data.raw_count ?? previewPois.length);
+        setDeduplicating(false);
+        setShowValidationModal(false);
+        alert(`✅ Dédoublonnage annulé — ${data.raw_count} POIs extraits conservés`);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`❌ ${err.error || 'Erreur inconnue'}`);
+      }
+    } catch (err) {
+      console.error('Erreur reset dédup:', err);
     }
   };
 
@@ -1072,14 +1101,46 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         {/* Header — 3 étapes */}
         <div className="flex-shrink-0 bg-white border-b border-gray-200 px-4 py-2">
           <div className="flex items-center gap-2">
-            <button
-              onClick={clearJobs}
-              disabled={generating}
-              title="Nettoyer les anciens jobs de génération"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed text-xs transition-colors"
-            >
-              🧹
-            </button>
+            {/* Menu nettoyage */}
+            <div className="relative">
+              <button
+                onClick={() => setShowCleanMenu(prev => !prev)}
+                disabled={generating}
+                title="Options de nettoyage"
+                className="flex items-center gap-1 px-2.5 py-1.5 text-gray-500 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed text-xs transition-colors"
+              >
+                🧹 <ChevronDownIcon className="w-3 h-3" />
+              </button>
+              {showCleanMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowCleanMenu(false)} />
+                  <div className="absolute left-0 mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-20 py-1">
+                    <button
+                      onClick={() => { setShowCleanMenu(false); resetDedup(); }}
+                      disabled={!currentJobId || jobStatus === 'extraction_complete' || jobStatus === 'completed'}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-amber-50 transition-colors flex items-start gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <span className="mt-0.5">🔄</span>
+                      <div>
+                        <div className="font-medium text-gray-800">Annuler le dédoublonnage</div>
+                        <div className="text-gray-500 mt-0.5">Conserve les POIs extraits, relance possible</div>
+                      </div>
+                    </button>
+                    <div className="border-t border-gray-100 my-1" />
+                    <button
+                      onClick={() => { setShowCleanMenu(false); clearJobs(); }}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-red-50 transition-colors flex items-start gap-2"
+                    >
+                      <span className="mt-0.5">🗑️</span>
+                      <div>
+                        <div className="font-medium text-red-700">Tout supprimer</div>
+                        <div className="text-gray-500 mt-0.5">Supprime l'identification et le dédoublonnage</div>
+                      </div>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* Séparateur */}
             <div className="w-px h-5 bg-gray-200" />

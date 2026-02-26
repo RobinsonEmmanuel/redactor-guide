@@ -360,6 +360,40 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * PATCH /guides/:guideId/pois/jobs/reset-dedup
+   * Annule le dédoublonnage du job le plus récent et le repasse en extraction_complete,
+   * sans toucher aux POIs extraits (preview_pois / preview_batches).
+   */
+  fastify.patch<{ Params: { guideId: string } }>(
+    '/guides/:guideId/pois/jobs/reset-dedup',
+    async (request, reply) => {
+      const { guideId } = request.params;
+      try {
+        const result = await db.collection('pois_generation_jobs').findOneAndUpdate(
+          {
+            guide_id: guideId,
+            status: { $in: ['deduplicating', 'dedup_complete', 'extraction_complete'] },
+          },
+          {
+            $set: { status: 'extraction_complete', updated_at: new Date() },
+            $unset: { deduplicated_pois: '', dedup_count: '', dedup_algo_removed: '', dedup_llm_removed: '', error_dedup: '' },
+          },
+          { sort: { created_at: -1 }, returnDocument: 'after' }
+        );
+
+        if (!result) {
+          return reply.code(404).send({ error: 'Aucun job éligible trouvé' });
+        }
+
+        console.log(`🔄 [POIs] Dédoublonnage annulé pour job ${result._id} (guide ${guideId}) → extraction_complete`);
+        return reply.send({ success: true, jobId: result._id.toString(), raw_count: (result.preview_pois || []).length });
+      } catch (error: any) {
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
+
+  /**
    * DELETE /guides/:guideId/pois/jobs
    * Supprime tous les jobs de génération POIs pour repartir sur une base propre
    */

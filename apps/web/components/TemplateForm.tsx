@@ -16,7 +16,7 @@ interface TemplateField {
   max_repetitions?: number;
   options?: string[];
   option_layers?: Record<string, string | null>;
-  indesign_layer?: string;
+  indesign_layer?: string | undefined;
   name: string;
   label?: string;
   description?: string;

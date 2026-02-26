@@ -380,10 +380,16 @@ function injectPictoBar(page, contentData, durationValue) {
     }
 }
 
-// ─── 9. Gabarit POI ───────────────────────────────────────────────────────────
-var master = doc.masterSpreads.itemByName("B-POI_TEMPLATE");
+// ─── 9. Gabarits ─────────────────────────────────────────────────────────────
+var master = doc.masterSpreads.itemByName("G-POI");
 if (!master.isValid) {
-    alert("Gabarit \u00abB-POI_TEMPLATE\u00bb introuvable dans ce document.");
+    alert("Gabarit \u00abG-POI\u00bb introuvable dans ce document.");
+    exit();
+}
+
+var masterCouverture = doc.masterSpreads.itemByName("A-COUVERTURE");
+if (!masterCouverture.isValid) {
+    alert("Gabarit \u00abA-COUVERTURE\u00bb introuvable dans ce document.");
     exit();
 }
 
@@ -391,6 +397,56 @@ if (!master.isValid) {
 for (var i = 0; i < data.pages.length; i++) {
 
     var pageData = data.pages[i];
+
+    // ── COUVERTURE ────────────────────────────────────────────────────────────
+    if (pageData.template === "COUVERTURE") {
+
+        var coverPage = doc.pages.add(LocationOptions.AT_BEGINNING);
+        coverPage.appliedMaster = masterCouverture;
+
+        // Override de tous les éléments du gabarit
+        var coverMasterItems = masterCouverture.allPageItems;
+        for (var mc = 0; mc < coverMasterItems.length; mc++) {
+            try { coverMasterItems[mc].override(coverPage); } catch(e) {}
+        }
+
+        var coverText   = pageData.content.text;
+        var coverImages = pageData.content.images;
+
+        // Masquer tous les champs mappés
+        for (var ckey in data.mappings.fields) {
+            if (!data.mappings.fields.hasOwnProperty(ckey)) continue;
+            injectText(coverPage, data.mappings.fields[ckey], null);
+        }
+
+        // Injection textes
+        if (coverText) {
+            for (var ckey in coverText) {
+                if (!coverText.hasOwnProperty(ckey)) continue;
+                var cMapping = data.mappings.fields[ckey];
+                if (!cMapping) continue;
+                var cVal = coverText[ckey];
+                if (cVal === null || cVal === undefined) continue;
+                var cStrVal = String(cVal).replace(/^\s+|\s+$/, "");
+                if (cStrVal === "") continue;
+                injectText(coverPage, cMapping, cStrVal);
+            }
+        }
+
+        // Injection images
+        if (coverImages) {
+            for (var cImgKey in coverImages) {
+                if (!coverImages.hasOwnProperty(cImgKey)) continue;
+                var cImgMapping = data.mappings.fields[cImgKey];
+                if (!cImgMapping) continue;
+                injectImage(coverPage, cImgMapping, coverImages[cImgKey]);
+            }
+        }
+
+        continue;
+    }
+
+    // ── POI ───────────────────────────────────────────────────────────────────
     if (pageData.template != "POI") continue;
 
     var newPage = doc.pages.add();

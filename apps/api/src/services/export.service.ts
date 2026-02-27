@@ -103,7 +103,18 @@ export class ExportService {
             local_path: `images/${tplSlug}/`,
           };
         } else {
-          textFields[field.name] = String(value);
+          // Champ lien structuré {label, url} — conserver la représentation JSON
+          // pour que le normaliseur et le script InDesign puissent l'interpréter.
+          if (
+            value !== null &&
+            typeof value === 'object' &&
+            !Array.isArray(value) &&
+            ('url' in (value as object) || 'label' in (value as object))
+          ) {
+            textFields[field.name] = JSON.stringify(value);
+          } else {
+            textFields[field.name] = String(value);
+          }
         }
       }
 

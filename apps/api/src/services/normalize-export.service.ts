@@ -336,8 +336,20 @@ export function normalizeGuideExport(
         stats.null_fields_removed++;
         continue;
       }
-      let str = String(val).trim();
-      if (str === '') {
+      // Champ lien structuré {label, url} — sérialiser en JSON pour que le
+      // script InDesign puisse le détecter et l'interpréter correctement.
+      let str: string;
+      if (
+        val !== null &&
+        typeof val === 'object' &&
+        !Array.isArray(val) &&
+        ('url' in (val as object) || 'label' in (val as object))
+      ) {
+        str = JSON.stringify(val);
+      } else {
+        str = String(val).trim();
+      }
+      if (str === '' || str === 'null') {
         stats.empty_fields_removed++;
         continue;
       }

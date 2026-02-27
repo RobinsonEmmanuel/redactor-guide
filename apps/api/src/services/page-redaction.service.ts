@@ -251,12 +251,17 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
         return true;
       });
 
-      // 5b. Si des champs image utilisent le pool destination, charger les meilleures photos
-      const hasPoolFields = template.fields.some((f: any) => f.source === 'destination_pool');
+      // 5b. Si des champs image actifs (non default_value) utilisent le pool destination,
+      //     charger les meilleures photos et injecter IMAGES_DESTINATION dans extraVars
+      const hasPoolFields = fieldsForAI.some((f: any) => f.source === 'destination_pool');
       if (hasPoolFields) {
         const poolContext = await this.buildImagePoolContext(_guideId, template.fields);
         extraVars.IMAGES_DESTINATION = poolContext;
-        console.log(`🖼️ Pool destination injecté (${poolContext.split('\n').length} lignes)`);
+        const poolFieldNames = fieldsForAI
+          .filter((f: any) => f.source === 'destination_pool')
+          .map((f: any) => f.name)
+          .join(', ');
+        console.log(`🖼️ Pool destination injecté pour [${poolFieldNames}] — ${poolContext.split('\n').length} lignes`);
       }
 
       const templateForAI = { ...template, fields: fieldsForAI };
@@ -855,6 +860,21 @@ INSTRUCTIONS STRICTES :
           parts.push(`⚠️ Répondre UNIQUEMENT avec le tableau JSON pour ce champ, sans texte autour.`);
         }
 
+        return parts.join('\n');
+      }
+
+      // ── Champ image — sélection depuis le pool destination ──────────────────
+      if (field.source === 'destination_pool') {
+        const imagesBlock = fieldVars['IMAGES_DESTINATION'] || '(aucune image disponible)';
+        parts.push(`⚠️ SÉLECTION DEPUIS LE POOL DE PHOTOS DE LA DESTINATION`);
+        parts.push(`Voici les photos analysées disponibles :\n${imagesBlock}`);
+        if (field.pool_instructions) {
+          parts.push(`Critères de sélection : ${field.pool_instructions}`);
+        }
+        if (field.pool_tags?.length) {
+          parts.push(`Filtres appliqués (detail_type) : ${(field.pool_tags as string[]).join(', ')}`);
+        }
+        parts.push(`⚠️ Répondre UNIQUEMENT avec l'URL complète de l'image choisie (https://...), sans aucun texte autour.`);
         return parts.join('\n');
       }
 

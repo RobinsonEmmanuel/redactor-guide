@@ -27,6 +27,7 @@ interface TemplateField {
   max_repetitions?: number;
   source?: 'destination_pool';
   pool_tags?: string[];
+  pool_instructions?: string;
   validation?: {
     required?: boolean;
     max_length?: number;
@@ -265,11 +266,11 @@ export default function SortableFieldItem({
               : 'ai';
 
             const setMode = (m: 'ai' | 'default' | 'manual' | 'service' | 'pool') => {
-              if (m === 'ai')      onChange({ default_value: undefined, skip_ai: undefined, service_id: undefined, source: undefined, pool_tags: undefined });
-              if (m === 'default') onChange({ ai_instructions: undefined, skip_ai: undefined, service_id: undefined, source: undefined, pool_tags: undefined, default_value: field.default_value ?? '' });
-              if (m === 'manual')  onChange({ ai_instructions: undefined, default_value: undefined, service_id: undefined, source: undefined, pool_tags: undefined, skip_ai: true });
-              if (m === 'service') onChange({ ai_instructions: undefined, default_value: undefined, skip_ai: undefined, source: undefined, pool_tags: undefined, service_id: availableServices[0]?.service_id ?? '' });
-              if (m === 'pool')    onChange({ default_value: undefined, skip_ai: undefined, service_id: undefined, source: 'destination_pool', pool_tags: field.pool_tags ?? [] });
+              if (m === 'ai')      onChange({ default_value: undefined, skip_ai: undefined, service_id: undefined, source: undefined, pool_tags: undefined, pool_instructions: undefined });
+              if (m === 'default') onChange({ ai_instructions: undefined, skip_ai: undefined, service_id: undefined, source: undefined, pool_tags: undefined, pool_instructions: undefined, default_value: field.default_value ?? '' });
+              if (m === 'manual')  onChange({ ai_instructions: undefined, default_value: undefined, service_id: undefined, source: undefined, pool_tags: undefined, pool_instructions: undefined, skip_ai: true });
+              if (m === 'service') onChange({ ai_instructions: undefined, default_value: undefined, skip_ai: undefined, source: undefined, pool_tags: undefined, pool_instructions: undefined, service_id: availableServices[0]?.service_id ?? '' });
+              if (m === 'pool')    onChange({ ai_instructions: undefined, default_value: undefined, skip_ai: undefined, service_id: undefined, source: 'destination_pool', pool_tags: field.pool_tags ?? [] });
             };
 
             return (
@@ -467,17 +468,17 @@ export default function SortableFieldItem({
 
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Instructions pour l'IA
+                  Critères de sélection (optionnel)
                 </label>
                 <textarea
-                  value={field.ai_instructions || ''}
-                  onChange={(e) => onChange({ ai_instructions: e.target.value })}
-                  placeholder={`Ex: Choisir la photo la plus emblématique de la destination parmi les options suivantes :\n{{IMAGES_DESTINATION}}`}
+                  value={field.pool_instructions || ''}
+                  onChange={(e) => onChange({ pool_instructions: e.target.value })}
+                  placeholder={`Ex: Choisir la photo la plus emblématique et panoramique de la destination.\nPréférer une image sans texte superposé, avec un score de clarté élevé.`}
                   rows={4}
                   className="w-full px-3 py-2 text-sm border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-teal-50/30"
                 />
                 <p className="mt-1 text-xs text-gray-500">
-                  La variable <code>{'{{IMAGES_DESTINATION}}'}</code> sera remplacée par la liste des meilleures photos disponibles.
+                  La liste des photos disponibles est injectée automatiquement. Décris ici les critères de choix.
                 </p>
               </div>
             </>

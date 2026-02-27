@@ -58,20 +58,32 @@ var GABARIT_NAMES = {
 };
 
 // Cache des gabarits charges (evite de recharger plusieurs fois)
+// null = gabarit absent (deja signale), undefined = pas encore teste
 var gabaritCache = {};
 
+// Liste des gabarits manquants detectes (pour le rapport final)
+var missingGabarits = [];
+
 // Charge un gabarit InDesign par nom de template.
-// Retourne le MasterSpread ou null si introuvable (avec alerte).
+// Retourne le MasterSpread ou null si introuvable.
 // param templateName : nom du template (ex: "PRESENTATION_GUIDE")
 // param required     : si true, bloque le script en cas d'absence
 function loadGabarit(templateName, required) {
-    if (gabaritCache[templateName]) return gabaritCache[templateName];
+    // Deja en cache (null = absent connu, objet = charge)
+    if (gabaritCache.hasOwnProperty(templateName)) return gabaritCache[templateName];
     var gabaritName = GABARIT_NAMES[templateName];
-    if (!gabaritName) return null;
+    if (!gabaritName) {
+        gabaritCache[templateName] = null;
+        return null;
+    }
     var ms = doc.masterSpreads.itemByName(gabaritName);
     if (!ms.isValid) {
-        alert("Gabarit \u00ab" + gabaritName + "\u00bb introuvable dans ce document.\nLes pages " + templateName + " seront ignor\u00e9es.");
-        if (required) exit();
+        gabaritCache[templateName] = null;
+        missingGabarits.push(gabaritName);
+        if (required) {
+            alert("Gabarit requis \u00ab" + gabaritName + "\u00bb introuvable dans ce document.\nScript arr\u00eat\u00e9.");
+            exit();
+        }
         return null;
     }
     gabaritCache[templateName] = ms;
@@ -261,8 +273,10 @@ function injectText(page, label, value) {
 }
 
 // --- 7. Injecter liste a puces avec mise en forme paragraphe -----------------
+// Injecte un champ de type liste dans un bloc InDesign configure en liste a puces.
+// Le bloc est responsable de l'affichage des puces (style de paragraphe InDesign).
+// Le script envoie uniquement le texte brut : un item par paragraphe, separe par \r.
 function injectBulletText(page, label, value) {
-    var BULLET = "\u2022\t";
     var blocks = findByLabelOnPage(page, label);
     for (var i = 0; i < blocks.length; i++) {
         if (!(blocks[i] instanceof TextFrame)) continue;
@@ -279,12 +293,7 @@ function injectBulletText(page, label, value) {
         }
         if (items.length === 0) { blocks[i].visible = false; continue; }
 
-        // Construire le texte avec les marqueurs ** conserves (GREP les traitera)
-        var fullText = "";
-        for (var it = 0; it < items.length; it++) {
-            fullText += (it > 0 ? "\r" : "") + BULLET + items[it];
-        }
-
+        var fullText = items.join("\r");
         tf.contents = fullText;
 
         // Appliquer les styles via GREP si des marqueurs sont presents
@@ -294,20 +303,6 @@ function injectBulletText(page, label, value) {
                          fullText.indexOf("~")  !== -1;
         if (hasMarkers) {
             applyStyleMarkers(tf);
-        }
-
-        // Mise en forme paragraphe : hanging indent + espace apres + tab stop
-        for (var pg = 0; pg < tf.paragraphs.length; pg++) {
-            var para = tf.paragraphs.item(pg);
-            para.leftIndent      = BULLET_LEFT_INDENT;
-            para.firstLineIndent = BULLET_FIRST_LINE;
-            para.spaceAfter      = BULLET_SPACE_AFTER;
-            while (para.tabStops.length > 0) {
-                para.tabStops.item(0).remove();
-            }
-            var ts = para.tabStops.add();
-            ts.alignment = TabStopAlignment.LEFT_ALIGN;
-            ts.position  = BULLET_LEFT_INDENT;
         }
     }
 }
@@ -682,4 +677,12 @@ for (var i = 0; i < data.pages.length; i++) {
     pagesGenerated++;
 }
 
-alert(pagesGenerated + " page(s) g\u00e9n\u00e9r\u00e9e(s) avec succ\u00e8s \u2714");
+var finalMsg = pagesGenerated + " page(s) g\u00e9n\u00e9r\u00e9e(s) avec succ\u00e8s \u2714";
+if (missingGabarits.length > 0) {
+    finalMsg += "\n\n\u26a0 Gabarit(s) introuvable(s) dans ce document \u2014 pages ignor\u00e9es :\n";
+    for (var mg = 0; mg < missingGabarits.length; mg++) {
+        finalMsg += "  \u2022 " + missingGabarits[mg] + "\n";
+    }
+    finalMsg += "\nV\u00e9rifie que ces gabarits existent bien dans le panneau Pages (Fen\u00eatre \u2192 Pages).";
+}
+alert(finalMsg);

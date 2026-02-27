@@ -1,6 +1,8 @@
 import Fastify from 'fastify';
 import { Db } from 'mongodb';
+import path from 'path';
 import { DIContainer } from './di/container';
+import { UPLOADS_DIR } from './routes/image-upload.routes.js';
 
 /**
  * Créer et configurer le serveur Fastify
@@ -61,6 +63,17 @@ export async function createServer(db: Db, _port: number) {
   // Activer le support des cookies
   await fastify.register(import('@fastify/cookie'));
 
+  // Support multipart/form-data pour l'upload d'images
+  await fastify.register(import('@fastify/multipart'));
+
+  // Serving statique des images uploadées
+  // Accessible via GET /uploads/<guideId>/<filename>
+  await fastify.register(import('@fastify/static'), {
+    root: UPLOADS_DIR,
+    prefix: '/uploads/',
+    decorateReply: false,
+  });
+
   // Routes API
   await fastify.register(
     async (fastify) => {
@@ -116,6 +129,9 @@ export async function createServer(db: Db, _port: number) {
       );
       await fastify.register(
         (await import('./routes/field-services.routes')).fieldServicesRoutes
+      );
+      await fastify.register(
+        (await import('./routes/image-upload.routes')).imageUploadRoutes
       );
 
       // Routes génériques avec :id en dernier

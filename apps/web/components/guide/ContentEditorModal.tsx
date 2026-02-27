@@ -58,9 +58,10 @@ interface Page {
 // Textarea enrichi avec des boutons de style compatibles avec le script InDesign.
 //
 // Marqueurs :
-//   **texte**  → style "Gras"   (caractère gras)
-//   {texte}    → style "Orange" (couleur #f39428)
-//   ^texte^    → style "Chiffre" (taille 18pt)
+//   **texte**  → style "Gras"        (caractère gras)
+//   {texte}    → style "Orange"      (couleur #f39428)
+//   ^texte^    → style "Chiffre"     (taille 18pt)
+//   ~texte~    → style "Gras-orange" (gras + couleur #f39428)
 
 interface RichTextAreaProps {
   value: string;
@@ -137,8 +138,17 @@ function RichTextArea({ value, onChange, rows = 4, className }: RichTextAreaProp
         >
           C
         </button>
+        <button
+          type="button"
+          onMouseDown={(e) => { e.preventDefault(); applyStyle('~', '~'); }}
+          title="Gras-orange — style InDesign &quot;Gras-orange&quot; (gras + #f39428)"
+          className="px-2 py-0.5 text-sm font-bold border rounded hover:opacity-80 active:opacity-60 transition-colors select-none"
+          style={{ color: '#f39428', borderColor: '#f39428', backgroundColor: '#fff8f0', fontWeight: 900 }}
+        >
+          GO
+        </button>
         <span className="text-xs text-gray-400 ml-1">
-          Sélectionner du texte puis <strong>G</strong> gras · <span style={{ color: '#f39428' }}>O</span> orange · <span className="text-purple-600">C</span> chiffre
+          Sélectionner du texte puis <strong>G</strong> gras · <span style={{ color: '#f39428' }}>O</span> orange · <span className="text-purple-600">C</span> chiffre · <span style={{ color: '#f39428', fontWeight: 900 }}>GO</span> gras-orange
         </span>
       </div>
 
@@ -306,7 +316,7 @@ export default function ContentEditorModal({
   const getCharacterCount = (fieldName: string, maxChars?: number) => {
     const value = formData[fieldName] || '';
     // Les marqueurs de style ne comptent pas dans la longueur finale InDesign
-    const count = String(value).replace(/\*\*|\{|\}|\^/g, '').length;
+    const count = String(value).replace(/\*\*|\{|\}|\^|~/g, '').length;
     if (!maxChars) return null;
     const percentage = (count / maxChars) * 100;
     const color = percentage > 100 ? 'text-red-600' : percentage > 90 ? 'text-orange-600' : 'text-gray-500';

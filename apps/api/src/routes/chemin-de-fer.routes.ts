@@ -191,6 +191,33 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * DELETE /guides/:guideId/chemin-de-fer/pages
+   * Supprime toutes les pages du chemin de fer en une seule requête
+   */
+  fastify.delete<{ Params: { guideId: string } }>(
+    '/guides/:guideId/chemin-de-fer/pages',
+    async (request, reply) => {
+      try {
+        const db = request.server.container.db;
+        const { guideId } = request.params;
+
+        const result = await db.collection('pages').deleteMany({ guide_id: guideId });
+
+        const now = new Date().toISOString();
+        await db.collection('chemins_de_fer').updateOne(
+          { guide_id: guideId },
+          { $set: { nombre_pages: 0, updated_at: now } }
+        );
+
+        return reply.send({ deleted: result.deletedCount });
+      } catch (error) {
+        request.log.error(error);
+        return reply.status(500).send({ error: 'Erreur serveur' });
+      }
+    }
+  );
+
+  /**
    * DELETE /guides/:guideId/chemin-de-fer/pages/:pageId
    * Supprime une page
    */

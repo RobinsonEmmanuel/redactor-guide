@@ -426,6 +426,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         type: templatePageData.type,
         template_name: templatePageData.template_name,
         article_source: templatePageData.article_source,
+        url_source: templatePageData.url_source,
         autres_articles_mentions: templatePageData.autres_articles_mentions,
       });
 
@@ -449,34 +450,27 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
       };
 
       // Résoudre url_source pour les pages POI
+      // templatePageData.url_source = slug de l'article (ex: "piscines-naturelles-el-caleton-garachico")
+      // templatePageData.article_source = titre de l'article (ne pas utiliser pour le lookup slug)
       let url_source: string | undefined;
-      if (templatePageData.type === 'poi' && templatePageData.article_source) {
-        console.log(`🔍 [url_source] Résolution pour slug "${templatePageData.article_source}"...`);
+      const articleSlug = templatePageData.url_source || null;
+      if (templatePageData.type === 'poi' && articleSlug) {
         try {
           const articleRes = await fetch(
-            `${apiUrl}/api/v1/guides/${guideId}/articles?slug=${encodeURIComponent(templatePageData.article_source)}`,
+            `${apiUrl}/api/v1/guides/${guideId}/articles?slug=${encodeURIComponent(articleSlug)}`,
             { credentials: 'include' }
           );
-          console.log(`📡 [url_source] Réponse API articles: status=${articleRes.status}`);
           if (articleRes.ok) {
             const articleData = await articleRes.json();
-            console.log(`📦 [url_source] Articles retournés: ${articleData.articles?.length ?? 0}`, articleData.articles?.[0]);
             const article = articleData.articles?.[0];
             if (article) {
               const urlsMap = article.urls_by_lang ?? article.urls ?? {};
               url_source = urlsMap['fr'] || urlsMap['en'] || article.url_francais || undefined;
-              console.log(`✅ [url_source] Résolue: ${url_source}`);
-            } else {
-              console.warn(`⚠️ [url_source] Aucun article trouvé pour slug "${templatePageData.article_source}"`);
             }
-          } else {
-            console.warn(`⚠️ [url_source] Échec API articles: ${articleRes.status} ${articleRes.statusText}`);
           }
         } catch (err) {
-          console.warn('⚠️ [url_source] Erreur fetch:', err);
+          console.warn('[url_source] Erreur fetch:', err);
         }
-      } else if (templatePageData.type === 'poi') {
-        console.warn(`⚠️ [url_source] Page POI sans article_source — vérifier la route proposals`);
       }
 
       // Construire les données de la page en ne gardant que les champs définis
@@ -783,19 +777,15 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     if (!doubleConfirm) return;
 
     try {
-      // Supprimer toutes les pages en parallèle
-      const deletePromises = pages.map((page) =>
-        fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}`, {
-          method: 'DELETE',
-          credentials: 'include',
-        })
-      );
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
 
-      await Promise.all(deletePromises);
-      
-      console.log(`✅ ${pages.length} page${pages.length !== 1 ? 's' : ''} supprimée${pages.length !== 1 ? 's' : ''}`);
-      alert(`✅ Chemin de fer vidé avec succès (${pages.length} page${pages.length !== 1 ? 's' : ''} supprimée${pages.length !== 1 ? 's' : ''})`);
-      
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { deleted } = await res.json();
+
+      alert(`✅ Chemin de fer vidé avec succès (${deleted} page${deleted !== 1 ? 's' : ''} supprimée${deleted !== 1 ? 's' : ''})`);
       loadPages();
     } catch (err) {
       console.error('Erreur suppression en masse:', err);

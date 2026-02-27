@@ -118,6 +118,7 @@ export default async function cheminDeFerProposalsRoutes(fastify: FastifyInstanc
                     type: 'poi',
                     // Champs nécessaires pour résoudre url_source côté frontend
                     article_source: poi.article_source ?? null,
+                    url_source: poi.url_source ?? null,
                     autres_articles_mentions: poi.autres_articles_mentions ?? [],
                   });
                 }

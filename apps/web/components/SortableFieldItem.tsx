@@ -134,6 +134,12 @@ function DefaultValueInput({ value, onChange, multiline = false, placeholder }: 
         title="Chiffre (18pt)"
         className="px-1.5 py-0.5 text-xs font-semibold border border-purple-400 rounded text-purple-700 bg-purple-50 hover:bg-purple-100 select-none"
       >C</button>
+      <button type="button"
+        onMouseDown={(e) => { e.preventDefault(); applyStyle('~', '~'); }}
+        title="Gras-orange (gras + #f39428)"
+        className="px-1.5 py-0.5 text-xs font-black border rounded hover:opacity-80 select-none"
+        style={{ color: '#f39428', borderColor: '#f39428', background: '#fff8f0' }}
+      >GO</button>
     </div>
   );
 

@@ -1,17 +1,17 @@
 /**
  * generate-poi-pages.jsx
- * Script InDesign ExtendScript — génération automatique des pages POI
+ * Script InDesign ExtendScript - generation automatique des pages POI
  *
- * Prérequis InDesign :
- *   - Un style de caractère nommé "Gras" (pour le bold **...**)
- *   - Un gabarit nommé "G-POI" (pages POI) et "A-COUVERTURE" (couverture)
- *   - Les blocs étiquetés (label) avec le NOM EXACT du champ de template
- *     Ex : frame texte → label "POI_titre_1", frame image → label "POI_image_1"
- *   - Le JSON exporté depuis l'app (export ZIP recommandé : JSON + images locales)
+ * Prerequis InDesign :
+ *   - Styles de caractere "Gras", "Orange", "Chiffre" dans le document
+ *   - Gabarits "G-POI", "A-COUVERTURE", "B-PRESENTATION_GUIDE"
+ *   - Blocs etiquetes (label) avec le NOM EXACT du champ de template
+ *     Ex : frame texte -> label "POI_titre_1", frame image -> label "POI_image_1"
+ *   - Le JSON exporte depuis l'app (export ZIP recommande : JSON + images locales)
  *
  * Usage :
- *   Fichier > Scripts > Parcourir… → sélectionner ce fichier
- *   Une boîte de dialogue demande le fichier JSON
+ *   Fichier > Scripts > Parcourir... -> selectionner ce fichier
+ *   Une boite de dialogue demande le fichier JSON
  */
 
 #target indesign
@@ -19,32 +19,33 @@
 
 var doc = app.activeDocument;
 
-// ─── Configuration ────────────────────────────────────────────────────────────
-var BOLD_STYLE_NAME    = "Gras";    // Marqueurs **...**
-var ORANGE_STYLE_NAME  = "Orange";  // Marqueurs {...}   — couleur #f39428
-var CHIFFRE_STYLE_NAME = "Chiffre"; // Marqueurs ^...^   — taille 18pt
-var BULLET_LEFT_INDENT = 6.35;  // mm — retrait gauche paragraphe puce
-var BULLET_FIRST_LINE  = -6.35; // mm — retrait première ligne (hanging indent)
-var BULLET_SPACE_AFTER = 7;     // mm — espace après chaque puce
-var PICTO_W            = 12.7;  // mm — largeur d'un bloc picto (gabarit)
-var PICTO_H            = 19.7;  // mm — hauteur d'un bloc picto (gabarit)
-var PICTO_GAP          = 1;     // mm — espace entre pictos
-var DURATION_GAP       = 3;     // mm — espace entre dernier picto et clock/durée
+// --- Configuration -----------------------------------------------------------
+var BOLD_STYLE_NAME        = "Gras";        // Marqueurs **...**
+var ORANGE_STYLE_NAME      = "Orange";      // Marqueurs {...}   - couleur #f39428
+var CHIFFRE_STYLE_NAME     = "Chiffre";     // Marqueurs ^...^   - taille 18pt
+var GRAS_ORANGE_STYLE_NAME = "Gras-orange"; // Marqueurs ~...~   - gras + couleur #f39428
+var BULLET_LEFT_INDENT = 6.35;  // mm - retrait gauche paragraphe puce
+var BULLET_FIRST_LINE  = -6.35; // mm - retrait premiere ligne (hanging indent)
+var BULLET_SPACE_AFTER = 7;     // mm - espace apres chaque puce
+var PICTO_W            = 12.7;  // mm - largeur d'un bloc picto (gabarit)
+var PICTO_H            = 19.7;  // mm - hauteur d'un bloc picto (gabarit)
+var PICTO_GAP          = 1;     // mm - espace entre pictos
+var DURATION_GAP       = 3;     // mm - espace entre dernier picto et clock/duree
 
-// Champs dont le texte est rendu en liste à puces (par nom de champ)
+// Champs dont le texte est rendu en liste a puces (par nom de champ)
 var BULLET_LIST_FIELDS = {
     "POI_texte_2": true,
     "PRESENTATION_GUIDE_liste_sections": true
 };
 
-// Champs gérés par injectPictoBar ou injectHyperlink — exclus de l'injection texte standard
-// POI_meta_1 et POI_meta_duree désignent le même champ selon la convention de nommage du template
+// Champs geres par injectPictoBar ou injectHyperlink - exclus de l'injection texte standard
+// POI_meta_1 et POI_meta_duree designent le meme champ selon la convention de nommage du template
 var SKIP_IN_TEXT_STEP  = { "POI_meta_duree": true, "POI_meta_1": true, "POI_lien_1": true };
 
-// Champs à NE PAS masquer à l'étape A (ils gardent leur texte statique du gabarit)
+// Champs a NE PAS masquer a l'etape A (ils gardent leur texte statique du gabarit)
 var SKIP_IN_MASK_STEP  = { "POI_lien_1": true };
 
-// Noms des gabarits InDesign associés à chaque template
+// Noms des gabarits InDesign associes a chaque template
 // Ajouter ici chaque nouveau template : { "NOM_TEMPLATE": "NOM_GABARIT_INDESIGN" }
 var GABARIT_NAMES = {
     "COUVERTURE":         "A-COUVERTURE",
@@ -52,15 +53,13 @@ var GABARIT_NAMES = {
     "POI":                "G-POI"
 };
 
-// Cache des gabarits chargés (évite de recharger plusieurs fois)
+// Cache des gabarits charges (evite de recharger plusieurs fois)
 var gabaritCache = {};
 
-/**
- * Charge un gabarit InDesign par nom de template.
- * Retourne le MasterSpread ou null si introuvable (avec alerte).
- * @param {string} templateName - nom du template (ex: "PRESENTATION_GUIDE")
- * @param {boolean} required    - si true, bloque le script en cas d'absence
- */
+// Charge un gabarit InDesign par nom de template.
+// Retourne le MasterSpread ou null si introuvable (avec alerte).
+// param templateName : nom du template (ex: "PRESENTATION_GUIDE")
+// param required     : si true, bloque le script en cas d'absence
 function loadGabarit(templateName, required) {
     if (gabaritCache[templateName]) return gabaritCache[templateName];
     var gabaritName = GABARIT_NAMES[templateName];
@@ -75,7 +74,7 @@ function loadGabarit(templateName, required) {
     return ms;
 }
 
-// ─── 1. Charger JSON ──────────────────────────────────────────────────────────
+// --- 1. Charger JSON ---------------------------------------------------------
 var jsonFile = File.openDialog("Choisir le JSON du guide");
 if (!jsonFile) exit();
 
@@ -87,7 +86,7 @@ jsonFile.close();
 
 var data = JSON.parse(raw);
 
-// ─── 2. Trouver les blocs par label (page courante uniquement) ────────────────
+// --- 2. Trouver les blocs par label (page courante uniquement) ---------------
 function findByLabelOnPage(page, label) {
     var items = page.allPageItems;
     var res = [];
@@ -105,8 +104,8 @@ function findByLabelOnPage(page, label) {
     return res;
 }
 
-// ─── 3. Déplacer un objet sans toucher au contenu intérieur ──────────────────
-// Utilise move() au lieu de geometricBounds = pour préserver le ratio image
+// --- 3. Deplacer un objet sans toucher au contenu interieur ------------------
+// Utilise move() au lieu de geometricBounds = pour preserver le ratio image
 function moveItem(item, targetX, targetY) {
     var b = item.geometricBounds; // [top, left, bottom, right]
     var deltaX = targetX - b[1];
@@ -114,25 +113,28 @@ function moveItem(item, targetX, targetY) {
     item.move(null, [deltaX, deltaY]);
 }
 
-// ─── 4. Appliquer les styles via GREP ─────────────────────────────────────────
+// --- 4. Appliquer les styles via GREP ----------------------------------------
 //
-// Styles gérés :
-//   **text**  → style "Gras"    (caractère gras)
-//   {text}    → style "Orange"  (couleur #f39428)
-//   ^text^    → style "Chiffre" (taille 18pt)
+// Styles geres :
+//   **text**  -> style "Gras"        (caractere gras)
+//   {text}    -> style "Orange"      (couleur #f39428)
+//   ^text^    -> style "Chiffre"     (taille 18pt)
+//   ~text~    -> style "Gras-orange" (gras + couleur #f39428)
 //
-// Prérequis InDesign : styles de caractère "Gras", "Orange" et "Chiffre" dans le document.
-// Utilise tf.parentStory car findGrep/changeGrep ne sont pas disponibles sur TextFrame directement.
+// Prerequis InDesign : styles de caractere "Gras", "Orange", "Chiffre", "Gras-orange".
+// Utilise tf.parentStory car findGrep/changeGrep ne sont pas disponibles
+// sur TextFrame directement.
 
 function applyStyleMarkers(tf) {
     try {
         var story = tf.parentStory;
 
-        var boldStyle    = doc.characterStyles.itemByName(BOLD_STYLE_NAME);
-        var orangeStyle  = doc.characterStyles.itemByName(ORANGE_STYLE_NAME);
-        var chiffreStyle = doc.characterStyles.itemByName(CHIFFRE_STYLE_NAME);
+        var boldStyle       = doc.characterStyles.itemByName(BOLD_STYLE_NAME);
+        var orangeStyle     = doc.characterStyles.itemByName(ORANGE_STYLE_NAME);
+        var chiffreStyle    = doc.characterStyles.itemByName(CHIFFRE_STYLE_NAME);
+        var grasOrangeStyle = doc.characterStyles.itemByName(GRAS_ORANGE_STYLE_NAME);
 
-        // ── Gras : **text** ──────────────────────────────────────────────────
+        // -- Gras : **text** --------------------------------------------------
         app.findGrepPreferences   = NothingEnum.NOTHING;
         app.changeGrepPreferences = NothingEnum.NOTHING;
         app.findGrepPreferences.findWhat = "\\*\\*[^*]+\\*\\*";
@@ -151,7 +153,7 @@ function applyStyleMarkers(tf) {
         app.findGrepPreferences   = NothingEnum.NOTHING;
         app.changeGrepPreferences = NothingEnum.NOTHING;
 
-        // ── Orange : {text} ──────────────────────────────────────────────────
+        // -- Orange : {text} --------------------------------------------------
         app.findGrepPreferences   = NothingEnum.NOTHING;
         app.changeGrepPreferences = NothingEnum.NOTHING;
         app.findGrepPreferences.findWhat = "\\{[^}]+\\}";
@@ -170,7 +172,7 @@ function applyStyleMarkers(tf) {
         app.findGrepPreferences   = NothingEnum.NOTHING;
         app.changeGrepPreferences = NothingEnum.NOTHING;
 
-        // ── Chiffre : ^text^ ─────────────────────────────────────────────────
+        // -- Chiffre : ^text^ -------------------------------------------------
         app.findGrepPreferences   = NothingEnum.NOTHING;
         app.changeGrepPreferences = NothingEnum.NOTHING;
         app.findGrepPreferences.findWhat = "\\^[^^]+\\^";
@@ -189,18 +191,37 @@ function applyStyleMarkers(tf) {
         app.findGrepPreferences   = NothingEnum.NOTHING;
         app.changeGrepPreferences = NothingEnum.NOTHING;
 
+        // -- Gras-orange : ~text~ ---------------------------------------------
+        app.findGrepPreferences   = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+        app.findGrepPreferences.findWhat = "~[^~]+~";
+        var grasOrangeMatches = story.findGrep();
+        app.findGrepPreferences = NothingEnum.NOTHING;
+        if (grasOrangeStyle.isValid) {
+            for (var g = 0; g < grasOrangeMatches.length; g++) {
+                try { grasOrangeMatches[g].appliedCharacterStyle = grasOrangeStyle; } catch(e) {}
+            }
+        }
+        app.findGrepPreferences   = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+        app.findGrepPreferences.findWhat   = "~";
+        app.changeGrepPreferences.changeTo = "";
+        story.changeGrep();
+        app.findGrepPreferences   = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+
     } catch(e) {
-        // Ne pas bloquer le reste du script si l'application de styles échoue
+        // Ne pas bloquer le reste du script si l'application de styles echoue
     }
 }
 
-// ─── 5. Injecter texte avec styles optionnels ─────────────────────────────────
+// --- 5. Injecter texte avec styles optionnels --------------------------------
 function setTextWithStyles(textFrame, rawText) {
-    textFrame.contents = rawText;  // définir avec les marqueurs en place
+    textFrame.contents = rawText;  // definir avec les marqueurs en place
     applyStyleMarkers(textFrame);  // GREP trouve, applique styles, supprime marqueurs
 }
 
-// ─── 6. Injecter texte (masque le bloc si vide / absent) ─────────────────────
+// --- 6. Injecter texte (masque le bloc si vide / absent) ---------------------
 function injectText(page, label, value) {
     var blocks = findByLabelOnPage(page, label);
     for (var i = 0; i < blocks.length; i++) {
@@ -215,7 +236,8 @@ function injectText(page, label, value) {
             var strValue = String(value);
             var hasMarkers = strValue.indexOf("**") !== -1 ||
                              strValue.indexOf("{")  !== -1 ||
-                             strValue.indexOf("^")  !== -1;
+                             strValue.indexOf("^")  !== -1 ||
+                             strValue.indexOf("~")  !== -1;
             if (hasMarkers) {
                 setTextWithStyles(blocks[i], strValue);
             } else {
@@ -225,7 +247,7 @@ function injectText(page, label, value) {
     }
 }
 
-// ─── 7. Injecter liste à puces avec mise en forme paragraphe ─────────────────
+// --- 7. Injecter liste a puces avec mise en forme paragraphe -----------------
 function injectBulletText(page, label, value) {
     var BULLET = "\u2022\t";
     var blocks = findByLabelOnPage(page, label);
@@ -244,7 +266,7 @@ function injectBulletText(page, label, value) {
         }
         if (items.length === 0) { blocks[i].visible = false; continue; }
 
-        // Construire le texte avec les marqueurs ** conservés (GREP les traitera)
+        // Construire le texte avec les marqueurs ** conserves (GREP les traitera)
         var fullText = "";
         for (var it = 0; it < items.length; it++) {
             fullText += (it > 0 ? "\r" : "") + BULLET + items[it];
@@ -252,15 +274,16 @@ function injectBulletText(page, label, value) {
 
         tf.contents = fullText;
 
-        // Appliquer les styles via GREP si des marqueurs sont présents
+        // Appliquer les styles via GREP si des marqueurs sont presents
         var hasMarkers = fullText.indexOf("**") !== -1 ||
                          fullText.indexOf("{")  !== -1 ||
-                         fullText.indexOf("^")  !== -1;
+                         fullText.indexOf("^")  !== -1 ||
+                         fullText.indexOf("~")  !== -1;
         if (hasMarkers) {
             applyStyleMarkers(tf);
         }
 
-        // Mise en forme paragraphe : hanging indent + espace après + tab stop
+        // Mise en forme paragraphe : hanging indent + espace apres + tab stop
         for (var pg = 0; pg < tf.paragraphs.length; pg++) {
             var para = tf.paragraphs.item(pg);
             para.leftIndent      = BULLET_LEFT_INDENT;
@@ -276,9 +299,9 @@ function injectBulletText(page, label, value) {
     }
 }
 
-// ─── 7. Injecter image (local en priorité, URL en fallback) ──────────────────
-// Note : les TextFrames sont ignorés — placer un fichier dans un TextFrame
-// crée un graphic inline qui laisse une ligne blanche dans le bloc.
+// --- 8. Injecter image (local en priorite, URL en fallback) ------------------
+// Note : les TextFrames sont ignores - placer un fichier dans un TextFrame
+// cree un graphic inline qui laisse une ligne blanche dans le bloc.
 function injectImage(page, label, imageData) {
     var blocks = findByLabelOnPage(page, label);
     for (var i = 0; i < blocks.length; i++) {
@@ -313,8 +336,8 @@ function injectImage(page, label, imageData) {
     }
 }
 
-// ─── 8. Injecter un hyperlien sur un bloc texte ──────────────────────────────
-// Le texte du bloc reste inchangé (statique du gabarit), seul le lien est ajouté.
+// --- 9. Injecter un hyperlien sur un bloc texte ------------------------------
+// Le texte du bloc reste inchange (statique du gabarit), seul le lien est ajoute.
 function injectHyperlink(page, label, url) {
     if (!url || String(url).replace(/^\s+|\s+$/, "") === "") return;
     var blocks = findByLabelOnPage(page, label);
@@ -323,7 +346,7 @@ function injectHyperlink(page, label, url) {
         var tf = blocks[i];
         tf.visible = true;
 
-        // Supprimer les hyperliens existants sur ce bloc (évite les doublons)
+        // Supprimer les hyperliens existants sur ce bloc (evite les doublons)
         var existingLinks = doc.hyperlinks;
         for (var h = existingLinks.length - 1; h >= 0; h--) {
             try {
@@ -336,7 +359,7 @@ function injectHyperlink(page, label, url) {
             } catch(e) {}
         }
 
-        // Créer la destination URL
+        // Creer la destination URL
         var dest;
         try {
             dest = doc.hyperlinkURLDestinations.add(url);
@@ -344,13 +367,13 @@ function injectHyperlink(page, label, url) {
             try { dest = doc.hyperlinkURLDestinations.itemByName(url); } catch(e2) { continue; }
         }
 
-        // Créer la source sur tout le texte du bloc (via parentStory)
+        // Creer la source sur tout le texte du bloc (via parentStory)
         var src;
         try {
             src = doc.hyperlinkTextSources.add(tf.parentStory.texts.item(0));
         } catch(e) { continue; }
 
-        // Créer l'hyperlien avec soulignement visible
+        // Creer l'hyperlien avec soulignement visible
         try {
             var hl = doc.hyperlinks.add(src, dest, {
                 visible:     false,
@@ -362,56 +385,52 @@ function injectHyperlink(page, label, url) {
     }
 }
 
-// ─── 9. Barre de pictos avec reflow dynamique + durée ────────────────────────
+// --- 10. Barre de pictos avec reflow dynamique + duree -----------------------
 //
-// Architecture propre :
+// Architecture :
 //   - ALL_PICTO_LABELS : liste exhaustive des labels InDesign possibles (masquage initial)
-//   - injectPictoBar   : utilise content._derived.pictos_active (déjà ordonné et filtré)
+//   - injectPictoBar   : utilise content._derived.pictos_active (deja ordonne et filtre)
 //
-// _derived.pictos_active est calculé par le backend depuis le template :
-//   chaque entrée contient { indesign_layer, variant_layer }
-//   → le script InDesign ne connaît PLUS les noms de champs JSON, seulement les labels ID.
+// _derived.pictos_active est calcule par le backend depuis le template :
+//   chaque entree contient { indesign_layer, variant_layer }
+//   -> le script InDesign ne connait PAS les noms de champs JSON, seulement les labels ID.
 //
 // Ajouter un nouveau picto = ajouter son label dans ALL_PICTO_LABELS et dans le template.
-// Aucune modification du script nécessaire pour le reste.
 
-// Labels des cadres picto dans InDesign — doivent correspondre aux noms de champs du template.
-// Les variant_layer (ex: POI_picto_interet_incontournable) sont définis dans option_layers
-// du template et résolus dynamiquement depuis _derived.pictos_active.
+// Labels des cadres picto dans InDesign - doivent correspondre aux noms de champs du template.
+// Les variant_layer (ex: POI_picto_interet_incontournable) sont definis dans option_layers
+// du template et resolus dynamiquement depuis _derived.pictos_active.
 var ALL_PICTO_LABELS = [
-    // Noms sémantiques (convention actuelle : champ = label InDesign)
+    // Noms semantiques (convention actuelle : champ = label InDesign)
     "POI_picto_interet",
     "POI_picto_pmr",
     "POI_picto_escaliers",
     "POI_picto_toilettes",
     "POI_picto_restauration",
     "POI_picto_famille",
-    // Noms numérotés (alternative)
+    // Noms numerotes (alternative)
     "POI_picto_1", "POI_picto_2", "POI_picto_3",
     "POI_picto_4", "POI_picto_5", "POI_picto_6",
-    // Picto durée (cadre horloge — label statique dans le gabarit)
+    // Picto duree (cadre horloge - label statique dans le gabarit)
     "picto_duree"
 ];
 
 
-/**
- * Positionne les pictos actifs en reflow horizontal.
- * Gère également picto_duree (clock) et txt_poi_duree en fin de barre.
- *
- * @param {Page}   page         - page InDesign cible
- * @param {Object} contentData  - pageData.content (objet complet, pas seulement .pictos)
- * @param {string} durationValue- valeur de durée de visite (ou null)
- */
+// Positionne les pictos actifs en reflow horizontal.
+// Gere egalement picto_duree (clock) et le texte de duree en fin de barre.
+// param page          : page InDesign cible
+// param contentData   : pageData.content (objet complet, pas seulement .pictos)
+// param durationValue : valeur de duree de visite (ou null)
 function injectPictoBar(page, contentData, durationValue) {
 
-    // 1. Masquer TOUS les blocs picto connus + texte durée
+    // 1. Masquer TOUS les blocs picto connus + texte duree
     for (var p = 0; p < ALL_PICTO_LABELS.length; p++) {
         var pBlocks = findByLabelOnPage(page, ALL_PICTO_LABELS[p]);
         for (var b = 0; b < pBlocks.length; b++) {
             pBlocks[b].visible = false;
         }
     }
-    // Masquer le bloc texte durée (label = nom du champ de template)
+    // Masquer le bloc texte duree (label = nom du champ de template)
     var durTextBlocks = findByLabelOnPage(page, "POI_meta_duree");
     var durTextBlocks2 = findByLabelOnPage(page, "POI_meta_1");
     for (var d = 0; d < durTextBlocks.length; d++)  durTextBlocks[d].visible = false;
@@ -419,10 +438,10 @@ function injectPictoBar(page, contentData, durationValue) {
 
     if (!contentData) return;
 
-    // 2. Source de vérité : _derived.pictos_active (calculé par le backend)
-    //    Chaque entrée : { field, picto_key, indesign_layer, variant_layer, value, label }
+    // 2. Source de verite : _derived.pictos_active (calcule par le backend)
+    //    Chaque entree : { field, picto_key, indesign_layer, variant_layer, value, label }
     //    variant_layer = calque exact du gabarit (ex: picto_interet_2, picto_pmr_half)
-    //    indesign_layer = calque de base, utilisé en fallback si variant absent du gabarit
+    //    indesign_layer = calque de base, utilise en fallback si variant absent du gabarit
     var pictosActive = (contentData._derived && contentData._derived.pictos_active)
         ? contentData._derived.pictos_active
         : [];
@@ -431,10 +450,10 @@ function injectPictoBar(page, contentData, durationValue) {
     var activePictos = [];
     for (var o = 0; o < pictosActive.length; o++) {
         var entry = pictosActive[o];
-        // Résolution calque :
-        //   variant_layer (calque précis, ex: picto_interet_2) calculé par le backend
+        // Resolution calque :
+        //   variant_layer (calque precis, ex: picto_interet_2) calcule par le backend
         //   depuis field.option_layers du template.
-        //   indesign_layer (calque de base) utilisé uniquement si variant absent du gabarit.
+        //   indesign_layer (calque de base) utilise uniquement si variant absent du gabarit.
         var layer = entry.variant_layer || entry.indesign_layer;
         if (!layer) continue;
 
@@ -447,16 +466,16 @@ function injectPictoBar(page, contentData, durationValue) {
 
     if (activePictos.length === 0) return;
 
-    // 3. Référence : position du PREMIER picto actif (pas de picto_bar_anchor)
-    //    → le 1er picto ne bouge pas, les suivants se calent contre lui
+    // 3. Reference : position du PREMIER picto actif (pas de picto_bar_anchor)
+    //    -> le 1er picto ne bouge pas, les suivants se calent contre lui
     var refBounds = activePictos[0].geometricBounds; // [top, left, bottom, right]
     var refX = refBounds[1];
     var refY = refBounds[0];
     var currentX = refX;
 
-    // 4. Repositionner chaque picto avec move() (préserve le contenu intérieur)
-    //    Utilise la largeur RÉELLE du bloc (pas la constante PICTO_W) pour éviter
-    //    tout décalage si les blocs ont des largeurs légèrement différentes.
+    // 4. Repositionner chaque picto avec move() (preserve le contenu interieur)
+    //    Utilise la largeur REELLE du bloc (pas la constante PICTO_W) pour eviter
+    //    tout decalage si les blocs ont des largeurs legerement differentes.
     for (var a = 0; a < activePictos.length; a++) {
         var pictoW = activePictos[a].geometricBounds[3] - activePictos[a].geometricBounds[1];
         moveItem(activePictos[a], currentX, refY);
@@ -464,7 +483,7 @@ function injectPictoBar(page, contentData, durationValue) {
         currentX += pictoW + PICTO_GAP;
     }
 
-    // 5. Picto durée (clock) + texte durée en fin de barre
+    // 5. Picto duree (clock) + texte duree en fin de barre
     if (durationValue) {
         currentX += DURATION_GAP;
 
@@ -476,7 +495,7 @@ function injectPictoBar(page, contentData, durationValue) {
             currentX += clockW + PICTO_GAP;
         }
 
-        // Chercher le bloc texte durée (POI_meta_duree ou POI_meta_1 selon le template)
+        // Chercher le bloc texte duree (POI_meta_duree ou POI_meta_1 selon le template)
         var durText = findByLabelOnPage(page, "POI_meta_duree");
         if (durText.length === 0) durText = findByLabelOnPage(page, "POI_meta_1");
         if (durText.length > 0 && durText[0] instanceof TextFrame) {
@@ -487,27 +506,27 @@ function injectPictoBar(page, contentData, durationValue) {
     }
 }
 
-// ─── 9. Injection générique textes + images (templates sans pictos) ──────────
+// --- 11. Injection generique textes + images (templates sans pictos) ---------
 //
-// Utilisée par COUVERTURE, PRESENTATION_GUIDE et tout futur template standard.
+// Utilisee par COUVERTURE, PRESENTATION_GUIDE et tout futur template standard.
 // Pour chaque page : masque les champs du template, injecte textes puis images.
 // Les champs dans SKIP_IN_MASK_STEP et SKIP_IN_TEXT_STEP sont exclus.
 //
-// @param {Page}   page      - page InDesign cible (déjà créée et gabarit appliqué)
-// @param {Object} pageData  - entrée data.pages[i] du JSON exporté
+// param page     : page InDesign cible (deja creee et gabarit applique)
+// param pageData : entree data.pages[i] du JSON exporte
 
 function injectPageContent(page, pageData) {
     var textContent  = pageData.content.text   || {};
     var imageContent = pageData.content.images || {};
 
-    // Étape A : masquer tous les champs mappés du template courant
+    // Etape A : masquer tous les champs mappes du template courant
     for (var key in data.mappings.fields) {
         if (!data.mappings.fields.hasOwnProperty(key)) continue;
         if (SKIP_IN_MASK_STEP[key]) continue;
         injectText(page, data.mappings.fields[key], null);
     }
 
-    // Étape B : injection textes
+    // Etape B : injection textes
     for (var tKey in textContent) {
         if (!textContent.hasOwnProperty(tKey)) continue;
         if (SKIP_IN_TEXT_STEP[tKey]) continue;
@@ -524,7 +543,7 @@ function injectPageContent(page, pageData) {
         }
     }
 
-    // Étape C : injection images
+    // Etape C : injection images
     for (var iKey in imageContent) {
         if (!imageContent.hasOwnProperty(iKey)) continue;
         var iMapping = data.mappings.fields[iKey];
@@ -533,18 +552,18 @@ function injectPageContent(page, pageData) {
     }
 }
 
-// ─── 10. Gabarits ─────────────────────────────────────────────────────────────
-// G-POI est requis — le script s'arrête s'il est absent.
+// --- 12. Gabarits ------------------------------------------------------------
+// G-POI est requis - le script s'arrete s'il est absent.
 var master = loadGabarit("POI", true);
 
-// ─── 11. Génération des pages ────────────────────────────────────────────────
+// --- 13. Generation des pages ------------------------------------------------
 var pagesGenerated = 0;
 
 for (var i = 0; i < data.pages.length; i++) {
 
     var pageData = data.pages[i];
 
-    // ── COUVERTURE — placée en début de document ──────────────────────────────
+    // -- COUVERTURE - placee en debut de document -----------------------------
     if (pageData.template === "COUVERTURE") {
         var msCover = loadGabarit("COUVERTURE", false);
         if (!msCover) continue;
@@ -560,7 +579,7 @@ for (var i = 0; i < data.pages.length; i++) {
         continue;
     }
 
-    // ── PRESENTATION_GUIDE ────────────────────────────────────────────────────
+    // -- PRESENTATION_GUIDE ---------------------------------------------------
     if (pageData.template === "PRESENTATION_GUIDE") {
         var msPresGuide = loadGabarit("PRESENTATION_GUIDE", false);
         if (!msPresGuide) continue;
@@ -576,7 +595,7 @@ for (var i = 0; i < data.pages.length; i++) {
         continue;
     }
 
-    // ── POI ───────────────────────────────────────────────────────────────────
+    // -- POI ------------------------------------------------------------------
     if (pageData.template !== "POI") continue;
 
     var newPage = doc.pages.add();
@@ -589,14 +608,14 @@ for (var i = 0; i < data.pages.length; i++) {
     var textContent  = pageData.content.text   || {};
     var imageContent = pageData.content.images || {};
 
-    // Étape A : masquer tous les champs mappés (sauf statiques du gabarit)
+    // Etape A : masquer tous les champs mappes (sauf statiques du gabarit)
     for (var key in data.mappings.fields) {
         if (!data.mappings.fields.hasOwnProperty(key)) continue;
         if (SKIP_IN_MASK_STEP[key]) continue;
         injectText(newPage, data.mappings.fields[key], null);
     }
 
-    // Étape B : injection textes (sauf champs gérés par injectPictoBar)
+    // Etape B : injection textes (sauf champs geres par injectPictoBar)
     for (var key in textContent) {
         if (!textContent.hasOwnProperty(key)) continue;
         if (SKIP_IN_TEXT_STEP[key]) continue;
@@ -613,7 +632,7 @@ for (var i = 0; i < data.pages.length; i++) {
         }
     }
 
-    // Étape C : injection images
+    // Etape C : injection images
     for (var imgKey in imageContent) {
         if (!imageContent.hasOwnProperty(imgKey)) continue;
         var imgMapping = data.mappings.fields[imgKey];
@@ -621,11 +640,11 @@ for (var i = 0; i < data.pages.length; i++) {
         injectImage(newPage, imgMapping, imageContent[imgKey]);
     }
 
-    // Étape D : pictos + durée
+    // Etape D : pictos + duree
     var durationVal = textContent["POI_meta_duree"] || textContent["POI_meta_1"] || null;
     injectPictoBar(newPage, pageData.content, durationVal);
 
-    // Étape E : hyperlien bas de page → url_source de l'article
+    // Etape E : hyperlien bas de page -> url_source de l'article
     var linkLabel = data.mappings.fields["POI_lien_1"];
     if (linkLabel) {
         injectHyperlink(newPage, linkLabel, pageData.url_source);

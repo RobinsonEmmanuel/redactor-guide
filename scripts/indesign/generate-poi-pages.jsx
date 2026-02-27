@@ -31,8 +31,11 @@ var PICTO_H            = 19.7;  // mm — hauteur d'un bloc picto (gabarit)
 var PICTO_GAP          = 1;     // mm — espace entre pictos
 var DURATION_GAP       = 3;     // mm — espace entre dernier picto et clock/durée
 
-// Champs dont le texte est rendu en liste à puces
-var BULLET_LIST_FIELDS = { "POI_texte_2": true };
+// Champs dont le texte est rendu en liste à puces (par nom de champ)
+var BULLET_LIST_FIELDS = {
+    "POI_texte_2": true,
+    "PRESENTATION_GUIDE_liste_sections": true
+};
 
 // Champs gérés par injectPictoBar ou injectHyperlink — exclus de l'injection texte standard
 // POI_meta_1 et POI_meta_duree désignent le même champ selon la convention de nommage du template
@@ -40,6 +43,37 @@ var SKIP_IN_TEXT_STEP  = { "POI_meta_duree": true, "POI_meta_1": true, "POI_lien
 
 // Champs à NE PAS masquer à l'étape A (ils gardent leur texte statique du gabarit)
 var SKIP_IN_MASK_STEP  = { "POI_lien_1": true };
+
+// Noms des gabarits InDesign associés à chaque template
+// Ajouter ici chaque nouveau template : { "NOM_TEMPLATE": "NOM_GABARIT_INDESIGN" }
+var GABARIT_NAMES = {
+    "COUVERTURE":         "A-COUVERTURE",
+    "PRESENTATION_GUIDE": "B-PRESENTATION_GUIDE",
+    "POI":                "G-POI"
+};
+
+// Cache des gabarits chargés (évite de recharger plusieurs fois)
+var gabaritCache = {};
+
+/**
+ * Charge un gabarit InDesign par nom de template.
+ * Retourne le MasterSpread ou null si introuvable (avec alerte).
+ * @param {string} templateName - nom du template (ex: "PRESENTATION_GUIDE")
+ * @param {boolean} required    - si true, bloque le script en cas d'absence
+ */
+function loadGabarit(templateName, required) {
+    if (gabaritCache[templateName]) return gabaritCache[templateName];
+    var gabaritName = GABARIT_NAMES[templateName];
+    if (!gabaritName) return null;
+    var ms = doc.masterSpreads.itemByName(gabaritName);
+    if (!ms.isValid) {
+        alert("Gabarit \u00ab" + gabaritName + "\u00bb introuvable dans ce document.\nLes pages " + templateName + " seront ignor\u00e9es.");
+        if (required) exit();
+        return null;
+    }
+    gabaritCache[templateName] = ms;
+    return ms;
+}
 
 // ─── 1. Charger JSON ──────────────────────────────────────────────────────────
 var jsonFile = File.openDialog("Choisir le JSON du guide");
@@ -453,89 +487,109 @@ function injectPictoBar(page, contentData, durationValue) {
     }
 }
 
-// ─── 9. Gabarits ─────────────────────────────────────────────────────────────
-var master = doc.masterSpreads.itemByName("G-POI");
-if (!master.isValid) {
-    alert("Gabarit \u00abG-POI\u00bb introuvable dans ce document.");
-    exit();
+// ─── 9. Injection générique textes + images (templates sans pictos) ──────────
+//
+// Utilisée par COUVERTURE, PRESENTATION_GUIDE et tout futur template standard.
+// Pour chaque page : masque les champs du template, injecte textes puis images.
+// Les champs dans SKIP_IN_MASK_STEP et SKIP_IN_TEXT_STEP sont exclus.
+//
+// @param {Page}   page      - page InDesign cible (déjà créée et gabarit appliqué)
+// @param {Object} pageData  - entrée data.pages[i] du JSON exporté
+
+function injectPageContent(page, pageData) {
+    var textContent  = pageData.content.text   || {};
+    var imageContent = pageData.content.images || {};
+
+    // Étape A : masquer tous les champs mappés du template courant
+    for (var key in data.mappings.fields) {
+        if (!data.mappings.fields.hasOwnProperty(key)) continue;
+        if (SKIP_IN_MASK_STEP[key]) continue;
+        injectText(page, data.mappings.fields[key], null);
+    }
+
+    // Étape B : injection textes
+    for (var tKey in textContent) {
+        if (!textContent.hasOwnProperty(tKey)) continue;
+        if (SKIP_IN_TEXT_STEP[tKey]) continue;
+        var tMapping = data.mappings.fields[tKey];
+        if (!tMapping) continue;
+        var tVal = textContent[tKey];
+        if (tVal === null || tVal === undefined) continue;
+        var tStrVal = String(tVal).replace(/^\s+|\s+$/, "");
+        if (tStrVal === "") continue;
+        if (BULLET_LIST_FIELDS[tKey]) {
+            injectBulletText(page, tMapping, tStrVal);
+        } else {
+            injectText(page, tMapping, tStrVal);
+        }
+    }
+
+    // Étape C : injection images
+    for (var iKey in imageContent) {
+        if (!imageContent.hasOwnProperty(iKey)) continue;
+        var iMapping = data.mappings.fields[iKey];
+        if (!iMapping) continue;
+        injectImage(page, iMapping, imageContent[iKey]);
+    }
 }
 
-var masterCouverture = doc.masterSpreads.itemByName("A-COUVERTURE");
-if (!masterCouverture.isValid) {
-    alert("Gabarit \u00abA-COUVERTURE\u00bb introuvable dans ce document.");
-    exit();
-}
+// ─── 10. Gabarits ─────────────────────────────────────────────────────────────
+// G-POI est requis — le script s'arrête s'il est absent.
+var master = loadGabarit("POI", true);
 
-// ─── 10. Génération des pages ────────────────────────────────────────────────
+// ─── 11. Génération des pages ────────────────────────────────────────────────
+var pagesGenerated = 0;
+
 for (var i = 0; i < data.pages.length; i++) {
 
     var pageData = data.pages[i];
 
-    // ── COUVERTURE ────────────────────────────────────────────────────────────
+    // ── COUVERTURE — placée en début de document ──────────────────────────────
     if (pageData.template === "COUVERTURE") {
+        var msCover = loadGabarit("COUVERTURE", false);
+        if (!msCover) continue;
 
         var coverPage = doc.pages.add(LocationOptions.AT_BEGINNING);
-        coverPage.appliedMaster = masterCouverture;
-
-        // Override de tous les éléments du gabarit
-        var coverMasterItems = masterCouverture.allPageItems;
-        for (var mc = 0; mc < coverMasterItems.length; mc++) {
-            try { coverMasterItems[mc].override(coverPage); } catch(e) {}
+        coverPage.appliedMaster = msCover;
+        var coverItems = msCover.allPageItems;
+        for (var ci = 0; ci < coverItems.length; ci++) {
+            try { coverItems[ci].override(coverPage); } catch(e) {}
         }
+        injectPageContent(coverPage, pageData);
+        pagesGenerated++;
+        continue;
+    }
 
-        var coverText   = pageData.content.text;
-        var coverImages = pageData.content.images;
+    // ── PRESENTATION_GUIDE ────────────────────────────────────────────────────
+    if (pageData.template === "PRESENTATION_GUIDE") {
+        var msPresGuide = loadGabarit("PRESENTATION_GUIDE", false);
+        if (!msPresGuide) continue;
 
-        // Masquer tous les champs mappés
-        for (var ckey in data.mappings.fields) {
-            if (!data.mappings.fields.hasOwnProperty(ckey)) continue;
-            injectText(coverPage, data.mappings.fields[ckey], null);
+        var presPage = doc.pages.add();
+        presPage.appliedMaster = msPresGuide;
+        var presItems = msPresGuide.allPageItems;
+        for (var pi = 0; pi < presItems.length; pi++) {
+            try { presItems[pi].override(presPage); } catch(e) {}
         }
-
-        // Injection textes
-        if (coverText) {
-            for (var ckey in coverText) {
-                if (!coverText.hasOwnProperty(ckey)) continue;
-                var cMapping = data.mappings.fields[ckey];
-                if (!cMapping) continue;
-                var cVal = coverText[ckey];
-                if (cVal === null || cVal === undefined) continue;
-                var cStrVal = String(cVal).replace(/^\s+|\s+$/, "");
-                if (cStrVal === "") continue;
-                injectText(coverPage, cMapping, cStrVal);
-            }
-        }
-
-        // Injection images
-        if (coverImages) {
-            for (var cImgKey in coverImages) {
-                if (!coverImages.hasOwnProperty(cImgKey)) continue;
-                var cImgMapping = data.mappings.fields[cImgKey];
-                if (!cImgMapping) continue;
-                injectImage(coverPage, cImgMapping, coverImages[cImgKey]);
-            }
-        }
-
+        injectPageContent(presPage, pageData);
+        pagesGenerated++;
         continue;
     }
 
     // ── POI ───────────────────────────────────────────────────────────────────
-    if (pageData.template != "POI") continue;
+    if (pageData.template !== "POI") continue;
 
     var newPage = doc.pages.add();
     newPage.appliedMaster = master;
-
-    // Override de tous les éléments du gabarit
     var masterItems = master.allPageItems;
     for (var m = 0; m < masterItems.length; m++) {
         try { masterItems[m].override(newPage); } catch(e) {}
     }
 
-    var textContent  = pageData.content.text;
-    var imageContent = pageData.content.images;
-    var pictoContent = pageData.content.pictos;
+    var textContent  = pageData.content.text   || {};
+    var imageContent = pageData.content.images || {};
 
-    // Étape A : masquer tous les champs mappés (sauf les champs statiques du gabarit)
+    // Étape A : masquer tous les champs mappés (sauf statiques du gabarit)
     for (var key in data.mappings.fields) {
         if (!data.mappings.fields.hasOwnProperty(key)) continue;
         if (SKIP_IN_MASK_STEP[key]) continue;
@@ -568,19 +622,16 @@ for (var i = 0; i < data.pages.length; i++) {
     }
 
     // Étape D : pictos + durée
-    // durationVal : lecture depuis les champs texte (sémantique ou numéroté)
-    var durationVal = null;
-    if (textContent) {
-        durationVal = textContent["POI_meta_duree"] || textContent["POI_meta_1"] || null;
-    }
-    // injectPictoBar reçoit l'objet content complet pour accéder à _derived.pictos_active
+    var durationVal = textContent["POI_meta_duree"] || textContent["POI_meta_1"] || null;
     injectPictoBar(newPage, pageData.content, durationVal);
 
-    // Étape E : hyperlien sur le lien bas de page → url_source de l'article
+    // Étape E : hyperlien bas de page → url_source de l'article
     var linkLabel = data.mappings.fields["POI_lien_1"];
     if (linkLabel) {
         injectHyperlink(newPage, linkLabel, pageData.url_source);
     }
+
+    pagesGenerated++;
 }
 
-alert("Pages POI g\u00e9n\u00e9r\u00e9es avec succ\u00e8s \u2714");
+alert(pagesGenerated + " page(s) g\u00e9n\u00e9r\u00e9e(s) avec succ\u00e8s \u2714");

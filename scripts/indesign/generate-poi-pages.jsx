@@ -4,8 +4,9 @@
  *
  * Prérequis InDesign :
  *   - Un style de caractère nommé "Gras" (pour le bold **...**)
- *   - Un gabarit nommé "B-POI_TEMPLATE"
- *   - Les blocs étiquetés (label) selon le mapping InDesign du guide
+ *   - Un gabarit nommé "G-POI" (pages POI) et "A-COUVERTURE" (couverture)
+ *   - Les blocs étiquetés (label) avec le NOM EXACT du champ de template
+ *     Ex : frame texte → label "POI_titre_1", frame image → label "POI_image_1"
  *   - Le JSON exporté depuis l'app (export ZIP recommandé : JSON + images locales)
  *
  * Usage :
@@ -188,10 +189,17 @@ function injectBulletText(page, label, value) {
 }
 
 // ─── 7. Injecter image (local en priorité, URL en fallback) ──────────────────
+// Note : les TextFrames sont ignorés — placer un fichier dans un TextFrame
+// crée un graphic inline qui laisse une ligne blanche dans le bloc.
 function injectImage(page, label, imageData) {
     var blocks = findByLabelOnPage(page, label);
     for (var i = 0; i < blocks.length; i++) {
         var block = blocks[i];
+        // Ignorer les TextFrames : seuls les cadres image (Rectangle, etc.) acceptent place()
+        if (block instanceof TextFrame) {
+            block.visible = false;
+            continue;
+        }
         if (!imageData || (!imageData.local && !imageData.url)) {
             block.visible = false;
             continue;
@@ -279,13 +287,21 @@ function injectHyperlink(page, label, url) {
 // Ajouter un nouveau picto = ajouter son label dans ALL_PICTO_LABELS et dans le template.
 // Aucune modification du script nécessaire pour le reste.
 
+// Labels des cadres picto dans InDesign — doivent correspondre aux noms de champs du template.
+// Les variant_layer (ex: POI_picto_interet_incontournable) sont définis dans option_layers
+// du template et résolus dynamiquement depuis _derived.pictos_active.
 var ALL_PICTO_LABELS = [
-    "picto_interet",  "picto_interet_1", "picto_interet_2", "picto_interet_3",
-    "picto_pmr",      "picto_pmr_full",  "picto_pmr_half",  "picto_pmr_none",
-    "picto_escaliers",
-    "picto_toilettes",
-    "picto_restauration",
-    "picto_famille",
+    // Noms sémantiques (convention actuelle : champ = label InDesign)
+    "POI_picto_interet",
+    "POI_picto_pmr",
+    "POI_picto_escaliers",
+    "POI_picto_toilettes",
+    "POI_picto_restauration",
+    "POI_picto_famille",
+    // Noms numérotés (alternative)
+    "POI_picto_1", "POI_picto_2", "POI_picto_3",
+    "POI_picto_4", "POI_picto_5", "POI_picto_6",
+    // Picto durée (cadre horloge — label statique dans le gabarit)
     "picto_duree"
 ];
 
@@ -307,10 +323,11 @@ function injectPictoBar(page, contentData, durationValue) {
             pBlocks[b].visible = false;
         }
     }
-    var durTextBlocks = findByLabelOnPage(page, "txt_poi_duree");
-    for (var d = 0; d < durTextBlocks.length; d++) {
-        durTextBlocks[d].visible = false;
-    }
+    // Masquer le bloc texte durée (label = nom du champ de template)
+    var durTextBlocks = findByLabelOnPage(page, "POI_meta_duree");
+    var durTextBlocks2 = findByLabelOnPage(page, "POI_meta_1");
+    for (var d = 0; d < durTextBlocks.length; d++)  durTextBlocks[d].visible = false;
+    for (var d = 0; d < durTextBlocks2.length; d++) durTextBlocks2[d].visible = false;
 
     if (!contentData) return;
 
@@ -371,7 +388,9 @@ function injectPictoBar(page, contentData, durationValue) {
             currentX += clockW + PICTO_GAP;
         }
 
-        var durText = findByLabelOnPage(page, "txt_poi_duree");
+        // Chercher le bloc texte durée (POI_meta_duree ou POI_meta_1 selon le template)
+        var durText = findByLabelOnPage(page, "POI_meta_duree");
+        if (durText.length === 0) durText = findByLabelOnPage(page, "POI_meta_1");
         if (durText.length > 0 && durText[0] instanceof TextFrame) {
             moveItem(durText[0], currentX, refY);
             durText[0].visible = true;

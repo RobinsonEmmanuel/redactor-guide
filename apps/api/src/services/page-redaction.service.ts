@@ -1128,15 +1128,18 @@ INSTRUCTIONS STRICTES :
       ];
     }
 
-    // Exclure les images composites (collages, mosaïques) — champ ajouté en prompt v1.1.0
-    // Pour les anciennes analyses sans ce champ, on les garde (is_composite absent = non composite)
-    query['analysis.is_composite'] = { $ne: true };
+    // Exclure les images composites (collages, mosaïques) et les images avec texte superposé
+    query['analysis.is_composite']   = { $ne: true };
+    query['analysis.has_text_overlay'] = { $ne: true };
 
     const allAnalyses = await this.db.collection('image_analyses').find(query).toArray();
 
     if (allAnalyses.length === 0 && destImageUrls.size > 0) {
       // Fallback sans filtre destination si aucun résultat
-      let fallbackQuery: any = { 'analysis.is_composite': { $ne: true } };
+      let fallbackQuery: any = {
+        'analysis.is_composite':     { $ne: true },
+        'analysis.has_text_overlay': { $ne: true },
+      };
       if (uniqueTags.length > 0) {
         const tagPattern = uniqueTags
           .map((t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))

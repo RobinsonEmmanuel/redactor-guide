@@ -8,9 +8,11 @@ export const ImageAnalysisSchema = z.object({
   analysis: z.object({
     shows_entire_site: z.boolean(),
     shows_detail: z.boolean(),
-    detail_type: z.enum(['architecture', 'nature', 'intérieur', 'paysage', 'usage', 'symbole', 'indéterminé']),
+    detail_type: z.string(),
     is_iconic_view: z.boolean(),
     is_contextual: z.boolean(),
+    /** Vrai si l'image est un collage, mosaïque ou montage — doit être exclue de la sélection */
+    is_composite: z.boolean().default(false),
     visual_clarity_score: z.number().min(0).max(1),
     composition_quality_score: z.number().min(0).max(1),
     lighting_quality_score: z.number().min(0).max(1),
@@ -35,6 +37,8 @@ export interface SelectionCriteria {
   minReadabilityScore?: number;
   avoidTextOverlay?: boolean;
   avoidGraphicEffects?: boolean;
+  /** Exclure les collages, mosaïques et montages (défaut: true) */
+  avoidComposite?: boolean;
   preferIconicView?: boolean;
   minRelevance?: 'faible' | 'moyenne' | 'forte';
 }

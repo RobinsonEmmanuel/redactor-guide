@@ -158,6 +158,7 @@ export class ImageAnalysisService {
         detail_type: analysisData.detail_type || 'indéterminé',
         is_iconic_view: analysisData.is_iconic_view ?? false,
         is_contextual: analysisData.is_contextual ?? false,
+        is_composite: analysisData.is_composite ?? false,
         visual_clarity_score: analysisData.visual_clarity_score ?? 0,
         composition_quality_score: analysisData.composition_quality_score ?? 0,
         lighting_quality_score: analysisData.lighting_quality_score ?? 0,
@@ -190,6 +191,7 @@ export class ImageAnalysisService {
       minReadabilityScore = 0.6,
       avoidTextOverlay = true,
       avoidGraphicEffects = true,
+      avoidComposite = true,
       preferIconicView = true,
       minRelevance = 'moyenne',
     } = criteria;
@@ -204,6 +206,7 @@ export class ImageAnalysisService {
       if (a.readability_small_screen_score < minReadabilityScore) return false;
       if (avoidTextOverlay && a.has_text_overlay) return false;
       if (avoidGraphicEffects && a.has_graphic_effects) return false;
+      if (avoidComposite && (a as any).is_composite) return false;
 
       // Relevance minimale
       if (minRelevance === 'forte' && a.editorial_relevance !== 'forte') {

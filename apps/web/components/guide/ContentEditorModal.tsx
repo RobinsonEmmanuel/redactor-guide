@@ -54,48 +54,51 @@ interface Page {
   url_source?: string;
 }
 
-// ─── BoldTextArea ─────────────────────────────────────────────────────────────
-// Textarea enrichi avec un bouton "Gras" qui entoure la sélection de marqueurs
-// **...** compatibles avec le script InDesign.
+// ─── RichTextArea ──────────────────────────────────────────────────────────────
+// Textarea enrichi avec des boutons de style compatibles avec le script InDesign.
+//
+// Marqueurs :
+//   **texte**  → style "Gras"   (caractère gras)
+//   {texte}    → style "Orange" (couleur #f39428)
+//   ^texte^    → style "Chiffre" (taille 18pt)
 
-interface BoldTextAreaProps {
+interface RichTextAreaProps {
   value: string;
   onChange: (val: string) => void;
   rows?: number;
   className?: string;
 }
 
-function BoldTextArea({ value, onChange, rows = 4, className }: BoldTextAreaProps) {
+function RichTextArea({ value, onChange, rows = 4, className }: RichTextAreaProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
-  const handleBold = () => {
+  const applyStyle = (open: string, close: string) => {
     const ta = ref.current;
     if (!ta) return;
 
-    const start = ta.selectionStart;
-    const end   = ta.selectionEnd;
-    if (start === end) return; // rien de sélectionné
+    const start    = ta.selectionStart;
+    const end      = ta.selectionEnd;
+    if (start === end) return;
 
     const selected = value.slice(start, end);
     let newValue: string;
     let newStart: number;
     let newEnd:   number;
 
-    // Toggle : déjà en gras → retirer les marqueurs
-    if (selected.startsWith('**') && selected.endsWith('**') && selected.length > 4) {
-      const inner = selected.slice(2, -2);
+    // Toggle : déjà stylé → retirer les marqueurs
+    if (selected.startsWith(open) && selected.endsWith(close) &&
+        selected.length > open.length + close.length) {
+      const inner = selected.slice(open.length, -close.length);
       newValue = value.slice(0, start) + inner + value.slice(end);
       newStart = start;
       newEnd   = start + inner.length;
     } else {
-      newValue = value.slice(0, start) + '**' + selected + '**' + value.slice(end);
-      newStart = start + 2;
-      newEnd   = end   + 2;
+      newValue = value.slice(0, start) + open + selected + close + value.slice(end);
+      newStart = start + open.length;
+      newEnd   = end   + open.length;
     }
 
     onChange(newValue);
-
-    // Restaurer la sélection après re-render React
     requestAnimationFrame(() => {
       if (ref.current) {
         ref.current.setSelectionRange(newStart, newEnd);
@@ -107,17 +110,35 @@ function BoldTextArea({ value, onChange, rows = 4, className }: BoldTextAreaProp
   return (
     <div>
       {/* Barre d'outils */}
-      <div className="flex items-center gap-2 mb-1">
+      <div className="flex items-center gap-1.5 mb-1">
         <button
           type="button"
-          onMouseDown={(e) => { e.preventDefault(); handleBold(); }}
-          title="Mettre en gras — sélectionner du texte puis cliquer"
+          onMouseDown={(e) => { e.preventDefault(); applyStyle('**', '**'); }}
+          title="Gras — style InDesign &quot;Gras&quot;"
           className="px-2 py-0.5 text-sm font-bold border border-gray-300 rounded hover:bg-gray-100 active:bg-gray-200 transition-colors select-none"
         >
           G
         </button>
-        <span className="text-xs text-gray-400">
-          Sélectionner du texte, puis cliquer <strong>G</strong> pour le mettre en gras
+        <button
+          type="button"
+          onMouseDown={(e) => { e.preventDefault(); applyStyle('{', '}'); }}
+          title="Orange — style InDesign &quot;Orange&quot; (#f39428)"
+          className="px-2 py-0.5 text-sm font-bold border rounded hover:opacity-80 active:opacity-60 transition-colors select-none"
+          style={{ color: '#f39428', borderColor: '#f39428', backgroundColor: '#fff8f0' }}
+        >
+          O
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => { e.preventDefault(); applyStyle('^', '^'); }}
+          title="Chiffre — style InDesign &quot;Chiffre&quot; (18pt)"
+          className="px-2 py-0.5 border border-purple-400 rounded text-purple-700 bg-purple-50 hover:bg-purple-100 active:bg-purple-200 transition-colors select-none font-semibold"
+          style={{ fontSize: '15px' }}
+        >
+          C
+        </button>
+        <span className="text-xs text-gray-400 ml-1">
+          Sélectionner du texte puis <strong>G</strong> gras · <span style={{ color: '#f39428' }}>O</span> orange · <span className="text-purple-600">C</span> chiffre
         </span>
       </div>
 
@@ -284,8 +305,8 @@ export default function ContentEditorModal({
 
   const getCharacterCount = (fieldName: string, maxChars?: number) => {
     const value = formData[fieldName] || '';
-    // Les marqueurs **...** ne comptent pas dans la longueur finale InDesign
-    const count = String(value).replace(/\*\*/g, '').length;
+    // Les marqueurs de style ne comptent pas dans la longueur finale InDesign
+    const count = String(value).replace(/\*\*|\{|\}|\^/g, '').length;
     if (!maxChars) return null;
     const percentage = (count / maxChars) * 100;
     const color = percentage > 100 ? 'text-red-600' : percentage > 90 ? 'text-orange-600' : 'text-gray-500';
@@ -473,7 +494,7 @@ export default function ContentEditorModal({
         );
 
       case 'texte': {
-        const plainLength = String(fieldValue).replace(/\*\*/g, '').length;
+        const plainLength = String(fieldValue).replace(/\*\*|\{|\}|\^/g, '').length;
         const isOverLimit = field.max_chars ? plainLength > field.max_chars : false;
         return (
           <div key={field.name} className="mb-4">
@@ -484,7 +505,7 @@ export default function ContentEditorModal({
             {field.description && (
               <p className="text-xs text-gray-500 mb-2">{field.description}</p>
             )}
-            <BoldTextArea
+            <RichTextArea
               value={fieldValue}
               onChange={(val) => handleFieldChange(field.name, val)}
               rows={4}

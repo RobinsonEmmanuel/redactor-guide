@@ -20,7 +20,9 @@
 var doc = app.activeDocument;
 
 // ─── Configuration ────────────────────────────────────────────────────────────
-var BOLD_STYLE_NAME    = "Gras";
+var BOLD_STYLE_NAME    = "Gras";    // Marqueurs **...**
+var ORANGE_STYLE_NAME  = "Orange";  // Marqueurs {...}   — couleur #f39428
+var CHIFFRE_STYLE_NAME = "Chiffre"; // Marqueurs ^...^   — taille 18pt
 var BULLET_LEFT_INDENT = 6.35;  // mm — retrait gauche paragraphe puce
 var BULLET_FIRST_LINE  = -6.35; // mm — retrait première ligne (hanging indent)
 var BULLET_SPACE_AFTER = 7;     // mm — espace après chaque puce
@@ -78,44 +80,90 @@ function moveItem(item, targetX, targetY) {
     item.move(null, [deltaX, deltaY]);
 }
 
-// ─── 4. Appliquer le gras via GREP (cherche **...**, applique style, supprime marqueurs)
+// ─── 4. Appliquer les styles via GREP ─────────────────────────────────────────
+//
+// Styles gérés :
+//   **text**  → style "Gras"    (caractère gras)
+//   {text}    → style "Orange"  (couleur #f39428)
+//   ^text^    → style "Chiffre" (taille 18pt)
+//
+// Prérequis InDesign : styles de caractère "Gras", "Orange" et "Chiffre" dans le document.
 // Utilise tf.parentStory car findGrep/changeGrep ne sont pas disponibles sur TextFrame directement.
-function applyBoldMarkers(tf) {
+
+function applyStyleMarkers(tf) {
     try {
         var story = tf.parentStory;
-        var boldStyle = doc.characterStyles.itemByName(BOLD_STYLE_NAME);
 
-        // Chercher les patterns **...** dans cette story
-        app.findGrepPreferences  = NothingEnum.NOTHING;
+        var boldStyle    = doc.characterStyles.itemByName(BOLD_STYLE_NAME);
+        var orangeStyle  = doc.characterStyles.itemByName(ORANGE_STYLE_NAME);
+        var chiffreStyle = doc.characterStyles.itemByName(CHIFFRE_STYLE_NAME);
+
+        // ── Gras : **text** ──────────────────────────────────────────────────
+        app.findGrepPreferences   = NothingEnum.NOTHING;
         app.changeGrepPreferences = NothingEnum.NOTHING;
         app.findGrepPreferences.findWhat = "\\*\\*[^*]+\\*\\*";
-        var matches = story.findGrep();
+        var boldMatches = story.findGrep();
         app.findGrepPreferences = NothingEnum.NOTHING;
-
-        // Appliquer le style "Gras" à chaque correspondance (marqueurs inclus)
         if (boldStyle.isValid) {
-            for (var m = 0; m < matches.length; m++) {
-                try { matches[m].appliedCharacterStyle = boldStyle; } catch(e) {}
+            for (var m = 0; m < boldMatches.length; m++) {
+                try { boldMatches[m].appliedCharacterStyle = boldStyle; } catch(e) {}
             }
         }
-
-        // Supprimer les marqueurs ** — le texte garde le style gras
-        app.findGrepPreferences  = NothingEnum.NOTHING;
+        app.findGrepPreferences   = NothingEnum.NOTHING;
         app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat  = "\\*\\*";
+        app.findGrepPreferences.findWhat   = "\\*\\*";
         app.changeGrepPreferences.changeTo = "";
         story.changeGrep();
-        app.findGrepPreferences  = NothingEnum.NOTHING;
+        app.findGrepPreferences   = NothingEnum.NOTHING;
         app.changeGrepPreferences = NothingEnum.NOTHING;
+
+        // ── Orange : {text} ──────────────────────────────────────────────────
+        app.findGrepPreferences   = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+        app.findGrepPreferences.findWhat = "\\{[^}]+\\}";
+        var orangeMatches = story.findGrep();
+        app.findGrepPreferences = NothingEnum.NOTHING;
+        if (orangeStyle.isValid) {
+            for (var o = 0; o < orangeMatches.length; o++) {
+                try { orangeMatches[o].appliedCharacterStyle = orangeStyle; } catch(e) {}
+            }
+        }
+        app.findGrepPreferences   = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+        app.findGrepPreferences.findWhat   = "[{}]";
+        app.changeGrepPreferences.changeTo = "";
+        story.changeGrep();
+        app.findGrepPreferences   = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+
+        // ── Chiffre : ^text^ ─────────────────────────────────────────────────
+        app.findGrepPreferences   = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+        app.findGrepPreferences.findWhat = "\\^[^^]+\\^";
+        var chiffreMatches = story.findGrep();
+        app.findGrepPreferences = NothingEnum.NOTHING;
+        if (chiffreStyle.isValid) {
+            for (var c = 0; c < chiffreMatches.length; c++) {
+                try { chiffreMatches[c].appliedCharacterStyle = chiffreStyle; } catch(e) {}
+            }
+        }
+        app.findGrepPreferences   = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+        app.findGrepPreferences.findWhat   = "\\^";
+        app.changeGrepPreferences.changeTo = "";
+        story.changeGrep();
+        app.findGrepPreferences   = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+
     } catch(e) {
-        // Ne pas bloquer le reste du script si le gras échoue
+        // Ne pas bloquer le reste du script si l'application de styles échoue
     }
 }
 
-// ─── 5. Injecter texte simple avec gras optionnel ────────────────────────────
-function setTextWithBold(textFrame, rawText) {
-    textFrame.contents = rawText;   // définir avec les marqueurs ** en place
-    applyBoldMarkers(textFrame);    // GREP trouve, style, supprime **
+// ─── 5. Injecter texte avec styles optionnels ─────────────────────────────────
+function setTextWithStyles(textFrame, rawText) {
+    textFrame.contents = rawText;  // définir avec les marqueurs en place
+    applyStyleMarkers(textFrame);  // GREP trouve, applique styles, supprime marqueurs
 }
 
 // ─── 6. Injecter texte (masque le bloc si vide / absent) ─────────────────────
@@ -131,8 +179,11 @@ function injectText(page, label, value) {
             blocks[i].visible = true;
             blocks[i].contents = "";
             var strValue = String(value);
-            if (strValue.indexOf("**") !== -1) {
-                setTextWithBold(blocks[i], strValue);
+            var hasMarkers = strValue.indexOf("**") !== -1 ||
+                             strValue.indexOf("{")  !== -1 ||
+                             strValue.indexOf("^")  !== -1;
+            if (hasMarkers) {
+                setTextWithStyles(blocks[i], strValue);
             } else {
                 blocks[i].contents = strValue;
             }
@@ -167,9 +218,12 @@ function injectBulletText(page, label, value) {
 
         tf.contents = fullText;
 
-        // Appliquer le gras via GREP si des marqueurs ** sont présents
-        if (fullText.indexOf("**") !== -1) {
-            applyBoldMarkers(tf);
+        // Appliquer les styles via GREP si des marqueurs sont présents
+        var hasMarkers = fullText.indexOf("**") !== -1 ||
+                         fullText.indexOf("{")  !== -1 ||
+                         fullText.indexOf("^")  !== -1;
+        if (hasMarkers) {
+            applyStyleMarkers(tf);
         }
 
         // Mise en forme paragraphe : hanging indent + espace après + tab stop

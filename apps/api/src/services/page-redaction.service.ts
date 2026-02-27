@@ -237,6 +237,13 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
       }
 
       // 5. Extraire les champs avec valeur par défaut (pas d'appel IA pour ceux-ci)
+      // Mapping de variables pour résoudre les placeholders {{...}} dans les valeurs par défaut
+      const earlyFieldVars: Record<string, string> = {
+        URL_ARTICLE_SOURCE:   article?.urls_by_lang?.fr || article?.url || article?.urls_by_lang?.en || '',
+        TITRE_ARTICLE_SOURCE: article?.title || '',
+        ...extraVars,
+      };
+
       const defaultContent: Record<string, string> = {};
       const fieldsForAI = template.fields.filter((f: any) => {
         // ── Lien avec sous-configurations label/url ──────────────────────────
@@ -249,7 +256,9 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
           const allManual    = !!ll.skip_ai && !!lu.skip_ai;
 
           if (allDefault) {
-            defaultContent[f.name] = JSON.stringify({ label: labelDefault, url: urlDefault });
+            const resolvedLabel = this.openaiService.replaceVariables(String(labelDefault), earlyFieldVars);
+            const resolvedUrl   = this.openaiService.replaceVariables(String(urlDefault),   earlyFieldVars);
+            defaultContent[f.name] = JSON.stringify({ label: resolvedLabel, url: resolvedUrl });
             console.log(`📌 Lien valeur par défaut complète appliquée pour ${f.name}`);
             return false;
           }
@@ -263,7 +272,7 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
 
         // ── Comportement standard ────────────────────────────────────────────
         if (f.default_value !== undefined && f.default_value !== null) {
-          defaultContent[f.name] = f.default_value;
+          defaultContent[f.name] = this.openaiService.replaceVariables(String(f.default_value), earlyFieldVars);
           console.log(`📌 Valeur par défaut appliquée pour ${f.name}`);
           return false;
         }

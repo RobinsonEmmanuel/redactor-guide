@@ -184,6 +184,41 @@ interface ContentEditorModalProps {
   apiUrl: string;
 }
 
+/** Remplace les placeholders {{VAR}} dans une valeur avec les données de la page. */
+function resolvePageVars(value: unknown, page: Page): unknown {
+  if (typeof value !== 'string') return value;
+  const vars: Record<string, string> = {
+    URL_ARTICLE_SOURCE: page.url_source ?? '',
+  };
+  return value.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? `{{${key}}}`);
+}
+
+/** Applique resolvePageVars récursivement sur un objet/tableau de contenu. */
+function resolveContentVars(content: Record<string, any>, page: Page): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(content)) {
+    if (typeof v === 'string') {
+      // Peut être un JSON stringifié (lien structuré {"label":"…","url":"…"})
+      if (v.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(v);
+          if (typeof parsed === 'object' && parsed !== null) {
+            const resolved = Object.fromEntries(
+              Object.entries(parsed).map(([pk, pv]) => [pk, resolvePageVars(pv, page)])
+            );
+            out[k] = JSON.stringify(resolved);
+            continue;
+          }
+        } catch { /* pas du JSON valide → traiter comme chaîne simple */ }
+      }
+      out[k] = resolvePageVars(v, page);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
 export default function ContentEditorModal({
   page,
   template,
@@ -194,7 +229,9 @@ export default function ContentEditorModal({
   guideId,
   apiUrl,
 }: ContentEditorModalProps) {
-  const [formData, setFormData] = useState<Record<string, any>>(content || {});
+  const [formData, setFormData] = useState<Record<string, any>>(
+    () => resolveContentVars(content || {}, page)
+  );
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showImageAnalysis, setShowImageAnalysis] = useState(false);
@@ -210,7 +247,7 @@ export default function ContentEditorModal({
   }
 
   useEffect(() => {
-    setFormData(content || {});
+    setFormData(resolveContentVars(content || {}, page));
   }, [content]);
 
   const handleValidateContent = async () => {

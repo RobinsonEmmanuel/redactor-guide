@@ -163,6 +163,31 @@ export const TemplateFieldSchema = z.object({
   option_layers: z.record(z.string(), z.string().nullable()).optional(),
 
   /**
+   * Pour type=lien uniquement — configuration de l'intitulé du lien.
+   * Si absent, le comportement est hérité du mode top-level (ai_instructions / default_value / skip_ai).
+   * Quand link_label ET link_url sont définis, la valeur exportée est un objet JSON :
+   *   { "label": "...", "url": "..." }
+   */
+  link_label: z.object({
+    /** Instructions pour l'IA (mode IA) */
+    ai_instructions: z.string().optional(),
+    /** Valeur fixe identique sur toutes les pages (mode valeur par défaut) */
+    default_value: z.string().optional(),
+    /** L'IA ignore ce champ — saisie manuelle page par page (mode manuel) */
+    skip_ai: z.boolean().optional(),
+  }).optional(),
+
+  /**
+   * Pour type=lien uniquement — configuration de l'URL du lien.
+   * Fonctionne de pair avec link_label.
+   */
+  link_url: z.object({
+    ai_instructions: z.string().optional(),
+    default_value: z.string().optional(),
+    skip_ai: z.boolean().optional(),
+  }).optional(),
+
+  /**
    * Pour type=image uniquement.
    * Si 'destination_pool', l'IA choisit l'image dans le pool des photos analysées
    * de la destination (collection image_analyses) plutôt que de la générer librement.

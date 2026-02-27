@@ -12,6 +12,12 @@ interface SubField {
   ai_instructions?: string;
 }
 
+interface LinkPartConfig {
+  ai_instructions?: string;
+  default_value?: string;
+  skip_ai?: boolean;
+}
+
 interface TemplateField {
   id: string;
   type: 'titre' | 'texte' | 'image' | 'lien' | 'meta' | 'liste' | 'picto' | 'repetitif';
@@ -28,6 +34,8 @@ interface TemplateField {
   source?: 'destination_pool';
   pool_tags?: string[];
   pool_instructions?: string;
+  link_label?: LinkPartConfig;
+  link_url?: LinkPartConfig;
   validation?: {
     required?: boolean;
     max_length?: number;
@@ -545,6 +553,154 @@ export default function SortableFieldItem({
               </div>
             </>
           )}
+
+          {/* ── Lien : configuration séparée intitulé + URL ───────────────────── */}
+          {field.type === 'lien' && (() => {
+            const useSplit = !!(field.link_label || field.link_url);
+
+            const getLinkPartMode = (part?: LinkPartConfig) =>
+              !part                        ? 'ai'
+              : part.default_value !== undefined ? 'default'
+              : part.skip_ai               ? 'manual'
+              : 'ai';
+
+            const setLinkPartMode = (
+              partKey: 'link_label' | 'link_url',
+              m: 'ai' | 'default' | 'manual'
+            ) => {
+              const base: LinkPartConfig =
+                m === 'default' ? { default_value: '' }
+                : m === 'manual' ? { skip_ai: true }
+                : {};
+              onChange({ [partKey]: base });
+            };
+
+            const modeBtn = (
+              partKey: 'link_label' | 'link_url',
+              current: 'ai' | 'default' | 'manual',
+              m: 'ai' | 'default' | 'manual',
+              icon: string,
+              label: string,
+              activeColor: string
+            ) => (
+              <button type="button"
+                onClick={() => setLinkPartMode(partKey, m)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                  current === m ? `bg-white ${activeColor} shadow-sm` : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <span>{icon}</span>{label}
+              </button>
+            );
+
+            return (
+              <div className="space-y-3">
+                {/* Basculer entre mode simple et mode séparé */}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-orange-700 uppercase tracking-wide">
+                    🔗 Configuration du lien
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (useSplit) {
+                        // Revenir au mode simple
+                        onChange({ link_label: undefined, link_url: undefined });
+                      } else {
+                        // Activer le mode séparé
+                        onChange({
+                          link_label: {},
+                          link_url: { default_value: '{{URL_ARTICLE_SOURCE}}' },
+                          ai_instructions: undefined, default_value: undefined, skip_ai: undefined,
+                        });
+                      }
+                    }}
+                    className={`text-xs px-2 py-1 rounded border transition-colors ${
+                      useSplit
+                        ? 'bg-orange-100 border-orange-300 text-orange-700 hover:bg-orange-200'
+                        : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    {useSplit ? '⬆ Revenir au mode simple' : '⬇ Configurer intitulé et URL séparément'}
+                  </button>
+                </div>
+
+                {useSplit ? (
+                  <div className="space-y-4 pl-3 border-l-2 border-orange-200">
+                    {/* ── Intitulé ── */}
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-gray-700">Intitulé du lien</p>
+                      <div className="flex flex-wrap items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit">
+                        {modeBtn('link_label', getLinkPartMode(field.link_label), 'ai',      '🤖', 'Généré par IA',      'text-purple-700')}
+                        {modeBtn('link_label', getLinkPartMode(field.link_label), 'default', '📌', 'Valeur par défaut',  'text-emerald-700')}
+                        {modeBtn('link_label', getLinkPartMode(field.link_label), 'manual',  '✏️', 'Saisie manuelle',    'text-amber-700')}
+                      </div>
+                      {getLinkPartMode(field.link_label) === 'ai' && (
+                        <textarea
+                          value={field.link_label?.ai_instructions ?? ''}
+                          onChange={(e) => onChange({ link_label: { ...field.link_label, ai_instructions: e.target.value || undefined } })}
+                          placeholder="Ex: Rédiger un intitulé court et incitatif comme «Découvrir l'article complet»"
+                          rows={2}
+                          className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg bg-purple-50/30 focus:ring-2 focus:ring-purple-400"
+                        />
+                      )}
+                      {getLinkPartMode(field.link_label) === 'default' && (
+                        <input
+                          type="text"
+                          value={field.link_label?.default_value ?? ''}
+                          onChange={(e) => onChange({ link_label: { ...field.link_label, default_value: e.target.value } })}
+                          placeholder="Ex: En savoir plus →"
+                          className="w-full px-3 py-2 text-sm border border-emerald-200 rounded-lg bg-emerald-50/30 focus:ring-2 focus:ring-emerald-400"
+                        />
+                      )}
+                      {getLinkPartMode(field.link_label) === 'manual' && (
+                        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                          L'intitulé sera saisi manuellement dans l'éditeur de contenu, page par page.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* ── URL ── */}
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-gray-700">URL du lien</p>
+                      <div className="flex flex-wrap items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit">
+                        {modeBtn('link_url', getLinkPartMode(field.link_url), 'ai',      '🤖', 'Généré par IA',      'text-purple-700')}
+                        {modeBtn('link_url', getLinkPartMode(field.link_url), 'default', '📌', 'Valeur par défaut',  'text-emerald-700')}
+                        {modeBtn('link_url', getLinkPartMode(field.link_url), 'manual',  '✏️', 'Saisie manuelle',    'text-amber-700')}
+                      </div>
+                      {getLinkPartMode(field.link_url) === 'ai' && (
+                        <textarea
+                          value={field.link_url?.ai_instructions ?? ''}
+                          onChange={(e) => onChange({ link_url: { ...field.link_url, ai_instructions: e.target.value || undefined } })}
+                          placeholder="Ex: indique {{URL_ARTICLE_SOURCE}}"
+                          rows={2}
+                          className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg bg-purple-50/30 focus:ring-2 focus:ring-purple-400"
+                        />
+                      )}
+                      {getLinkPartMode(field.link_url) === 'default' && (
+                        <input
+                          type="text"
+                          value={field.link_url?.default_value ?? ''}
+                          onChange={(e) => onChange({ link_url: { ...field.link_url, default_value: e.target.value } })}
+                          placeholder="Ex: {{URL_ARTICLE_SOURCE}} ou https://..."
+                          className="w-full px-3 py-2 text-sm border border-emerald-200 rounded-lg bg-emerald-50/30 focus:ring-2 focus:ring-emerald-400"
+                        />
+                      )}
+                      {getLinkPartMode(field.link_url) === 'manual' && (
+                        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                          L'URL sera saisie manuellement dans l'éditeur de contenu, page par page.
+                        </p>
+                      )}
+                    </div>
+
+                    <p className="text-xs text-gray-500">
+                      Valeur exportée : <code className="bg-gray-100 px-1 rounded">{`{"label":"…","url":"…"}`}</code>
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })()}
 
           {/* Options spécifiques selon le type */}
           <div className="flex gap-4">

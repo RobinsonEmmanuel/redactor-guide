@@ -249,6 +249,8 @@ function setTextWithStyles(textFrame, rawText) {
 }
 
 // --- 6. Injecter texte (masque le bloc si vide / absent) ---------------------
+// Si value est un objet JSON {"label":"...","url":"..."} (champ lien structure),
+// l'intitule est injecte comme texte et l'URL est ajoutee comme hyperlien.
 function injectText(page, label, value) {
     var blocks = findByLabelOnPage(page, label);
     for (var i = 0; i < blocks.length; i++) {
@@ -258,17 +260,42 @@ function injectText(page, label, value) {
         if (isEmpty) {
             blocks[i].visible = false;
         } else {
-            blocks[i].visible = true;
-            blocks[i].contents = "";
-            var strValue = String(value);
-            var hasMarkers = strValue.indexOf("**") !== -1 ||
-                             strValue.indexOf("{")  !== -1 ||
-                             strValue.indexOf("^")  !== -1 ||
-                             strValue.indexOf("~")  !== -1;
-            if (hasMarkers) {
-                setTextWithStyles(blocks[i], strValue);
+            // Detecter un lien structure {"label":"...","url":"..."}
+            var strRaw = String(value).replace(/^\s+|\s+$/, "");
+            var linkLabel = null;
+            var linkUrl   = null;
+            if (strRaw.charAt(0) === "{") {
+                try {
+                    var parsed = eval("(" + strRaw + ")");
+                    if (parsed && parsed.label !== undefined && parsed.url !== undefined) {
+                        linkLabel = String(parsed.label || "");
+                        linkUrl   = String(parsed.url   || "");
+                    }
+                } catch(e) {}
+            }
+
+            if (linkLabel !== null) {
+                // Champ lien structure : injecter l'intitule puis ajouter l'hyperlien
+                blocks[i].visible = linkLabel !== "" || linkUrl !== "";
+                if (blocks[i].visible) {
+                    blocks[i].contents = linkLabel;
+                    if (linkUrl !== "") {
+                        injectHyperlink(page, label, linkUrl);
+                    }
+                }
             } else {
-                blocks[i].contents = strValue;
+                blocks[i].visible = true;
+                blocks[i].contents = "";
+                var strValue = strRaw;
+                var hasMarkers = strValue.indexOf("**") !== -1 ||
+                                 strValue.indexOf("{")  !== -1 ||
+                                 strValue.indexOf("^")  !== -1 ||
+                                 strValue.indexOf("~")  !== -1;
+                if (hasMarkers) {
+                    setTextWithStyles(blocks[i], strValue);
+                } else {
+                    blocks[i].contents = strValue;
+                }
             }
         }
     }

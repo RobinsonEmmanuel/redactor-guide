@@ -239,6 +239,29 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
       // 5. Extraire les champs avec valeur par défaut (pas d'appel IA pour ceux-ci)
       const defaultContent: Record<string, string> = {};
       const fieldsForAI = template.fields.filter((f: any) => {
+        // ── Lien avec sous-configurations label/url ──────────────────────────
+        if (f.type === 'lien' && (f.link_label || f.link_url)) {
+          const ll = f.link_label ?? {};
+          const lu = f.link_url  ?? {};
+          const labelDefault = ll.default_value;
+          const urlDefault   = lu.default_value;
+          const allDefault   = labelDefault !== undefined && urlDefault !== undefined;
+          const allManual    = !!ll.skip_ai && !!lu.skip_ai;
+
+          if (allDefault) {
+            defaultContent[f.name] = JSON.stringify({ label: labelDefault, url: urlDefault });
+            console.log(`📌 Lien valeur par défaut complète appliquée pour ${f.name}`);
+            return false;
+          }
+          if (allManual) {
+            console.log(`✏️  Lien saisie manuelle — champ ignoré par l'IA : ${f.name}`);
+            return false;
+          }
+          // Au moins une partie est générée par l'IA → envoyer au prompt
+          return true;
+        }
+
+        // ── Comportement standard ────────────────────────────────────────────
         if (f.default_value !== undefined && f.default_value !== null) {
           defaultContent[f.name] = f.default_value;
           console.log(`📌 Valeur par défaut appliquée pour ${f.name}`);
@@ -875,6 +898,42 @@ INSTRUCTIONS STRICTES :
           parts.push(`Filtres appliqués (detail_type) : ${(field.pool_tags as string[]).join(', ')}`);
         }
         parts.push(`⚠️ Répondre UNIQUEMENT avec l'URL complète de l'image choisie (https://...), sans aucun texte autour.`);
+        return parts.join('\n');
+      }
+
+      // ── Lien avec sous-configurations label / url ────────────────────────────
+      if (field.type === 'lien' && (field.link_label || field.link_url)) {
+        const ll = field.link_label ?? {};
+        const lu = field.link_url   ?? {};
+
+        parts.push(`⚠️ FORMAT OBLIGATOIRE: objet JSON { "label": "...", "url": "..." }`);
+
+        // --- Intitulé ---
+        if (ll.default_value !== undefined) {
+          parts.push(`Intitulé (fixe, ne pas modifier): "${ll.default_value}"`);
+        } else if (ll.skip_ai) {
+          parts.push(`Intitulé: VIDE — sera saisi manuellement (mettre null ou chaîne vide)`);
+        } else {
+          const instr = ll.ai_instructions
+            ? this.openaiService.replaceVariables(ll.ai_instructions, fieldVars)
+            : `Rédiger un intitulé court et incitatif pour ce lien`;
+          parts.push(`Instructions intitulé: ${instr}`);
+        }
+
+        // --- URL ---
+        if (lu.default_value !== undefined) {
+          const resolvedUrl = this.openaiService.replaceVariables(lu.default_value, fieldVars);
+          parts.push(`URL (fixe, ne pas modifier): "${resolvedUrl}"`);
+        } else if (lu.skip_ai) {
+          parts.push(`URL: VIDE — sera saisie manuellement (mettre null ou chaîne vide)`);
+        } else {
+          const instr = lu.ai_instructions
+            ? this.openaiService.replaceVariables(lu.ai_instructions, fieldVars)
+            : `Indiquer l'URL pertinente`;
+          parts.push(`Instructions URL: ${instr}`);
+        }
+
+        parts.push(`⚠️ Répondre UNIQUEMENT avec l'objet JSON { "label": "...", "url": "..." }, sans texte autour.`);
         return parts.join('\n');
       }
 

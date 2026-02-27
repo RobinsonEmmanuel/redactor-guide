@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Bars3Icon, TrashIcon } from '@heroicons/react/24/outline';
@@ -67,6 +68,102 @@ const FIELD_TYPE_COLORS: Record<TemplateField['type'], string> = {
   picto:     'bg-teal-100 text-teal-700',
   repetitif: 'bg-rose-100 text-rose-700',
 };
+
+// ─── DefaultValueInput ────────────────────────────────────────────────────────
+// Input/textarea pour la valeur par défaut avec toolbar de styles (G, O, C).
+// Affiché uniquement pour les types texte, titre, meta, liste.
+
+interface DefaultValueInputProps {
+  value: string;
+  onChange: (v: string) => void;
+  multiline?: boolean;
+  placeholder?: string;
+}
+
+function DefaultValueInput({ value, onChange, multiline = false, placeholder }: DefaultValueInputProps) {
+  const ref = useRef<HTMLTextAreaElement & HTMLInputElement>(null);
+
+  const applyStyle = (open: string, close: string) => {
+    const el = ref.current;
+    if (!el) return;
+    const start    = el.selectionStart ?? 0;
+    const end      = el.selectionEnd   ?? 0;
+    if (start === end) return;
+
+    const selected = value.slice(start, end);
+    let newValue: string;
+    let newStart: number;
+    let newEnd:   number;
+
+    if (selected.startsWith(open) && selected.endsWith(close) &&
+        selected.length > open.length + close.length) {
+      const inner = selected.slice(open.length, -close.length);
+      newValue = value.slice(0, start) + inner + value.slice(end);
+      newStart = start;
+      newEnd   = start + inner.length;
+    } else {
+      newValue = value.slice(0, start) + open + selected + close + value.slice(end);
+      newStart = start + open.length;
+      newEnd   = end   + open.length;
+    }
+
+    onChange(newValue);
+    requestAnimationFrame(() => {
+      if (ref.current) {
+        ref.current.setSelectionRange(newStart, newEnd);
+        ref.current.focus();
+      }
+    });
+  };
+
+  const toolbar = (
+    <div className="flex items-center gap-1 mb-1">
+      <button type="button"
+        onMouseDown={(e) => { e.preventDefault(); applyStyle('**', '**'); }}
+        title="Gras"
+        className="px-1.5 py-0.5 text-xs font-bold border border-gray-300 rounded hover:bg-gray-100 select-none"
+      >G</button>
+      <button type="button"
+        onMouseDown={(e) => { e.preventDefault(); applyStyle('{', '}'); }}
+        title="Orange (#f39428)"
+        className="px-1.5 py-0.5 text-xs font-bold border rounded hover:opacity-80 select-none"
+        style={{ color: '#f39428', borderColor: '#f39428', background: '#fff8f0' }}
+      >O</button>
+      <button type="button"
+        onMouseDown={(e) => { e.preventDefault(); applyStyle('^', '^'); }}
+        title="Chiffre (18pt)"
+        className="px-1.5 py-0.5 text-xs font-semibold border border-purple-400 rounded text-purple-700 bg-purple-50 hover:bg-purple-100 select-none"
+      >C</button>
+    </div>
+  );
+
+  const inputClass = "w-full px-3 py-2 text-sm border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent bg-emerald-50/30";
+
+  return (
+    <div>
+      {toolbar}
+      {multiline ? (
+        <textarea
+          ref={ref as React.RefObject<HTMLTextAreaElement>}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          rows={3}
+          className={inputClass}
+        />
+      ) : (
+        <input
+          ref={ref as React.RefObject<HTMLInputElement>}
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className={inputClass}
+        />
+      )}
+    </div>
+  );
+}
 
 const SUB_FIELD_TYPES: Array<{ value: SubField['type']; label: string; icon: string }> = [
   { value: 'image',  label: 'Image',  icon: '🖼️' },
@@ -194,12 +291,17 @@ export default function SortableFieldItem({
                 Valeur par défaut
               </label>
               {field.type === 'texte' || field.type === 'liste' ? (
-                <textarea
+                <DefaultValueInput
                   value={field.default_value}
-                  onChange={(e) => onChange({ default_value: e.target.value })}
+                  onChange={(v) => onChange({ default_value: v })}
+                  multiline
                   placeholder="Contenu identique sur toutes les nouvelles pages..."
-                  rows={3}
-                  className="w-full px-3 py-2 text-sm border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent bg-emerald-50/30"
+                />
+              ) : field.type === 'titre' || field.type === 'meta' ? (
+                <DefaultValueInput
+                  value={field.default_value}
+                  onChange={(v) => onChange({ default_value: v })}
+                  placeholder="Valeur par défaut..."
                 />
               ) : (
                 <input

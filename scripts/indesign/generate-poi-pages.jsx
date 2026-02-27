@@ -4,7 +4,7 @@
  *
  * Prerequis InDesign :
  *   - Styles de caractere "Gras", "Orange", "Chiffre" dans le document
- *   - Gabarits "G-POI", "A-COUVERTURE", "B-PRESENTATION_GUIDE", "C-PRESENTATION_DESTINATION", "E-CARTE_DESTINATION"
+ *   - Gabarits "G-POI", "A-COUVERTURE", "B-PRESENTATION_GUIDE", "C-PRESENTATION_DESTINATION", "E-CARTE_DESTINATION", "D-CLUSTER"
  *   - Blocs etiquetes (label) avec le NOM EXACT du champ de template
  *     Ex : frame texte -> label "POI_titre_1", frame image -> label "POI_image_1"
  *   - Le JSON exporte depuis l'app (export ZIP recommande : JSON + images locales)
@@ -55,6 +55,7 @@ var GABARIT_NAMES = {
     "PRESENTATION_GUIDE":      "B-PRESENTATION_GUIDE",
     "PRESENTATION_DESTINATION":"C-PRESENTATION_DESTINATION",
     "CARTE_DESTINATION":       "E-CARTE_DESTINATION",
+    "CLUSTER":                 "D-CLUSTER",
     "POI":                     "G-POI"
 };
 
@@ -600,6 +601,22 @@ for (var i = 0; i < data.pages.length; i++) {
             try { presItems[pi].override(presPage); } catch(e) {}
         }
         injectPageContent(presPage, pageData);
+        pagesGenerated++;
+        continue;
+    }
+
+    // -- CLUSTER --------------------------------------------------------------
+    if (pageData.template === "CLUSTER") {
+        var msCluster = loadGabarit("CLUSTER", false);
+        if (!msCluster) continue;
+
+        var clusterPage = doc.pages.add();
+        clusterPage.appliedMaster = msCluster;
+        var clusterItems = msCluster.allPageItems;
+        for (var cl = 0; cl < clusterItems.length; cl++) {
+            try { clusterItems[cl].override(clusterPage); } catch(e) {}
+        }
+        injectPageContent(clusterPage, pageData);
         pagesGenerated++;
         continue;
     }

@@ -4,7 +4,7 @@
  *
  * Prerequis InDesign :
  *   - Styles de caractere "Gras", "Orange", "Chiffre" dans le document
- *   - Gabarits "G-POI", "A-COUVERTURE", "B-PRESENTATION_GUIDE"
+ *   - Gabarits "G-POI", "A-COUVERTURE", "B-PRESENTATION_GUIDE", "C-PRESENTATION_DESTINATION"
  *   - Blocs etiquetes (label) avec le NOM EXACT du champ de template
  *     Ex : frame texte -> label "POI_titre_1", frame image -> label "POI_image_1"
  *   - Le JSON exporte depuis l'app (export ZIP recommande : JSON + images locales)
@@ -51,9 +51,10 @@ var SKIP_IN_MASK_STEP  = { "POI_lien_1": true };
 // Noms des gabarits InDesign associes a chaque template
 // Ajouter ici chaque nouveau template : { "NOM_TEMPLATE": "NOM_GABARIT_INDESIGN" }
 var GABARIT_NAMES = {
-    "COUVERTURE":         "A-COUVERTURE",
-    "PRESENTATION_GUIDE": "B-PRESENTATION_GUIDE",
-    "POI":                "G-POI"
+    "COUVERTURE":              "A-COUVERTURE",
+    "PRESENTATION_GUIDE":      "B-PRESENTATION_GUIDE",
+    "PRESENTATION_DESTINATION":"C-PRESENTATION_DESTINATION",
+    "POI":                     "G-POI"
 };
 
 // Cache des gabarits charges (evite de recharger plusieurs fois)
@@ -603,6 +604,22 @@ for (var i = 0; i < data.pages.length; i++) {
             try { presItems[pi].override(presPage); } catch(e) {}
         }
         injectPageContent(presPage, pageData);
+        pagesGenerated++;
+        continue;
+    }
+
+    // -- PRESENTATION_DESTINATION ---------------------------------------------
+    if (pageData.template === "PRESENTATION_DESTINATION") {
+        var msPresDest = loadGabarit("PRESENTATION_DESTINATION", false);
+        if (!msPresDest) continue;
+
+        var presDestPage = doc.pages.add();
+        presDestPage.appliedMaster = msPresDest;
+        var presDestItems = msPresDest.allPageItems;
+        for (var pd = 0; pd < presDestItems.length; pd++) {
+            try { presDestItems[pd].override(presDestPage); } catch(e) {}
+        }
+        injectPageContent(presDestPage, pageData);
         pagesGenerated++;
         continue;
     }

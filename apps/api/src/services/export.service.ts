@@ -168,9 +168,14 @@ export class ExportService {
     // ── 6. Construire le mapping field→calque depuis les templates réels ──────
     // Priorité : field.indesign_layer > FIELD_LAYER_MAPPINGS > PICTO_LAYER_MAPPINGS > deriveLayerName()
     const dynamicFieldLayers: Record<string, string> = {};
+    const bulletListFields: string[] = [];
+
     for (const tpl of Object.values(templates)) {
       for (const field of (tpl.fields ?? [])) {
         dynamicFieldLayers[field.name] = resolveFieldLayer(field.name, field.indesign_layer);
+        if (field.type === 'liste') {
+          bulletListFields.push(field.name);
+        }
       }
     }
     // Compléter avec les champs du mapping statique non couverts (rétrocompat)
@@ -200,6 +205,8 @@ export class ExportService {
       mappings: {
         // Mapping dynamique construit depuis les templates réels — toujours à jour
         fields: dynamicFieldLayers,
+        // Noms de tous les champs de type 'liste' — le script InDesign les traite en puces
+        bullet_fields: bulletListFields,
         picto_layers: PICTO_LAYER_MAPPINGS,
         picto_values: Object.fromEntries(
           Object.entries(PICTO_VALUE_MAPPINGS).map(([k, v]) => [k, v])

@@ -32,11 +32,14 @@ var PICTO_H            = 19.7;  // mm - hauteur d'un bloc picto (gabarit)
 var PICTO_GAP          = 1;     // mm - espace entre pictos
 var DURATION_GAP       = 3;     // mm - espace entre dernier picto et clock/duree
 
-// Champs dont le texte est rendu en liste a puces (par nom de champ)
-var BULLET_LIST_FIELDS = {
+// Champs rendus en liste a puces : construits dynamiquement depuis data.bullet_fields
+// (tous les champs de type 'liste' dans les templates exportes).
+// Fallback statique conserve pour compatibilite avec d'anciens exports JSON.
+var BULLET_LIST_FIELDS_FALLBACK = {
     "POI_texte_2": true,
     "PRESENTATION_GUIDE_liste_sections": true
 };
+var BULLET_LIST_FIELDS = BULLET_LIST_FIELDS_FALLBACK;
 
 // Champs geres par injectPictoBar ou injectHyperlink - exclus de l'injection texte standard
 // POI_meta_1 et POI_meta_duree designent le meme champ selon la convention de nommage du template
@@ -85,6 +88,15 @@ var raw = jsonFile.read();
 jsonFile.close();
 
 var data = JSON.parse(raw);
+
+// Construire BULLET_LIST_FIELDS depuis data.mappings.bullet_fields (export v2.3+)
+// Fallback sur le dictionnaire statique pour les anciens exports.
+if (data.mappings && data.mappings.bullet_fields && data.mappings.bullet_fields.length > 0) {
+    BULLET_LIST_FIELDS = {};
+    for (var bf = 0; bf < data.mappings.bullet_fields.length; bf++) {
+        BULLET_LIST_FIELDS[data.mappings.bullet_fields[bf]] = true;
+    }
+}
 
 // --- 2. Trouver les blocs par label (page courante uniquement) ---------------
 function findByLabelOnPage(page, label) {

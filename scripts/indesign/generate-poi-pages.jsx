@@ -410,14 +410,11 @@ function injectHyperlink(page, label, url) {
             src = doc.hyperlinkTextSources.add(tf.parentStory.texts.item(0));
         } catch(e) { continue; }
 
-        // Creer l'hyperlien avec soulignement visible
         try {
             var hl = doc.hyperlinks.add(src, dest, {
-                visible:     false,
-                highlight:   HyperlinkAppearanceHighlight.NONE
+                visible:   false,
+                highlight: HyperlinkAppearanceHighlight.NONE
             });
-            // Appliquer le soulignement au texte pour signaler visuellement le lien
-            tf.texts.item(0).underline = true;
         } catch(e) {}
     }
 }

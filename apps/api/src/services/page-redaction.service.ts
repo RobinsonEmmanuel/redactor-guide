@@ -1053,8 +1053,20 @@ INSTRUCTIONS STRICTES :
     if (destImageUrls.size > 0) {
       query = { url: { $in: [...destImageUrls] } };
     }
+
+    // Filtre par tags : correspondance partielle, case-insensitive.
+    // Chaque tag est cherché comme sous-chaîne dans detail_type ET dans analysis_summary.
+    // Cela évite les non-correspondances dues à des valeurs comme "carte_geographique"
+    // quand l'utilisateur a saisi "carte", ou à des descriptions textuelles non balisées.
     if (uniqueTags.length > 0) {
-      query['analysis.detail_type'] = { $in: uniqueTags };
+      const tagPattern = uniqueTags
+        .map((t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('|');
+      const tagRegex = new RegExp(tagPattern, 'i');
+      query['$or'] = [
+        { 'analysis.detail_type':    { $regex: tagRegex } },
+        { 'analysis.analysis_summary': { $regex: tagRegex } },
+      ];
     }
 
     // Exclure les images composites (collages, mosaïques) — champ ajouté en prompt v1.1.0
@@ -1065,11 +1077,18 @@ INSTRUCTIONS STRICTES :
 
     if (allAnalyses.length === 0 && destImageUrls.size > 0) {
       // Fallback sans filtre destination si aucun résultat
-      const fallback = await this.db.collection('image_analyses').find(
-        uniqueTags.length > 0
-          ? { 'analysis.detail_type': { $in: uniqueTags }, 'analysis.is_composite': { $ne: true } }
-          : { 'analysis.is_composite': { $ne: true } }
-      ).toArray();
+      let fallbackQuery: any = { 'analysis.is_composite': { $ne: true } };
+      if (uniqueTags.length > 0) {
+        const tagPattern = uniqueTags
+          .map((t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+          .join('|');
+        const tagRegex = new RegExp(tagPattern, 'i');
+        fallbackQuery['$or'] = [
+          { 'analysis.detail_type':    { $regex: tagRegex } },
+          { 'analysis.analysis_summary': { $regex: tagRegex } },
+        ];
+      }
+      const fallback = await this.db.collection('image_analyses').find(fallbackQuery).toArray();
       allAnalyses.push(...fallback);
     }
 

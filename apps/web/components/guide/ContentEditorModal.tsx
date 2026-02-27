@@ -678,12 +678,13 @@ export default function ContentEditorModal({
             {field.description && (
               <p className="text-xs text-gray-500 mb-2">{field.description}</p>
             )}
-            <input
-              type="text"
+            <textarea
               value={fieldValue}
               onChange={(e) => handleFieldChange(field.name, e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              rows={Math.max(3, (fieldValue || '').split('\n').filter(Boolean).length + 1)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none font-mono text-sm"
             />
+            <p className="mt-1 text-xs text-gray-400">Un élément par ligne</p>
             <FieldValidationBlock fieldName={field.name} />
           </div>
         );

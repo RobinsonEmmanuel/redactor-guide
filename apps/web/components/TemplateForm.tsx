@@ -38,6 +38,9 @@ interface TemplateField {
   order: number;
   max_chars?: number;
   list_size?: number;
+  source?: 'destination_pool';
+  pool_tags?: string[];
+  pool_instructions?: string;
 }
 
 type InfoSource = 'article_source' | 'cluster_auto_match' | 'saison_auto_match' | 'inspiration_auto_match' | 'tous_articles_site' | 'tous_articles_et_llm' | 'non_applicable';

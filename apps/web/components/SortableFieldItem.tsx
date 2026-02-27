@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Bars3Icon, TrashIcon } from '@heroicons/react/24/outline';
@@ -197,6 +197,17 @@ export default function SortableFieldItem({
     transition,
     isDragging,
   } = useSortable({ id: field.id });
+
+  // État local pour l'input des tags du pool — évite que le split sur virgule
+  // consomme le caractère pendant la frappe (on ne splitte qu'au onBlur)
+  const [poolTagsRaw, setPoolTagsRaw] = useState(
+    (field.pool_tags ?? []).join(', ')
+  );
+
+  // Synchroniser si pool_tags change depuis l'extérieur (ex: chargement template)
+  useEffect(() => {
+    setPoolTagsRaw((field.pool_tags ?? []).join(', '));
+  }, [field.pool_tags?.join(',')]);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -453,8 +464,9 @@ export default function SortableFieldItem({
                 </label>
                 <input
                   type="text"
-                  value={(field.pool_tags ?? []).join(', ')}
-                  onChange={(e) => {
+                  value={poolTagsRaw}
+                  onChange={(e) => setPoolTagsRaw(e.target.value)}
+                  onBlur={(e) => {
                     const tags = e.target.value.split(',').map((t) => t.trim()).filter(Boolean);
                     onChange({ pool_tags: tags });
                   }}

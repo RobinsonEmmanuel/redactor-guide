@@ -161,6 +161,26 @@ export const TemplateFieldSchema = z.object({
    *   { "oui": "picto_escaliers", "non": null }  ← null = picto non affiché
    */
   option_layers: z.record(z.string(), z.string().nullable()).optional(),
+
+  /**
+   * Pour type=image uniquement.
+   * Si 'destination_pool', l'IA choisit l'image dans le pool des photos analysées
+   * de la destination (collection image_analyses) plutôt que de la générer librement.
+   */
+  source: z.literal('destination_pool').optional(),
+
+  /**
+   * Filtres optionnels par detail_type appliqués au pool destination.
+   * Ex: ['paysage', 'vue_aerienne']
+   */
+  pool_tags: z.array(z.string()).optional(),
+
+  /**
+   * Critères de sélection pour le mode pool destination.
+   * Indépendant de ai_instructions (mode IA standard).
+   * Ex: "Préférer une image panoramique sans texte superposé."
+   */
+  pool_instructions: z.string().optional(),
 });
 
 export type TemplateField = z.infer<typeof TemplateFieldSchema>;

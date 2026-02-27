@@ -251,6 +251,14 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
         return true;
       });
 
+      // 5b. Si des champs image utilisent le pool destination, charger les meilleures photos
+      const hasPoolFields = template.fields.some((f: any) => f.source === 'destination_pool');
+      if (hasPoolFields) {
+        const poolContext = await this.buildImagePoolContext(_guideId, template.fields);
+        extraVars.IMAGES_DESTINATION = poolContext;
+        console.log(`🖼️ Pool destination injecté (${poolContext.split('\n').length} lignes)`);
+      }
+
       const templateForAI = { ...template, fields: fieldsForAI };
 
       // Si tous les champs ont une valeur par défaut, pas besoin d'appeler l'IA
@@ -796,13 +804,14 @@ INSTRUCTIONS STRICTES :
       : [];
 
     // Variables disponibles pour la substitution dans les ai_instructions
+    // IMAGES_DESTINATION est injecte dans extraVars quand des champs source='destination_pool' existent
     const fieldVars: Record<string, string> = {
       URL_ARTICLE_SOURCE:   articleSource?.urls_by_lang?.fr
                             || articleSource?.url
                             || articleSource?.urls_by_lang?.en
                             || '',
       TITRE_ARTICLE_SOURCE: articleSource?.title || '',
-      // Variables supplémentaires injectées selon le mode (saison, etc.)
+      // Variables supplémentaires injectées selon le mode (saison, pool destination, etc.)
       ...extraVars,
     };
 
@@ -971,5 +980,110 @@ INSTRUCTIONS STRICTES :
     );
 
     return bestImage?.url || null;
+  }
+
+  /**
+   * Construit la liste des meilleures images du pool destination pour les injecter
+   * dans les ai_instructions des champs image marqués source='destination_pool'.
+   *
+   * Strategie :
+   *  1. Charge toutes les analyses de la collection image_analyses
+   *  2. Filtre optionnellement par detail_type (union des pool_tags de tous les champs pool)
+   *  3. Filtre d'abord editorial_relevance='forte', puis complète avec le reste si besoin
+   *  4. Trie par score qualite moyen (visual_clarity + composition + lighting) desc
+   *  5. Retourne les TOP_N sous forme de liste texte pour le prompt
+   */
+  private async buildImagePoolContext(guideId: string, fields: any[]): Promise<string> {
+    const TOP_N = 20;
+
+    // Collecter tous les pool_tags définis sur les champs pool
+    const allPoolTags: string[] = [];
+    for (const f of fields) {
+      if (f.source === 'destination_pool' && f.pool_tags?.length) {
+        allPoolTags.push(...f.pool_tags);
+      }
+    }
+    const uniqueTags = [...new Set(allPoolTags.map((t: string) => t.toLowerCase().trim()))];
+
+    // Charger les images analysées liées à la destination du guide
+    // On filtre en croisant les URLs d'articles_raw de la destination
+    const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+    const destination: string = guide?.destination ?? guide?.destinations?.[0] ?? '';
+
+    // Recuperer les URLs d'images connues pour cette destination via articles_raw
+    const destArticles = await this.db
+      .collection('articles_raw')
+      .find(
+        destination ? { categories: { $regex: destination, $options: 'i' } } : {},
+        { projection: { images: 1 } }
+      )
+      .toArray();
+
+    const destImageUrls = new Set<string>();
+    for (const art of destArticles) {
+      if (art.images?.length) {
+        for (const url of art.images) {
+          destImageUrls.add(url);
+        }
+      }
+    }
+
+    // Charger les analyses depuis image_analyses
+    let query: any = {};
+    if (destImageUrls.size > 0) {
+      query = { url: { $in: [...destImageUrls] } };
+    }
+    if (uniqueTags.length > 0) {
+      query['analysis.detail_type'] = { $in: uniqueTags };
+    }
+
+    const allAnalyses = await this.db.collection('image_analyses').find(query).toArray();
+
+    if (allAnalyses.length === 0 && destImageUrls.size > 0) {
+      // Fallback sans filtre destination si aucun résultat
+      const fallback = await this.db.collection('image_analyses').find(
+        uniqueTags.length > 0 ? { 'analysis.detail_type': { $in: uniqueTags } } : {}
+      ).toArray();
+      allAnalyses.push(...fallback);
+    }
+
+    // Calculer le score qualite moyen pour le tri
+    const scored = allAnalyses.map((img: any) => {
+      const a = img.analysis ?? {};
+      const scores = [
+        a.visual_clarity_score,
+        a.composition_quality_score,
+        a.lighting_quality_score,
+        a.readability_small_screen_score,
+      ].filter((s: any) => typeof s === 'number');
+      const avg = scores.length > 0 ? scores.reduce((acc: number, s: number) => acc + s, 0) / scores.length : 0;
+      return { ...img, _qualityScore: avg };
+    });
+
+    // Priorité aux images "forte" pertinence editoriale, puis les autres
+    const forte = scored.filter((img: any) => img.analysis?.editorial_relevance === 'forte');
+    const others = scored.filter((img: any) => img.analysis?.editorial_relevance !== 'forte');
+
+    forte.sort((a: any, b: any) => b._qualityScore - a._qualityScore);
+    others.sort((a: any, b: any) => b._qualityScore - a._qualityScore);
+
+    const selected = [...forte, ...others].slice(0, TOP_N);
+
+    if (selected.length === 0) {
+      console.warn(`⚠️ Pool destination vide pour guideId=${guideId} — aucune image analysee trouvee`);
+      return '(aucune image analysee disponible pour cette destination)';
+    }
+
+    console.log(`🖼️ Pool destination : ${selected.length} images selectionnees (${forte.length} forte, ${others.length} autres) pour "${destination || 'N/A'}"`);
+
+    const lines = selected.map((img: any, i: number) => {
+      const a = img.analysis ?? {};
+      const type = a.detail_type ?? 'N/A';
+      const score = img._qualityScore.toFixed(2);
+      const summary = a.analysis_summary ?? '';
+      return `${i + 1}. ${img.url}\n   Type: ${type} | Score qualite: ${score} | ${summary}`;
+    });
+
+    return lines.join('\n');
   }
 }

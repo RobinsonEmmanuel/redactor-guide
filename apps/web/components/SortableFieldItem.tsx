@@ -25,6 +25,8 @@ interface TemplateField {
   options?: string[];
   sub_fields?: SubField[];
   max_repetitions?: number;
+  source?: 'destination_pool';
+  pool_tags?: string[];
   validation?: {
     required?: boolean;
     max_length?: number;
@@ -254,18 +256,20 @@ export default function SortableFieldItem({
             />
           </div>
 
-          {/* Toggle : 4 modes de remplissage */}
+          {/* Toggle : modes de remplissage */}
           {(() => {
             const mode = field.service_id ? 'service'
               : field.default_value !== undefined ? 'default'
               : field.skip_ai ? 'manual'
+              : field.source === 'destination_pool' ? 'pool'
               : 'ai';
 
-            const setMode = (m: 'ai' | 'default' | 'manual' | 'service') => {
-              if (m === 'ai')      onChange({ default_value: undefined, skip_ai: undefined, service_id: undefined });
-              if (m === 'default') onChange({ ai_instructions: undefined, skip_ai: undefined, service_id: undefined, default_value: field.default_value ?? '' });
-              if (m === 'manual')  onChange({ ai_instructions: undefined, default_value: undefined, service_id: undefined, skip_ai: true });
-              if (m === 'service') onChange({ ai_instructions: undefined, default_value: undefined, skip_ai: undefined, service_id: availableServices[0]?.service_id ?? '' });
+            const setMode = (m: 'ai' | 'default' | 'manual' | 'service' | 'pool') => {
+              if (m === 'ai')      onChange({ default_value: undefined, skip_ai: undefined, service_id: undefined, source: undefined, pool_tags: undefined });
+              if (m === 'default') onChange({ ai_instructions: undefined, skip_ai: undefined, service_id: undefined, source: undefined, pool_tags: undefined, default_value: field.default_value ?? '' });
+              if (m === 'manual')  onChange({ ai_instructions: undefined, default_value: undefined, service_id: undefined, source: undefined, pool_tags: undefined, skip_ai: true });
+              if (m === 'service') onChange({ ai_instructions: undefined, default_value: undefined, skip_ai: undefined, source: undefined, pool_tags: undefined, service_id: availableServices[0]?.service_id ?? '' });
+              if (m === 'pool')    onChange({ default_value: undefined, skip_ai: undefined, service_id: undefined, source: 'destination_pool', pool_tags: field.pool_tags ?? [] });
             };
 
             return (
@@ -286,6 +290,12 @@ export default function SortableFieldItem({
                   className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${mode === 'service' ? 'bg-white text-sky-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                   <span>⚙️</span> Calculé par service
                 </button>
+                {field.type === 'image' && (
+                  <button type="button" onClick={() => setMode('pool')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${mode === 'pool' ? 'bg-white text-teal-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                    <span>🖼️</span> Pool destination
+                  </button>
+                )}
               </div>
             );
           })()}
@@ -425,8 +435,56 @@ export default function SortableFieldItem({
             </div>
           )}
 
+          {/* Mode : Pool destination */}
+          {field.source === 'destination_pool' && (
+            <>
+              <div className="flex items-start gap-2 p-3 bg-teal-50 border border-teal-200 rounded-lg">
+                <span className="text-teal-600 text-sm mt-0.5">🖼️</span>
+                <p className="text-xs text-teal-800">
+                  L'IA choisira l'image dans le <strong>pool des photos analysées de la destination</strong>.
+                  Utilise <code className="bg-teal-100 px-1 rounded">{'{{IMAGES_DESTINATION}}'}</code> dans les instructions pour lui passer la liste.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Filtres par type (optionnel)
+                </label>
+                <input
+                  type="text"
+                  value={(field.pool_tags ?? []).join(', ')}
+                  onChange={(e) => {
+                    const tags = e.target.value.split(',').map((t) => t.trim()).filter(Boolean);
+                    onChange({ pool_tags: tags });
+                  }}
+                  placeholder="Ex: paysage, vue_aerienne, détail"
+                  className="w-full px-3 py-2 text-sm border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-teal-50/30"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Filtre sur <code>detail_type</code> des analyses — séparer par virgules. Laisse vide pour tout inclure.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Instructions pour l'IA
+                </label>
+                <textarea
+                  value={field.ai_instructions || ''}
+                  onChange={(e) => onChange({ ai_instructions: e.target.value })}
+                  placeholder={`Ex: Choisir la photo la plus emblématique de la destination parmi les options suivantes :\n{{IMAGES_DESTINATION}}`}
+                  rows={4}
+                  className="w-full px-3 py-2 text-sm border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-teal-50/30"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  La variable <code>{'{{IMAGES_DESTINATION}}'}</code> sera remplacée par la liste des meilleures photos disponibles.
+                </p>
+              </div>
+            </>
+          )}
+
           {/* Mode : Instructions IA */}
-          {!field.default_value && !field.skip_ai && !field.service_id && (
+          {!field.default_value && !field.skip_ai && !field.service_id && field.source !== 'destination_pool' && (
             <>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">

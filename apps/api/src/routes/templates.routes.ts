@@ -7,6 +7,16 @@ import {
 } from '@redactor-guide/core-model';
 import { ObjectId } from 'mongodb';
 
+/**
+ * Supprime le champ `indesign_layer` de chaque field du template.
+ * Convention : le label InDesign est toujours identique au nom du champ.
+ * Les anciennes valeurs héritées (ex: "txt_cluster_nom") sont ainsi écrasées
+ * à chaque création ou mise à jour, garantissant un mapping toujours cohérent.
+ */
+function sanitizeFields<T extends { indesign_layer?: unknown }>(fields: T[]): Omit<T, 'indesign_layer'>[] {
+  return fields.map(({ indesign_layer: _dropped, ...rest }) => rest);
+}
+
 export async function templatesRoutes(fastify: FastifyInstance) {
   /**
    * GET /templates
@@ -89,10 +99,11 @@ export async function templatesRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Créer le template
+      // Créer le template — indesign_layer supprimé : convention identité (field.name = label InDesign)
       const now = new Date().toISOString();
       const template: Omit<Template, '_id'> = {
         ...body,
+        fields: sanitizeFields(body.fields),
         created_at: now,
         updated_at: now,
       };
@@ -163,11 +174,14 @@ export async function templatesRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // Mettre à jour
+      // Mettre à jour — indesign_layer supprimé des champs si présent : convention identité
       const now = new Date().toISOString();
+      const sanitizedBody = body.fields
+        ? { ...body, fields: sanitizeFields(body.fields) }
+        : body;
       const result = await db.collection('templates').findOneAndUpdate(
         { _id: new ObjectId(id) },
-        { $set: { ...body, updated_at: now } },
+        { $set: { ...sanitizedBody, updated_at: now } },
         { returnDocument: 'after' }
       );
 

@@ -1,6 +1,5 @@
 import Fastify from 'fastify';
 import { Db } from 'mongodb';
-import path from 'path';
 import { DIContainer } from './di/container';
 import { UPLOADS_DIR } from './routes/image-upload.routes.js';
 

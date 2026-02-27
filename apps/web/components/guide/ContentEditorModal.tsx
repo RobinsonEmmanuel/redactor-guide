@@ -19,6 +19,12 @@ interface SubField {
   ai_instructions?: string;
 }
 
+interface LinkPartConfig {
+  ai_instructions?: string;
+  default_value?: string;
+  skip_ai?: boolean;
+}
+
 interface TemplateField {
   name: string;
   type: 'titre' | 'texte' | 'image' | 'lien' | 'meta' | 'liste' | 'picto' | 'repetitif';
@@ -29,6 +35,8 @@ interface TemplateField {
   options?: string[];
   sub_fields?: SubField[];
   max_repetitions?: number;
+  link_label?: LinkPartConfig;
+  link_url?: LinkPartConfig;
 }
 
 // Labels et icônes pour les valeurs de picto
@@ -611,24 +619,123 @@ export default function ContentEditorModal({
           </div>
         );
 
-      case 'lien':
+      case 'lien': {
+        // Détecter si la valeur est un objet structuré {label, url} ou une URL simple
+        const isSplitLink = !!(field.link_label || field.link_url);
+        let linkLabelVal = '';
+        let linkUrlVal   = '';
+        let isStructured = false;
+
+        if (typeof fieldValue === 'object' && fieldValue !== null && 'url' in fieldValue) {
+          // Objet déjà parsé
+          isStructured  = true;
+          linkLabelVal  = fieldValue.label ?? '';
+          linkUrlVal    = fieldValue.url   ?? '';
+        } else if (typeof fieldValue === 'string' && fieldValue.startsWith('{')) {
+          // String JSON
+          try {
+            const parsed = JSON.parse(fieldValue);
+            if ('url' in parsed) {
+              isStructured = true;
+              linkLabelVal = parsed.label ?? '';
+              linkUrlVal   = parsed.url   ?? '';
+            }
+          } catch { /* pas du JSON valide → URL simple */ }
+        }
+
+        if (!isStructured && !isSplitLink) {
+          // ── Lien simple (comportement legacy) ─────────────────────────────
+          return (
+            <div key={field.name} className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {field.label}
+              </label>
+              {field.description && <p className="text-xs text-gray-500 mb-2">{field.description}</p>}
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 text-sm">🔗</span>
+                <input
+                  type="url"
+                  value={isStructured ? linkUrlVal : (typeof fieldValue === 'string' ? fieldValue : '')}
+                  onChange={(e) => handleFieldChange(field.name, e.target.value)}
+                  placeholder="https://..."
+                  className="flex-1 px-3 py-2 border border-orange-200 rounded-lg bg-orange-50/20 focus:ring-2 focus:ring-orange-400 focus:border-transparent text-sm"
+                />
+              </div>
+            </div>
+          );
+        }
+
+        // ── Lien structuré : deux champs séparés ──────────────────────────
+        const handleLinkPartChange = (part: 'label' | 'url', val: string) => {
+          const next = { label: linkLabelVal, url: linkUrlVal, [part]: val };
+          handleFieldChange(field.name, next);
+        };
+
+        const previewUrl = linkUrlVal || (isStructured ? '' : (typeof fieldValue === 'string' ? fieldValue : ''));
+
         return (
           <div key={field.name} className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {field.label}
             </label>
-            {field.description && (
-              <p className="text-xs text-gray-500 mb-2">{field.description}</p>
-            )}
-            <input
-              type="url"
-              value={fieldValue}
-              onChange={(e) => handleFieldChange(field.name, e.target.value)}
-              placeholder="https://..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
+            {field.description && <p className="text-xs text-gray-500 mb-2">{field.description}</p>}
+
+            <div className="rounded-xl border border-orange-200 bg-orange-50/30 overflow-hidden">
+              {/* Intitulé */}
+              <div className="px-4 pt-3 pb-2">
+                <label className="block text-xs font-semibold text-orange-700 mb-1 uppercase tracking-wide">
+                  Intitulé
+                </label>
+                <input
+                  type="text"
+                  value={linkLabelVal}
+                  onChange={(e) => handleLinkPartChange('label', e.target.value)}
+                  placeholder="Ex : En savoir plus →"
+                  className="w-full px-3 py-2 text-sm border border-orange-200 rounded-lg bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+                />
+              </div>
+
+              {/* Divider */}
+              <div className="border-t border-orange-100 mx-4" />
+
+              {/* URL */}
+              <div className="px-4 pt-2 pb-3">
+                <label className="block text-xs font-semibold text-orange-700 mb-1 uppercase tracking-wide">
+                  URL
+                </label>
+                <input
+                  type="url"
+                  value={linkUrlVal}
+                  onChange={(e) => handleLinkPartChange('url', e.target.value)}
+                  placeholder="https://..."
+                  className="w-full px-3 py-2 text-sm border border-orange-200 rounded-lg bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent font-mono"
+                />
+              </div>
+
+              {/* Aperçu */}
+              {(linkLabelVal || previewUrl) && (
+                <div className="px-4 pb-3">
+                  <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-orange-100 text-sm">
+                    <span className="text-orange-400">🔗</span>
+                    {previewUrl ? (
+                      <a
+                        href={previewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline truncate"
+                      >
+                        {linkLabelVal || previewUrl}
+                      </a>
+                    ) : (
+                      <span className="text-gray-500 truncate">{linkLabelVal}</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         );
+      }
 
       case 'meta':
         const isMetaOverLimit = field.max_chars && fieldValue.length > field.max_chars;

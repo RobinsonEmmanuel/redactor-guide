@@ -4,7 +4,7 @@
  *
  * Prerequis InDesign :
  *   - Styles de caractere "Gras", "Orange", "Chiffre" dans le document
- *   - Gabarits "G-POI", "A-COUVERTURE", "B-PRESENTATION_GUIDE", "C-PRESENTATION_DESTINATION"
+ *   - Gabarits "G-POI", "A-COUVERTURE", "B-PRESENTATION_GUIDE", "C-PRESENTATION_DESTINATION", "E-CARTE_DESTINATION"
  *   - Blocs etiquetes (label) avec le NOM EXACT du champ de template
  *     Ex : frame texte -> label "POI_titre_1", frame image -> label "POI_image_1"
  *   - Le JSON exporte depuis l'app (export ZIP recommande : JSON + images locales)
@@ -54,6 +54,7 @@ var GABARIT_NAMES = {
     "COUVERTURE":              "A-COUVERTURE",
     "PRESENTATION_GUIDE":      "B-PRESENTATION_GUIDE",
     "PRESENTATION_DESTINATION":"C-PRESENTATION_DESTINATION",
+    "CARTE_DESTINATION":       "E-CARTE_DESTINATION",
     "POI":                     "G-POI"
 };
 
@@ -599,6 +600,22 @@ for (var i = 0; i < data.pages.length; i++) {
             try { presItems[pi].override(presPage); } catch(e) {}
         }
         injectPageContent(presPage, pageData);
+        pagesGenerated++;
+        continue;
+    }
+
+    // -- CARTE_DESTINATION ----------------------------------------------------
+    if (pageData.template === "CARTE_DESTINATION") {
+        var msCarteDest = loadGabarit("CARTE_DESTINATION", false);
+        if (!msCarteDest) continue;
+
+        var carteDestPage = doc.pages.add();
+        carteDestPage.appliedMaster = msCarteDest;
+        var carteDestItems = msCarteDest.allPageItems;
+        for (var cd = 0; cd < carteDestItems.length; cd++) {
+            try { carteDestItems[cd].override(carteDestPage); } catch(e) {}
+        }
+        injectPageContent(carteDestPage, pageData);
         pagesGenerated++;
         continue;
     }

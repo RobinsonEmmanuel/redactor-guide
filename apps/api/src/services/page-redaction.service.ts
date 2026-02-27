@@ -1057,12 +1057,18 @@ INSTRUCTIONS STRICTES :
       query['analysis.detail_type'] = { $in: uniqueTags };
     }
 
+    // Exclure les images composites (collages, mosaïques) — champ ajouté en prompt v1.1.0
+    // Pour les anciennes analyses sans ce champ, on les garde (is_composite absent = non composite)
+    query['analysis.is_composite'] = { $ne: true };
+
     const allAnalyses = await this.db.collection('image_analyses').find(query).toArray();
 
     if (allAnalyses.length === 0 && destImageUrls.size > 0) {
       // Fallback sans filtre destination si aucun résultat
       const fallback = await this.db.collection('image_analyses').find(
-        uniqueTags.length > 0 ? { 'analysis.detail_type': { $in: uniqueTags } } : {}
+        uniqueTags.length > 0
+          ? { 'analysis.detail_type': { $in: uniqueTags }, 'analysis.is_composite': { $ne: true } }
+          : { 'analysis.is_composite': { $ne: true } }
       ).toArray();
       allAnalyses.push(...fallback);
     }

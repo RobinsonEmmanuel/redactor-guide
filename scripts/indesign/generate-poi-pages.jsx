@@ -22,7 +22,7 @@ var doc = app.activeDocument;
 // --- Configuration -----------------------------------------------------------
 // Mettre a true pour afficher une alerte de diagnostic picto sur chaque page POI.
 // Desactiver (false) en production.
-var DEBUG_PICTOS = true;
+var DEBUG_PICTOS = false;
 
 var BOLD_STYLE_NAME        = "Gras";        // Marqueurs **...**
 var ORANGE_STYLE_NAME      = "Orange";      // Marqueurs {...}   - couleur #f39428
@@ -118,21 +118,15 @@ if (data.mappings && data.mappings.bullet_fields && data.mappings.bullet_fields.
 }
 
 // --- 2a. Overrider tous les items d'un gabarit sur une page cible -------------
-// A appeler UNE SEULE FOIS a la creation de la page, avant toute injection.
-// On itere uniquement sur les items de PREMIER NIVEAU (pageItems) de chaque page
-// du gabarit. Overrider un groupe override automatiquement tous ses enfants.
-//
-// IMPORTANT : ne jamais utiliser allPageItems ici. Appeler override() sur un
-// enfant deja override (via son groupe parent) cree un doublon autonome vide sur
-// la page cible. findByLabelOnPage trouverait ce doublon, injecterait dedans, et
-// le cadre visible (dans le groupe) resterait vide.
+// Utilise allPageItems pour preserver l'ordre d'empilement (z-order) du gabarit.
+// L'ordre d'override determine l'ordre de superposition sur la page cible :
+// inverser cet ordre (ex: pageItems top-level seulement) decale les calques et
+// masque le contenu. allPageItems retourne les items dans leur ordre document
+// (du bas vers le haut de la pile), ce qui correspond exactement au gabarit.
 function overrideAllFromMaster(masterSpread, targetPage) {
-    var msPages = masterSpread.pages;
-    for (var mp = 0; mp < msPages.length; mp++) {
-        var topItems = msPages[mp].pageItems;
-        for (var t = 0; t < topItems.length; t++) {
-            try { topItems[t].override(targetPage); } catch(e) {}
-        }
+    var allItems = masterSpread.allPageItems;
+    for (var a = 0; a < allItems.length; a++) {
+        try { allItems[a].override(targetPage); } catch(e) {}
     }
 }
 

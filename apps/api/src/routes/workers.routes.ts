@@ -51,34 +51,36 @@ export async function workersRoutes(fastify: FastifyInstance) {
         console.error(`❌ [WORKER] Erreur génération:`, commentaire);
       }
 
-      // Exécuter les field services "per-page" (ex: geocoding_maps_link)
-      // On les exécute ici pour que leur valeur soit visible dans la modale de rédaction.
-      // Les services nécessitant allExportedPages (ex: sommaire_generator) restent en passe 2 d'export.
-      const PER_PAGE_SERVICES = new Set(['geocoding_maps_link']);
+      // Exécuter les field services "per-page" (ex: geocoding_maps_link) immédiatement
+      // après la génération IA, pour que la valeur soit visible dans la modale de rédaction.
+      // (Les services globaux comme sommaire_generator restent en passe 2 d'export.)
+      const PER_PAGE_SERVICES = new Set<string>(['geocoding_maps_link']);
       try {
-        const page = await db.collection('pages').findOne({ _id: new ObjectId(pageId) });
-        const template = await db.collection('templates').findOne({ _id: new ObjectId(page?.template_id) });
-        const serviceFields = ((template?.fields ?? []) as any[]).filter(
-          (f: any) => f.service_id && PER_PAGE_SERVICES.has(f.service_id)
-        );
+        const rawPageDoc = await db.collection('pages').findOne({ _id: new ObjectId(pageId) });
+        if (rawPageDoc) {
+          const template = await db.collection('templates').findOne({ _id: new ObjectId(rawPageDoc.template_id) });
+          const serviceFields = ((template?.fields ?? []) as any[]).filter(
+            (f: any) => f.service_id && PER_PAGE_SERVICES.has(f.service_id)
+          );
 
-        if (serviceFields.length > 0) {
-          const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
-          const runner = new FieldServiceRunner();
+          if (serviceFields.length > 0) {
+            const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+            const runner = new FieldServiceRunner();
 
-          for (const field of serviceFields) {
-            try {
-              const svcResult = await runner.run(field.service_id, {
-                guideId,
-                guide: guide ?? {},
-                currentPage: { ...page, content: result.content },
-                allExportedPages: [],
-                db,
-              });
-              result.content[field.name] = svcResult.value;
-              console.log(`✅ [WORKER] Service "${field.service_id}" → champ "${field.name}" calculé`);
-            } catch (svcErr: any) {
-              console.warn(`⚠️ [WORKER] Service "${field.service_id}" échoué : ${svcErr.message}`);
+            for (const field of serviceFields) {
+              try {
+                const svcResult = await runner.run(field.service_id, {
+                  guideId,
+                  guide: guide ?? {},
+                  currentPage: { ...rawPageDoc, content: result.content },
+                  allExportedPages: [],
+                  db,
+                });
+                result.content[field.name] = svcResult.value;
+                console.log(`✅ [WORKER] Service "${field.service_id}" → champ "${field.name}" calculé`);
+              } catch (svcErr: any) {
+                console.warn(`⚠️ [WORKER] Service "${field.service_id}" échoué : ${svcErr.message}`);
+              }
             }
           }
         }

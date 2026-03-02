@@ -744,38 +744,34 @@ for (var i = 0; i < data.pages.length; i++) {
 
     // ---- DEBUG POI (une seule page) ----------------------------------------
     if (DEBUG_PICTOS) {
-        var dbg = "=== DEBUG POI page " + (i+1) + " ===\n\n";
-
-        // 1. Items sur la page apres override
-        var _pi = newPage.allPageItems;
-        dbg += "Items apres override (" + _pi.length + ") :\n";
-        for (var _d = 0; _d < _pi.length; _d++) {
-            try {
-                var _dl = _pi[_d].label || "";
-                if (_dl) {
-                    var _dv = (_pi[_d] instanceof TextFrame) ? "[TF] visible=" + _pi[_d].visible : "[IMG] visible=" + _pi[_d].visible;
-                    dbg += "  " + _dl + " -> " + _dv + "\n";
-                }
-            } catch(e) {}
-        }
-
-        // 2. Mappings champs->labels
-        dbg += "\nMappings (champ -> label) :\n";
-        for (var _mk in data.mappings.fields) {
-            if (!data.mappings.fields.hasOwnProperty(_mk)) continue;
-            dbg += "  " + _mk + " -> " + data.mappings.fields[_mk] + "\n";
-        }
-
-        // 3. Contenu texte du JSON
-        dbg += "\ntextContent :\n";
+        // Alerte 1 : textContent + presence dans les mappings
+        var dbg1 = "=== DEBUG POI page " + (i+1) + " - CONTENU JSON ===\n\n";
+        dbg1 += "textContent (" + (function(){ var n=0; for(var k in textContent) if(textContent.hasOwnProperty(k)) n++; return n; }()) + " cles) :\n";
         for (var _tk in textContent) {
             if (!textContent.hasOwnProperty(_tk)) continue;
             var _tv = String(textContent[_tk] || "");
-            dbg += "  " + _tk + " = \"" + _tv.substring(0, 60) + (_tv.length > 60 ? "..." : "") + "\"\n";
+            var _inMap = data.mappings.fields.hasOwnProperty(_tk) ? "MAP OK -> " + data.mappings.fields[_tk] : "ABSENT DES MAPPINGS";
+            dbg1 += "  " + _tk + " [" + _inMap + "] = \"" + _tv.substring(0, 40) + "\"\n";
         }
+        alert(dbg1);
 
-        alert(dbg);
-        DEBUG_PICTOS = false; // une seule alerte
+        // Alerte 2 : labels sur la page vs mappings POI
+        var dbg2 = "=== DEBUG POI page " + (i+1) + " - LABELS & MAPPINGS POI ===\n\n";
+        var _pi2 = newPage.allPageItems;
+        dbg2 += "Labels sur la page :\n";
+        for (var _d2 = 0; _d2 < _pi2.length; _d2++) {
+            try { var _l2 = _pi2[_d2].label; if (_l2) dbg2 += "  " + _l2 + "\n"; } catch(e) {}
+        }
+        dbg2 += "\nMappings contenant 'POI' :\n";
+        var _poiFound = false;
+        for (var _mk2 in data.mappings.fields) {
+            if (!data.mappings.fields.hasOwnProperty(_mk2)) continue;
+            if (_mk2.indexOf("POI") !== -1) { dbg2 += "  " + _mk2 + " -> " + data.mappings.fields[_mk2] + "\n"; _poiFound = true; }
+        }
+        if (!_poiFound) dbg2 += "  (AUCUN champ POI dans data.mappings.fields !)\n";
+        alert(dbg2);
+
+        DEBUG_PICTOS = false;
     }
     // ---- FIN DEBUG ---------------------------------------------------------
 

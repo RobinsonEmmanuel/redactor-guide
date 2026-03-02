@@ -56,7 +56,8 @@ export async function workersRoutes(fastify: FastifyInstance) {
       // Les services nécessitant allExportedPages (ex: sommaire_generator) restent en passe 2 d'export.
       const PER_PAGE_SERVICES = new Set(['geocoding_maps_link']);
       try {
-        const template = await db.collection('templates').findOne({ _id: new ObjectId(page.template_id) });
+        const page = await db.collection('pages').findOne({ _id: new ObjectId(pageId) });
+        const template = await db.collection('templates').findOne({ _id: new ObjectId(page?.template_id) });
         const serviceFields = ((template?.fields ?? []) as any[]).filter(
           (f: any) => f.service_id && PER_PAGE_SERVICES.has(f.service_id)
         );

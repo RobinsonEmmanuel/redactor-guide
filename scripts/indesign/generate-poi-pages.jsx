@@ -509,8 +509,10 @@ function injectPictoBar(page, contentData, durationValue) {
         var _items  = page.allPageItems;
         var _labels = [];
         for (var _i = 0; _i < _items.length; _i++) {
-            var _lbl = _items[_i].label;
-            if (_lbl && _lbl !== "") _labels.push("[" + _items[_i].typename + "] " + _lbl);
+            try {
+                var _lbl = _items[_i].label;
+                if (_lbl && _lbl !== "") _labels.push(_lbl);
+            } catch(e) {}
         }
         var _found = [], _missing = [];
         for (var _p = 0; _p < ALL_PICTO_LABELS.length; _p++) {

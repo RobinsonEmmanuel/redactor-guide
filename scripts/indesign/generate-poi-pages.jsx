@@ -119,26 +119,20 @@ if (data.mappings && data.mappings.bullet_fields && data.mappings.bullet_fields.
 
 // --- 2a. Overrider tous les items d'un gabarit sur une page cible -------------
 // A appeler UNE SEULE FOIS a la creation de la page, avant toute injection.
-// Deux passes pour couvrir tous les cas :
-//   Pass 1 (top-level pageItems) : overrider les groupes en premier garantit
-//           que leurs enfants sont inclus automatiquement sans conflit d'ordre.
-//   Pass 2 (allPageItems)        : rattrape les items imbriques ou hors-page
-//           (pasteboard, groupes dans groupes) qui auraient echappe a la pass 1.
-// Ne PAS rappeler cette fonction apres injection : override() peut reinitialiser
-// un item a l'etat du gabarit et effacer le contenu deja injecte.
+// On itere uniquement sur les items de PREMIER NIVEAU (pageItems) de chaque page
+// du gabarit. Overrider un groupe override automatiquement tous ses enfants.
+//
+// IMPORTANT : ne jamais utiliser allPageItems ici. Appeler override() sur un
+// enfant deja override (via son groupe parent) cree un doublon autonome vide sur
+// la page cible. findByLabelOnPage trouverait ce doublon, injecterait dedans, et
+// le cadre visible (dans le groupe) resterait vide.
 function overrideAllFromMaster(masterSpread, targetPage) {
-    // Pass 1 : premier niveau de chaque page du gabarit
     var msPages = masterSpread.pages;
     for (var mp = 0; mp < msPages.length; mp++) {
         var topItems = msPages[mp].pageItems;
         for (var t = 0; t < topItems.length; t++) {
             try { topItems[t].override(targetPage); } catch(e) {}
         }
-    }
-    // Pass 2 : tous les items (groupes imbriques, items au niveau spread)
-    var allItems = masterSpread.allPageItems;
-    for (var a = 0; a < allItems.length; a++) {
-        try { allItems[a].override(targetPage); } catch(e) {}
     }
 }
 

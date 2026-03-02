@@ -29,7 +29,7 @@ var BULLET_FIRST_LINE  = -6.35; // mm - retrait premiere ligne (hanging indent)
 var BULLET_SPACE_AFTER = 7;     // mm - espace apres chaque puce
 var PICTO_W            = 12.7;  // mm - largeur d'un bloc picto (gabarit)
 var PICTO_H            = 19.7;  // mm - hauteur d'un bloc picto (gabarit)
-var PICTO_GAP          = 1;     // mm - espace entre pictos
+var PICTO_GAP          = 5;     // mm - espace entre pictos
 var DURATION_GAP       = 3;     // mm - espace entre dernier picto et clock/duree
 
 // Champs rendus en liste a puces : construits dynamiquement depuis data.bullet_fields

@@ -22,7 +22,7 @@ var doc = app.activeDocument;
 // --- Configuration -----------------------------------------------------------
 // Mettre a true pour afficher une alerte de diagnostic picto sur chaque page POI.
 // Desactiver (false) en production.
-var DEBUG_PICTOS = true;
+var DEBUG_PICTOS = false;
 
 var BOLD_STYLE_NAME        = "Gras";        // Marqueurs **...**
 var ORANGE_STYLE_NAME      = "Orange";      // Marqueurs {...}   - couleur #f39428
@@ -464,26 +464,33 @@ function injectHyperlink(page, label, url) {
 // Labels des cadres picto dans InDesign - doivent correspondre aux noms de champs du template.
 // Les variant_layer (ex: POI_picto_interet_incontournable) sont definis dans option_layers
 // du template et resolus dynamiquement depuis _derived.pictos_active.
+// Labels REELS detectes dans le gabarit G-POI (diagnostic 2026-03) :
+//   picto_escaliers, picto_famille, picto_restauration, picto_toilettes
+//   picto_interet_1/2/3, picto_pmr_full/half/none, picto_duree
+// Convention gabarit : prefixe "picto_" sans "POI_" pour les cadres picto.
+// Les champs template utilisent "POI_picto_X" -> fallback "POI_" strip dans injectPictoBar.
 var ALL_PICTO_LABELS = [
-    // Noms semantiques (convention actuelle : champ = label InDesign)
-    "POI_picto_interet",
-    "POI_picto_pmr",
-    "POI_picto_escaliers",
-    "POI_picto_toilettes",
-    "POI_picto_restauration",
-    "POI_picto_famille",
-    // Noms numerotes (alternative)
+    // Booleens (oui/non) - labels reels dans le gabarit
+    "picto_escaliers",
+    "picto_toilettes",
+    "picto_restauration",
+    "picto_famille",
+    // Variants interet (3 cadres superposes, un par valeur)
+    "picto_interet_1",   // Incontournable
+    "picto_interet_2",   // Interessant
+    "picto_interet_3",   // A voir
+    // Variants PMR (3 cadres superposes)
+    "picto_pmr_full",    // Accessible 100%
+    "picto_pmr_half",    // Partiellement accessible
+    "picto_pmr_none",    // Non accessible
+    // Picto duree (cadre horloge)
+    "picto_duree",
+    // Anciens noms numerotes (compatibilite) et alias POI_ (si renommes un jour)
     "POI_picto_1", "POI_picto_2", "POI_picto_3",
     "POI_picto_4", "POI_picto_5", "POI_picto_6",
-    // Variants interet : 3 cadres superposés (un par valeur possible)
-    //   picto_interet_1 = Incontournable
-    //   picto_interet_2 = Interessant
-    //   picto_interet_3 = A voir
-    "picto_interet_1", "picto_interet_2", "picto_interet_3",
-    // Variants PMR
-    "picto_pmr_full", "picto_pmr_half", "picto_pmr_none",
-    // Picto duree (cadre horloge - label statique dans le gabarit)
-    "picto_duree"
+    "POI_picto_interet", "POI_picto_pmr",
+    "POI_picto_escaliers", "POI_picto_toilettes",
+    "POI_picto_restauration", "POI_picto_famille"
 ];
 
 
@@ -568,8 +575,16 @@ function injectPictoBar(page, contentData, durationValue) {
         if (!layer) continue;
 
         var found = findByLabelOnPage(page, layer);
+        // Fallback 1 : essayer indesign_layer si variant_layer non trouve
         if (found.length === 0 && entry.indesign_layer && layer !== entry.indesign_layer) {
             found = findByLabelOnPage(page, entry.indesign_layer);
+        }
+        // Fallback 2 : retirer le prefixe "POI_" (convention gabarit sans prefixe)
+        if (found.length === 0 && layer.indexOf("POI_") === 0) {
+            found = findByLabelOnPage(page, layer.substring(4));
+        }
+        if (found.length === 0 && entry.indesign_layer && entry.indesign_layer.indexOf("POI_") === 0) {
+            found = findByLabelOnPage(page, entry.indesign_layer.substring(4));
         }
         if (found.length > 0) activePictos.push(found[0]);
     }

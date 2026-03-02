@@ -445,6 +445,13 @@ var ALL_PICTO_LABELS = [
     // Noms numerotes (alternative)
     "POI_picto_1", "POI_picto_2", "POI_picto_3",
     "POI_picto_4", "POI_picto_5", "POI_picto_6",
+    // Variants interet : 3 cadres superposés (un par valeur possible)
+    //   picto_interet_1 = Incontournable
+    //   picto_interet_2 = Interessant
+    //   picto_interet_3 = A voir
+    "picto_interet_1", "picto_interet_2", "picto_interet_3",
+    // Variants PMR
+    "picto_pmr_full", "picto_pmr_half", "picto_pmr_none",
     // Picto duree (cadre horloge - label statique dans le gabarit)
     "picto_duree"
 ];

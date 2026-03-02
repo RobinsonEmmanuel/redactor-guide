@@ -48,11 +48,17 @@ var BULLET_LIST_FIELDS = BULLET_LIST_FIELDS_FALLBACK;
 // Champs geres par injectPictoBar - exclus de l'injection texte standard
 // POI_meta_1 et POI_meta_duree designent le meme champ selon la convention de nommage du template
 // POI_lien_1 est maintenant traite par injectText (lien structure JSON) - retire des deux listes
-var SKIP_IN_TEXT_STEP  = { "POI_meta_duree": true, "POI_meta_1": true };
+// POI_lien_2 est un cadre graphique cliquable - gere par injectFrameHyperlink, pas injectText
+var SKIP_IN_TEXT_STEP  = { "POI_meta_duree": true, "POI_meta_1": true, "POI_lien_2": true };
 
-// Champs a NE PAS masquer a l'etape A (ils gardent leur texte statique du gabarit)
-// POI_lien_1 retire : on veut injecter dynamiquement le label du lien structure
-var SKIP_IN_MASK_STEP  = {};
+// Champs a NE PAS masquer a l'etape A (injectText null ne sait pas masquer les cadres graphiques)
+// POI_lien_2 : masquage/affichage gere par injectFrameHyperlink
+var SKIP_IN_MASK_STEP  = { "POI_lien_2": true };
+
+// Champs dont la valeur est un lien {label, url} ou une URL brute a appliquer
+// sur un cadre GRAPHIQUE (non-TextFrame) via HyperlinkPageItemSource.
+// Cle = nom du champ JSON, valeur = true.
+var FRAME_LINK_FIELDS  = { "POI_lien_2": true };
 
 // Noms des gabarits InDesign associes a chaque template
 // Ajouter ici chaque nouveau template : { "NOM_TEMPLATE": "NOM_GABARIT_INDESIGN" }
@@ -434,6 +440,68 @@ function injectHyperlink(page, label, url) {
     }
 }
 
+// --- 9b. Injecter un hyperlien sur un cadre GRAPHIQUE (non-TextFrame) --------
+// Utilise HyperlinkPageItemSource pour rendre un Rectangle, Oval ou Groupe cliquable.
+// La valeur peut etre un JSON structure {"label":"...","url":"..."} ou une URL brute.
+// Si l'URL est absente ou vide, le cadre est masque.
+function injectFrameHyperlink(page, label, value) {
+    // Extraire l'URL depuis un JSON structure ou une chaine brute
+    var url = null;
+    if (value) {
+        var strRaw = String(value).replace(/^\s+|\s+$/, "");
+        if (strRaw.charAt(0) === "{") {
+            try {
+                var parsed = eval("(" + strRaw + ")");
+                if (parsed && parsed.url) url = String(parsed.url).replace(/^\s+|\s+$/, "");
+            } catch(e) {}
+        } else if (strRaw !== "") {
+            url = strRaw;
+        }
+    }
+
+    var blocks = findByLabelOnPage(page, label);
+    for (var i = 0; i < blocks.length; i++) {
+        var block = blocks[i];
+        if (!url) {
+            block.visible = false;
+            continue;
+        }
+        block.visible = true;
+
+        // Supprimer les hyperliens page-item existants sur ce cadre (evite les doublons)
+        var existingLinks = doc.hyperlinks;
+        for (var h = existingLinks.length - 1; h >= 0; h--) {
+            try {
+                var hs = existingLinks.item(h).source;
+                if (hs && hs.sourcePageItem && hs.sourcePageItem === block) {
+                    existingLinks.item(h).remove();
+                }
+            } catch(e) {}
+        }
+
+        // Creer la destination URL
+        var dest;
+        try {
+            dest = doc.hyperlinkURLDestinations.add(url);
+        } catch(e) {
+            try { dest = doc.hyperlinkURLDestinations.itemByName(url); } catch(e2) { continue; }
+        }
+
+        // Creer la source sur le cadre graphique (HyperlinkPageItemSource)
+        var src;
+        try {
+            src = doc.hyperlinkPageItemSources.add(block);
+        } catch(e) { continue; }
+
+        try {
+            doc.hyperlinks.add(src, dest, {
+                visible:   false,
+                highlight: HyperlinkAppearanceHighlight.NONE
+            });
+        } catch(e) {}
+    }
+}
+
 // --- 10. Barre de pictos avec reflow dynamique + duree -----------------------
 //
 // Architecture :
@@ -643,6 +711,14 @@ function injectPageContent(page, pageData) {
         }
     }
 
+    // Etape B2 : liens sur cadres graphiques (FRAME_LINK_FIELDS)
+    for (var flKey in FRAME_LINK_FIELDS) {
+        if (!FRAME_LINK_FIELDS.hasOwnProperty(flKey)) continue;
+        var flMapping = data.mappings.fields[flKey];
+        if (!flMapping) continue;
+        injectFrameHyperlink(page, flMapping, textContent[flKey] || null);
+    }
+
     // Etape C : injection images
     for (var iKey in imageContent) {
         if (!imageContent.hasOwnProperty(iKey)) continue;
@@ -794,6 +870,14 @@ for (var i = 0; i < data.pages.length; i++) {
         } else {
             injectText(newPage, mapping, strVal);
         }
+    }
+
+    // Etape B2 : liens sur cadres graphiques (FRAME_LINK_FIELDS)
+    for (var flKey in FRAME_LINK_FIELDS) {
+        if (!FRAME_LINK_FIELDS.hasOwnProperty(flKey)) continue;
+        var flMapping = data.mappings.fields[flKey];
+        if (!flMapping) continue;
+        injectFrameHyperlink(newPage, flMapping, textContent[flKey] || null);
     }
 
     // Etape C : injection images

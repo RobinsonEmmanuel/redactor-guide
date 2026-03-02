@@ -112,6 +112,9 @@ export async function createServer(db: Db, _port: number) {
         (await import('./routes/image-analysis.routes')).imageAnalysisRoutes
       );
       await fastify.register(
+        (await import('./routes/geocoding.routes')).geocodingRoutes
+      );
+      await fastify.register(
         (await import('./routes/translator.routes')).default
       );
       await fastify.register(

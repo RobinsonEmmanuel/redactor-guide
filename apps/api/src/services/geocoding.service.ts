@@ -12,6 +12,22 @@ export interface GeocodingResult {
   importance: number;
 }
 
+export interface MapUrls {
+  /** Google Maps — standard universel web, fonctionne sur tous les appareils */
+  google_maps: string;
+  /** OpenStreetMap — alternative libre, sans tracking */
+  openstreetmap: string;
+  /** URI geo: — ouvre l'app carte native sur mobile (non cliquable dans un navigateur desktop) */
+  geo: string;
+}
+
+export interface GeocodingResolveResult {
+  lat: number;
+  lon: number;
+  display_name: string;
+  urls: MapUrls;
+}
+
 export interface GeocodingError {
   lieu: string;
   error: string;
@@ -119,6 +135,46 @@ export class GeocodingService {
     console.log(`✅ ${results.size}/${lieux.length} lieu(x) géolocalisé(s)`);
 
     return results;
+  }
+
+  /**
+   * Géolocalise un lieu et retourne ses coordonnées + URLs cartographiques.
+   * Point d'entrée principal pour les routes API.
+   *
+   * @param query   Nom du lieu (ex: "Cathédrale de Santa Cruz, Tenerife")
+   * @param country Pays optionnel pour affiner la recherche
+   */
+  async resolve(query: string, country?: string): Promise<GeocodingResolveResult | null> {
+    const searchQuery = country ? `${query}, ${country}` : query;
+    const result = await this.geocodePlace(query, country ?? '');
+    if (!result) return null;
+    return {
+      lat:          result.lat,
+      lon:          result.lon,
+      display_name: result.display_name,
+      urls:         this.buildMapUrls(result.lat, result.lon, searchQuery),
+    };
+  }
+
+  /**
+   * Construit les URLs cartographiques à partir de coordonnées GPS.
+   *
+   * Formats disponibles :
+   *  - google_maps    : https://maps.google.com/?q=lat,lon  (référence universelle web)
+   *  - openstreetmap  : https://www.openstreetmap.org/?mlat=...  (libre, sans tracking)
+   *  - geo            : geo:lat,lon  (ouvre l'app carte native sur mobile)
+   *
+   * Pour un lien dans un guide print/PDF destiné au web, google_maps est recommandé.
+   * Pour un QR code universel, geo: est le plus interopérable sur smartphone.
+   */
+  buildMapUrls(lat: number, lon: number, label?: string): MapUrls {
+    const coords = `${lat},${lon}`;
+    const encodedLabel = label ? encodeURIComponent(label) : coords;
+    return {
+      google_maps:   `https://maps.google.com/?q=${coords}`,
+      openstreetmap: `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}&zoom=17&layers=M`,
+      geo:           `geo:${coords}?q=${coords}(${encodedLabel})`,
+    };
   }
 
   /**

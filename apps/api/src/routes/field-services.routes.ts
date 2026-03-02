@@ -5,7 +5,7 @@ import {
   CreateFieldServiceSchema,
   UpdateFieldServiceSchema,
 } from '@redactor-guide/core-model';
-import { REGISTERED_SERVICES } from '../services/field-service-runner.service.js';
+import { REGISTERED_SERVICES, FieldServiceRunner } from '../services/field-service-runner.service.js';
 
 /** Métadonnées des services natifs (créés automatiquement en base s'ils sont absents). */
 const BUILTIN_SERVICES: Array<{
@@ -236,6 +236,56 @@ export async function fieldServicesRoutes(fastify: FastifyInstance) {
     } catch (error) {
       request.log.error(error);
       return reply.status(500).send({ error: 'Erreur lors de la suppression du service' });
+    }
+  });
+
+  /**
+   * POST /field-services/run-for-page
+   * Exécute un service sur une page spécifique et sauvegarde le résultat en base.
+   * Utilisé par la modale de rédaction pour recalculer un champ à la demande.
+   */
+  fastify.post<{
+    Body: { pageId: string; guideId: string; fieldName: string; serviceId: string };
+  }>('/field-services/run-for-page', async (request, reply) => {
+    try {
+      const db = request.server.container.db;
+      const { pageId, guideId, fieldName, serviceId } = request.body;
+
+      if (!ObjectId.isValid(pageId) || !ObjectId.isValid(guideId)) {
+        return reply.status(400).send({ error: 'pageId ou guideId invalide' });
+      }
+
+      if (!REGISTERED_SERVICES[serviceId]) {
+        return reply.status(400).send({ error: `Service "${serviceId}" non implémenté` });
+      }
+
+      const [page, guide] = await Promise.all([
+        db.collection('pages').findOne({ _id: new ObjectId(pageId) }),
+        db.collection('guides').findOne({ _id: new ObjectId(guideId) }),
+      ]);
+
+      if (!page) return reply.status(404).send({ error: 'Page non trouvée' });
+      if (!guide) return reply.status(404).send({ error: 'Guide non trouvé' });
+
+      const runner = new FieldServiceRunner();
+      const result = await runner.run(serviceId, {
+        guideId,
+        guide,
+        currentPage: page,
+        allExportedPages: [],
+        db,
+      });
+
+      // Persister en base
+      await db.collection('pages').updateOne(
+        { _id: new ObjectId(pageId) },
+        { $set: { [`content.${fieldName}`]: result.value, updated_at: new Date().toISOString() } }
+      );
+
+      return reply.send({ value: result.value });
+    } catch (error: any) {
+      request.log.error(error);
+      return reply.status(500).send({ error: error.message || 'Erreur lors de l\'exécution du service' });
     }
   });
 }

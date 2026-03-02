@@ -37,6 +37,7 @@ interface TemplateField {
   max_repetitions?: number;
   link_label?: LinkPartConfig;
   link_url?: LinkPartConfig;
+  service_id?: string;
 }
 
 // Labels et icônes pour les valeurs de picto
@@ -237,6 +238,7 @@ export default function ContentEditorModal({
   const [showImageAnalysis, setShowImageAnalysis] = useState(false);
   const [showImageSelector, setShowImageSelector] = useState(false);
   const [currentImageField, setCurrentImageField] = useState<string | null>(null);
+  const [recalculatingFields, setRecalculatingFields] = useState<Set<string>>(new Set());
   const [validating, setValidating] = useState(false);
   const [validationReport, setValidationReport] = useState<any | null>(null);
   const [showValidation, setShowValidation] = useState(false);
@@ -507,6 +509,40 @@ export default function ContentEditorModal({
 
   // ────────────────────────────────────────────────────────────────────────────
 
+  const handleRecalculate = async (field: TemplateField) => {
+    if (!field.service_id) return;
+    setRecalculatingFields((prev) => new Set(prev).add(field.name));
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/field-services/run-for-page`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          pageId:    page._id,
+          guideId,
+          fieldName: field.name,
+          serviceId: field.service_id,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error || `Erreur ${res.status}`);
+      }
+      const { value } = await res.json();
+      handleFieldChange(field.name, value);
+    } catch (err: any) {
+      alert(`Impossible de recalculer le champ : ${err.message}`);
+    } finally {
+      setRecalculatingFields((prev) => {
+        const next = new Set(prev);
+        next.delete(field.name);
+        return next;
+      });
+    }
+  };
+
+  // ────────────────────────────────────────────────────────────────────────────
+
   const renderField = (field: TemplateField) => {
     const fieldValue = formData[field.name] || '';
 
@@ -709,12 +745,27 @@ export default function ContentEditorModal({
         };
 
         const previewUrl = linkUrlVal || (isStructured ? '' : (typeof fieldValue === 'string' ? fieldValue : ''));
+        const isRecalculating = recalculatingFields.has(field.name);
 
         return (
           <div key={field.name} className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {field.label}
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-medium text-gray-700">
+                {field.label}
+              </label>
+              {field.service_id && (
+                <button
+                  type="button"
+                  onClick={() => handleRecalculate(field)}
+                  disabled={isRecalculating}
+                  title={`Recalculer via le service "${field.service_id}"`}
+                  className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-sky-600 border border-sky-300 rounded-lg hover:bg-sky-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ArrowPathIcon className={`h-3.5 w-3.5 ${isRecalculating ? 'animate-spin' : ''}`} />
+                  {isRecalculating ? 'Calcul…' : 'Recalculer'}
+                </button>
+              )}
+            </div>
             {field.description && <p className="text-xs text-gray-500 mb-2">{field.description}</p>}
 
             <div className="rounded-xl border border-orange-200 bg-orange-50/30 overflow-hidden">

@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { PageRedactionService } from '../services/page-redaction.service';
 import { JsonTranslatorService } from '../services/json-translator.service';
+import { FieldServiceRunner } from '../services/field-service-runner.service.js';
 
 export async function workersRoutes(fastify: FastifyInstance) {
   /**
@@ -48,6 +49,40 @@ export async function workersRoutes(fastify: FastifyInstance) {
         statutEditorial = 'non_conforme';
         commentaire = `Erreur IA: ${result.error || 'Erreur inconnue'}`;
         console.error(`❌ [WORKER] Erreur génération:`, commentaire);
+      }
+
+      // Exécuter les field services "per-page" (ex: geocoding_maps_link)
+      // On les exécute ici pour que leur valeur soit visible dans la modale de rédaction.
+      // Les services nécessitant allExportedPages (ex: sommaire_generator) restent en passe 2 d'export.
+      const PER_PAGE_SERVICES = new Set(['geocoding_maps_link']);
+      try {
+        const template = await db.collection('templates').findOne({ _id: new ObjectId(page.template_id) });
+        const serviceFields = ((template?.fields ?? []) as any[]).filter(
+          (f: any) => f.service_id && PER_PAGE_SERVICES.has(f.service_id)
+        );
+
+        if (serviceFields.length > 0) {
+          const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+          const runner = new FieldServiceRunner();
+
+          for (const field of serviceFields) {
+            try {
+              const svcResult = await runner.run(field.service_id, {
+                guideId,
+                guide: guide ?? {},
+                currentPage: { ...page, content: result.content },
+                allExportedPages: [],
+                db,
+              });
+              result.content[field.name] = svcResult.value;
+              console.log(`✅ [WORKER] Service "${field.service_id}" → champ "${field.name}" calculé`);
+            } catch (svcErr: any) {
+              console.warn(`⚠️ [WORKER] Service "${field.service_id}" échoué : ${svcErr.message}`);
+            }
+          }
+        }
+      } catch (svcSetupErr: any) {
+        console.warn(`⚠️ [WORKER] Erreur setup field-services : ${svcSetupErr.message}`);
       }
 
       // Sauvegarder le contenu généré (même si validation échoue, pour permettre édition manuelle)

@@ -118,45 +118,40 @@ if (data.mappings && data.mappings.bullet_fields && data.mappings.bullet_fields.
 }
 
 // --- 2a. Overrider tous les items d'un gabarit sur une page cible -------------
-// N'itere que sur les items de PREMIER NIVEAU (pageItems, pas allPageItems).
-// Overrider un groupe override automatiquement tous ses enfants : utiliser
-// allPageItems provoquerait des echecs silencieux pour les cadres dans des groupes
-// si le groupe parent n'a pas encore ete override.
+// A appeler UNE SEULE FOIS a la creation de la page, avant toute injection.
+// Deux passes pour couvrir tous les cas :
+//   Pass 1 (top-level pageItems) : overrider les groupes en premier garantit
+//           que leurs enfants sont inclus automatiquement sans conflit d'ordre.
+//   Pass 2 (allPageItems)        : rattrape les items imbriques ou hors-page
+//           (pasteboard, groupes dans groupes) qui auraient echappe a la pass 1.
+// Ne PAS rappeler cette fonction apres injection : override() peut reinitialiser
+// un item a l'etat du gabarit et effacer le contenu deja injecte.
 function overrideAllFromMaster(masterSpread, targetPage) {
+    // Pass 1 : premier niveau de chaque page du gabarit
     var msPages = masterSpread.pages;
     for (var mp = 0; mp < msPages.length; mp++) {
-        var topItems = msPages[mp].pageItems; // premier niveau seulement
+        var topItems = msPages[mp].pageItems;
         for (var t = 0; t < topItems.length; t++) {
             try { topItems[t].override(targetPage); } catch(e) {}
         }
     }
+    // Pass 2 : tous les items (groupes imbriques, items au niveau spread)
+    var allItems = masterSpread.allPageItems;
+    for (var a = 0; a < allItems.length; a++) {
+        try { allItems[a].override(targetPage); } catch(e) {}
+    }
 }
 
 // --- 2b. Trouver les blocs par label (page courante uniquement) ---------------
-// page.allPageItems est recursif et ne contient QUE les items overrides sur cette page.
-// On n'utilise pas parentPage car il peut etre null pour les items dans un groupe,
-// ce qui exclurait des cadres valides.
+// Recherche simple dans page.allPageItems (collection recursive, items overrides seulement).
+// Ne tente PAS de re-overrider : overrideAllFromMaster() doit avoir ete appele avant.
 function findByLabelOnPage(page, label) {
     var res = [];
-
-    // Passe 1 : items deja overrides sur la page (y compris dans les groupes)
     var items = page.allPageItems;
     for (var i = 0; i < items.length; i++) {
-        if (items[i].label == label) {
-            res.push(items[i]);
-        }
-    }
-    if (res.length > 0) return res;
-
-    // Passe 2 : forcer l'override depuis le gabarit (items non encore detaches), puis relire
-    if (page.appliedMaster) {
-        try { overrideAllFromMaster(page.appliedMaster, page); } catch(e) {}
-        var recheck = page.allPageItems;
-        for (var k = 0; k < recheck.length; k++) {
-            if (recheck[k].label == label) {
-                res.push(recheck[k]);
-            }
-        }
+        try {
+            if (items[i].label == label) res.push(items[i]);
+        } catch(e) {}
     }
     return res;
 }
@@ -503,16 +498,6 @@ function injectPictoBar(page, contentData, durationValue) {
 
     // --- DIAGNOSTIC (DEBUG_PICTOS = true) ------------------------------------
     if (DEBUG_PICTOS) {
-        // Forcer un override complet avant diagnostic
-        if (page.appliedMaster) {
-            var _msP = page.appliedMaster.pages;
-            for (var _mp = 0; _mp < _msP.length; _mp++) {
-                var _top = _msP[_mp].pageItems;
-                for (var _t = 0; _t < _top.length; _t++) try { _top[_t].override(page); } catch(e) {}
-            }
-            var _all = page.appliedMaster.allPageItems;
-            for (var _a = 0; _a < _all.length; _a++) try { _all[_a].override(page); } catch(e) {}
-        }
         var _items  = page.allPageItems;
         var _labels = [];
         for (var _i = 0; _i < _items.length; _i++) {

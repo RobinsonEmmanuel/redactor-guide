@@ -797,26 +797,6 @@ for (var i = 0; i < data.pages.length; i++) {
         }
     }
 
-    // ---- DEBUG APRES ETAPE B -----------------------------------------------
-    if (DEBUG_PICTOS) {
-        var dbgB = "=== APRES ETAPE B (textes injectes) ===\n\n";
-        var _piB = newPage.allPageItems;
-        for (var _dB = 0; _dB < _piB.length; _dB++) {
-            try {
-                var _lB = _piB[_dB].label;
-                if (_lB && _lB.indexOf("POI") !== -1) {
-                    var _visB = _piB[_dB].visible;
-                    var _contB = "";
-                    try { if (_piB[_dB] instanceof TextFrame) _contB = String(_piB[_dB].contents).substring(0, 40); else _contB = "[image frame]"; } catch(e) { _contB = "[erreur contents]"; }
-                    dbgB += _lB + "\n  visible=" + _visB + "  contenu=\"" + _contB + "\"\n";
-                }
-            } catch(e) {}
-        }
-        alert(dbgB);
-        DEBUG_PICTOS = false;
-    }
-    // ---- FIN DEBUG ---------------------------------------------------------
-
     // Etape C : injection images
     for (var imgKey in imageContent) {
         if (!imageContent.hasOwnProperty(imgKey)) continue;
@@ -834,6 +814,32 @@ for (var i = 0; i < data.pages.length; i++) {
     if (linkLabel) {
         injectHyperlink(newPage, linkLabel, pageData.url_source);
     }
+
+    // ---- DEBUG FINAL (apres toutes les etapes) ------------------------------
+    if (DEBUG_PICTOS) {
+        var dbgF = "=== ETAT FINAL (apres A+B+C+D+E) ===\n\n";
+        var _piF = newPage.allPageItems;
+        for (var _dF = 0; _dF < _piF.length; _dF++) {
+            try {
+                var _lF = _piF[_dF].label;
+                if (!_lF) continue;
+                var _visF = _piF[_dF].visible;
+                var _contF = "";
+                try { if (_piF[_dF] instanceof TextFrame) _contF = String(_piF[_dF].contents).substring(0, 30); else _contF = "[img]"; } catch(e) {}
+                // Verifier la visibilite des parents
+                var _parentVis = "parent?";
+                try {
+                    var _par = _piF[_dF].parent;
+                    if (_par && typeof _par.visible !== "undefined") _parentVis = "parent.visible=" + _par.visible + " (" + _par.typename + ")";
+                    else _parentVis = "parent=page";
+                } catch(e) { _parentVis = "parent=page"; }
+                dbgF += _lF + "\n  visible=" + _visF + " " + _parentVis + "\n  \"" + _contF + "\"\n";
+            } catch(e) {}
+        }
+        alert(dbgF);
+        DEBUG_PICTOS = false;
+    }
+    // ---- FIN DEBUG FINAL ---------------------------------------------------
 
     pagesGenerated++;
 }

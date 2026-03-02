@@ -113,14 +113,29 @@ if (data.mappings && data.mappings.bullet_fields && data.mappings.bullet_fields.
     }
 }
 
-// --- 2. Trouver les blocs par label (page courante uniquement) ---------------
-// Cherche d'abord dans les items overrides de la page.
-// Fallback : si rien trouve, cherche dans le gabarit applique et force l'override
-// (certains cadres, notamment ceux dans des groupes, peuvent echapper au override initial).
+// --- 2a. Overrider tous les items d'un gabarit sur une page cible -------------
+// N'itere que sur les items de PREMIER NIVEAU (pageItems, pas allPageItems).
+// Overrider un groupe override automatiquement tous ses enfants : utiliser
+// allPageItems provoquerait des echecs silencieux pour les cadres dans des groupes
+// si le groupe parent n'a pas encore ete override.
+function overrideAllFromMaster(masterSpread, targetPage) {
+    var msPages = masterSpread.pages;
+    for (var mp = 0; mp < msPages.length; mp++) {
+        var topItems = msPages[mp].pageItems; // premier niveau seulement
+        for (var t = 0; t < topItems.length; t++) {
+            try { topItems[t].override(targetPage); } catch(e) {}
+        }
+    }
+}
+
+// --- 2b. Trouver les blocs par label (page courante uniquement) ---------------
+// Cherche dans les items overrides de la page (allPageItems = recursif dans les groupes).
+// Si rien trouve, force l'override depuis le gabarit via overrideAllFromMaster, puis
+// relit la page — cas ou un groupe entier avait echappe au override initial.
 function findByLabelOnPage(page, label) {
     var res = [];
 
-    // Passe 1 : items deja overrides sur la page
+    // Passe 1 : items deja overrides sur la page (y compris dans les groupes)
     var items = page.allPageItems;
     for (var i = 0; i < items.length; i++) {
         if (items[i].label == label) {
@@ -135,30 +150,21 @@ function findByLabelOnPage(page, label) {
     }
     if (res.length > 0) return res;
 
-    // Passe 2 : gabarit applique - forcer l'override si le cadre n'a pas ete detache
+    // Passe 2 : forcer l'override depuis le gabarit, puis relire
     if (page.appliedMaster) {
         try {
-            var msItems = page.appliedMaster.allPageItems;
-            for (var j = 0; j < msItems.length; j++) {
-                if (msItems[j].label == label) {
-                    try {
-                        var ov = msItems[j].override(page);
-                        if (ov) { res.push(ov); continue; }
-                    } catch(e2) {}
-                    // override() peut echouer si deja override : relire la page
-                    var recheck = page.allPageItems;
-                    for (var k = 0; k < recheck.length; k++) {
-                        if (recheck[k].label == label) {
-                            try {
-                                if (recheck[k].parentPage && recheck[k].parentPage.name === page.name) {
-                                    res.push(recheck[k]);
-                                }
-                            } catch(e3) { res.push(recheck[k]); }
-                        }
-                    }
-                }
-            }
+            overrideAllFromMaster(page.appliedMaster, page);
         } catch(e) {}
+        var recheck = page.allPageItems;
+        for (var k = 0; k < recheck.length; k++) {
+            if (recheck[k].label == label) {
+                try {
+                    if (recheck[k].parentPage && recheck[k].parentPage.name === page.name) {
+                        res.push(recheck[k]);
+                    }
+                } catch(e2) { res.push(recheck[k]); }
+            }
+        }
     }
     return res;
 }
@@ -643,10 +649,7 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var coverPage = doc.pages.add(LocationOptions.AT_BEGINNING);
         coverPage.appliedMaster = msCover;
-        var coverItems = msCover.allPageItems;
-        for (var ci = 0; ci < coverItems.length; ci++) {
-            try { coverItems[ci].override(coverPage); } catch(e) {}
-        }
+        overrideAllFromMaster(msCover, coverPage);
         injectPageContent(coverPage, pageData);
         pagesGenerated++;
         continue;
@@ -659,10 +662,7 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var presPage = doc.pages.add();
         presPage.appliedMaster = msPresGuide;
-        var presItems = msPresGuide.allPageItems;
-        for (var pi = 0; pi < presItems.length; pi++) {
-            try { presItems[pi].override(presPage); } catch(e) {}
-        }
+        overrideAllFromMaster(msPresGuide, presPage);
         injectPageContent(presPage, pageData);
         pagesGenerated++;
         continue;
@@ -675,10 +675,7 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var clusterPage = doc.pages.add();
         clusterPage.appliedMaster = msCluster;
-        var clusterItems = msCluster.allPageItems;
-        for (var cl = 0; cl < clusterItems.length; cl++) {
-            try { clusterItems[cl].override(clusterPage); } catch(e) {}
-        }
+        overrideAllFromMaster(msCluster, clusterPage);
         injectPageContent(clusterPage, pageData);
         pagesGenerated++;
         continue;
@@ -691,10 +688,7 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var carteDestPage = doc.pages.add();
         carteDestPage.appliedMaster = msCarteDest;
-        var carteDestItems = msCarteDest.allPageItems;
-        for (var cd = 0; cd < carteDestItems.length; cd++) {
-            try { carteDestItems[cd].override(carteDestPage); } catch(e) {}
-        }
+        overrideAllFromMaster(msCarteDest, carteDestPage);
         injectPageContent(carteDestPage, pageData);
         pagesGenerated++;
         continue;
@@ -707,10 +701,7 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var presDestPage = doc.pages.add();
         presDestPage.appliedMaster = msPresDest;
-        var presDestItems = msPresDest.allPageItems;
-        for (var pd = 0; pd < presDestItems.length; pd++) {
-            try { presDestItems[pd].override(presDestPage); } catch(e) {}
-        }
+        overrideAllFromMaster(msPresDest, presDestPage);
         injectPageContent(presDestPage, pageData);
         pagesGenerated++;
         continue;
@@ -721,10 +712,7 @@ for (var i = 0; i < data.pages.length; i++) {
 
     var newPage = doc.pages.add();
     newPage.appliedMaster = master;
-    var masterItems = master.allPageItems;
-    for (var m = 0; m < masterItems.length; m++) {
-        try { masterItems[m].override(newPage); } catch(e) {}
-    }
+    overrideAllFromMaster(master, newPage);
 
     var textContent  = pageData.content.text   || {};
     var imageContent = pageData.content.images || {};

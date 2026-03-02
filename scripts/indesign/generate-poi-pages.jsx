@@ -129,9 +129,9 @@ function overrideAllFromMaster(masterSpread, targetPage) {
 }
 
 // --- 2b. Trouver les blocs par label (page courante uniquement) ---------------
-// Cherche dans les items overrides de la page (allPageItems = recursif dans les groupes).
-// Si rien trouve, force l'override depuis le gabarit via overrideAllFromMaster, puis
-// relit la page — cas ou un groupe entier avait echappe au override initial.
+// page.allPageItems est recursif et ne contient QUE les items overrides sur cette page.
+// On n'utilise pas parentPage car il peut etre null pour les items dans un groupe,
+// ce qui exclurait des cadres valides.
 function findByLabelOnPage(page, label) {
     var res = [];
 
@@ -139,30 +139,18 @@ function findByLabelOnPage(page, label) {
     var items = page.allPageItems;
     for (var i = 0; i < items.length; i++) {
         if (items[i].label == label) {
-            try {
-                if (items[i].parentPage && items[i].parentPage.name === page.name) {
-                    res.push(items[i]);
-                }
-            } catch(e) {
-                res.push(items[i]);
-            }
+            res.push(items[i]);
         }
     }
     if (res.length > 0) return res;
 
-    // Passe 2 : forcer l'override depuis le gabarit, puis relire
+    // Passe 2 : forcer l'override depuis le gabarit (items non encore detaches), puis relire
     if (page.appliedMaster) {
-        try {
-            overrideAllFromMaster(page.appliedMaster, page);
-        } catch(e) {}
+        try { overrideAllFromMaster(page.appliedMaster, page); } catch(e) {}
         var recheck = page.allPageItems;
         for (var k = 0; k < recheck.length; k++) {
             if (recheck[k].label == label) {
-                try {
-                    if (recheck[k].parentPage && recheck[k].parentPage.name === page.name) {
-                        res.push(recheck[k]);
-                    }
-                } catch(e2) { res.push(recheck[k]); }
+                res.push(recheck[k]);
             }
         }
     }

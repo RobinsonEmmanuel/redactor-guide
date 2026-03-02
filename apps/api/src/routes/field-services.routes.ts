@@ -7,7 +7,57 @@ import {
 } from '@redactor-guide/core-model';
 import { REGISTERED_SERVICES } from '../services/field-service-runner.service.js';
 
+/** Métadonnées des services natifs (créés automatiquement en base s'ils sont absents). */
+const BUILTIN_SERVICES: Array<{
+  service_id: string;
+  label: string;
+  description: string;
+  output_type: 'text' | 'json';
+  context_keys: string[];
+}> = [
+  {
+    service_id: 'sommaire_generator',
+    label: 'Générateur de sommaire',
+    description:
+      'Construit automatiquement la table des matières du guide à partir du chemin de fer. ' +
+      'Liste toutes les sections avec leur numéro de page, et pour chaque section de type ' +
+      '"Clusters et lieux", liste tous les clusters avec leur numéro de page.',
+    output_type: 'json',
+    context_keys: ['all_pages', 'guide'],
+  },
+  {
+    service_id: 'geocoding_maps_link',
+    label: 'Lien Google Maps (géocodage)',
+    description:
+      'Géolocalise le POI via Nominatim (OpenStreetMap) à partir de son nom et de la destination ' +
+      'du guide. Retourne un lien structuré {"label":"Voir sur Google Maps","url":"https://maps.google.com/?q=lat,lon"} ' +
+      'prêt à être injecté dans InDesign. Configurable via service_options : label, map_provider (google_maps|openstreetmap|geo), query_field.',
+    output_type: 'json',
+    context_keys: ['current_page', 'guide'],
+  },
+];
+
+/**
+ * Crée en base les services natifs manquants (idempotent — ne touche pas aux existants).
+ * Appelé une seule fois au démarrage des routes field-services.
+ */
+async function seedBuiltinServices(fastify: FastifyInstance): Promise<void> {
+  const db = fastify.container.db;
+  const now = new Date().toISOString();
+
+  for (const svc of BUILTIN_SERVICES) {
+    const existing = await db.collection('field_services').findOne({ service_id: svc.service_id });
+    if (!existing) {
+      await db.collection('field_services').insertOne({ ...svc, active: true, created_at: now, updated_at: now });
+      fastify.log.info(`[field-services] Service natif créé : ${svc.service_id}`);
+    }
+  }
+}
+
 export async function fieldServicesRoutes(fastify: FastifyInstance) {
+  // Seed des services natifs au démarrage (idempotent)
+  await seedBuiltinServices(fastify);
+
   /**
    * GET /field-services
    * Liste tous les services actifs (ou tous si ?all=true).

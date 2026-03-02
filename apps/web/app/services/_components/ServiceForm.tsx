@@ -26,7 +26,7 @@ const CONTEXT_KEY_SUGGESTIONS = [
   'templates',
 ];
 
-const NATIVE_SERVICE_IDS = ['sommaire_generator'];
+const NATIVE_SERVICE_IDS = ['sommaire_generator', 'geocoding_maps_link'];
 
 export default function ServiceForm({ serviceId }: ServiceFormProps) {
   const router = useRouter();

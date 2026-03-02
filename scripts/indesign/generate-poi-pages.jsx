@@ -114,9 +114,14 @@ if (data.mappings && data.mappings.bullet_fields && data.mappings.bullet_fields.
 }
 
 // --- 2. Trouver les blocs par label (page courante uniquement) ---------------
+// Cherche d'abord dans les items overrides de la page.
+// Fallback : si rien trouve, cherche dans le gabarit applique et force l'override
+// (certains cadres, notamment ceux dans des groupes, peuvent echapper au override initial).
 function findByLabelOnPage(page, label) {
-    var items = page.allPageItems;
     var res = [];
+
+    // Passe 1 : items deja overrides sur la page
+    var items = page.allPageItems;
     for (var i = 0; i < items.length; i++) {
         if (items[i].label == label) {
             try {
@@ -127,6 +132,33 @@ function findByLabelOnPage(page, label) {
                 res.push(items[i]);
             }
         }
+    }
+    if (res.length > 0) return res;
+
+    // Passe 2 : gabarit applique - forcer l'override si le cadre n'a pas ete detache
+    if (page.appliedMaster) {
+        try {
+            var msItems = page.appliedMaster.allPageItems;
+            for (var j = 0; j < msItems.length; j++) {
+                if (msItems[j].label == label) {
+                    try {
+                        var ov = msItems[j].override(page);
+                        if (ov) { res.push(ov); continue; }
+                    } catch(e2) {}
+                    // override() peut echouer si deja override : relire la page
+                    var recheck = page.allPageItems;
+                    for (var k = 0; k < recheck.length; k++) {
+                        if (recheck[k].label == label) {
+                            try {
+                                if (recheck[k].parentPage && recheck[k].parentPage.name === page.name) {
+                                    res.push(recheck[k]);
+                                }
+                            } catch(e3) { res.push(recheck[k]); }
+                        }
+                    }
+                }
+            }
+        } catch(e) {}
     }
     return res;
 }

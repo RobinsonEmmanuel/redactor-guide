@@ -45,12 +45,14 @@ var BULLET_LIST_FIELDS_FALLBACK = {
 };
 var BULLET_LIST_FIELDS = BULLET_LIST_FIELDS_FALLBACK;
 
-// Champs geres par injectPictoBar ou injectHyperlink - exclus de l'injection texte standard
+// Champs geres par injectPictoBar - exclus de l'injection texte standard
 // POI_meta_1 et POI_meta_duree designent le meme champ selon la convention de nommage du template
-var SKIP_IN_TEXT_STEP  = { "POI_meta_duree": true, "POI_meta_1": true, "POI_lien_1": true };
+// POI_lien_1 est maintenant traite par injectText (lien structure JSON) - retire des deux listes
+var SKIP_IN_TEXT_STEP  = { "POI_meta_duree": true, "POI_meta_1": true };
 
 // Champs a NE PAS masquer a l'etape A (ils gardent leur texte statique du gabarit)
-var SKIP_IN_MASK_STEP  = { "POI_lien_1": true };
+// POI_lien_1 retire : on veut injecter dynamiquement le label du lien structure
+var SKIP_IN_MASK_STEP  = {};
 
 // Noms des gabarits InDesign associes a chaque template
 // Ajouter ici chaque nouveau template : { "NOM_TEMPLATE": "NOM_GABARIT_INDESIGN" }
@@ -784,6 +786,9 @@ for (var i = 0; i < data.pages.length; i++) {
         if (val === null || val === undefined) continue;
         var strVal = String(val).replace(/^\s+|\s+$/, "");
         if (strVal === "") continue;
+        // Resoudre les placeholders {{VAR}} avec les donnees de la page courante
+        strVal = strVal.replace(/\{\{URL_ARTICLE_SOURCE\}\}/g,   pageData.url_source || "");
+        strVal = strVal.replace(/\{\{TITRE_ARTICLE_SOURCE\}\}/g, pageData.title       || "");
         if (BULLET_LIST_FIELDS[key]) {
             injectBulletText(newPage, mapping, strVal);
         } else {
@@ -802,12 +807,6 @@ for (var i = 0; i < data.pages.length; i++) {
     // Etape D : pictos + duree
     var durationVal = textContent["POI_meta_duree"] || textContent["POI_meta_1"] || null;
     injectPictoBar(newPage, pageData.content, durationVal);
-
-    // Etape E : hyperlien bas de page -> url_source de l'article
-    var linkLabel = data.mappings.fields["POI_lien_1"];
-    if (linkLabel) {
-        injectHyperlink(newPage, linkLabel, pageData.url_source);
-    }
 
     // ---- DEBUG FINAL (apres toutes les etapes) ------------------------------
     if (DEBUG_PICTOS) {

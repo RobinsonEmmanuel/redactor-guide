@@ -770,8 +770,6 @@ for (var i = 0; i < data.pages.length; i++) {
         }
         if (!_poiFound) dbg2 += "  (AUCUN champ POI dans data.mappings.fields !)\n";
         alert(dbg2);
-
-        DEBUG_PICTOS = false;
     }
     // ---- FIN DEBUG ---------------------------------------------------------
 
@@ -798,6 +796,26 @@ for (var i = 0; i < data.pages.length; i++) {
             injectText(newPage, mapping, strVal);
         }
     }
+
+    // ---- DEBUG APRES ETAPE B -----------------------------------------------
+    if (DEBUG_PICTOS) {
+        var dbgB = "=== APRES ETAPE B (textes injectes) ===\n\n";
+        var _piB = newPage.allPageItems;
+        for (var _dB = 0; _dB < _piB.length; _dB++) {
+            try {
+                var _lB = _piB[_dB].label;
+                if (_lB && _lB.indexOf("POI") !== -1) {
+                    var _visB = _piB[_dB].visible;
+                    var _contB = "";
+                    try { if (_piB[_dB] instanceof TextFrame) _contB = String(_piB[_dB].contents).substring(0, 40); else _contB = "[image frame]"; } catch(e) { _contB = "[erreur contents]"; }
+                    dbgB += _lB + "\n  visible=" + _visB + "  contenu=\"" + _contB + "\"\n";
+                }
+            } catch(e) {}
+        }
+        alert(dbgB);
+        DEBUG_PICTOS = false;
+    }
+    // ---- FIN DEBUG ---------------------------------------------------------
 
     // Etape C : injection images
     for (var imgKey in imageContent) {

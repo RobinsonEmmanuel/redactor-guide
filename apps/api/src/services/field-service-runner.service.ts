@@ -1,4 +1,5 @@
 import { Db } from 'mongodb';
+import { GeocodingService } from './geocoding.service.js';
 
 /**
  * Contexte passé à chaque service lors de l'export.
@@ -161,13 +162,74 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
   return { value: JSON.stringify(result, null, 2) };
 }
 
+// Singleton partagé entre les handlers (pas d'état, safe)
+const _geocodingService = new GeocodingService();
+
+/**
+ * Lien Google Maps géocodé pour un POI.
+ *
+ * Utilise le nom du POI (entity_meta.poi_name ou titre de la page) et
+ * la destination du guide pour interroger Nominatim, puis retourne un
+ * lien structuré {"label":"...","url":"https://maps.google.com/?q=lat,lon"}.
+ *
+ * Configurable via field.service_options dans le template :
+ *   label         : texte du lien (défaut : "Voir sur Google Maps")
+ *   map_provider  : "google_maps" | "openstreetmap" | "geo" (défaut : "google_maps")
+ *   query_field   : nom du champ texte à utiliser comme requête de géocodage
+ *                   (ex: "POI_titre_1" — défaut : poi_name ou titre de la page)
+ */
+async function generateMapsLink(ctx: FieldServiceContext): Promise<FieldServiceResult> {
+  const { currentPage, guide } = ctx;
+
+  // Options configurables depuis le template (field.service_options)
+  const options: Record<string, string> = (currentPage as any)._serviceOptions ?? {};
+  const labelText   = options['label']        ?? 'Voir sur Google Maps';
+  const provider    = options['map_provider'] ?? 'google_maps';
+  const queryField  = options['query_field']  ?? null;
+
+  // Construire la requête de géocodage
+  let query: string =
+    currentPage.entity_meta?.poi_name ||
+    currentPage.titre                 ||
+    '';
+
+  // Si query_field est précisé, utiliser la valeur de ce champ texte
+  if (queryField && currentPage.content?.text?.[queryField]) {
+    query = String(currentPage.content.text[queryField]);
+  }
+
+  if (!query) {
+    console.warn('[geocoding_maps_link] Impossible de déterminer le nom du lieu');
+    return { value: JSON.stringify({ label: labelText, url: '' }) };
+  }
+
+  const destination = guide.destination || guide.name || '';
+  const country = destination ? _geocodingService.getCountryFromDestination(destination) : undefined;
+
+  console.log(`[geocoding_maps_link] Géocodage : "${query}" (${country ?? 'pays inconnu'})`);
+
+  const result = await _geocodingService.resolve(query, country);
+
+  if (!result) {
+    console.warn(`[geocoding_maps_link] Aucun résultat pour "${query}"`);
+    return { value: JSON.stringify({ label: labelText, url: '' }) };
+  }
+
+  const url = result.urls[provider as keyof typeof result.urls] ?? result.urls.google_maps;
+
+  return {
+    value: JSON.stringify({ label: labelText, url }),
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Registre des services disponibles
 // Clé = service_id (doit correspondre à la valeur en base dans field_services)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const REGISTERED_SERVICES: Record<string, FieldServiceHandler> = {
-  sommaire_generator: generateSommaireContent,
+  sommaire_generator:  generateSommaireContent,
+  geocoding_maps_link: generateMapsLink,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

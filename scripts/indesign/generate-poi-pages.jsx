@@ -22,7 +22,7 @@ var doc = app.activeDocument;
 // --- Configuration -----------------------------------------------------------
 // Mettre a true pour afficher une alerte de diagnostic picto sur chaque page POI.
 // Desactiver (false) en production.
-var DEBUG_PICTOS = false;
+var DEBUG_PICTOS = true;
 
 var BOLD_STYLE_NAME        = "Gras";        // Marqueurs **...**
 var ORANGE_STYLE_NAME      = "Orange";      // Marqueurs {...}   - couleur #f39428
@@ -741,6 +741,43 @@ for (var i = 0; i < data.pages.length; i++) {
 
     var textContent  = pageData.content.text   || {};
     var imageContent = pageData.content.images || {};
+
+    // ---- DEBUG POI (une seule page) ----------------------------------------
+    if (DEBUG_PICTOS) {
+        var dbg = "=== DEBUG POI page " + (i+1) + " ===\n\n";
+
+        // 1. Items sur la page apres override
+        var _pi = newPage.allPageItems;
+        dbg += "Items apres override (" + _pi.length + ") :\n";
+        for (var _d = 0; _d < _pi.length; _d++) {
+            try {
+                var _dl = _pi[_d].label || "";
+                if (_dl) {
+                    var _dv = (_pi[_d] instanceof TextFrame) ? "[TF] visible=" + _pi[_d].visible : "[IMG] visible=" + _pi[_d].visible;
+                    dbg += "  " + _dl + " -> " + _dv + "\n";
+                }
+            } catch(e) {}
+        }
+
+        // 2. Mappings champs->labels
+        dbg += "\nMappings (champ -> label) :\n";
+        for (var _mk in data.mappings.fields) {
+            if (!data.mappings.fields.hasOwnProperty(_mk)) continue;
+            dbg += "  " + _mk + " -> " + data.mappings.fields[_mk] + "\n";
+        }
+
+        // 3. Contenu texte du JSON
+        dbg += "\ntextContent :\n";
+        for (var _tk in textContent) {
+            if (!textContent.hasOwnProperty(_tk)) continue;
+            var _tv = String(textContent[_tk] || "");
+            dbg += "  " + _tk + " = \"" + _tv.substring(0, 60) + (_tv.length > 60 ? "..." : "") + "\"\n";
+        }
+
+        alert(dbg);
+        DEBUG_PICTOS = false; // une seule alerte
+    }
+    // ---- FIN DEBUG ---------------------------------------------------------
 
     // Etape A : masquer tous les champs mappes (sauf statiques du gabarit)
     for (var key in data.mappings.fields) {

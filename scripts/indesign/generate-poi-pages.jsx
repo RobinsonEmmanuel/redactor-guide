@@ -20,6 +20,10 @@
 var doc = app.activeDocument;
 
 // --- Configuration -----------------------------------------------------------
+// Mettre a true pour afficher une alerte de diagnostic picto sur chaque page POI.
+// Desactiver (false) en production.
+var DEBUG_PICTOS = true;
+
 var BOLD_STYLE_NAME        = "Gras";        // Marqueurs **...**
 var ORANGE_STYLE_NAME      = "Orange";      // Marqueurs {...}   - couleur #f39428
 var CHIFFRE_STYLE_NAME     = "Chiffre";     // Marqueurs ^...^   - taille 18pt
@@ -489,6 +493,43 @@ var ALL_PICTO_LABELS = [
 // param contentData   : pageData.content (objet complet, pas seulement .pictos)
 // param durationValue : valeur de duree de visite (ou null)
 function injectPictoBar(page, contentData, durationValue) {
+
+    // --- DIAGNOSTIC (DEBUG_PICTOS = true) ------------------------------------
+    if (DEBUG_PICTOS) {
+        // Forcer un override complet avant diagnostic
+        if (page.appliedMaster) {
+            var _msP = page.appliedMaster.pages;
+            for (var _mp = 0; _mp < _msP.length; _mp++) {
+                var _top = _msP[_mp].pageItems;
+                for (var _t = 0; _t < _top.length; _t++) try { _top[_t].override(page); } catch(e) {}
+            }
+            var _all = page.appliedMaster.allPageItems;
+            for (var _a = 0; _a < _all.length; _a++) try { _all[_a].override(page); } catch(e) {}
+        }
+        var _items  = page.allPageItems;
+        var _labels = [];
+        for (var _i = 0; _i < _items.length; _i++) {
+            var _lbl = _items[_i].label;
+            if (_lbl && _lbl !== "") _labels.push("[" + _items[_i].typename + "] " + _lbl);
+        }
+        var _found = [], _missing = [];
+        for (var _p = 0; _p < ALL_PICTO_LABELS.length; _p++) {
+            var _cnt = 0;
+            for (var _j = 0; _j < _items.length; _j++) if (_items[_j].label === ALL_PICTO_LABELS[_p]) _cnt++;
+            if (_cnt > 0) _found.push(ALL_PICTO_LABELS[_p]);
+            else          _missing.push(ALL_PICTO_LABELS[_p]);
+        }
+        alert(
+            "=== DEBUG PICTOS ===\n" +
+            "Items sur la page (" + _items.length + " total, " + _labels.length + " avec label) :\n" +
+            _labels.join("\n") +
+            "\n\n--- ALL_PICTO_LABELS trouves (" + _found.length + ") ---\n" +
+            (_found.length ? _found.join("\n") : "(aucun)") +
+            "\n\n--- ALL_PICTO_LABELS MANQUANTS (" + _missing.length + ") ---\n" +
+            (_missing.length ? _missing.join("\n") : "(aucun)")
+        );
+    }
+    // --- FIN DIAGNOSTIC ------------------------------------------------------
 
     // 1. Masquer TOUS les blocs picto connus + texte duree
     for (var p = 0; p < ALL_PICTO_LABELS.length; p++) {

@@ -288,28 +288,66 @@ async function findBestPoiImage(db: Db, poiName: string): Promise<string | null>
 }
 
 /**
- * Résout les instructions d'un sous-champ depuis fieldDef.sub_fields.
- * Remplace les variables {{...}} avec les valeurs du contexte POI.
- * Retourne les instructions configurées dans le template, ou le fallback par défaut.
- *
- * Variables disponibles dans les instructions du sous-champ :
- *   {{POI_NOM}}          — nom brut du POI courant
- *   {{ANGLE_EDITORIAL}}  — angle éditorial de l'inspiration (depuis la collection inspirations)
- *   {{DESTINATION}}      — destination du guide (ex: "Tenerife")
- *   {{INSPIRATION_TITRE}} — titre/thème de la page inspiration
- *   {{INSPIRATION_NB_LIEUX}} — nombre total de POIs de la page
- *   {{INSPIRATION_LIEUX}} — liste des POIs séparés par virgule
+ * Mode de remplissage résolu depuis un sous-champ de fieldDef.
+ *   'ai'      → ai_instructions (ou fallback si absent)
+ *   'default' → default_value fixe
+ *   'skip'    → skip_ai=true, valeur gérée par le service lui-même
  */
+type SubFieldMode = 'ai' | 'default' | 'skip';
+
+interface SubFieldResolved {
+  mode: SubFieldMode;
+  /** Instructions IA substituées (mode 'ai' uniquement) */
+  instructions?: string;
+  /** Valeur fixe (mode 'default' uniquement) */
+  defaultValue?: string;
+}
+
+/**
+ * Résout le mode + la valeur d'un sous-champ depuis fieldDef.sub_fields.
+ * Applique la substitution {{VARIABLE}} sur ai_instructions et default_value.
+ *
+ * Priorité : skip_ai=true → 'skip' | default_value défini → 'default' | sinon → 'ai'
+ *
+ * Variables disponibles dans les textes du sous-champ :
+ *   {{POI_NOM}}              — nom brut du POI courant
+ *   {{ANGLE_EDITORIAL}}      — angle éditorial de l'inspiration
+ *   {{DESTINATION}}          — destination du guide (ex: "Tenerife")
+ *   {{INSPIRATION_TITRE}}    — titre/thème de la page inspiration
+ *   {{INSPIRATION_NB_LIEUX}} — nombre total de POIs
+ *   {{INSPIRATION_LIEUX}}    — liste des POIs séparés par virgule
+ */
+function resolveSubField(
+  fieldDef: Record<string, any> | undefined,
+  subFieldName: string,
+  fallbackInstructions: string,
+  vars: Record<string, string> = {}
+): SubFieldResolved {
+  const sf = (fieldDef?.sub_fields ?? []).find((s: any) => s.name === subFieldName);
+
+  const sub = (str: string) =>
+    str.replace(/\{\{(\w+)\}\}/g, (_: string, k: string) => vars[k] ?? `{{${k}}}`);
+
+  if (sf?.skip_ai) {
+    return { mode: 'skip' };
+  }
+  if (sf?.default_value !== undefined && sf.default_value !== null) {
+    return { mode: 'default', defaultValue: sub(String(sf.default_value)) };
+  }
+  const raw = sf?.ai_instructions?.trim() || fallbackInstructions;
+  return { mode: 'ai', instructions: sub(raw) };
+}
+
+/** Rétrocompat : retourne juste les instructions IA (ou la valeur par défaut comme chaîne). */
 function subFieldInstructions(
   fieldDef: Record<string, any> | undefined,
   subFieldName: string,
   fallback: string,
   vars: Record<string, string> = {}
 ): string {
-  const sf = (fieldDef?.sub_fields ?? []).find((s: any) => s.name === subFieldName);
-  const raw = sf?.ai_instructions?.trim() || fallback;
-  // Substitution {{VARIABLE}} → valeur
-  return raw.replace(/\{\{(\w+)\}\}/g, (_: string, key: string) => vars[key] ?? `{{${key}}}`);
+  const r = resolveSubField(fieldDef, subFieldName, fallback, vars);
+  if (r.mode === 'default') return r.defaultValue ?? fallback;
+  return r.instructions ?? fallback;
 }
 
 /**
@@ -370,43 +408,59 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     // ── image ─────────────────────────────────────────────────────────────────
     const imageUrl = await findBestPoiImage(db, poi.nom);
 
-    // ── nom (instructions depuis le template, variables substituées) ──────────
-    const nomInstructions = subFieldInstructions(
+    // ── nom ───────────────────────────────────────────────────────────────────
+    const nomResolved = resolveSubField(
       fieldDef, 'nom',
       `Réécris ce nom de lieu pour une carte de guide touristique. Angle éditorial : "{{ANGLE_EDITORIAL}}". Réponds uniquement avec le nom court (sans ponctuation finale, sans guillemets).`,
       poiVars
     );
     let nom = poi.nom;
-    try {
-      const aiNom = await miniAI(`${nomInstructions}\nLieu : "${poi.nom}"`);
-      if (aiNom) nom = aiNom;
-    } catch { /* fallback : nom brut */ }
+    if (nomResolved.mode === 'default') {
+      nom = nomResolved.defaultValue ?? poi.nom;
+    } else if (nomResolved.mode === 'ai' && nomResolved.instructions) {
+      try {
+        const aiNom = await miniAI(`${nomResolved.instructions}\nLieu : "${poi.nom}"`);
+        if (aiNom) nom = aiNom;
+      } catch { /* fallback : nom brut */ }
+    }
+    // mode 'skip' → nom brut conservé
 
-    // ── hashtag (instructions depuis le template, variables substituées) ──────
-    const hashtagInstructions = subFieldInstructions(
+    // ── hashtag ───────────────────────────────────────────────────────────────
+    const hashResolved = resolveSubField(
       fieldDef, 'hashtag',
       `Génère un seul hashtag (avec #) court, sans espace, en français ou langue locale. Angle éditorial : "{{ANGLE_EDITORIAL}}". Réponds uniquement avec le hashtag.`,
       poiVars
     );
     let hashtag = '';
-    try {
-      hashtag = await miniAI(`${hashtagInstructions}\nLieu : "${poi.nom}"`);
-    } catch { hashtag = ''; }
+    if (hashResolved.mode === 'default') {
+      hashtag = hashResolved.defaultValue ?? '';
+    } else if (hashResolved.mode === 'ai' && hashResolved.instructions) {
+      try { hashtag = await miniAI(`${hashResolved.instructions}\nLieu : "${poi.nom}"`); } catch { hashtag = ''; }
+    }
+    // mode 'skip' → hashtag vide (géré ailleurs)
 
     // ── lien article ──────────────────────────────────────────────────────────
-    const articleLinkLabel = subFieldInstructions(fieldDef, 'lien_article', 'En savoir plus', poiVars);
+    const artResolved = resolveSubField(fieldDef, 'lien_article', 'En savoir plus', poiVars);
+    const articleLabel = artResolved.mode === 'default' ? (artResolved.defaultValue ?? 'En savoir plus')
+      : artResolved.mode === 'ai' ? artResolved.instructions ?? 'En savoir plus'
+      : 'En savoir plus';
     const lienArticle = poi.url_source
-      ? JSON.stringify({ label: articleLinkLabel, url: poi.url_source })
+      ? JSON.stringify({ label: articleLabel, url: poi.url_source })
       : '';
 
     // ── lien google maps ──────────────────────────────────────────────────────
-    const mapsLinkLabel = subFieldInstructions(fieldDef, 'lien_maps', 'Voir sur Google Maps', poiVars);
+    const mapsResolved = resolveSubField(fieldDef, 'lien_maps', 'Voir sur Google Maps', poiVars);
+    const mapsLabel = mapsResolved.mode === 'default' ? (mapsResolved.defaultValue ?? 'Voir sur Google Maps')
+      : mapsResolved.mode === 'ai' ? mapsResolved.instructions ?? 'Voir sur Google Maps'
+      : 'Voir sur Google Maps';
     let lienMaps = '';
-    try {
-      const enrichedQuery = destination ? `${poi.nom}, ${destination}` : poi.nom;
-      const geo = await _geocodingService.resolve(enrichedQuery, country);
-      if (geo) lienMaps = JSON.stringify({ label: mapsLinkLabel, url: geo.urls.google_maps });
-    } catch { lienMaps = ''; }
+    if (mapsResolved.mode !== 'skip') {
+      try {
+        const enrichedQuery = destination ? `${poi.nom}, ${destination}` : poi.nom;
+        const geo = await _geocodingService.resolve(enrichedQuery, country);
+        if (geo) lienMaps = JSON.stringify({ label: mapsLabel, url: geo.urls.google_maps });
+      } catch { lienMaps = ''; }
+    }
 
     cards.push({ image: imageUrl ?? '', nom, hashtag, lien_article: lienArticle, lien_maps: lienMaps });
 

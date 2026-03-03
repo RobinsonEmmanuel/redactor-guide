@@ -5,17 +5,22 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Bars3Icon, TrashIcon } from '@heroicons/react/24/outline';
 
+interface LinkPartConfig {
+  ai_instructions?: string;
+  default_value?: string;
+  skip_ai?: boolean;
+}
+
 interface SubField {
   name: string;
   type: 'titre' | 'texte' | 'image' | 'lien' | 'meta';
   label?: string;
   ai_instructions?: string;
-}
-
-interface LinkPartConfig {
-  ai_instructions?: string;
   default_value?: string;
   skip_ai?: boolean;
+  source?: 'destination_pool';
+  link_label?: LinkPartConfig;
+  link_url?: LinkPartConfig;
 }
 
 interface TemplateField {
@@ -751,7 +756,7 @@ export default function SortableFieldItem({
               <div className="flex items-center gap-4">
                 <div className="w-40">
                   <label className="block text-xs font-medium text-gray-700 mb-1">
-                    Répétitions max *
+                    Répétitions max
                   </label>
                   <input
                     type="number"
@@ -764,22 +769,24 @@ export default function SortableFieldItem({
                 </div>
                 <div className="flex-1 flex items-end pb-1">
                   <p className="text-xs text-gray-500">
-                    L'IA génère entre 1 et {field.max_repetitions || '?'} entrées selon les contenus disponibles.
+                    {field.service_id === 'inspiration_poi_cards'
+                      ? 'Déterminé automatiquement par le nombre de POIs de la page.'
+                      : `L'IA génère entre 1 et ${field.max_repetitions || '?'} entrées selon les contenus disponibles.`}
                   </p>
                 </div>
               </div>
 
-              {/* Sous-champs du gabarit */}
+              {/* Sous-champs du gabarit — éditeur complet avec onglets */}
               <div>
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between mb-3">
                   <label className="text-xs font-medium text-gray-700">
-                    Gabarit — sous-champs par entrée *
+                    Sous-champs — configuration par composant
                   </label>
                   <button
                     type="button"
                     onClick={() => {
                       const existing = field.sub_fields ?? [];
-                      onChange({ sub_fields: [...existing, { name: `champ_${existing.length + 1}`, type: 'texte' }] });
+                      onChange({ sub_fields: [...existing, { name: `champ_${existing.length + 1}`, type: 'texte' as SubField['type'] }] });
                     }}
                     className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-rose-600 border border-rose-300 rounded-md hover:bg-rose-50"
                   >
@@ -789,97 +796,171 @@ export default function SortableFieldItem({
 
                 {(!field.sub_fields || field.sub_fields.length === 0) ? (
                   <p className="text-xs text-gray-400 italic py-2">
-                    Aucun sous-champ défini. Ajoute les champs qui composent chaque entrée répétée (image, titre, hashtag…).
+                    Aucun sous-champ défini. Ajoute les champs composant chaque entrée (image, nom, hashtag, lien…).
                   </p>
                 ) : (
-                  <div className="space-y-2">
-                    {field.sub_fields.map((sf, idx) => (
-                      <div key={idx} className="flex items-start gap-2 p-3 bg-white border border-rose-100 rounded-lg">
-                        {/* Type */}
-                        <select
-                          value={sf.type}
-                          onChange={(e) => {
-                            const next = [...(field.sub_fields ?? [])];
-                            next[idx] = { ...sf, type: e.target.value as SubField['type'] };
-                            onChange({ sub_fields: next });
-                          }}
-                          className="w-24 px-2 py-1.5 text-xs border border-gray-200 rounded-md bg-gray-50"
-                        >
-                          {SUB_FIELD_TYPES.map((t) => (
-                            <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
-                          ))}
-                        </select>
+                  <div className="space-y-3">
+                    {field.sub_fields.map((sf, idx) => {
+                      const sfMode: 'ai' | 'default' | 'manual' =
+                        sf.skip_ai       ? 'manual'
+                        : sf.default_value !== undefined ? 'default'
+                        : 'ai';
 
-                        {/* Nom */}
-                        <input
-                          type="text"
-                          value={sf.name}
-                          onChange={(e) => {
-                            const next = [...(field.sub_fields ?? [])];
-                            next[idx] = { ...sf, name: e.target.value };
-                            onChange({ sub_fields: next });
-                          }}
-                          placeholder="nom (ex: image, titre, hashtag)"
-                          className="w-36 px-2 py-1.5 text-xs font-mono border border-gray-200 rounded-md"
-                        />
+                      const setSfMode = (m: 'ai' | 'default' | 'manual') => {
+                        const next = [...(field.sub_fields ?? [])];
+                        if (m === 'ai')      next[idx] = { name: sf.name, type: sf.type, label: sf.label };
+                        if (m === 'default') next[idx] = { name: sf.name, type: sf.type, label: sf.label, default_value: sf.default_value ?? '' };
+                        if (m === 'manual')  next[idx] = { name: sf.name, type: sf.type, label: sf.label, skip_ai: true };
+                        onChange({ sub_fields: next });
+                      };
 
-                        {/* Label */}
-                        <input
-                          type="text"
-                          value={sf.label ?? ''}
-                          onChange={(e) => {
-                            const next = [...(field.sub_fields ?? [])];
-                            next[idx] = { ...sf, label: e.target.value || undefined };
-                            onChange({ sub_fields: next });
-                          }}
-                          placeholder="Label affiché"
-                          className="flex-1 px-2 py-1.5 text-xs border border-gray-200 rounded-md"
-                        />
+                      const updateSf = (patch: Partial<SubField>) => {
+                        const next = [...(field.sub_fields ?? [])];
+                        next[idx] = { ...sf, ...patch };
+                        onChange({ sub_fields: next });
+                      };
 
-                        {/* Instructions IA */}
-                        <input
-                          type="text"
-                          value={sf.ai_instructions ?? ''}
-                          onChange={(e) => {
-                            const next = [...(field.sub_fields ?? [])];
-                            next[idx] = { ...sf, ai_instructions: e.target.value || undefined };
-                            onChange({ sub_fields: next });
-                          }}
-                          placeholder="Instructions IA (optionnel)"
-                          className="flex-1 px-2 py-1.5 text-xs border border-purple-200 rounded-md bg-purple-50/20"
-                        />
+                      return (
+                        <div key={idx} className="border border-rose-200 rounded-xl bg-white overflow-hidden">
+                          {/* En-tête du sous-champ */}
+                          <div className="flex items-center gap-2 px-3 py-2 bg-rose-50 border-b border-rose-100">
+                            <select
+                              value={sf.type}
+                              onChange={(e) => updateSf({ type: e.target.value as SubField['type'] })}
+                              className="px-2 py-1 text-xs border border-rose-200 rounded-md bg-white font-medium"
+                            >
+                              {SUB_FIELD_TYPES.map((t) => (
+                                <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
+                              ))}
+                            </select>
 
-                        {/* Supprimer */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const next = (field.sub_fields ?? []).filter((_, i) => i !== idx);
-                            onChange({ sub_fields: next.length ? next : undefined });
-                          }}
-                          className="text-red-400 hover:text-red-600 p-1 mt-0.5 shrink-0"
-                          title="Supprimer"
-                        >
-                          ✕
-                        </button>
+                            <input
+                              type="text"
+                              value={sf.name}
+                              onChange={(e) => updateSf({ name: e.target.value })}
+                              placeholder="nom_technique"
+                              className="w-36 px-2 py-1 text-xs font-mono border border-rose-200 rounded-md"
+                            />
+
+                            <input
+                              type="text"
+                              value={sf.label ?? ''}
+                              onChange={(e) => updateSf({ label: e.target.value || undefined })}
+                              placeholder="Label affiché (optionnel)"
+                              className="flex-1 px-2 py-1 text-xs border border-rose-200 rounded-md"
+                            />
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = (field.sub_fields ?? []).filter((_, i) => i !== idx);
+                                onChange({ sub_fields: next.length ? next : undefined });
+                              }}
+                              className="text-red-400 hover:text-red-600 p-1 shrink-0"
+                              title="Supprimer ce sous-champ"
+                            >
+                              <TrashIcon className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+
+                          {/* Corps : onglets de mode identiques aux champs top-level */}
+                          <div className="p-3 space-y-3">
+                            {/* Onglets */}
+                            <div className="flex flex-wrap items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit">
+                              <button type="button" onClick={() => setSfMode('ai')}
+                                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all ${sfMode === 'ai' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                                🤖 Généré par IA
+                              </button>
+                              <button type="button" onClick={() => setSfMode('default')}
+                                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all ${sfMode === 'default' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                                📌 Valeur par défaut
+                              </button>
+                              <button type="button" onClick={() => setSfMode('manual')}
+                                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all ${sfMode === 'manual' ? 'bg-white text-amber-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                                ✏️ Géré par le service
+                              </button>
+                            </div>
+
+                            {/* Contenu selon le mode */}
+                            {sfMode === 'ai' && (
+                              <div>
+                                <textarea
+                                  value={sf.ai_instructions ?? ''}
+                                  onChange={(e) => updateSf({ ai_instructions: e.target.value || undefined })}
+                                  placeholder={
+                                    sf.type === 'image'
+                                      ? 'Ex: Sélectionner la photo la plus emblématique du lieu parmi les images disponibles'
+                                      : sf.type === 'meta'
+                                      ? 'Ex: Générer un seul #hashtag court sans espace, lié au lieu et à l\'angle éditorial {{ANGLE_EDITORIAL}}'
+                                      : 'Ex: Réécrire le nom {{POI_NOM}} de façon courte pour une carte de guide (max 4 mots)'
+                                  }
+                                  rows={3}
+                                  className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-400 bg-purple-50/20"
+                                />
+                                <p className="mt-1 text-xs text-gray-400">
+                                  Variables : <code className="bg-gray-100 px-1 rounded text-xs">{'{{POI_NOM}}'}</code>{' '}
+                                  <code className="bg-gray-100 px-1 rounded text-xs">{'{{ANGLE_EDITORIAL}}'}</code>{' '}
+                                  <code className="bg-gray-100 px-1 rounded text-xs">{'{{DESTINATION}}'}</code>{' '}
+                                  <code className="bg-gray-100 px-1 rounded text-xs">{'{{INSPIRATION_TITRE}}'}</code>
+                                </p>
+                              </div>
+                            )}
+
+                            {sfMode === 'default' && (
+                              <div>
+                                <input
+                                  type="text"
+                                  value={sf.default_value ?? ''}
+                                  onChange={(e) => updateSf({ default_value: e.target.value })}
+                                  placeholder={
+                                    sf.type === 'lien' ? 'Ex: En savoir plus (libellé du lien)'
+                                    : sf.type === 'image' ? 'URL d\'image par défaut (https://...)'
+                                    : 'Valeur identique pour chaque entrée…'
+                                  }
+                                  className="w-full px-3 py-2 text-sm border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-400 bg-emerald-50/20"
+                                />
+                                <p className="mt-1 text-xs text-gray-400">
+                                  Même valeur pour toutes les entrées — l'IA ignore ce sous-champ.
+                                  {sf.type === 'lien' && <span className="ml-1">Pour un lien, renseigne le libellé ici ; l'URL est fournie automatiquement par le service.</span>}
+                                </p>
+                              </div>
+                            )}
+
+                            {sfMode === 'manual' && (
+                              <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                                <span className="text-amber-600 text-base mt-0.5">⚙️</span>
+                                <p className="text-xs text-amber-800">
+                                  Ce composant est <strong>géré automatiquement par le service</strong> — valeur construite depuis les données existantes (URL source, géocodage, image_analyses…). Aucune instruction IA nécessaire.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Aperçu des calques InDesign générés */}
+                {field.sub_fields && field.sub_fields.length > 0 && (() => {
+                  const sep = '_repetitif_';
+                  const si  = field.name.indexOf(sep);
+                  const pfx = si !== -1 ? field.name.substring(0, si) : 'TEMPLATE';
+                  const grp = si !== -1 ? field.name.substring(si + sep.length) : field.name;
+                  return (
+                    <div className="mt-3 p-3 bg-gray-900 rounded-lg">
+                      <p className="text-xs text-gray-400 mb-1.5 font-mono">// Calques InDesign générés (convention automatique) :</p>
+                      <div className="space-y-0.5">
+                        {field.sub_fields.map((sf) => (
+                          <div key={sf.name} className="flex items-center gap-2">
+                            <code className="text-xs text-green-400 font-mono">{pfx}_{grp}_{sf.name}_N</code>
+                            {sf.label && <span className="text-xs text-gray-500">— {sf.label}</span>}
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Aperçu JSON */}
-                {field.sub_fields && field.sub_fields.length > 0 && (
-                  <div className="mt-3 p-3 bg-gray-900 rounded-lg">
-                    <p className="text-xs text-gray-400 mb-1 font-mono">// Format JSON généré par l'IA :</p>
-                    <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap">
-{`[
-  {
-${field.sub_fields.map(sf => `    "${sf.name}": "…"`).join(',\n')}
-  },
-  … (max ${field.max_repetitions || 'N'} entrées)
-]`}
-                    </pre>
-                  </div>
-                )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           )}

@@ -134,7 +134,26 @@ export const TemplateFieldSchema = z.object({
     name:            z.string().min(1),
     type:            z.enum(['titre', 'texte', 'image', 'lien', 'meta']),
     label:           z.string().optional(),
+    /** Instructions pour l'IA — mode "Généré par IA" */
     ai_instructions: z.string().optional(),
+    /** Valeur fixe identique pour toutes les entrées — mode "Valeur par défaut" */
+    default_value:   z.string().optional(),
+    /** Si true, IA ignore ce sous-champ — valeur gérée par le service ou laissée vide */
+    skip_ai:         z.boolean().optional(),
+    /** Si 'destination_pool', l'image est sélectionnée depuis le pool de la destination */
+    source:          z.literal('destination_pool').optional(),
+    /** Pour type=lien : config indépendante du libellé */
+    link_label: z.object({
+      ai_instructions: z.string().optional(),
+      default_value:   z.string().optional(),
+      skip_ai:         z.boolean().optional(),
+    }).optional(),
+    /** Pour type=lien : config indépendante de l'URL */
+    link_url: z.object({
+      ai_instructions: z.string().optional(),
+      default_value:   z.string().optional(),
+      skip_ai:         z.boolean().optional(),
+    }).optional(),
   })).optional(),
 
   /**

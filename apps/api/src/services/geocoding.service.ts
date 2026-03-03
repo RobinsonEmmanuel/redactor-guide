@@ -1,7 +1,10 @@
 /**
- * Service de géolocalisation via Nominatim (OpenStreetMap)
- * 
- * Permet de récupérer les coordonnées GPS d'un lieu à partir de son nom
+ * Service de géolocalisation via Photon (photon.komoot.io)
+ *
+ * Photon est un moteur de recherche géographique basé sur OpenStreetMap,
+ * plus souple que Nominatim pour les noms partiels ou accentués.
+ * Retourne du GeoJSON (FeatureCollection).
+ * Pas de rate limit strict — un délai poli de 300 ms est quand même appliqué.
  */
 
 export interface GeocodingResult {
@@ -34,56 +37,63 @@ export interface GeocodingError {
 }
 
 export class GeocodingService {
-  private readonly BASE_URL = 'https://nominatim.openstreetmap.org/search';
-  private readonly USER_AGENT = 'RegionLovers-Recensement/1.0';
-  private readonly RATE_LIMIT_MS = 1000; // 1 requête/seconde
+  private readonly BASE_URL = 'https://photon.komoot.io/api/';
+  private readonly RATE_LIMIT_MS = 300; // délai poli entre requêtes
 
   /**
-   * Géolocalise un lieu unique
+   * Géolocalise un lieu unique via Photon.
+   * @param nomLieu  Requête de recherche (peut inclure destination et pays)
+   * @param _pays    Ignoré — le pays est inclus directement dans nomLieu
    */
-  async geocodePlace(nomLieu: string, pays: string): Promise<GeocodingResult | null> {
+  async geocodePlace(nomLieu: string, _pays: string): Promise<GeocodingResult | null> {
     try {
-      const query = pays ? `${nomLieu}, ${pays}` : nomLieu;
-      const url = `${this.BASE_URL}?q=${encodeURIComponent(query)}&format=json&limit=1`;
-
-      console.log(`🌍 Géolocalisation: "${query}"`);
-
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': this.USER_AGENT,
-        },
+      const params = new URLSearchParams({
+        q:     nomLieu,
+        limit: '1',
+        lang:  'fr',
       });
+      const url = `${this.BASE_URL}?${params.toString()}`;
+
+      console.log(`🌍 Géolocalisation Photon: "${nomLieu}"`);
+
+      const response = await fetch(url);
 
       if (!response.ok) {
-        console.error(`❌ Erreur HTTP ${response.status} pour "${query}"`);
+        console.error(`❌ Erreur HTTP ${response.status} pour "${nomLieu}"`);
         return null;
       }
 
       const data: any = await response.json();
+      const features: any[] = data?.features ?? [];
 
-      if (Array.isArray(data) && data.length > 0) {
-        const result = data[0];
-        const lat = parseFloat(result.lat);
-        const lon = parseFloat(result.lon);
-
-        if (isNaN(lat) || isNaN(lon)) {
-          console.error(`❌ Coordonnées invalides pour "${query}"`);
-          return null;
-        }
-
-        console.log(`✅ Coordonnées trouvées: ${lat}, ${lon}`);
-
-        return {
-          lat,
-          lon,
-          display_name: result.display_name || query,
-          place_id: result.place_id || 0,
-          importance: result.importance || 0,
-        };
+      if (features.length === 0) {
+        console.warn(`⚠️ Aucun résultat Photon pour "${nomLieu}"`);
+        return null;
       }
 
-      console.warn(`⚠️ Aucun résultat pour "${query}"`);
-      return null;
+      const feature = features[0];
+      // GeoJSON : coordinates = [longitude, latitude]
+      const [lon, lat] = feature.geometry?.coordinates ?? [];
+
+      if (typeof lat !== 'number' || typeof lon !== 'number' || isNaN(lat) || isNaN(lon)) {
+        console.error(`❌ Coordonnées invalides pour "${nomLieu}"`);
+        return null;
+      }
+
+      const props = feature.properties ?? {};
+      const displayName = [props.name, props.city, props.country]
+        .filter(Boolean)
+        .join(', ') || nomLieu;
+
+      console.log(`✅ Coordonnées trouvées: ${lat}, ${lon} (${displayName})`);
+
+      return {
+        lat,
+        lon,
+        display_name: displayName,
+        place_id:   props.osm_id  ?? 0,
+        importance: props.extent  ? 1 : 0,
+      };
     } catch (error: any) {
       console.error(`❌ Erreur géolocalisation "${nomLieu}":`, error.message);
       return null;
@@ -91,7 +101,7 @@ export class GeocodingService {
   }
 
   /**
-   * Géolocalise plusieurs lieux avec rate limiting
+   * Géolocalise plusieurs lieux avec délai poli entre requêtes.
    */
   async geocodePlaces(
     lieux: Array<{ nom: string; pays: string }>
@@ -103,59 +113,45 @@ export class GeocodingService {
 
     for (let i = 0; i < lieux.length; i++) {
       const lieu = lieux[i];
-      
       try {
-        const result = await this.geocodePlace(lieu.nom, lieu.pays);
-        
+        const query = lieu.pays ? `${lieu.nom}, ${lieu.pays}` : lieu.nom;
+        const result = await this.geocodePlace(query, '');
         if (result) {
           results.set(lieu.nom, result);
         } else {
-          errors.push({
-            lieu: lieu.nom,
-            error: 'Aucun résultat trouvé',
-          });
+          errors.push({ lieu: lieu.nom, error: 'Aucun résultat trouvé' });
         }
       } catch (error: any) {
-        errors.push({
-          lieu: lieu.nom,
-          error: error.message,
-        });
+        errors.push({ lieu: lieu.nom, error: error.message });
       }
-
-      // Rate limiting : attendre 1 seconde entre chaque requête (sauf pour la dernière)
-      if (i < lieux.length - 1) {
-        await this.sleep(this.RATE_LIMIT_MS);
-      }
+      if (i < lieux.length - 1) await this.sleep(this.RATE_LIMIT_MS);
     }
 
     if (errors.length > 0) {
       console.warn(`⚠️ ${errors.length} lieu(x) non géolocalisé(s):`, errors.map(e => e.lieu).join(', '));
     }
-
     console.log(`✅ ${results.size}/${lieux.length} lieu(x) géolocalisé(s)`);
-
     return results;
   }
 
   /**
    * Géolocalise un lieu et retourne ses coordonnées + URLs cartographiques.
-   * Point d'entrée principal pour les routes API.
+   * Point d'entrée principal pour les routes API et les field services.
    *
-   * @param query   Nom du lieu (ex: "Cathédrale de Santa Cruz, Tenerife")
-   * @param country Pays optionnel pour affiner la recherche
+   * @param query   Requête enrichie (ex: "Cathédrale de Santa Cruz, Tenerife, Spain")
+   * @param country Pays optionnel — ajouté seulement s'il n'est pas déjà dans la query
    */
   async resolve(query: string, country?: string): Promise<GeocodingResolveResult | null> {
-    // country est déjà inclus dans la query enrichie par le field-service ; on l'ajoute seulement
-    // s'il n'est pas déjà présent (évite les doublons "... Tenerife, Spain, Spain").
     const alreadyHasCountry = country && query.toLowerCase().includes(country.toLowerCase());
     const searchQuery = (country && !alreadyHasCountry) ? `${query}, ${country}` : query;
+
     const result = await this.geocodePlace(searchQuery, '');
     if (!result) return null;
     return {
       lat:          result.lat,
       lon:          result.lon,
       display_name: result.display_name,
-      urls:         this.buildMapUrls(result.lat, result.lon, searchQuery),
+      urls:         this.buildMapUrls(result.lat, result.lon, result.display_name),
     };
   }
 

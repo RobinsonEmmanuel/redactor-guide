@@ -269,22 +269,63 @@ async function miniAI(prompt: string): Promise<string> {
   return resp.choices[0]?.message?.content?.trim() ?? '';
 }
 
-/** Meilleure image taguée pour un POI (iconic > forte relevance > première trouvée). */
-async function findBestPoiImage(db: Db, poiName: string): Promise<string | null> {
+interface PoiImageEntry {
+  url: string;
+  is_iconic_view: boolean;
+  editorial_relevance: string;
+  visual_clarity_score: number;
+  summary: string;
+}
+
+/**
+ * Charge toutes les images taguées pour un POI depuis image_analyses,
+ * triées par pertinence (iconic > forte relevance > clarity).
+ */
+async function loadPoiImages(db: Db, poiName: string): Promise<PoiImageEntry[]> {
   const docs = await db
     .collection('image_analyses')
     .find({ poi_names: poiName })
-    .project({ url: 1, 'analysis.is_iconic_view': 1, 'analysis.editorial_relevance': 1 })
+    .project({
+      url: 1,
+      'analysis.is_iconic_view': 1,
+      'analysis.editorial_relevance': 1,
+      'analysis.visual_clarity_score': 1,
+      'analysis.analysis_summary': 1,
+    })
     .toArray();
 
-  if (docs.length === 0) return null;
+  return docs
+    .map((d: any) => ({
+      url:                  String(d.url ?? ''),
+      is_iconic_view:       d.analysis?.is_iconic_view === true,
+      editorial_relevance:  d.analysis?.editorial_relevance ?? 'faible',
+      visual_clarity_score: d.analysis?.visual_clarity_score ?? 0,
+      summary:              d.analysis?.analysis_summary ?? '',
+    }))
+    .sort((a, b) => {
+      const score = (x: PoiImageEntry) =>
+        (x.is_iconic_view ? 4 : 0) +
+        (x.editorial_relevance === 'forte' ? 2 : x.editorial_relevance === 'moyenne' ? 1 : 0) +
+        (x.visual_clarity_score / 10);
+      return score(b) - score(a);
+    });
+}
 
-  docs.sort((a: any, b: any) => {
-    const score = (d: any) => (d.analysis?.is_iconic_view ? 2 : 0) + (d.analysis?.editorial_relevance === 'forte' ? 1 : 0);
-    return score(b) - score(a);
-  });
-
-  return (docs[0] as any).url ?? null;
+/**
+ * Formate la liste des images POI en texte lisible pour un prompt IA.
+ * Format identique à IMAGES_DESTINATION pour cohérence.
+ */
+function formatPoiImagesForPrompt(images: PoiImageEntry[]): string {
+  if (images.length === 0) return '(aucune image disponible pour ce POI)';
+  return images
+    .map((img, i) =>
+      `[${i + 1}] ${img.url}\n` +
+      `    Iconique: ${img.is_iconic_view ? 'oui' : 'non'} | ` +
+      `Pertinence: ${img.editorial_relevance} | ` +
+      `Clarté: ${img.visual_clarity_score}/10` +
+      (img.summary ? `\n    ${img.summary}` : '')
+    )
+    .join('\n');
 }
 
 /**
@@ -316,6 +357,7 @@ interface SubFieldResolved {
  *   {{INSPIRATION_TITRE}}    — titre/thème de la page inspiration
  *   {{INSPIRATION_NB_LIEUX}} — nombre total de POIs
  *   {{INSPIRATION_LIEUX}}    — liste des POIs séparés par virgule
+ *   {{IMAGES_POI}}           — liste des images disponibles pour ce POI (sous-champ image uniquement)
  */
 function resolveSubField(
   fieldDef: Record<string, any> | undefined,
@@ -391,11 +433,40 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     const poi = inspirationPois[i];
     console.log(`[inspiration_poi_cards] POI ${i + 1}/${inspirationPois.length} : "${poi.nom}"`);
 
+    // Charger les images disponibles pour ce POI (une seule requête DB, réutilisée)
+    const poiImages = await loadPoiImages(db, poi.nom);
+    const imagesPoiText = formatPoiImagesForPrompt(poiImages);
+
     // Variables spécifiques à ce POI (enrichissent pageVars)
-    const poiVars: Record<string, string> = { ...pageVars, POI_NOM: poi.nom };
+    const poiVars: Record<string, string> = {
+      ...pageVars,
+      POI_NOM:    poi.nom,
+      IMAGES_POI: imagesPoiText,
+    };
 
     // ── image ─────────────────────────────────────────────────────────────────
-    const imageUrl = await findBestPoiImage(db, poi.nom);
+    // Mode "Géré par le service" (skip_ai / pas d'instructions) → meilleure image auto
+    // Mode "Généré par IA" avec ai_instructions → l'IA choisit dans {{IMAGES_POI}}
+    const imgResolved = resolveSubField(
+      fieldDef, 'image',
+      '',   // pas de fallback : sélection auto si pas d'instructions IA
+      poiVars
+    );
+    let imageUrl: string | null = poiImages[0]?.url ?? null; // défaut : meilleure image rankée
+
+    if (imgResolved.mode === 'default') {
+      imageUrl = imgResolved.defaultValue || null;
+    } else if (imgResolved.mode === 'ai' && imgResolved.instructions && poiImages.length > 0) {
+      try {
+        const prompt =
+          `${imgResolved.instructions}\n\n` +
+          `Images disponibles pour "${poi.nom}" :\n${imagesPoiText}\n\n` +
+          `Réponds UNIQUEMENT avec l'URL complète de l'image choisie (https://…), sans aucun texte autour.`;
+        const aiUrl = (await miniAI(prompt)).trim();
+        if (aiUrl.startsWith('http')) imageUrl = aiUrl;
+      } catch { /* fallback : meilleure image rankée */ }
+    }
+    // mode 'skip' → imageUrl reste null (champ laissé vide pour sélection manuelle)
 
     // ── nom ───────────────────────────────────────────────────────────────────
     const nomResolved = resolveSubField(

@@ -222,6 +222,106 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
   });
 
   /**
+   * POST /images/tag-poi
+   * Associe une ou plusieurs images à un POI (et optionnellement d'autres POIs).
+   * Utilise $addToSet pour éviter les doublons dans poi_names.
+   * Body: { url: string; poi_names: string[] }
+   */
+  fastify.post<{ Body: { url: string; poi_names: string[] } }>(
+    '/images/tag-poi',
+    async (request, reply) => {
+      const { url, poi_names } = request.body ?? {};
+
+      if (!url || !poi_names?.length) {
+        return reply.status(400).send({ error: 'url et poi_names requis' });
+      }
+
+      try {
+        await db.collection('image_analyses').updateOne(
+          { url },
+          { $addToSet: { poi_names: { $each: poi_names } } }
+        );
+        return reply.send({ ok: true, url, poi_names });
+      } catch (err: any) {
+        fastify.log.error(err);
+        return reply.status(500).send({ error: err.message });
+      }
+    }
+  );
+
+  /**
+   * GET /images/by-poi
+   * Retourne les images de la collection image_analyses dont poi_names contient le POI demandé.
+   * Query params:
+   *   - poi_name : nom du POI (obligatoire)
+   *   - sort     : 'relevance' (défaut) | 'clarity' | 'composition'
+   */
+  fastify.get<{ Querystring: { poi_name?: string; sort?: string } }>(
+    '/images/by-poi',
+    async (request, reply) => {
+      const { poi_name, sort = 'relevance' } = request.query;
+
+      if (!poi_name?.trim()) {
+        return reply.status(400).send({ error: 'Paramètre poi_name requis' });
+      }
+
+      try {
+        const images = await db
+          .collection('image_analyses')
+          .find(
+            { poi_names: poi_name.trim() },
+            {
+              projection: {
+                url: 1,
+                analysis: 1,
+                analyzed_at: 1,
+                poi_names: 1,
+              },
+            }
+          )
+          .toArray();
+
+        const mapped = images.map((doc: any, idx: number) => ({
+          image_id:                   doc._id.toString(),
+          url:                        doc.url,
+          poi_names:                  doc.poi_names ?? [],
+          shows_entire_site:          doc.analysis?.shows_entire_site ?? false,
+          shows_detail:               doc.analysis?.shows_detail ?? false,
+          detail_type:                doc.analysis?.detail_type ?? '',
+          is_iconic_view:             doc.analysis?.is_iconic_view ?? false,
+          is_contextual:              doc.analysis?.is_contextual ?? false,
+          is_composite:               doc.analysis?.is_composite ?? false,
+          has_text_overlay:           doc.analysis?.has_text_overlay ?? false,
+          has_graphic_effects:        doc.analysis?.has_graphic_effects ?? false,
+          visual_clarity_score:       doc.analysis?.visual_clarity_score ?? 0,
+          composition_quality_score:  doc.analysis?.composition_quality_score ?? 0,
+          lighting_quality_score:     doc.analysis?.lighting_quality_score ?? 0,
+          readability_small_screen_score: doc.analysis?.readability_small_screen_score ?? 0,
+          editorial_relevance:        doc.analysis?.editorial_relevance ?? 'faible',
+          analysis_summary:           doc.analysis?.analysis_summary ?? '',
+          analyzed_at:                doc.analyzed_at,
+        }));
+
+        const sortFn: Record<string, (a: any, b: any) => number> = {
+          relevance:   (a, b) => {
+            const rank = { forte: 2, moyenne: 1, faible: 0 };
+            return (rank[b.editorial_relevance as keyof typeof rank] ?? 0)
+                 - (rank[a.editorial_relevance as keyof typeof rank] ?? 0);
+          },
+          clarity:     (a, b) => b.visual_clarity_score - a.visual_clarity_score,
+          composition: (a, b) => b.composition_quality_score - a.composition_quality_score,
+        };
+        mapped.sort(sortFn[sort] ?? sortFn.relevance);
+
+        return reply.send({ images: mapped, total: mapped.length });
+      } catch (error: any) {
+        fastify.log.error(error);
+        return reply.status(500).send({ error: error.message });
+      }
+    }
+  );
+
+  /**
    * GET /images/article-analysis/:articleId
    * Récupère les analyses d'images d'un article
    */

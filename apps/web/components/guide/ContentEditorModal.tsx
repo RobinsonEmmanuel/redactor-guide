@@ -1176,6 +1176,7 @@ export default function ContentEditorModal({
         <ImageSelectorModal
           guideId={guideId}
           pageId={page._id}
+          poiName={page.titre || undefined}
           scope={
             // "Ne s'applique pas" → toutes les images analysées de la destination
             template?.info_source === 'non_applicable' ||

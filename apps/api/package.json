@@ -25,6 +25,7 @@
     "@redactor-guide/validators": "*",
     "ajv": "^6.12.6",
     "archiver": "^7.0.1",
+    "cloudinary": "^2.9.0",
     "dotenv": "^16.4.1",
     "fastify": "^5.2.0",
     "mongodb": "^6.3.0",

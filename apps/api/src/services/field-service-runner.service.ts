@@ -203,7 +203,8 @@ async function generateMapsLink(ctx: FieldServiceContext): Promise<FieldServiceR
     return { value: JSON.stringify({ label: labelText, url: '' }) };
   }
 
-  const destination = guide.destination || guide.name || '';
+  // guide.destination (legacy) ou guide.destinations[0] (schema actuel)
+  const destination: string = guide.destination ?? guide.destinations?.[0] ?? guide.name ?? '';
   const country = destination ? _geocodingService.getCountryFromDestination(destination) : undefined;
 
   // Enrichir la requête avec la destination (ex: "Cathédrale de La Laguna, Tenerife, Spain")

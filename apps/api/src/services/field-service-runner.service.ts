@@ -338,17 +338,6 @@ function resolveSubField(
   return { mode: 'ai', instructions: sub(raw) };
 }
 
-/** Rétrocompat : retourne juste les instructions IA (ou la valeur par défaut comme chaîne). */
-function subFieldInstructions(
-  fieldDef: Record<string, any> | undefined,
-  subFieldName: string,
-  fallback: string,
-  vars: Record<string, string> = {}
-): string {
-  const r = resolveSubField(fieldDef, subFieldName, fallback, vars);
-  if (r.mode === 'default') return r.defaultValue ?? fallback;
-  return r.instructions ?? fallback;
-}
 
 /**
  * Service inspiration_poi_cards

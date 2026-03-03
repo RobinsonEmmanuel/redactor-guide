@@ -664,7 +664,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
     try {
       const filter: Record<string, unknown> = {
         guide_id: guideId,
-        titre:    { $exists: true, $ne: null, $ne: '' },
+        titre:    { $exists: true, $nin: [null, ''] },
       };
       if (q?.trim()) {
         filter.titre = { $regex: q.trim(), $options: 'i' };

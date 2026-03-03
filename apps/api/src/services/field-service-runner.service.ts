@@ -206,9 +206,13 @@ async function generateMapsLink(ctx: FieldServiceContext): Promise<FieldServiceR
   const destination = guide.destination || guide.name || '';
   const country = destination ? _geocodingService.getCountryFromDestination(destination) : undefined;
 
-  console.log(`[geocoding_maps_link] Géocodage : "${query}" (${country ?? 'pays inconnu'})`);
+  // Enrichir la requête avec la destination (ex: "Cathédrale de La Laguna, Tenerife, Spain")
+  // → précision bien supérieure à un simple pays ("Spain") seul
+  const enrichedQuery = destination ? `${query}, ${destination}` : query;
 
-  const result = await _geocodingService.resolve(query, country);
+  console.log(`[geocoding_maps_link] Géocodage : "${enrichedQuery}" (${country ?? 'pays inconnu'})`);
+
+  const result = await _geocodingService.resolve(enrichedQuery, country);
 
   if (!result) {
     console.warn(`[geocoding_maps_link] Aucun résultat pour "${query}"`);

@@ -43,7 +43,7 @@ export class GeocodingService {
    */
   async geocodePlace(nomLieu: string, pays: string): Promise<GeocodingResult | null> {
     try {
-      const query = `${nomLieu}, ${pays}`;
+      const query = pays ? `${nomLieu}, ${pays}` : nomLieu;
       const url = `${this.BASE_URL}?q=${encodeURIComponent(query)}&format=json&limit=1`;
 
       console.log(`🌍 Géolocalisation: "${query}"`);
@@ -145,8 +145,11 @@ export class GeocodingService {
    * @param country Pays optionnel pour affiner la recherche
    */
   async resolve(query: string, country?: string): Promise<GeocodingResolveResult | null> {
-    const searchQuery = country ? `${query}, ${country}` : query;
-    const result = await this.geocodePlace(query, country ?? '');
+    // country est déjà inclus dans la query enrichie par le field-service ; on l'ajoute seulement
+    // s'il n'est pas déjà présent (évite les doublons "... Tenerife, Spain, Spain").
+    const alreadyHasCountry = country && query.toLowerCase().includes(country.toLowerCase());
+    const searchQuery = (country && !alreadyHasCountry) ? `${query}, ${country}` : query;
+    const result = await this.geocodePlace(searchQuery, '');
     if (!result) return null;
     return {
       lat:          result.lat,

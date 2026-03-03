@@ -11,6 +11,7 @@ import {
 } from '../config/export-mappings.js';
 import {
   FieldServiceRunner,
+  explodeRepetitifField,
   type ExportedPageSnapshot,
 } from './field-service-runner.service.js';
 
@@ -162,12 +163,20 @@ export class ExportService {
           const result = await runner.run(field.service_id, {
             guideId,
             guide,
-            currentPage: rawPage,
+            currentPage:      rawPage,
             allExportedPages: pages,
             db,
+            fieldDef:         field,
           });
           // Injecter la valeur calculée dans le champ texte de la page
           pages[i].content.text[field.name] = result.value;
+
+          // Si le champ est de type repetitif, exploser le tableau JSON en champs plats
+          // pour que le script InDesign trouve des calques nommés individuellement.
+          if (field.type === 'repetitif' && result.value) {
+            const flat = explodeRepetitifField(field.name, result.value);
+            Object.assign(pages[i].content.text, flat);
+          }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           console.error(`[ExportService] Service "${field.service_id}" error on page ${rawPage._id}: ${msg}`);

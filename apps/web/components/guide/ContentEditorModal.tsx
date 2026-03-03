@@ -1166,13 +1166,30 @@ export default function ContentEditorModal({
                 {page.metadata.inspiration_pois.length} POI{page.metadata.inspiration_pois.length > 1 ? 's' : ''} de l'inspiration
               </h3>
               <div className="grid gap-3">
-                {page.metadata.inspiration_pois.map((poi, idx) => {
-                  const n = idx + 1;
-                  const poiNom = formData[`INSPIRATION_poi_nom_${n}`] || poi.nom;
-                  const poiImage = formData[`INSPIRATION_poi_image_${n}`];
-                  const poiHashtag = formData[`INSPIRATION_poi_hashtag_${n}`];
-                  const poiArticleRaw = formData[`INSPIRATION_poi_lien_article_${n}`];
-                  const poiMapsRaw = formData[`INSPIRATION_poi_lien_maps_${n}`];
+                {(() => {
+                  // Cherche le champ repetitif du template pour dériver le groupe de calques
+                  const repField = template.fields.find(
+                    (f: any) => f.type === 'repetitif' && f.service_id === 'inspiration_poi_cards'
+                  );
+                  // Préfixe et groupe : INSPIRATION_repetitif_poi_cards → prefix=INSPIRATION, group=poi_cards
+                  const repName  = repField?.name ?? '';
+                  const sepIdx   = repName.indexOf('_repetitif_');
+                  const prefix   = sepIdx !== -1 ? repName.substring(0, sepIdx) : 'INSPIRATION';
+                  const group    = sepIdx !== -1 ? repName.substring(sepIdx + '_repetitif_'.length) : 'poi_cards';
+
+                  // Données depuis le JSON array (valeur brute du champ repetitif)
+                  let cardsFromArray: Array<Record<string, string>> = [];
+                  try { cardsFromArray = JSON.parse(formData[repName] ?? '[]'); } catch { /* */ }
+
+                  return page.metadata!.inspiration_pois!.map((poi, idx) => {
+                  const n   = idx + 1;
+                  const arr = cardsFromArray[idx] as Record<string, string> | undefined;
+                  // Lecture : JSON array en priorité, puis champs plats explodés en fallback
+                  const poiNom        = arr?.nom          || formData[`${prefix}_${group}_nom_${n}`]         || poi.nom;
+                  const poiImage      = arr?.image        || formData[`${prefix}_${group}_image_${n}`]        || '';
+                  const poiHashtag    = arr?.hashtag      || formData[`${prefix}_${group}_hashtag_${n}`]      || '';
+                  const poiArticleRaw = arr?.lien_article || formData[`${prefix}_${group}_lien_article_${n}`] || '';
+                  const poiMapsRaw    = arr?.lien_maps    || formData[`${prefix}_${group}_lien_maps_${n}`]    || '';
                   let articleUrl: string | null = null;
                   let mapsUrl: string | null = null;
                   try { articleUrl = poiArticleRaw ? JSON.parse(poiArticleRaw).url : null; } catch { articleUrl = poi.url_source; }
@@ -1233,7 +1250,8 @@ export default function ContentEditorModal({
                       </div>
                     </div>
                   );
-                })}
+                });
+                })()}
               </div>
               <p className="text-xs text-gray-400 mt-2">Les noms, hashtags et liens sont générés automatiquement lors de la génération IA.</p>
             </div>

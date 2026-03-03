@@ -25,6 +25,19 @@ export interface FieldServiceContext {
 
   /** Connexion MongoDB (si le service a besoin de données complémentaires) */
   db: Db;
+
+  /**
+   * Définition du champ template qui a déclenché ce service.
+   * Donne accès à :
+   *   - fieldDef.ai_instructions    : instructions globales du champ
+   *   - fieldDef.sub_fields[]       : sous-champs (type repetitif), chacun avec ai_instructions
+   *   - fieldDef.max_repetitions    : nombre max d'entrées répétées
+   *   - fieldDef.service_options    : options de configuration (ex : label, provider)
+   *
+   * Permet aux services de respecter les instructions saisies dans l'éditeur de template
+   * plutôt que d'utiliser des prompts codés en dur.
+   */
+  fieldDef?: Record<string, any>;
 }
 
 export interface ExportedPageSnapshot {
@@ -229,31 +242,34 @@ async function generateMapsLink(ctx: FieldServiceContext): Promise<FieldServiceR
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Service spécial : inspiration_poi_cards
-// Génère les champs indexés pour chaque POI d'une page inspiration :
-//   INSPIRATION_poi_image_N, _nom_N, _hashtag_N, _lien_article_N, _lien_maps_N
-// Retourne un Record<fieldName, value> qui doit être mergé dans page.content.
+// Service inspiration_poi_cards
+//
+// Génère un tableau JSON de N cartes POI pour une page inspiration.
+// Chaque entrée contient : image, nom, hashtag, lien_article, lien_maps.
+//
+// La valeur retournée (JSON array sérialisé) est stockée dans le champ
+// repetitif du template, puis "explosée" en champs plats à l'export :
+//   <PREFIX>_<SUBFIELD_NAME>_1, <PREFIX>_<SUBFIELD_NAME>_2, …
+//
+// Les instructions IA (nom, hashtag) proviennent de ctx.fieldDef.sub_fields,
+// configurables dans l'éditeur de template — aucun prompt codé en dur.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Appel OpenAI minimaliste (modèle rapide) pour générer du texte court.
- */
-async function miniAI(openaiApiKey: string, prompt: string): Promise<string> {
-  const client = new OpenAI({ apiKey: openaiApiKey });
+/** Appel OpenAI rapide pour générer du texte très court (nom, hashtag). */
+async function miniAI(prompt: string): Promise<string> {
+  const apiKey = process.env.OPENAI_API_KEY ?? '';
+  if (!apiKey) return '';
+  const client = new OpenAI({ apiKey });
   const resp = await client.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [{ role: 'user', content: prompt }],
-    max_tokens: 60,
+    model:       'gpt-4o-mini',
+    messages:    [{ role: 'user', content: prompt }],
+    max_tokens:  60,
     temperature: 0.4,
   });
   return resp.choices[0]?.message?.content?.trim() ?? '';
 }
 
-/**
- * Recherche la meilleure image associée à un POI dans image_analyses.
- * Priorité : is_iconic_view=true > editorial_relevance='forte' > première trouvée.
- * Retourne une URL ou null si aucune image n'est taguée.
- */
+/** Meilleure image taguée pour un POI (iconic > forte relevance > première trouvée). */
 async function findBestPoiImage(db: Db, poiName: string): Promise<string | null> {
   const docs = await db
     .collection('image_analyses')
@@ -263,44 +279,51 @@ async function findBestPoiImage(db: Db, poiName: string): Promise<string | null>
 
   if (docs.length === 0) return null;
 
-  const ranked = docs.sort((a: any, b: any) => {
-    const aIconic = a.analysis?.is_iconic_view ? 2 : 0;
-    const bIconic = b.analysis?.is_iconic_view ? 2 : 0;
-    const aRel = a.analysis?.editorial_relevance === 'forte' ? 1 : 0;
-    const bRel = b.analysis?.editorial_relevance === 'forte' ? 1 : 0;
-    return (bIconic + bRel) - (aIconic + aRel);
+  docs.sort((a: any, b: any) => {
+    const score = (d: any) => (d.analysis?.is_iconic_view ? 2 : 0) + (d.analysis?.editorial_relevance === 'forte' ? 1 : 0);
+    return score(b) - score(a);
   });
 
-  return (ranked[0] as any).url ?? null;
+  return (docs[0] as any).url ?? null;
 }
 
 /**
- * Génère les champs de cartes POI pour une page inspiration.
- *
- * Pour chaque POI de page.metadata.inspiration_pois (indexé de 1 à N) :
- *   INSPIRATION_poi_image_N       → URL image la plus emblématique (vide si aucune)
- *   INSPIRATION_poi_nom_N         → Nom court généré par IA
- *   INSPIRATION_poi_hashtag_N     → #Hashtag lié au POI et à l'angle éditorial
- *   INSPIRATION_poi_lien_article_N → JSON {"label":"...","url":"..."} vers l'article
- *   INSPIRATION_poi_lien_maps_N   → JSON {"label":"...","url":"..."} Google Maps
- *
- * Appelé directement depuis workers.routes.ts (pas via le loop field-by-field standard).
+ * Résout les instructions d'un sous-champ depuis fieldDef.sub_fields.
+ * Retourne les instructions configurées dans le template, ou un fallback par défaut.
  */
-export async function runInspirationPoiCards(
-  ctx: FieldServiceContext,
-  openaiApiKey: string
-): Promise<Record<string, string>> {
-  const { currentPage, guide, db } = ctx;
+function subFieldInstructions(
+  fieldDef: Record<string, any> | undefined,
+  subFieldName: string,
+  fallback: string
+): string {
+  const sf = (fieldDef?.sub_fields ?? []).find((s: any) => s.name === subFieldName);
+  return sf?.ai_instructions?.trim() || fallback;
+}
+
+/**
+ * Service inspiration_poi_cards
+ *
+ * Pour chaque POI de page.metadata.inspiration_pois, génère une entrée :
+ *   { image, nom, hashtag, lien_article, lien_maps }
+ *
+ * Retourne un JSON array sérialisé, stocké dans le champ repetitif.
+ * À l'export, ce tableau est "explosé" en champs plats par explodeRepetitifField().
+ *
+ * Instructions IA configurables dans l'éditeur de template via
+ * fieldDef.sub_fields[{name:'nom', ai_instructions:'...'}].
+ */
+async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<FieldServiceResult> {
+  const { currentPage, guide, db, fieldDef } = ctx;
 
   const inspirationPois: Array<{ poi_id?: string; nom: string; url_source: string | null }> =
     currentPage.metadata?.inspiration_pois ?? [];
 
   if (inspirationPois.length === 0) {
     console.warn('[inspiration_poi_cards] Aucun POI dans metadata.inspiration_pois');
-    return {};
+    return { value: '[]' };
   }
 
-  // Récupérer l'angle éditorial depuis la collection inspirations
+  // Angle éditorial de l'inspiration (contexte commun à tous les POIs)
   const inspirationId: string | undefined = currentPage.metadata?.inspiration_id;
   let angleEditorial = '';
   if (inspirationId) {
@@ -314,70 +337,105 @@ export async function runInspirationPoiCards(
   const destination: string = guide.destinations?.[0] ?? guide.destination ?? '';
   const country = destination ? _geocodingService.getCountryFromDestination(destination) : undefined;
 
-  const result: Record<string, string> = {};
+  // Instructions IA pour chaque composant — lues depuis le template, sinon fallback
+  const nomInstructions = subFieldInstructions(
+    fieldDef,
+    'nom',
+    `Réécris ce nom de lieu pour une carte de guide touristique. Angle éditorial : "${angleEditorial}". Réponds uniquement avec le nom court (sans ponctuation finale, sans guillemets).`
+  );
+  const hashtagInstructions = subFieldInstructions(
+    fieldDef,
+    'hashtag',
+    `Génère un seul hashtag (avec #) court, sans espace, en français ou langue locale. Angle éditorial : "${angleEditorial}". Réponds uniquement avec le hashtag.`
+  );
+  const articleLinkLabel = subFieldInstructions(fieldDef, 'lien_article', 'En savoir plus');
+  const mapsLinkLabel    = subFieldInstructions(fieldDef, 'lien_maps',    'Voir sur Google Maps');
+
+  const cards: Array<Record<string, string>> = [];
 
   for (let i = 0; i < inspirationPois.length; i++) {
     const poi = inspirationPois[i];
-    const idx = i + 1;
+    console.log(`[inspiration_poi_cards] POI ${i + 1}/${inspirationPois.length} : "${poi.nom}"`);
 
-    console.log(`[inspiration_poi_cards] POI ${idx}/${inspirationPois.length} : "${poi.nom}"`);
-
-    // ── 1. IMAGE ──────────────────────────────────────────────────────────────
+    // ── image ─────────────────────────────────────────────────────────────────
     const imageUrl = await findBestPoiImage(db, poi.nom);
-    result[`INSPIRATION_poi_image_${idx}`] = imageUrl ?? '';
 
-    // ── 2. NOM (réécriture courte par IA) ────────────────────────────────────
-    let nomCourt = poi.nom;
+    // ── nom ───────────────────────────────────────────────────────────────────
+    let nom = poi.nom;
     try {
-      const nomPrompt =
-        `Réécris ce nom de lieu pour une carte de guide touristique : "${poi.nom}".` +
-        (angleEditorial ? ` Angle de la page : "${angleEditorial}".` : '') +
-        ' Réponds uniquement avec le nom court (sans ponctuation finale, sans guillemets).';
-      const aiNom = await miniAI(openaiApiKey, nomPrompt);
-      if (aiNom) nomCourt = aiNom;
-    } catch {
-      // Fallback : nom brut
-    }
-    result[`INSPIRATION_poi_nom_${idx}`] = nomCourt;
+      const aiNom = await miniAI(`${nomInstructions}\nLieu : "${poi.nom}"`);
+      if (aiNom) nom = aiNom;
+    } catch { /* fallback : nom brut */ }
 
-    // ── 3. HASHTAG ────────────────────────────────────────────────────────────
+    // ── hashtag ───────────────────────────────────────────────────────────────
     let hashtag = '';
     try {
-      const hashPrompt =
-        `Génère un seul hashtag (avec #) pour le lieu "${poi.nom}"` +
-        (angleEditorial ? ` dans le contexte de l'inspiration "${angleEditorial}"` : '') +
-        '. Le hashtag doit être court, en français ou en langue locale, sans espace. ' +
-        'Réponds uniquement avec le hashtag.';
-      hashtag = await miniAI(openaiApiKey, hashPrompt);
-    } catch {
-      hashtag = '';
-    }
-    result[`INSPIRATION_poi_hashtag_${idx}`] = hashtag;
+      hashtag = await miniAI(`${hashtagInstructions}\nLieu : "${poi.nom}"`);
+    } catch { hashtag = ''; }
 
-    // ── 4. LIEN ARTICLE ───────────────────────────────────────────────────────
-    result[`INSPIRATION_poi_lien_article_${idx}`] = poi.url_source
-      ? JSON.stringify({ label: 'En savoir plus', url: poi.url_source })
+    // ── lien article ──────────────────────────────────────────────────────────
+    const lienArticle = poi.url_source
+      ? JSON.stringify({ label: articleLinkLabel, url: poi.url_source })
       : '';
 
-    // ── 5. LIEN GOOGLE MAPS ───────────────────────────────────────────────────
+    // ── lien google maps ──────────────────────────────────────────────────────
+    let lienMaps = '';
     try {
       const enrichedQuery = destination ? `${poi.nom}, ${destination}` : poi.nom;
-      const geoResult = await _geocodingService.resolve(enrichedQuery, country);
-      result[`INSPIRATION_poi_lien_maps_${idx}`] = geoResult
-        ? JSON.stringify({ label: 'Voir sur Google Maps', url: geoResult.urls.google_maps })
-        : '';
-    } catch {
-      result[`INSPIRATION_poi_lien_maps_${idx}`] = '';
-    }
+      const geo = await _geocodingService.resolve(enrichedQuery, country);
+      if (geo) lienMaps = JSON.stringify({ label: mapsLinkLabel, url: geo.urls.google_maps });
+    } catch { lienMaps = ''; }
 
-    // Délai poli entre POIs pour éviter le rate-limiting
+    cards.push({ image: imageUrl ?? '', nom, hashtag, lien_article: lienArticle, lien_maps: lienMaps });
+
     if (i < inspirationPois.length - 1) {
       await new Promise(r => setTimeout(r, 400));
     }
   }
 
-  console.log(`[inspiration_poi_cards] ${inspirationPois.length} POI(s) traité(s) → ${Object.keys(result).length} champs générés`);
-  return result;
+  console.log(`[inspiration_poi_cards] ${cards.length} carte(s) générée(s)`);
+  return { value: JSON.stringify(cards) };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Utilitaire d'explosion d'un champ repetitif en champs plats InDesign
+//
+// Entrée  : fieldName = "INSPIRATION_repetitif_poi_cards"
+//           value     = '[{"nom":"A","image":"x",...},...]'
+// Sortie  : { "INSPIRATION_poi_cards_nom_1":"A", "INSPIRATION_poi_cards_image_1":"x", ... }
+//
+// Convention de nommage :
+//   - Préfixe  = partie avant "_repetitif_"        → "INSPIRATION"
+//   - Groupe   = partie après  "_repetitif_"        → "poi_cards"
+//   - Calque   = "<Préfixe>_<groupe>_<subfield>_<N>"
+// ─────────────────────────────────────────────────────────────────────────────
+export function explodeRepetitifField(
+  fieldName: string,
+  value: string
+): Record<string, string> {
+  const SEP = '_repetitif_';
+  const sepIdx = fieldName.indexOf(SEP);
+  if (sepIdx === -1) return {};
+
+  const prefix = fieldName.substring(0, sepIdx);           // "INSPIRATION"
+  const group  = fieldName.substring(sepIdx + SEP.length); // "poi_cards"
+
+  let entries: Array<Record<string, string>>;
+  try {
+    entries = JSON.parse(value);
+    if (!Array.isArray(entries)) return {};
+  } catch {
+    return {};
+  }
+
+  const flat: Record<string, string> = {};
+  for (let i = 0; i < entries.length; i++) {
+    const n = i + 1;
+    for (const [subKey, subVal] of Object.entries(entries[i])) {
+      flat[`${prefix}_${group}_${subKey}_${n}`] = String(subVal ?? '');
+    }
+  }
+  return flat;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -386,8 +444,9 @@ export async function runInspirationPoiCards(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const REGISTERED_SERVICES: Record<string, FieldServiceHandler> = {
-  sommaire_generator:  generateSommaireContent,
-  geocoding_maps_link: generateMapsLink,
+  sommaire_generator:    generateSommaireContent,
+  geocoding_maps_link:   generateMapsLink,
+  inspiration_poi_cards: generateInspirationPoiCards,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

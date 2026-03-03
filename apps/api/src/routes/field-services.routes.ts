@@ -35,6 +35,18 @@ const BUILTIN_SERVICES: Array<{
     output_type: 'json',
     context_keys: ['current_page', 'guide'],
   },
+  {
+    service_id: 'inspiration_poi_cards',
+    label: 'Cartes POI — Page Inspiration',
+    description:
+      'Pour chaque POI de la page inspiration, génère automatiquement : ' +
+      'image emblématique (depuis image_analyses), nom court (IA), hashtag (IA), ' +
+      'lien article et lien Google Maps. ' +
+      'Remplit les champs indexés INSPIRATION_poi_image_N, _nom_N, _hashtag_N, _lien_article_N, _lien_maps_N. ' +
+      'Déclenché automatiquement lors de la génération IA d\'une page de type inspiration.',
+    output_type: 'json',
+    context_keys: ['current_page', 'guide', 'db'],
+  },
 ];
 
 /**

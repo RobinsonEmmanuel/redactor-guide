@@ -52,6 +52,12 @@ const PICTO_OPTION_CONFIG: Record<string, { label: string; icon: string; color: 
   non:            { label: 'Non',             icon: '❌', color: 'bg-gray-100 border-gray-400 text-gray-600' },
 };
 
+interface InspirationPoi {
+  poi_id?: string;
+  nom: string;
+  url_source: string | null;
+}
+
 interface Page {
   _id: string;
   page_id: string;
@@ -61,6 +67,13 @@ interface Page {
   type_de_page?: string;
   ordre: number;
   url_source?: string;
+  metadata?: {
+    inspiration_id?: string;
+    inspiration_title?: string;
+    inspiration_pois?: InspirationPoi[];
+    [key: string]: any;
+  };
+  content?: Record<string, string>;
 }
 
 // ─── RichTextArea ──────────────────────────────────────────────────────────────
@@ -279,15 +292,20 @@ export default function ContentEditorModal({
     }
   };
 
-  // POI et INSPIRATION nécessitent un article source ; les autres types génèrent
-  // depuis le contexte général du site WordPress.
-  const requiresUrlForGeneration = ['poi', 'inspiration'].includes(
-    (page.type_de_page ?? page.template_name ?? '').toLowerCase()
-  );
+  const pageType = (page.type_de_page ?? page.template_name ?? '').toLowerCase();
+  const isInspirationPage = pageType === 'inspiration';
+
+  // POI nécessite un article source. INSPIRATION utilise ses POIs en metadata.
+  const requiresUrlForGeneration = pageType === 'poi';
+  const requiresPoisForGeneration = isInspirationPage;
 
   const handleGenerateContent = async () => {
     if (requiresUrlForGeneration && !page.url_source) {
       setError('Aucun article WordPress source associé à cette page. Veuillez lier un article via les paramètres de la page.');
+      return;
+    }
+    if (requiresPoisForGeneration && !(page.metadata?.inspiration_pois?.length)) {
+      setError('Aucun POI associé à cette inspiration. Lancez d\'abord la construction du guide (chemin de fer).');
       return;
     }
 
@@ -1082,7 +1100,7 @@ export default function ContentEditorModal({
               <button
                 type="button"
                 onClick={handleGenerateContent}
-                disabled={generating || (requiresUrlForGeneration && !page.url_source)}
+                disabled={generating || (requiresUrlForGeneration && !page.url_source) || (requiresPoisForGeneration && !page.metadata?.inspiration_pois?.length)}
                 title={generating ? 'Génération en cours…' : 'Générer le contenu automatiquement'}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
               >
@@ -1125,6 +1143,9 @@ export default function ContentEditorModal({
           {requiresUrlForGeneration && !page.url_source && (
             <p className="text-xs text-white/70 mt-2">⚠️ Article WordPress source requis pour ce type de page</p>
           )}
+          {requiresPoisForGeneration && !page.metadata?.inspiration_pois?.length && (
+            <p className="text-xs text-white/70 mt-2">⚠️ Lancez d'abord la construction du guide pour résoudre les POIs de cette inspiration</p>
+          )}
 
           {/* Erreur */}
           {error && (
@@ -1136,6 +1157,87 @@ export default function ContentEditorModal({
 
         {/* ── Zone scrollable : résumé validation + formulaire ──────────────── */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-auto">
+
+          {/* Panneau POI cards pour les pages inspiration */}
+          {isInspirationPage && page.metadata?.inspiration_pois && page.metadata.inspiration_pois.length > 0 && (
+            <div className="px-6 pt-5 max-w-3xl mx-auto">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                <span className="inline-block w-2 h-2 rounded-full bg-violet-400" />
+                {page.metadata.inspiration_pois.length} POI{page.metadata.inspiration_pois.length > 1 ? 's' : ''} de l'inspiration
+              </h3>
+              <div className="grid gap-3">
+                {page.metadata.inspiration_pois.map((poi, idx) => {
+                  const n = idx + 1;
+                  const poiNom = formData[`INSPIRATION_poi_nom_${n}`] || poi.nom;
+                  const poiImage = formData[`INSPIRATION_poi_image_${n}`];
+                  const poiHashtag = formData[`INSPIRATION_poi_hashtag_${n}`];
+                  const poiArticleRaw = formData[`INSPIRATION_poi_lien_article_${n}`];
+                  const poiMapsRaw = formData[`INSPIRATION_poi_lien_maps_${n}`];
+                  let articleUrl: string | null = null;
+                  let mapsUrl: string | null = null;
+                  try { articleUrl = poiArticleRaw ? JSON.parse(poiArticleRaw).url : null; } catch { articleUrl = poi.url_source; }
+                  try { mapsUrl = poiMapsRaw ? JSON.parse(poiMapsRaw).url : null; } catch { }
+                  return (
+                    <div key={poi.poi_id ?? idx} className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 transition-colors">
+                      {/* Image emblématique */}
+                      <div className="w-16 h-16 flex-shrink-0 rounded-md overflow-hidden bg-gray-200">
+                        {poiImage
+                          ? <img src={poiImage} alt={poiNom} className="w-full h-full object-cover" />
+                          : <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs text-center p-1">Pas d'image</div>
+                        }
+                      </div>
+                      {/* Infos */}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm text-gray-800 truncate">{poiNom}</p>
+                        {poiHashtag && <p className="text-xs text-violet-600 mt-0.5">{poiHashtag}</p>}
+                        {!poiNom && !poiHashtag && (
+                          <p className="text-xs text-gray-400 italic">Génération IA en attente</p>
+                        )}
+                      </div>
+                      {/* Pictos : article + maps */}
+                      <div className="flex gap-1.5 flex-shrink-0">
+                        {(articleUrl || poi.url_source) && (
+                          <a
+                            href={articleUrl || poi.url_source || '#'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Voir l'article"
+                            className="p-1.5 rounded text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                            </svg>
+                          </a>
+                        )}
+                        {mapsUrl ? (
+                          <a
+                            href={mapsUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Voir sur Google Maps"
+                            className="p-1.5 rounded text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                          </a>
+                        ) : (
+                          <span title="Lien Maps non encore généré" className="p-1.5 rounded text-gray-300 cursor-default">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-gray-400 mt-2">Les noms, hashtags et liens sont générés automatiquement lors de la génération IA.</p>
+            </div>
+          )}
 
           {/* Champs du formulaire */}
           <div className="px-6 py-6 max-w-3xl mx-auto">

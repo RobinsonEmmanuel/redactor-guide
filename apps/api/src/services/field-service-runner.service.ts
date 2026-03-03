@@ -1,4 +1,5 @@
 import { Db } from 'mongodb';
+import OpenAI from 'openai';
 import { GeocodingService } from './geocoding.service.js';
 
 /**
@@ -225,6 +226,158 @@ async function generateMapsLink(ctx: FieldServiceContext): Promise<FieldServiceR
   return {
     value: JSON.stringify({ label: labelText, url }),
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Service spécial : inspiration_poi_cards
+// Génère les champs indexés pour chaque POI d'une page inspiration :
+//   INSPIRATION_poi_image_N, _nom_N, _hashtag_N, _lien_article_N, _lien_maps_N
+// Retourne un Record<fieldName, value> qui doit être mergé dans page.content.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Appel OpenAI minimaliste (modèle rapide) pour générer du texte court.
+ */
+async function miniAI(openaiApiKey: string, prompt: string): Promise<string> {
+  const client = new OpenAI({ apiKey: openaiApiKey });
+  const resp = await client.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }],
+    max_tokens: 60,
+    temperature: 0.4,
+  });
+  return resp.choices[0]?.message?.content?.trim() ?? '';
+}
+
+/**
+ * Recherche la meilleure image associée à un POI dans image_analyses.
+ * Priorité : is_iconic_view=true > editorial_relevance='forte' > première trouvée.
+ * Retourne une URL ou null si aucune image n'est taguée.
+ */
+async function findBestPoiImage(db: Db, poiName: string): Promise<string | null> {
+  const docs = await db
+    .collection('image_analyses')
+    .find({ poi_names: poiName })
+    .project({ url: 1, 'analysis.is_iconic_view': 1, 'analysis.editorial_relevance': 1 })
+    .toArray();
+
+  if (docs.length === 0) return null;
+
+  const ranked = docs.sort((a: any, b: any) => {
+    const aIconic = a.analysis?.is_iconic_view ? 2 : 0;
+    const bIconic = b.analysis?.is_iconic_view ? 2 : 0;
+    const aRel = a.analysis?.editorial_relevance === 'forte' ? 1 : 0;
+    const bRel = b.analysis?.editorial_relevance === 'forte' ? 1 : 0;
+    return (bIconic + bRel) - (aIconic + aRel);
+  });
+
+  return (ranked[0] as any).url ?? null;
+}
+
+/**
+ * Génère les champs de cartes POI pour une page inspiration.
+ *
+ * Pour chaque POI de page.metadata.inspiration_pois (indexé de 1 à N) :
+ *   INSPIRATION_poi_image_N       → URL image la plus emblématique (vide si aucune)
+ *   INSPIRATION_poi_nom_N         → Nom court généré par IA
+ *   INSPIRATION_poi_hashtag_N     → #Hashtag lié au POI et à l'angle éditorial
+ *   INSPIRATION_poi_lien_article_N → JSON {"label":"...","url":"..."} vers l'article
+ *   INSPIRATION_poi_lien_maps_N   → JSON {"label":"...","url":"..."} Google Maps
+ *
+ * Appelé directement depuis workers.routes.ts (pas via le loop field-by-field standard).
+ */
+export async function runInspirationPoiCards(
+  ctx: FieldServiceContext,
+  openaiApiKey: string
+): Promise<Record<string, string>> {
+  const { currentPage, guide, db } = ctx;
+
+  const inspirationPois: Array<{ poi_id?: string; nom: string; url_source: string | null }> =
+    currentPage.metadata?.inspiration_pois ?? [];
+
+  if (inspirationPois.length === 0) {
+    console.warn('[inspiration_poi_cards] Aucun POI dans metadata.inspiration_pois');
+    return {};
+  }
+
+  // Récupérer l'angle éditorial depuis la collection inspirations
+  const inspirationId: string | undefined = currentPage.metadata?.inspiration_id;
+  let angleEditorial = '';
+  if (inspirationId) {
+    const inspDoc = await db.collection('inspirations').findOne({ guide_id: ctx.guideId });
+    const inspItem = (inspDoc?.inspirations ?? []).find(
+      (i: any) => i.theme_id === inspirationId || i.inspiration_id === inspirationId
+    );
+    angleEditorial = inspItem?.angle_editorial ?? '';
+  }
+
+  const destination: string = guide.destinations?.[0] ?? guide.destination ?? '';
+  const country = destination ? _geocodingService.getCountryFromDestination(destination) : undefined;
+
+  const result: Record<string, string> = {};
+
+  for (let i = 0; i < inspirationPois.length; i++) {
+    const poi = inspirationPois[i];
+    const idx = i + 1;
+
+    console.log(`[inspiration_poi_cards] POI ${idx}/${inspirationPois.length} : "${poi.nom}"`);
+
+    // ── 1. IMAGE ──────────────────────────────────────────────────────────────
+    const imageUrl = await findBestPoiImage(db, poi.nom);
+    result[`INSPIRATION_poi_image_${idx}`] = imageUrl ?? '';
+
+    // ── 2. NOM (réécriture courte par IA) ────────────────────────────────────
+    let nomCourt = poi.nom;
+    try {
+      const nomPrompt =
+        `Réécris ce nom de lieu pour une carte de guide touristique : "${poi.nom}".` +
+        (angleEditorial ? ` Angle de la page : "${angleEditorial}".` : '') +
+        ' Réponds uniquement avec le nom court (sans ponctuation finale, sans guillemets).';
+      const aiNom = await miniAI(openaiApiKey, nomPrompt);
+      if (aiNom) nomCourt = aiNom;
+    } catch {
+      // Fallback : nom brut
+    }
+    result[`INSPIRATION_poi_nom_${idx}`] = nomCourt;
+
+    // ── 3. HASHTAG ────────────────────────────────────────────────────────────
+    let hashtag = '';
+    try {
+      const hashPrompt =
+        `Génère un seul hashtag (avec #) pour le lieu "${poi.nom}"` +
+        (angleEditorial ? ` dans le contexte de l'inspiration "${angleEditorial}"` : '') +
+        '. Le hashtag doit être court, en français ou en langue locale, sans espace. ' +
+        'Réponds uniquement avec le hashtag.';
+      hashtag = await miniAI(openaiApiKey, hashPrompt);
+    } catch {
+      hashtag = '';
+    }
+    result[`INSPIRATION_poi_hashtag_${idx}`] = hashtag;
+
+    // ── 4. LIEN ARTICLE ───────────────────────────────────────────────────────
+    result[`INSPIRATION_poi_lien_article_${idx}`] = poi.url_source
+      ? JSON.stringify({ label: 'En savoir plus', url: poi.url_source })
+      : '';
+
+    // ── 5. LIEN GOOGLE MAPS ───────────────────────────────────────────────────
+    try {
+      const enrichedQuery = destination ? `${poi.nom}, ${destination}` : poi.nom;
+      const geoResult = await _geocodingService.resolve(enrichedQuery, country);
+      result[`INSPIRATION_poi_lien_maps_${idx}`] = geoResult
+        ? JSON.stringify({ label: 'Voir sur Google Maps', url: geoResult.urls.google_maps })
+        : '';
+    } catch {
+      result[`INSPIRATION_poi_lien_maps_${idx}`] = '';
+    }
+
+    // Délai poli entre POIs pour éviter le rate-limiting
+    if (i < inspirationPois.length - 1) {
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
+
+  console.log(`[inspiration_poi_cards] ${inspirationPois.length} POI(s) traité(s) → ${Object.keys(result).length} champs générés`);
+  return result;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

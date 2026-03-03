@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { PageRedactionService } from '../services/page-redaction.service';
 import { JsonTranslatorService } from '../services/json-translator.service';
-import { FieldServiceRunner } from '../services/field-service-runner.service.js';
+import { FieldServiceRunner, runInspirationPoiCards } from '../services/field-service-runner.service.js';
 
 export async function workersRoutes(fastify: FastifyInstance) {
   /**
@@ -58,29 +58,43 @@ export async function workersRoutes(fastify: FastifyInstance) {
       try {
         const rawPageDoc = await db.collection('pages').findOne({ _id: new ObjectId(pageId) });
         if (rawPageDoc) {
+          const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+          const fieldCtx = {
+            guideId,
+            guide: guide ?? {},
+            currentPage: { ...rawPageDoc, content: result.content },
+            allExportedPages: [],
+            db,
+          };
+
+          // ── Services champ-par-champ (ex: geocoding_maps_link) ──────────────
           const template = await db.collection('templates').findOne({ _id: new ObjectId(rawPageDoc.template_id) });
           const serviceFields = ((template?.fields ?? []) as any[]).filter(
             (f: any) => f.service_id && PER_PAGE_SERVICES.has(f.service_id)
           );
-
           if (serviceFields.length > 0) {
-            const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
             const runner = new FieldServiceRunner();
-
             for (const field of serviceFields) {
               try {
-                const svcResult = await runner.run(field.service_id, {
-                  guideId,
-                  guide: guide ?? {},
-                  currentPage: { ...rawPageDoc, content: result.content },
-                  allExportedPages: [],
-                  db,
-                });
+                const svcResult = await runner.run(field.service_id, fieldCtx);
                 result.content[field.name] = svcResult.value;
                 console.log(`✅ [WORKER] Service "${field.service_id}" → champ "${field.name}" calculé`);
               } catch (svcErr: any) {
                 console.warn(`⚠️ [WORKER] Service "${field.service_id}" échoué : ${svcErr.message}`);
               }
+            }
+          }
+
+          // ── Service spécial inspiration_poi_cards (multi-champs) ─────────────
+          const pageType = (rawPageDoc.type_de_page ?? rawPageDoc.template_name ?? '').toLowerCase();
+          if (pageType === 'inspiration' && rawPageDoc.metadata?.inspiration_pois?.length) {
+            const openaiApiKey = process.env.OPENAI_API_KEY ?? '';
+            try {
+              const poiFields = await runInspirationPoiCards(fieldCtx, openaiApiKey);
+              Object.assign(result.content, poiFields);
+              console.log(`✅ [WORKER] inspiration_poi_cards → ${Object.keys(poiFields).length} champs générés`);
+            } catch (poiErr: any) {
+              console.warn(`⚠️ [WORKER] inspiration_poi_cards échoué : ${poiErr.message}`);
             }
           }
         }

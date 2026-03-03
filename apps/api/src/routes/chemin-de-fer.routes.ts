@@ -428,16 +428,20 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           return reply.status(404).send({ error: 'Page non trouvée' });
         }
 
-        // Pour les pages POI et INSPIRATION, l'url_source est obligatoire.
-        // Pour les autres types (couverture, présentation, cluster, saison...),
-        // la génération utilise le contexte général du site WordPress.
-        const requiresUrl = ['poi', 'inspiration'].includes(
-          (page.type_de_page ?? page.template_name ?? '').toLowerCase()
-        );
-        if (requiresUrl && !page.url_source) {
+        // Pour les pages POI, l'url_source est obligatoire (article mono-lieu).
+        // Pour les pages INSPIRATION, le contexte vient de metadata.inspiration_pois — pas d'url_source.
+        // Pour les autres types (couverture, cluster, saison…), le contexte général est utilisé.
+        const pageType = (page.type_de_page ?? page.template_name ?? '').toLowerCase();
+        if (pageType === 'poi' && !page.url_source) {
           return reply.status(400).send({ 
             error: 'Aucun article WordPress source associé à cette page',
             details: 'Veuillez d\'abord associer un article WordPress à cette page via ses paramètres.'
+          });
+        }
+        if (pageType === 'inspiration' && !page.metadata?.inspiration_pois?.length) {
+          return reply.status(400).send({
+            error: 'Aucun POI associé à cette page inspiration',
+            details: 'Générez d\'abord la structure du guide pour résoudre les POIs de cette inspiration.',
           });
         }
 

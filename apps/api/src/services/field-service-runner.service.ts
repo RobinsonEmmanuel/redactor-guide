@@ -352,6 +352,7 @@ interface SubFieldResolved {
  *
  * Variables disponibles dans les textes du sous-champ :
  *   {{POI_NOM}}              — nom brut du POI courant
+ *   {{POI_URL_ARTICLE}}      — URL de l'article source du POI (WordPress)
  *   {{ANGLE_EDITORIAL}}      — angle éditorial de l'inspiration
  *   {{DESTINATION}}          — destination du guide (ex: "Tenerife")
  *   {{INSPIRATION_TITRE}}    — titre/thème de la page inspiration
@@ -440,8 +441,9 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     // Variables spécifiques à ce POI (enrichissent pageVars)
     const poiVars: Record<string, string> = {
       ...pageVars,
-      POI_NOM:    poi.nom,
-      IMAGES_POI: imagesPoiText,
+      POI_NOM:         poi.nom,
+      POI_URL_ARTICLE: poi.url_source ?? '',
+      IMAGES_POI:      imagesPoiText,
     };
 
     // ── image ─────────────────────────────────────────────────────────────────
@@ -500,8 +502,11 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     // mode 'skip' → hashtag vide (géré ailleurs)
 
     // ── url_article (URL brute de l'article source) ───────────────────────────
-    // Champ simple (non JSON) pour usage direct en lien InDesign ou QR code.
-    const urlArticle = poi.url_source ?? '';
+    // Mode auto/ai → poi.url_source | default → valeur fixe | manual (skip_ai) → vide
+    const urlArtResolved = resolveSubField(fieldDef, 'url_article', '', poiVars);
+    const urlArticle = urlArtResolved.mode === 'skip'    ? ''
+      : urlArtResolved.mode === 'default' ? (urlArtResolved.defaultValue ?? poi.url_source ?? '')
+      : (poi.url_source ?? '');
 
     // ── lien_article (JSON structuré {label, url} pour hyperlien InDesign) ────
     const artResolved = resolveSubField(fieldDef, 'lien_article', 'En savoir plus', poiVars);

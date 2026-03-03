@@ -898,7 +898,8 @@ export default function SortableFieldItem({
                                 <div className="text-xs text-sky-800">
                                   {sf.name === 'image' && <p>Sélectionne automatiquement la <strong>meilleure image taguée avec ce POI</strong> (depuis image_analyses : vue iconique &gt; pertinence forte &gt; clarté).</p>}
                                   {(sf.name === 'lien_maps' || sf.name === 'url_maps') && <p>Géocode le POI via <strong>Photon (OpenStreetMap)</strong> et construit l'URL Google Maps automatiquement.</p>}
-                                  {(sf.name === 'lien_article' || sf.name === 'url_article') && <p>Utilise directement <strong>l'URL source de l'article WordPress</strong> associé à ce POI.</p>}
+                                  {sf.name === 'url_article' && <p>Injecte directement <strong>l'URL brute de l'article source</strong> du POI — variable aussi disponible via <code className="bg-sky-100 px-1 rounded">{'{{POI_URL_ARTICLE}}'}</code>.</p>}
+                                  {sf.name === 'lien_article' && <p>Construit un lien JSON <code className="bg-sky-100 px-1 rounded">{'{label, url}'}</code> avec l'URL source de l'article WordPress du POI.</p>}
                                   {!['image','lien_maps','url_maps','lien_article','url_article'].includes(sf.name) && <p>Le service utilise sa <strong>logique intégrée</strong> pour remplir ce champ automatiquement.</p>}
                                 </div>
                               </div>
@@ -923,9 +924,9 @@ export default function SortableFieldItem({
                                 />
                                 <p className="mt-1 text-xs text-gray-400">
                                   Variables :{' '}
-                                  {['image','lien_maps','url_maps','lien_article','url_article'].includes(sf.name)
+                                  {sf.name === 'image'
                                     ? <><code className="bg-gray-100 px-1 rounded text-xs">{'{{POI_NOM}}'}</code> <code className="bg-gray-100 px-1 rounded text-xs">{'{{IMAGES_POI}}'}</code></>
-                                    : <><code className="bg-gray-100 px-1 rounded text-xs">{'{{POI_NOM}}'}</code> <code className="bg-gray-100 px-1 rounded text-xs">{'{{ANGLE_EDITORIAL}}'}</code> <code className="bg-gray-100 px-1 rounded text-xs">{'{{DESTINATION}}'}</code> <code className="bg-gray-100 px-1 rounded text-xs">{'{{INSPIRATION_TITRE}}'}</code></>
+                                    : <><code className="bg-gray-100 px-1 rounded text-xs">{'{{POI_NOM}}'}</code> <code className="bg-gray-100 px-1 rounded text-xs">{'{{POI_URL_ARTICLE}}'}</code> <code className="bg-gray-100 px-1 rounded text-xs">{'{{ANGLE_EDITORIAL}}'}</code> <code className="bg-gray-100 px-1 rounded text-xs">{'{{DESTINATION}}'}</code> <code className="bg-gray-100 px-1 rounded text-xs">{'{{INSPIRATION_TITRE}}'}</code></>
                                   }
                                 </p>
                               </div>

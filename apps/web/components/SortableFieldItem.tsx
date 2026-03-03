@@ -801,14 +801,20 @@ export default function SortableFieldItem({
                 ) : (
                   <div className="space-y-3">
                     {field.sub_fields.map((sf, idx) => {
-                      const sfMode: 'ai' | 'default' | 'manual' =
-                        sf.skip_ai       ? 'manual'
+                      // auto = service intégré (comportement par défaut, aucun flag)
+                      // ai   = génération IA (ai_instructions renseigné)
+                      // default = valeur fixe (default_value renseigné)
+                      // manual  = laissé vide, saisie page par page (skip_ai: true)
+                      const sfMode: 'auto' | 'ai' | 'default' | 'manual' =
+                        sf.skip_ai                      ? 'manual'
                         : sf.default_value !== undefined ? 'default'
-                        : 'ai';
+                        : sf.ai_instructions             ? 'ai'
+                        : 'auto';
 
-                      const setSfMode = (m: 'ai' | 'default' | 'manual') => {
+                      const setSfMode = (m: 'auto' | 'ai' | 'default' | 'manual') => {
                         const next = [...(field.sub_fields ?? [])];
-                        if (m === 'ai')      next[idx] = { name: sf.name, type: sf.type, label: sf.label };
+                        if (m === 'auto')    next[idx] = { name: sf.name, type: sf.type, label: sf.label };
+                        if (m === 'ai')      next[idx] = { name: sf.name, type: sf.type, label: sf.label, ai_instructions: sf.ai_instructions ?? '' };
                         if (m === 'default') next[idx] = { name: sf.name, type: sf.type, label: sf.label, default_value: sf.default_value ?? '' };
                         if (m === 'manual')  next[idx] = { name: sf.name, type: sf.type, label: sf.label, skip_ai: true };
                         onChange({ sub_fields: next });
@@ -867,6 +873,10 @@ export default function SortableFieldItem({
                           <div className="p-3 space-y-3">
                             {/* Onglets */}
                             <div className="flex flex-wrap items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit">
+                              <button type="button" onClick={() => setSfMode('auto')}
+                                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all ${sfMode === 'auto' ? 'bg-white text-sky-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                                ⚙️ Automatique
+                              </button>
                               <button type="button" onClick={() => setSfMode('ai')}
                                 className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all ${sfMode === 'ai' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                                 🤖 Généré par IA
@@ -877,31 +887,46 @@ export default function SortableFieldItem({
                               </button>
                               <button type="button" onClick={() => setSfMode('manual')}
                                 className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all ${sfMode === 'manual' ? 'bg-white text-amber-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-                                ✏️ Géré par le service
+                                ✏️ Saisie manuelle
                               </button>
                             </div>
 
                             {/* Contenu selon le mode */}
+                            {sfMode === 'auto' && (
+                              <div className="flex items-start gap-2 px-3 py-2 bg-sky-50 border border-sky-200 rounded-lg">
+                                <span className="text-sky-500 text-base mt-0.5">⚙️</span>
+                                <div className="text-xs text-sky-800">
+                                  {sf.name === 'image' && <p>Sélectionne automatiquement la <strong>meilleure image taguée avec ce POI</strong> (depuis image_analyses : vue iconique &gt; pertinence forte &gt; clarté).</p>}
+                                  {(sf.name === 'lien_maps' || sf.name === 'url_maps') && <p>Géocode le POI via <strong>Photon (OpenStreetMap)</strong> et construit l'URL Google Maps automatiquement.</p>}
+                                  {(sf.name === 'lien_article' || sf.name === 'url_article') && <p>Utilise directement <strong>l'URL source de l'article WordPress</strong> associé à ce POI.</p>}
+                                  {!['image','lien_maps','url_maps','lien_article','url_article'].includes(sf.name) && <p>Le service utilise sa <strong>logique intégrée</strong> pour remplir ce champ automatiquement.</p>}
+                                </div>
+                              </div>
+                            )}
+
                             {sfMode === 'ai' && (
                               <div>
                                 <textarea
                                   value={sf.ai_instructions ?? ''}
                                   onChange={(e) => updateSf({ ai_instructions: e.target.value || undefined })}
                                   placeholder={
-                                    sf.type === 'image'
-                                      ? 'Ex: Sélectionner la photo la plus emblématique du lieu parmi les images disponibles'
-                                      : sf.type === 'meta'
-                                      ? 'Ex: Générer un seul #hashtag court sans espace, lié au lieu et à l\'angle éditorial {{ANGLE_EDITORIAL}}'
-                                      : 'Ex: Réécrire le nom {{POI_NOM}} de façon courte pour une carte de guide (max 4 mots)'
+                                    sf.name === 'image'
+                                      ? 'Ex: Choisis parmi {{IMAGES_POI}} la photo la plus emblématique pour le thème {{ANGLE_EDITORIAL}}'
+                                      : sf.name === 'hashtag' || sf.type === 'meta'
+                                      ? 'Ex: Génère un seul #hashtag court sans espace pour {{POI_NOM}}, thème {{ANGLE_EDITORIAL}}'
+                                      : sf.name === 'nom' || sf.type === 'titre'
+                                      ? 'Ex: Réécris {{POI_NOM}} en nom court (max 4 mots) pour une carte de guide'
+                                      : 'Instructions pour l\'IA…'
                                   }
                                   rows={3}
                                   className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-400 bg-purple-50/20"
                                 />
                                 <p className="mt-1 text-xs text-gray-400">
-                                  Variables : <code className="bg-gray-100 px-1 rounded text-xs">{'{{POI_NOM}}'}</code>{' '}
-                                  <code className="bg-gray-100 px-1 rounded text-xs">{'{{ANGLE_EDITORIAL}}'}</code>{' '}
-                                  <code className="bg-gray-100 px-1 rounded text-xs">{'{{DESTINATION}}'}</code>{' '}
-                                  <code className="bg-gray-100 px-1 rounded text-xs">{'{{INSPIRATION_TITRE}}'}</code>
+                                  Variables :{' '}
+                                  {['image','lien_maps','url_maps','lien_article','url_article'].includes(sf.name)
+                                    ? <><code className="bg-gray-100 px-1 rounded text-xs">{'{{POI_NOM}}'}</code> <code className="bg-gray-100 px-1 rounded text-xs">{'{{IMAGES_POI}}'}</code></>
+                                    : <><code className="bg-gray-100 px-1 rounded text-xs">{'{{POI_NOM}}'}</code> <code className="bg-gray-100 px-1 rounded text-xs">{'{{ANGLE_EDITORIAL}}'}</code> <code className="bg-gray-100 px-1 rounded text-xs">{'{{DESTINATION}}'}</code> <code className="bg-gray-100 px-1 rounded text-xs">{'{{INSPIRATION_TITRE}}'}</code></>
+                                  }
                                 </p>
                               </div>
                             )}
@@ -913,24 +938,24 @@ export default function SortableFieldItem({
                                   value={sf.default_value ?? ''}
                                   onChange={(e) => updateSf({ default_value: e.target.value })}
                                   placeholder={
-                                    sf.type === 'lien' ? 'Ex: En savoir plus (libellé du lien)'
+                                    sf.name === 'lien_article' || sf.name === 'lien_maps' ? 'Ex: En savoir plus (libellé du lien — l\'URL est construite automatiquement)'
                                     : sf.type === 'image' ? 'URL d\'image par défaut (https://...)'
                                     : 'Valeur identique pour chaque entrée…'
                                   }
                                   className="w-full px-3 py-2 text-sm border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-400 bg-emerald-50/20"
                                 />
                                 <p className="mt-1 text-xs text-gray-400">
-                                  Même valeur pour toutes les entrées — l'IA ignore ce sous-champ.
-                                  {sf.type === 'lien' && <span className="ml-1">Pour un lien, renseigne le libellé ici ; l'URL est fournie automatiquement par le service.</span>}
+                                  Même valeur pour toutes les entrées.
+                                  {(sf.name === 'lien_article' || sf.name === 'lien_maps') && <span className="ml-1">Pour un lien, renseigne ici le libellé — l'URL est construite automatiquement par le service.</span>}
                                 </p>
                               </div>
                             )}
 
                             {sfMode === 'manual' && (
                               <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
-                                <span className="text-amber-600 text-base mt-0.5">⚙️</span>
+                                <span className="text-amber-600 text-base mt-0.5">✏️</span>
                                 <p className="text-xs text-amber-800">
-                                  Ce composant est <strong>géré automatiquement par le service</strong> — valeur construite depuis les données existantes (URL source, géocodage, image_analyses…). Aucune instruction IA nécessaire.
+                                  Ce champ sera <strong>laissé vide</strong> après la génération — tu le rempliras manuellement dans la modale de rédaction, page par page.
                                 </p>
                               </div>
                             )}

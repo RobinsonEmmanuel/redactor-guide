@@ -499,7 +499,11 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     }
     // mode 'skip' → hashtag vide (géré ailleurs)
 
-    // ── lien article ──────────────────────────────────────────────────────────
+    // ── url_article (URL brute de l'article source) ───────────────────────────
+    // Champ simple (non JSON) pour usage direct en lien InDesign ou QR code.
+    const urlArticle = poi.url_source ?? '';
+
+    // ── lien_article (JSON structuré {label, url} pour hyperlien InDesign) ────
     const artResolved = resolveSubField(fieldDef, 'lien_article', 'En savoir plus', poiVars);
     const articleLabel = artResolved.mode === 'default' ? (artResolved.defaultValue ?? 'En savoir plus')
       : artResolved.mode === 'ai' ? artResolved.instructions ?? 'En savoir plus'
@@ -508,7 +512,10 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
       ? JSON.stringify({ label: articleLabel, url: poi.url_source })
       : '';
 
-    // ── lien google maps ──────────────────────────────────────────────────────
+    // ── url_maps (URL brute Google Maps) ──────────────────────────────────────
+    let urlMaps = '';
+
+    // ── lien_maps (JSON structuré {label, url} pour hyperlien InDesign) ───────
     const mapsResolved = resolveSubField(fieldDef, 'lien_maps', 'Voir sur Google Maps', poiVars);
     const mapsLabel = mapsResolved.mode === 'default' ? (mapsResolved.defaultValue ?? 'Voir sur Google Maps')
       : mapsResolved.mode === 'ai' ? mapsResolved.instructions ?? 'Voir sur Google Maps'
@@ -518,11 +525,22 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
       try {
         const enrichedQuery = destination ? `${poi.nom}, ${destination}` : poi.nom;
         const geo = await _geocodingService.resolve(enrichedQuery, country);
-        if (geo) lienMaps = JSON.stringify({ label: mapsLabel, url: geo.urls.google_maps });
+        if (geo) {
+          urlMaps  = geo.urls.google_maps;
+          lienMaps = JSON.stringify({ label: mapsLabel, url: geo.urls.google_maps });
+        }
       } catch { lienMaps = ''; }
     }
 
-    cards.push({ image: imageUrl ?? '', nom, hashtag, lien_article: lienArticle, lien_maps: lienMaps });
+    cards.push({
+      image:        imageUrl ?? '',
+      nom,
+      hashtag,
+      url_article:  urlArticle,   // URL brute — calque INSPIRATION_poi_cards_url_article_N
+      lien_article: lienArticle,  // JSON {label, url} — calque INSPIRATION_poi_cards_lien_article_N
+      url_maps:     urlMaps,      // URL brute — calque INSPIRATION_poi_cards_url_maps_N
+      lien_maps:    lienMaps,     // JSON {label, url} — calque INSPIRATION_poi_cards_lien_maps_N
+    });
 
     if (i < inspirationPois.length - 1) {
       await new Promise(r => setTimeout(r, 400));

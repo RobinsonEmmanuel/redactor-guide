@@ -199,7 +199,7 @@ export class ExportService {
       meta: {
         guide_id:     guideId,
         guide_name:   guide.name,
-        destination:  guide.destination ?? guide.destinations?.[0] ?? '',
+        destination:  guide.destinations?.[0] ?? guide.destination ?? '',
         year:         guide.year,
         language:     lang,
         version:      guide.version || '1.0.0',

@@ -281,7 +281,7 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
           )
           .toArray();
 
-        const mapped = images.map((doc: any, idx: number) => ({
+        const mapped = images.map((doc: any) => ({
           image_id:                   doc._id.toString(),
           url:                        doc.url,
           poi_names:                  doc.poi_names ?? [],

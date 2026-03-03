@@ -873,10 +873,6 @@ export default function SortableFieldItem({
                           <div className="p-3 space-y-3">
                             {/* Onglets */}
                             <div className="flex flex-wrap items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit">
-                              <button type="button" onClick={() => setSfMode('auto')}
-                                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all ${sfMode === 'auto' ? 'bg-white text-sky-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-                                ⚙️ Automatique
-                              </button>
                               <button type="button" onClick={() => setSfMode('ai')}
                                 className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all ${sfMode === 'ai' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                                 🤖 Généré par IA
@@ -889,18 +885,25 @@ export default function SortableFieldItem({
                                 className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all ${sfMode === 'manual' ? 'bg-white text-amber-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                                 ✏️ Saisie manuelle
                               </button>
+                              <button type="button" onClick={() => setSfMode('auto')}
+                                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all ${sfMode === 'auto' ? 'bg-white text-sky-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                                ⚙️ Calculé par service
+                              </button>
                             </div>
 
                             {/* Contenu selon le mode */}
                             {sfMode === 'auto' && (
                               <div className="flex items-start gap-2 px-3 py-2 bg-sky-50 border border-sky-200 rounded-lg">
                                 <span className="text-sky-500 text-base mt-0.5">⚙️</span>
-                                <div className="text-xs text-sky-800">
-                                  {sf.name === 'image' && <p>Sélectionne automatiquement la <strong>meilleure image taguée avec ce POI</strong> (depuis image_analyses : vue iconique &gt; pertinence forte &gt; clarté).</p>}
-                                  {(sf.name === 'lien_maps' || sf.name === 'url_maps') && <p>Géocode le POI via <strong>Photon (OpenStreetMap)</strong> et construit l'URL Google Maps automatiquement.</p>}
-                                  {sf.name === 'url_article' && <p>Injecte directement <strong>l'URL brute de l'article source</strong> du POI — variable aussi disponible via <code className="bg-sky-100 px-1 rounded">{'{{POI_URL_ARTICLE}}'}</code>.</p>}
-                                  {sf.name === 'lien_article' && <p>Construit un lien JSON <code className="bg-sky-100 px-1 rounded">{'{label, url}'}</code> avec l'URL source de l'article WordPress du POI.</p>}
-                                  {!['image','lien_maps','url_maps','lien_article','url_article'].includes(sf.name) && <p>Le service utilise sa <strong>logique intégrée</strong> pour remplir ce champ automatiquement.</p>}
+                                <div className="text-xs text-sky-800 space-y-0.5">
+                                  <p className="font-semibold">Ce champ est calculé automatiquement par le service :</p>
+                                  {sf.name === 'image' && <p>Sélectionne la <strong>meilleure image taguée avec ce POI</strong> depuis image_analyses (score iconique › pertinence › clarté).</p>}
+                                  {(sf.name === 'lien_maps' || sf.name === 'url_maps') && <p>Géocode le POI via <strong>Photon (OpenStreetMap)</strong> et construit l'URL Google Maps.</p>}
+                                  {sf.name === 'url_article' && <p>Injecte <strong>l'URL de l'article WordPress</strong> du POI (<code className="bg-sky-100 px-1 rounded">poi.url_source</code>).</p>}
+                                  {sf.name === 'lien_article' && <p>Construit un lien structuré <code className="bg-sky-100 px-1 rounded">{'{label, url}'}</code> depuis l'URL de l'article WordPress du POI.</p>}
+                                  {sf.name === 'nom' && <p>Réécrit le nom du POI via <strong>gpt-4o-mini</strong> avec les instructions par défaut du service.</p>}
+                                  {sf.name === 'hashtag' && <p>Génère un <strong>hashtag</strong> via gpt-4o-mini avec les instructions par défaut du service.</p>}
+                                  {!['image','lien_maps','url_maps','lien_article','url_article','nom','hashtag'].includes(sf.name) && <p>Le service utilise sa <strong>logique intégrée</strong> pour remplir ce champ.</p>}
                                 </div>
                               </div>
                             )}

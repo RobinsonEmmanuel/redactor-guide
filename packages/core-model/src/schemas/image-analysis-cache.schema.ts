@@ -37,6 +37,9 @@ export const ImageAnalysisCacheSchema = z.object({
   /** Nombre de fois que cette analyse a été réutilisée (économies) */
   reuse_count: z.number().default(0),
   last_reused_at: z.string().optional(),
+
+  /** Noms des POIs auxquels cette image a été associée (via slug URL ou contexte de génération) */
+  poi_names: z.array(z.string()).default([]),
 });
 
 export type ImageAnalysisCache = z.infer<typeof ImageAnalysisCacheSchema>;

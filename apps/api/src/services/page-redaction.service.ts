@@ -69,7 +69,10 @@ export class PageRedactionService {
           throw new Error('Article WordPress source non trouvé');
         }
         await this.ensureImagesAnalyzed(article);
-        articleContext = this.formatArticle(article);
+        articleContext = this.formatArticle(article, page.titre);
+        if (page.titre && article.images?.length) {
+          void this.tagImagesWithPOI(this.filterImagesForPOI(article.images, page.titre), page.titre);
+        }
         console.log(`📄 Mode article_source : ${article.title}`);
 
       } else if (infoSource === 'cluster_auto_match') {
@@ -79,7 +82,10 @@ export class PageRedactionService {
 
         if (article) {
           await this.ensureImagesAnalyzed(article);
-          articleContext = this.formatArticle(article);
+          articleContext = this.formatArticle(article, page.titre);
+          if (page.titre && article.images?.length) {
+            void this.tagImagesWithPOI(this.filterImagesForPOI(article.images, page.titre), page.titre);
+          }
           console.log(`🔍 Mode cluster_auto_match : article trouvé → "${article.title}"`);
         } else {
           console.warn(`⚠️ Mode cluster_auto_match : aucun article trouvé pour "${clusterName}" — fallback contexte général`);
@@ -227,6 +233,15 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
           page.template_name ? `Template : ${page.template_name}` : '',
         ].filter(Boolean).join('\n');
         console.log(`⛔ Mode non_applicable — pas de contexte éditorial`);
+      }
+
+      // Injecter une instruction de focus si l'article peut être multi-lieux
+      // (ex: "Que faire à Santa Cruz" couvre 10 POIs — on guide l'IA sur le POI exact de cette page)
+      const focusName = page.titre?.trim();
+      const isArticleBasedMode = infoSource === 'article_source' || infoSource === 'cluster_auto_match';
+      if (focusName && isArticleBasedMode) {
+        articleContext += `\n\n⚠️ FOCUS OBLIGATOIRE : Cette page de guide concerne UNIQUEMENT "${focusName}". Si l'article source traite de plusieurs lieux, ne retiens QUE les informations relatives à "${focusName}". Toutes les informations portant sur d'autres lieux doivent être ignorées.`;
+        console.log(`🎯 Focus POI injecté dans le contexte : "${focusName}"`);
       }
 
       // Injecter le commentaire interne de l'éditeur s'il est renseigné
@@ -1024,7 +1039,7 @@ INSTRUCTIONS STRICTES :
   /**
    * Formater l'article WordPress pour le prompt
    */
-  private formatArticle(article: any): string {
+  private formatArticle(article: any, poiFocusFilter?: string): string {
     const parts = [
       `Titre: ${article.title || 'N/A'}`,
       `URL: ${article.urls_by_lang?.fr || 'N/A'}`,
@@ -1041,16 +1056,75 @@ INSTRUCTIONS STRICTES :
       parts.unshift(`Tags: ${article.tags.join(', ')}`);
     }
 
-    // Ajouter les images disponibles
+    // Ajouter les images disponibles, filtrées par POI si applicable
     if (article.images && article.images.length > 0) {
+      const images = poiFocusFilter
+        ? this.filterImagesForPOI(article.images, poiFocusFilter)
+        : (article.images as string[]);
+
       parts.push('');
-      parts.push(`Images disponibles (${article.images.length}):`);
-      article.images.forEach((img: string, idx: number) => {
+      parts.push(`Images disponibles (${images.length}):`);
+      images.forEach((img: string, idx: number) => {
         parts.push(`  ${idx + 1}. ${img}`);
       });
     }
 
     return parts.join('\n');
+  }
+
+  /**
+   * Filtre une liste d'URLs d'images en ne gardant que celles dont le slug
+   * contient au moins un mot-clé issu du nom du POI.
+   * Si aucune image ne matche (slug opaque), retourne toutes les images.
+   */
+  private filterImagesForPOI(images: string[], poiName: string): string[] {
+    const keywords = this.slugifyKeywords(poiName);
+    if (keywords.length === 0) return images;
+
+    const filtered = images.filter((url: string) =>
+      keywords.some(kw => url.toLowerCase().includes(kw))
+    );
+
+    if (filtered.length > 0) {
+      console.log(`🖼️ Images filtrées pour POI "${poiName}": ${filtered.length}/${images.length} retenues`);
+      return filtered;
+    }
+
+    console.log(`🖼️ Filtre POI "${poiName}" sans résultat — toutes les images conservées`);
+    return images;
+  }
+
+  /**
+   * Enregistre en base (collection image_analyses) le nom du POI pour chaque image matchée.
+   * Utilise $addToSet pour éviter les doublons.
+   * Fire-and-forget : les erreurs n'interrompent pas la génération.
+   */
+  private async tagImagesWithPOI(imageUrls: string[], poiName: string): Promise<void> {
+    if (!poiName || imageUrls.length === 0) return;
+    try {
+      await this.db.collection('image_analyses').updateMany(
+        { url: { $in: imageUrls } },
+        { $addToSet: { poi_names: poiName } }
+      );
+      console.log(`🏷️ POI "${poiName}" enregistré sur ${imageUrls.length} image(s) dans image_analyses`);
+    } catch (err: any) {
+      console.warn(`⚠️ tagImagesWithPOI : erreur non bloquante — ${err.message}`);
+    }
+  }
+
+  /**
+   * Normalise un nom de POI en mots-clés utilisables pour filtrer des URLs d'images.
+   * Ex: "Piscines Naturelles Los Abrigos" → ["piscines", "naturelles", "abrigos"]
+   * Les mots de moins de 4 caractères sont ignorés (articles, prépositions…).
+   */
+  private slugifyKeywords(text: string): string[] {
+    return text
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\s]/g, '')
+      .split(/\s+/)
+      .filter(w => w.length >= 4);
   }
 
   /**

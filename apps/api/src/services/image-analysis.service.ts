@@ -77,6 +77,7 @@ export class ImageAnalysisService {
             model_used: 'gpt-4o',
             prompt_version: '1.0.0',
             reuse_count: 0,
+            poi_names: [],
           });
           
           analyses.push(analysis);

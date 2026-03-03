@@ -237,9 +237,19 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
       }
 
       try {
+        // upsert: true — crée le document si l'image n'est pas encore dans image_analyses
+        // (cas : analyse IA désactivée ou échouée lors de l'upload)
         await db.collection('image_analyses').updateOne(
           { url },
-          { $addToSet: { poi_names: { $each: poi_names } } }
+          {
+            $addToSet: { poi_names: { $each: poi_names } },
+            $setOnInsert: {
+              url,
+              analyzed_at: new Date().toISOString(),
+              reuse_count: 0,
+            },
+          },
+          { upsert: true }
         );
         return reply.send({ ok: true, url, poi_names });
       } catch (err: any) {

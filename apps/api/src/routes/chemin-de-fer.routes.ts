@@ -643,6 +643,49 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * GET /guides/:guideId/poi-names
+   * Retourne la liste dédupliquée des titres de pages du guide (noms de POIs).
+   * Utilisé pour l'autocomplétion lors de l'association d'une image à un POI.
+   * Query params:
+   *   - q : filtre texte (optionnel)
+   */
+  fastify.get<{
+    Params: { guideId: string };
+    Querystring: { q?: string };
+  }>('/guides/:guideId/poi-names', async (request, reply) => {
+    const { guideId } = request.params;
+    const { q } = request.query;
+    const db = request.server.container.db;
+
+    try {
+      const filter: Record<string, unknown> = {
+        guide_id: guideId,
+        titre:    { $exists: true, $ne: null, $ne: '' },
+      };
+      if (q?.trim()) {
+        filter.titre = { $regex: q.trim(), $options: 'i' };
+      }
+
+      const pages = await db
+        .collection('pages')
+        .find(filter, { projection: { titre: 1 } })
+        .toArray();
+
+      const names = [...new Set(
+        pages
+          .map((p: any) => p.titre as string)
+          .filter(Boolean)
+          .sort((a: string, b: string) => a.localeCompare(b, 'fr'))
+      )];
+
+      return reply.send({ names });
+    } catch (error: any) {
+      request.log.error(error);
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+
+  /**
    * GET /guides/:guideId/images
    * Toutes les images analysées de tous les articles du guide.
    * Utilisé par les pages sans url_source (COUVERTURE, CLUSTER, SAISON…)

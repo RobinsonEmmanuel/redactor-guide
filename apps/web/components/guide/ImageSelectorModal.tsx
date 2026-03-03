@@ -192,6 +192,8 @@ export default function ImageSelectorModal({
   // Sélection POI — initialisé avec le POI de la page
   const [poiTagInput, setPoiTagInput] = useState<string>(poiName ?? '');
   const [taggingPoi, setTaggingPoi] = useState(false);
+  // Liste de tous les noms de POIs du guide pour l'autocomplétion
+  const [poiSuggestions, setPoiSuggestions] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { loadImages(); }, [activeScope, sortBy]);
@@ -303,6 +305,16 @@ export default function ImageSelectorModal({
       if (data.analysis) setUploadAnalysis(data.analysis);
       setPoiTagInput(poiName ?? '');
       setUploadStep('tag-poi');
+
+      // Charger la liste des POIs du guide en arrière-plan pour l'autocomplétion
+      const t = document.cookie.split('; ').find(r => r.startsWith('accessToken='))?.split('=')[1];
+      fetch(`${apiUrl}/api/v1/guides/${guideId}/poi-names`, {
+        headers: { ...(t ? { Authorization: `Bearer ${t}` } : {}) },
+        credentials: 'include',
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.names) setPoiSuggestions(d.names); })
+        .catch(() => {});
     } catch (err: any) {
       setUploadError(err.message ?? 'Erreur lors de l\'upload');
       setUploadStep('select');
@@ -659,11 +671,20 @@ export default function ImageSelectorModal({
                       </p>
                       <input
                         type="text"
+                        list="poi-suggestions"
                         value={poiTagInput}
                         onChange={e => setPoiTagInput(e.target.value)}
                         placeholder="Nom du POI (ex: Piscines Naturelles Los Abrigos)"
                         className="w-full px-3 py-2 border border-indigo-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+                        autoComplete="off"
                       />
+                      {poiSuggestions.length > 0 && (
+                        <datalist id="poi-suggestions">
+                          {poiSuggestions.map(name => (
+                            <option key={name} value={name} />
+                          ))}
+                        </datalist>
+                      )}
                       <div className="flex gap-2">
                         <button
                           onClick={handleTagPoi}

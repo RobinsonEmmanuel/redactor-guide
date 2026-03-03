@@ -289,15 +289,27 @@ async function findBestPoiImage(db: Db, poiName: string): Promise<string | null>
 
 /**
  * Résout les instructions d'un sous-champ depuis fieldDef.sub_fields.
- * Retourne les instructions configurées dans le template, ou un fallback par défaut.
+ * Remplace les variables {{...}} avec les valeurs du contexte POI.
+ * Retourne les instructions configurées dans le template, ou le fallback par défaut.
+ *
+ * Variables disponibles dans les instructions du sous-champ :
+ *   {{POI_NOM}}          — nom brut du POI courant
+ *   {{ANGLE_EDITORIAL}}  — angle éditorial de l'inspiration (depuis la collection inspirations)
+ *   {{DESTINATION}}      — destination du guide (ex: "Tenerife")
+ *   {{INSPIRATION_TITRE}} — titre/thème de la page inspiration
+ *   {{INSPIRATION_NB_LIEUX}} — nombre total de POIs de la page
+ *   {{INSPIRATION_LIEUX}} — liste des POIs séparés par virgule
  */
 function subFieldInstructions(
   fieldDef: Record<string, any> | undefined,
   subFieldName: string,
-  fallback: string
+  fallback: string,
+  vars: Record<string, string> = {}
 ): string {
   const sf = (fieldDef?.sub_fields ?? []).find((s: any) => s.name === subFieldName);
-  return sf?.ai_instructions?.trim() || fallback;
+  const raw = sf?.ai_instructions?.trim() || fallback;
+  // Substitution {{VARIABLE}} → valeur
+  return raw.replace(/\{\{(\w+)\}\}/g, (_: string, key: string) => vars[key] ?? `{{${key}}}`);
 }
 
 /**
@@ -337,19 +349,14 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
   const destination: string = guide.destinations?.[0] ?? guide.destination ?? '';
   const country = destination ? _geocodingService.getCountryFromDestination(destination) : undefined;
 
-  // Instructions IA pour chaque composant — lues depuis le template, sinon fallback
-  const nomInstructions = subFieldInstructions(
-    fieldDef,
-    'nom',
-    `Réécris ce nom de lieu pour une carte de guide touristique. Angle éditorial : "${angleEditorial}". Réponds uniquement avec le nom court (sans ponctuation finale, sans guillemets).`
-  );
-  const hashtagInstructions = subFieldInstructions(
-    fieldDef,
-    'hashtag',
-    `Génère un seul hashtag (avec #) court, sans espace, en français ou langue locale. Angle éditorial : "${angleEditorial}". Réponds uniquement avec le hashtag.`
-  );
-  const articleLinkLabel = subFieldInstructions(fieldDef, 'lien_article', 'En savoir plus');
-  const mapsLinkLabel    = subFieldInstructions(fieldDef, 'lien_maps',    'Voir sur Google Maps');
+  // Variables de substitution communes à tous les POIs de la page
+  const pageVars: Record<string, string> = {
+    ANGLE_EDITORIAL:      angleEditorial,
+    DESTINATION:          destination,
+    INSPIRATION_TITRE:    currentPage.metadata?.inspiration_title ?? currentPage.titre ?? '',
+    INSPIRATION_NB_LIEUX: String(inspirationPois.length),
+    INSPIRATION_LIEUX:    inspirationPois.map((p) => p.nom).join(', '),
+  };
 
   const cards: Array<Record<string, string>> = [];
 
@@ -357,28 +364,43 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     const poi = inspirationPois[i];
     console.log(`[inspiration_poi_cards] POI ${i + 1}/${inspirationPois.length} : "${poi.nom}"`);
 
+    // Variables spécifiques à ce POI (enrichissent pageVars)
+    const poiVars: Record<string, string> = { ...pageVars, POI_NOM: poi.nom };
+
     // ── image ─────────────────────────────────────────────────────────────────
     const imageUrl = await findBestPoiImage(db, poi.nom);
 
-    // ── nom ───────────────────────────────────────────────────────────────────
+    // ── nom (instructions depuis le template, variables substituées) ──────────
+    const nomInstructions = subFieldInstructions(
+      fieldDef, 'nom',
+      `Réécris ce nom de lieu pour une carte de guide touristique. Angle éditorial : "{{ANGLE_EDITORIAL}}". Réponds uniquement avec le nom court (sans ponctuation finale, sans guillemets).`,
+      poiVars
+    );
     let nom = poi.nom;
     try {
       const aiNom = await miniAI(`${nomInstructions}\nLieu : "${poi.nom}"`);
       if (aiNom) nom = aiNom;
     } catch { /* fallback : nom brut */ }
 
-    // ── hashtag ───────────────────────────────────────────────────────────────
+    // ── hashtag (instructions depuis le template, variables substituées) ──────
+    const hashtagInstructions = subFieldInstructions(
+      fieldDef, 'hashtag',
+      `Génère un seul hashtag (avec #) court, sans espace, en français ou langue locale. Angle éditorial : "{{ANGLE_EDITORIAL}}". Réponds uniquement avec le hashtag.`,
+      poiVars
+    );
     let hashtag = '';
     try {
       hashtag = await miniAI(`${hashtagInstructions}\nLieu : "${poi.nom}"`);
     } catch { hashtag = ''; }
 
     // ── lien article ──────────────────────────────────────────────────────────
+    const articleLinkLabel = subFieldInstructions(fieldDef, 'lien_article', 'En savoir plus', poiVars);
     const lienArticle = poi.url_source
       ? JSON.stringify({ label: articleLinkLabel, url: poi.url_source })
       : '';
 
     // ── lien google maps ──────────────────────────────────────────────────────
+    const mapsLinkLabel = subFieldInstructions(fieldDef, 'lien_maps', 'Voir sur Google Maps', poiVars);
     let lienMaps = '';
     try {
       const enrichedQuery = destination ? `${poi.nom}, ${destination}` : poi.nom;

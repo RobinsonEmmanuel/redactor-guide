@@ -28,55 +28,108 @@ export function stripHtmlToText(html: string): string {
 }
 
 /**
+ * Supprime les <img> des segments rendus par des blocs réutilisables WordPress.
+ *
+ * Dans content.rendered, les blocs réutilisables (synced patterns) apparaissent comme :
+ *   <!-- wp:block {"ref":665} /-->
+ *   <div>...contenu générique rendu depuis le bloc...</div>
+ *   <!-- wp:prochain-bloc -->
+ *
+ * Ces blocs contiennent du contenu site-wide (bandeaux, CTA, cartes de visite…)
+ * qui ne doit pas alimenter le pool d'images d'un article ou d'un POI spécifique.
+ *
+ * Algorithme : on découpe le HTML par ses commentaires Gutenberg (<!-- wp:… -->) ;
+ * les segments qui suivent un commentaire de bloc réutilisable auto-fermant
+ * (<!-- wp:block {"ref":X} /-->) voient leurs <img> supprimés.
+ */
+function stripReusableBlockImages(html: string): string {
+  const result: string[] = [];
+  // Regex pour tout commentaire HTML (y compris les blocs Gutenberg <!-- wp:… -->)
+  const COMMENT_RE = /<!--([\s\S]*?)-->/g;
+  let lastIdx = 0;
+  let skipNextSegment = false;
+
+  let m: RegExpExecArray | null;
+  while ((m = COMMENT_RE.exec(html)) !== null) {
+    const segment = html.slice(lastIdx, m.index);
+
+    if (skipNextSegment) {
+      // Ce segment vient d'un bloc réutilisable : on retire les <img>
+      result.push(segment.replace(/<img[^>]+>/gi, ''));
+    } else {
+      result.push(segment);
+    }
+
+    // Conserver le commentaire tel quel
+    result.push(m[0]);
+    lastIdx = m.index + m[0].length;
+
+    // Décider si le PROCHAIN segment doit être nettoyé :
+    // un bloc réutilisable est auto-fermant (se termine par "/ ") et contient "ref"
+    const inner = m[1].trim();
+    skipNextSegment =
+      /^wp:block\b/.test(inner) &&
+      /\/\s*$/.test(inner) &&
+      /"ref"\s*:/.test(inner);
+  }
+
+  // Segment final
+  const lastSegment = html.slice(lastIdx);
+  result.push(skipNextSegment ? lastSegment.replace(/<img[^>]+>/gi, '') : lastSegment);
+
+  return result.join('');
+}
+
+/**
  * Extrait toutes les URLs d'images du HTML en filtrant les blocs réutilisables.
  * Cherche les balises <img> et extrait les attributs src.
- * 
- * @param html - HTML brut de l'article WordPress
+ *
+ * @param html - HTML brut de l'article WordPress (content.rendered)
  * @returns URLs uniques des images (hors blocs réutilisables)
  */
 export function extractImageUrls(html: string): string[] {
   if (!html || typeof html !== 'string') return [];
 
-  // 1. Filtrer les blocs réutilisables WordPress
-  let cleanedHtml = html;
-  
-  // Retirer les blocs réutilisables (wp-block-reusable, wp-block-template-part)
+  // 1. Supprimer les images provenant de blocs réutilisables Gutenberg
+  //    (<!-- wp:block {"ref":X} /--> — synced patterns, widgets site-wide)
+  let cleanedHtml = stripReusableBlockImages(html);
+
+  // 2. Retirer les blocs réutilisables identifiés par classe CSS (fallback pour anciens thèmes)
   cleanedHtml = cleanedHtml.replace(
     /<div[^>]*class="[^"]*(?:wp-block-reusable|wp-block-template-part|reusable-block)[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
     ''
   );
-  
-  // Retirer les blocs Gutenberg spécifiques (navigation, headers, footers)
+
+  // 3. Retirer les blocs Gutenberg de navigation / structure (nav, header, footer)
   cleanedHtml = cleanedHtml.replace(
     /<(?:nav|header|footer)[^>]*class="[^"]*wp-block[^"]*"[^>]*>[\s\S]*?<\/(?:nav|header|footer)>/gi,
     ''
   );
 
-  // 2. Extraire les URLs des images
+  // 4. Extraire les URLs des images restantes
   const urls: string[] = [];
   const imgRegex = /<img[^>]+src=["']([^"']+)["']/gi;
   let match;
 
   while ((match = imgRegex.exec(cleanedHtml)) !== null) {
     const url = match[1];
-    
+
     // Filtrer les URLs invalides
     if (!url || !url.startsWith('http')) continue;
-    
-    // Filtrer les images de petite taille (icônes, logos, etc.)
+
+    // Filtrer les images de petite taille (icônes, logos…)
     // WordPress ajoute souvent les dimensions dans l'URL : -150x150, -300x200, etc.
     const sizeMatch = url.match(/-(\d+)x(\d+)\./);
     if (sizeMatch) {
-      const width = parseInt(sizeMatch[1]);
+      const width  = parseInt(sizeMatch[1]);
       const height = parseInt(sizeMatch[2]);
-      // Ignorer les images < 400px de largeur (probablement des icônes)
       if (width < 400 || height < 300) continue;
     }
-    
+
     urls.push(url);
   }
 
-  // 3. Retourner URLs uniques
+  // 5. Retourner URLs uniques
   return Array.from(new Set(urls));
 }
 

@@ -228,13 +228,23 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
     }
   };
 
-  const saveInspirations = async (inspirationsToSave: Inspiration[]) => {
+  const saveInspirations = async (inspirationsToSave: Inspiration[], changedInspirationId?: string) => {
     try {
       await authFetch(`${apiUrl}/api/v1/guides/${guideId}/inspirations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ inspirations: inspirationsToSave }),
       });
+
+      // Synchroniser automatiquement les pages chemin de fer de l'inspiration modifiée
+      if (changedInspirationId) {
+        fetch(`${apiUrl}/api/v1/workers/sync-inspiration-pages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ guideId, inspirationId: changedInspirationId }),
+        }).catch(() => { /* silencieux — ne bloque pas l'UX */ });
+      }
     } catch (err) {
       console.error('Erreur sauvegarde:', err);
     }
@@ -293,7 +303,7 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
     );
 
     setInspirations(updatedInspirations);
-    await saveInspirations(updatedInspirations);
+    await saveInspirations(updatedInspirations, inspirationId);
   };
 
   const removePOIFromInspiration = async (inspirationId: string, poiId: string) => {
@@ -304,7 +314,7 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
     );
 
     setInspirations(updatedInspirations);
-    await saveInspirations(updatedInspirations);
+    await saveInspirations(updatedInspirations, inspirationId);
   };
 
   const toggleInspiration = (inspirationId: string) => {

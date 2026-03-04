@@ -80,13 +80,8 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
 
-  // ── POIs inspiration ─────────────────────────────────────────────────────────
-  const [allPois, setAllPois] = useState<PoiSelection[]>([]);
-  const [inspirationPois, setInspirationPois] = useState<PoiSelection[]>(
-    () => (page?.metadata?.inspiration_pois ?? []) as PoiSelection[]
-  );
-  const [poiSearchQuery, setPoiSearchQuery] = useState('');
-  const [showPoiDropdown, setShowPoiDropdown] = useState(false);
+  // ── POIs inspiration (lecture seule — modifiables dans l'onglet Lieux & Inspirations) ──
+  const inspirationPois: PoiSelection[] = (page?.metadata?.inspiration_pois ?? []) as PoiSelection[];
   
   // Extraire le type POI et les autres mentions du commentaire interne
   const extractPoiData = (commentaire: string) => {
@@ -134,7 +129,6 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
   useEffect(() => {
     loadTemplates();
     loadArticles();
-    loadAllPois();
   }, [guideId]);
 
   const loadTemplates = async () => {
@@ -164,16 +158,6 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
       console.error('Erreur chargement articles:', err);
       setArticles([]); // Fallback en cas d'erreur
     }
-  };
-
-  const loadAllPois = async () => {
-    try {
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/pois`, { credentials: 'include' });
-      if (res.ok) {
-        const data = await res.json();
-        setAllPois(data.pois ?? []);
-      }
-    } catch { /* silencieux */ }
   };
 
   const filteredArticles = Array.isArray(articles) 
@@ -227,14 +211,6 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
       // Retirer les champs UI uniquement
       poi_type_extracted: undefined,
       other_mentions: undefined,
-      // Pour les pages inspiration : mettre à jour inspiration_pois_ids et inspiration_pois
-      ...(isInspirationPage && {
-        metadata: {
-          ...(page?.metadata ?? {}),
-          inspiration_pois_ids: inspirationPois.map((p) => p.poi_id),
-          inspiration_pois:     inspirationPois,
-        },
-      }),
     };
 
     onSave(cleanedData);
@@ -526,7 +502,7 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
             </div>
           )}
 
-          {/* POIs de la page inspiration — éditables */}
+          {/* POIs de la page inspiration — lecture seule */}
           {isInspirationPage && (
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -541,81 +517,32 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
                 <span className="text-xs text-gray-400">{inspirationPois.length} lieu(x)</span>
               </div>
 
-              {/* Liste des POIs actuels */}
-              <div className="space-y-2 mb-3">
-                {inspirationPois.length === 0 && (
+              <div className="space-y-2">
+                {inspirationPois.length === 0 ? (
                   <p className="text-xs text-gray-400 italic py-2">
-                    Aucun lieu associé — ajoute des lieux ci-dessous.
+                    Aucun lieu associé. Ajoute des lieux via l'onglet <strong>Lieux &amp; Inspirations</strong>.
                   </p>
+                ) : (
+                  inspirationPois.map((poi, idx) => (
+                    <div key={poi.poi_id ?? idx} className="flex items-start gap-3 p-2.5 bg-indigo-50 border border-indigo-100 rounded-lg">
+                      <span className="text-indigo-500 mt-0.5 shrink-0 text-sm">📍</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-indigo-900">{poi.nom}</p>
+                        {poi.url_source ? (
+                          <a href={poi.url_source} target="_blank" rel="noopener noreferrer"
+                            className="text-xs text-indigo-600 hover:underline truncate block mt-0.5">
+                            {poi.url_source}
+                          </a>
+                        ) : (
+                          <p className="text-xs text-amber-600 mt-0.5">⚠️ Aucune URL article source</p>
+                        )}
+                      </div>
+                    </div>
+                  ))
                 )}
-                {inspirationPois.map((poi, idx) => (
-                  <div key={poi.poi_id ?? idx} className="flex items-start gap-3 p-2.5 bg-indigo-50 border border-indigo-100 rounded-lg">
-                    <span className="text-indigo-500 mt-0.5 shrink-0 text-sm">📍</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-indigo-900">{poi.nom}</p>
-                      {poi.url_source ? (
-                        <a href={poi.url_source} target="_blank" rel="noopener noreferrer"
-                          className="text-xs text-indigo-600 hover:underline truncate block mt-0.5">
-                          {poi.url_source}
-                        </a>
-                      ) : (
-                        <p className="text-xs text-amber-600 mt-0.5">⚠️ Aucune URL article source</p>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setInspirationPois((prev) => prev.filter((_, i) => i !== idx))}
-                      className="text-gray-400 hover:text-red-500 transition-colors shrink-0 mt-0.5"
-                      title="Retirer ce lieu"
-                    >
-                      <XMarkIcon className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
               </div>
-
-              {/* Ajout d'un POI */}
-              <div className="relative">
-                <input
-                  type="text"
-                  value={poiSearchQuery}
-                  onChange={(e) => { setPoiSearchQuery(e.target.value); setShowPoiDropdown(true); }}
-                  onFocus={() => setShowPoiDropdown(true)}
-                  placeholder="Rechercher un lieu à ajouter…"
-                  className="w-full px-3 py-2 text-sm border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-400 bg-indigo-50/30"
-                />
-                {showPoiDropdown && poiSearchQuery && (() => {
-                  const currentIds = new Set(inspirationPois.map((p) => p.poi_id));
-                  const filtered = allPois
-                    .filter((p) => !currentIds.has(p.poi_id) && p.nom.toLowerCase().includes(poiSearchQuery.toLowerCase()))
-                    .slice(0, 10);
-                  if (!filtered.length) return null;
-                  return (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-indigo-200 rounded-lg shadow-lg max-h-52 overflow-auto">
-                      {filtered.map((poi) => (
-                        <button
-                          key={poi.poi_id}
-                          type="button"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            setInspirationPois((prev) => [...prev, { ...poi, url_source: poi.url_source ?? null }]);
-                            setPoiSearchQuery('');
-                            setShowPoiDropdown(false);
-                          }}
-                          className="w-full px-3 py-2.5 text-left hover:bg-indigo-50 border-b border-gray-100 last:border-b-0"
-                        >
-                          <p className="text-sm font-medium text-gray-900">{poi.nom}</p>
-                          {poi.url_source && (
-                            <p className="text-xs text-gray-400 truncate mt-0.5">{poi.url_source}</p>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  );
-                })()}
-              </div>
-              <p className="mt-1.5 text-xs text-gray-400">
-                Recherche parmi {allPois.length} lieux du guide. Les modifications seront sauvegardées et le bouton "Actualiser les POIs" permettra de recalculer les cartes.
+              <p className="mt-2 text-xs text-indigo-500">
+                Pour modifier cette liste, utilise l'onglet <strong>Lieux &amp; Inspirations</strong> (glisser-déposer). Les pages du chemin de fer se mettent à jour automatiquement.
               </p>
             </div>
           )}

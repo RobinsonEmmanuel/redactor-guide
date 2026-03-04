@@ -150,6 +150,131 @@ export async function workersRoutes(fastify: FastifyInstance) {
   });
 
   /**
+   * POST /workers/sync-inspiration-pages
+   * Synchronise toutes les pages du chemin de fer liées à une inspiration
+   * après modification de lieux_associes dans l'étape 4 "Lieux & Inspirations".
+   *
+   * - Récupère les nouveaux lieux_associes depuis la collection inspirations
+   * - Redistribue les POIs sur les pages existantes (même pagination que le builder)
+   * - Met à jour inspiration_pois_ids et relance le service inspiration_poi_cards sur chaque page
+   */
+  fastify.post('/workers/sync-inspiration-pages', async (request, reply) => {
+    const db = request.server.container.db;
+    const { guideId, inspirationId } = request.body as { guideId: string; inspirationId: string };
+
+    try {
+      // 1. Charger la liste à jour des lieux_associes
+      const inspDoc = await db.collection('inspirations').findOne({ guide_id: guideId });
+      const inspiration = (inspDoc?.inspirations ?? []).find(
+        (i: any) => i.theme_id === inspirationId || i.inspiration_id === inspirationId
+      );
+      if (!inspiration) {
+        return reply.status(404).send({ error: `Inspiration ${inspirationId} introuvable` });
+      }
+      const newPoisIds: string[] = inspiration.lieux_associes ?? [];
+
+      // 2. Trouver toutes les pages du chemin de fer pour cette inspiration
+      const cheminDeFerDoc = await db.collection('chemin_de_fer').findOne({ guide_id: guideId });
+      if (!cheminDeFerDoc) return reply.status(404).send({ error: 'Chemin de fer introuvable' });
+
+      const cheminDeFerId = cheminDeFerDoc._id.toString();
+      const inspirationPages = await db.collection('pages').find({
+        chemin_de_fer_id: cheminDeFerId,
+        'metadata.inspiration_id': inspirationId,
+      }).sort({ 'metadata.page_index': 1 }).toArray();
+
+      if (inspirationPages.length === 0) {
+        return reply.send({ success: true, message: 'Aucune page chemin de fer à synchroniser', pagesUpdated: 0 });
+      }
+
+      // 3. Redistribuer les POIs sur les pages existantes
+      const pageCount   = inspirationPages.length;
+      const poisPerPage = Math.ceil(newPoisIds.length / pageCount) || 1;
+
+      // 4. Charger données guide + pois_selection pour résolution
+      const guide    = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+      const poisDoc  = await db.collection('pois_selection').findOne({ guide_id: guideId });
+      const allPois: any[] = poisDoc?.pois ?? [];
+      const guideLang: string = guide?.language ?? guide?.langue ?? 'fr';
+      const articleUrlCache: Record<string, string | null> = {};
+
+      const resolvePoiIds = async (ids: string[]) => {
+        const resolved: Array<{ poi_id: string; nom: string; url_source: string | null }> = [];
+        for (const poiId of ids) {
+          const poi = allPois.find((x: any) => x.poi_id === poiId);
+          if (!poi) continue;
+          let poiUrl: string | null = null;
+          const slug: string | undefined = poi.article_source;
+          if (slug) {
+            if (!(slug in articleUrlCache)) {
+              const artDoc = await db.collection('articles_raw').findOne({ slug }, { projection: { urls_by_lang: 1 } });
+              articleUrlCache[slug] = artDoc?.urls_by_lang?.[guideLang] ?? artDoc?.urls_by_lang?.['fr'] ?? null;
+            }
+            poiUrl = articleUrlCache[slug];
+          }
+          resolved.push({ poi_id: poi.poi_id, nom: poi.nom, url_source: poiUrl });
+        }
+        return resolved;
+      };
+
+      const runner   = new FieldServiceRunner();
+      let pagesUpdated = 0;
+
+      for (let i = 0; i < inspirationPages.length; i++) {
+        const pageDoc = inspirationPages[i];
+        const pagePoiIds = newPoisIds.slice(i * poisPerPage, (i + 1) * poisPerPage);
+        const resolvedPois = await resolvePoiIds(pagePoiIds);
+
+        // Mettre à jour metadata
+        await db.collection('pages').updateOne(
+          { _id: pageDoc._id },
+          { $set: {
+            'metadata.inspiration_pois_ids': pagePoiIds,
+            'metadata.inspiration_pois':     resolvedPois,
+            updated_at: new Date().toISOString(),
+          }}
+        );
+
+        // Relancer le service inspiration_poi_cards
+        const template = await db.collection('templates').findOne({ _id: new ObjectId(pageDoc.template_id) });
+        const repField  = ((template?.fields ?? []) as any[]).find((f: any) => f.service_id === 'inspiration_poi_cards');
+        const updatedContent: Record<string, string> = { ...(pageDoc.content ?? {}) };
+
+        if (repField) {
+          try {
+            const svcResult = await runner.run('inspiration_poi_cards', {
+              guideId,
+              guide:            guide ?? {},
+              currentPage:      { ...pageDoc, metadata: { ...pageDoc.metadata, inspiration_pois: resolvedPois } },
+              allExportedPages: [],
+              db,
+              fieldDef:         repField,
+            });
+            updatedContent[repField.name] = svcResult.value;
+            if (repField.type === 'repetitif' && svcResult.value) {
+              Object.assign(updatedContent, explodeRepetitifField(repField.name, svcResult.value));
+            }
+          } catch (svcErr: any) {
+            console.warn(`⚠️ [sync-inspiration-pages] Service échoué page ${pageDoc._id}: ${svcErr.message}`);
+          }
+        }
+
+        await db.collection('pages').updateOne(
+          { _id: pageDoc._id },
+          { $set: { content: updatedContent, updated_at: new Date().toISOString() } }
+        );
+        pagesUpdated++;
+      }
+
+      console.log(`✅ [sync-inspiration-pages] ${pagesUpdated} page(s) synchronisée(s) pour inspiration ${inspirationId}`);
+      return reply.send({ success: true, pagesUpdated, poisTotal: newPoisIds.length });
+    } catch (error: any) {
+      console.error(`❌ [sync-inspiration-pages]`, error);
+      return reply.status(500).send({ error: 'Erreur lors de la synchronisation', details: error.message });
+    }
+  });
+
+  /**
    * POST /workers/refresh-inspiration-pois
    * Ré-résout la liste des POIs d'une page inspiration à partir de inspiration_pois_ids
    * puis relance le service inspiration_poi_cards.

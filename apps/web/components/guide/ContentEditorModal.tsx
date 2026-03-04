@@ -251,6 +251,9 @@ export default function ContentEditorModal({
   const [showImageAnalysis, setShowImageAnalysis] = useState(false);
   const [showImageSelector, setShowImageSelector] = useState(false);
   const [currentImageField, setCurrentImageField] = useState<string | null>(null);
+  const [currentRepetitifImageRef, setCurrentRepetitifImageRef] = useState<{
+    fieldName: string; idx: number; sfName: string; poiName: string;
+  } | null>(null);
   const [recalculatingFields, setRecalculatingFields] = useState<Set<string>>(new Set());
   const [refreshingPois, setRefreshingPois]           = useState(false);
   const [validating, setValidating] = useState(false);
@@ -404,6 +407,20 @@ export default function ContentEditorModal({
     if (currentImageField) {
       handleFieldChange(currentImageField, imageUrl);
     }
+  };
+
+  const handleRepetitifImageSelected = (imageUrl: string) => {
+    if (!currentRepetitifImageRef) return;
+    const { fieldName, idx, sfName } = currentRepetitifImageRef;
+    const raw = formData[fieldName];
+    let items: Record<string, string>[] = [];
+    try {
+      items = typeof raw === 'string' ? JSON.parse(raw) : (Array.isArray(raw) ? [...raw] : []);
+    } catch { items = []; }
+    const next = [...items];
+    next[idx] = { ...next[idx], [sfName]: imageUrl };
+    handleFieldChange(fieldName, next);
+    setCurrentRepetitifImageRef(null);
   };
 
   const getCharacterCount = (fieldName: string, maxChars?: number) => {
@@ -1047,20 +1064,64 @@ export default function ContentEditorModal({
                             <span className="block font-mono text-gray-400 text-[10px]">{sf.type}</span>
                           </label>
                           {sf.type === 'image' ? (
-                            <div className="flex-1 flex gap-2 items-center">
-                              <input
-                                type="text"
-                                value={item[sf.name] || ''}
-                                onChange={(e) => {
-                                  const next = [...items];
-                                  next[idx] = { ...item, [sf.name]: e.target.value };
-                                  updateItems(next);
-                                }}
-                                placeholder="https://…"
-                                className="flex-1 px-2 py-1.5 text-xs border border-gray-200 rounded-md"
-                              />
+                            <div className="flex-1 flex flex-col gap-1.5">
+                              <div className="flex gap-2 items-center">
+                                <input
+                                  type="text"
+                                  value={item[sf.name] || ''}
+                                  onChange={(e) => {
+                                    const next = [...items];
+                                    next[idx] = { ...item, [sf.name]: e.target.value };
+                                    updateItems(next);
+                                  }}
+                                  placeholder="https://…"
+                                  className="flex-1 px-2 py-1.5 text-xs border border-gray-200 rounded-md"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCurrentRepetitifImageRef({
+                                      fieldName: field.name,
+                                      idx,
+                                      sfName: sf.name,
+                                      poiName: item['nom'] || '',
+                                    });
+                                    setCurrentImageField(null);
+                                    setShowImageSelector(true);
+                                  }}
+                                  className="px-2 py-1.5 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-xs flex items-center gap-1 whitespace-nowrap shrink-0"
+                                  title="Choisir parmi les images analysées"
+                                >
+                                  <PhotoIcon className="h-3.5 w-3.5" />
+                                  Choisir
+                                </button>
+                              </div>
                               {item[sf.name] && (
-                                <img src={item[sf.name]} alt="" className="h-8 w-8 object-cover rounded border" onError={(e) => (e.currentTarget.style.display = 'none')} />
+                                <div
+                                  className="relative group cursor-pointer inline-block"
+                                  onClick={() => {
+                                    setCurrentRepetitifImageRef({
+                                      fieldName: field.name,
+                                      idx,
+                                      sfName: sf.name,
+                                      poiName: item['nom'] || '',
+                                    });
+                                    setCurrentImageField(null);
+                                    setShowImageSelector(true);
+                                  }}
+                                >
+                                  <img
+                                    src={item[sf.name]}
+                                    alt=""
+                                    className="h-16 w-24 object-cover rounded border group-hover:opacity-70 transition-opacity"
+                                    onError={(e) => (e.currentTarget.style.display = 'none')}
+                                  />
+                                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <span className="bg-black/60 text-white text-[10px] px-2 py-1 rounded flex items-center gap-1">
+                                      <PhotoIcon className="h-3 w-3" /> Changer
+                                    </span>
+                                  </div>
+                                </div>
                               )}
                             </div>
                           ) : (
@@ -1371,27 +1432,51 @@ export default function ContentEditorModal({
       )}
 
       {/* Modal de sélection d'images */}
-      {showImageSelector && currentImageField && (
+      {showImageSelector && (currentImageField || currentRepetitifImageRef) && (
         <ImageSelectorModal
           guideId={guideId}
           pageId={page._id}
-          poiName={page.titre || undefined}
-          scope={
-            // "Ne s'applique pas" → toutes les images analysées de la destination
-            template?.info_source === 'non_applicable' ||
-            template?.info_source === 'tous_articles_site' ||
-            template?.info_source === 'tous_articles_et_llm'
-              ? 'guide'
-              : page.url_source
-              ? 'page'
-              : 'guide'
+          poiName={
+            currentRepetitifImageRef?.poiName
+              ? currentRepetitifImageRef.poiName
+              : (page.titre || undefined)
           }
-          currentImageUrl={formData[currentImageField]}
+          scope={
+            currentRepetitifImageRef
+              ? 'guide'
+              : (
+                template?.info_source === 'non_applicable' ||
+                template?.info_source === 'tous_articles_site' ||
+                template?.info_source === 'tous_articles_et_llm'
+                  ? 'guide'
+                  : page.url_source
+                  ? 'page'
+                  : 'guide'
+              )
+          }
+          currentImageUrl={
+            currentRepetitifImageRef
+              ? (() => {
+                  try {
+                    const raw = formData[currentRepetitifImageRef.fieldName];
+                    const items = typeof raw === 'string' ? JSON.parse(raw) : (Array.isArray(raw) ? raw : []);
+                    return items[currentRepetitifImageRef.idx]?.[currentRepetitifImageRef.sfName] || '';
+                  } catch { return ''; }
+                })()
+              : (currentImageField ? formData[currentImageField] : '')
+          }
           apiUrl={apiUrl}
-          onSelect={handleImageSelected}
+          onSelect={(imageUrl) => {
+            if (currentRepetitifImageRef) {
+              handleRepetitifImageSelected(imageUrl);
+            } else {
+              handleImageSelected(imageUrl);
+            }
+          }}
           onClose={() => {
             setShowImageSelector(false);
             setCurrentImageField(null);
+            setCurrentRepetitifImageRef(null);
           }}
         />
       )}

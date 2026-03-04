@@ -330,7 +330,7 @@ export class CheminDeFerBuilderService {
         inspirationPage.section_id = sectionId;
         inspirationPage.metadata = {
           ...inspirationPage.metadata,
-          inspiration_id:       inspiration.inspiration_id,
+          inspiration_id:       inspiration.theme_id ?? inspiration.inspiration_id,
           inspiration_title:    inspiration.titre,
           inspiration_pois_ids: pagePoiIds,
           page_type:   'inspiration',

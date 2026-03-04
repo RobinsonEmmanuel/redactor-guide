@@ -31,7 +31,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       const cheminDeFerId = cheminDeFer._id.toString();
 
       // Récupérer les pages du chemin de fer
-      const pages = await db
+      const rawPages = await db
         .collection('pages')
         .find({ chemin_de_fer_id: cheminDeFerId })
         .sort({ ordre: 1 })
@@ -43,6 +43,53 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         .find({ chemin_de_fer_id: cheminDeFerId })
         .sort({ ordre: 1 })
         .toArray();
+
+      // Résoudre inspiration_pois pour les pages inspiration qui n'ont pas encore ce champ résolu
+      const inspirationPagesNeedingResolution = rawPages.filter(
+        (p: any) =>
+          p.metadata?.page_type === 'inspiration' &&
+          Array.isArray(p.metadata?.inspiration_pois_ids) &&
+          p.metadata.inspiration_pois_ids.length > 0 &&
+          (!Array.isArray(p.metadata?.inspiration_pois) || p.metadata.inspiration_pois.length === 0)
+      );
+
+      let resolvedPoisByPageId: Record<string, Array<{ poi_id: string; nom: string; url_source: string | null }>> = {};
+
+      if (inspirationPagesNeedingResolution.length > 0) {
+        const poisDoc = await db.collection('pois_selection').findOne({ guide_id: guideId });
+        const allPois: any[] = poisDoc?.pois ?? [];
+        const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+        const guideLang: string = guide?.language ?? guide?.langue ?? 'fr';
+        const urlCache: Record<string, string | null> = {};
+
+        for (const p of inspirationPagesNeedingResolution) {
+          const resolved: Array<{ poi_id: string; nom: string; url_source: string | null }> = [];
+          for (const poiId of (p.metadata.inspiration_pois_ids as string[])) {
+            const poi = allPois.find((x: any) => x.poi_id === poiId);
+            if (!poi) continue;
+            let poiUrl: string | null = null;
+            const slug: string | undefined = poi.article_source;
+            if (slug) {
+              if (!(slug in urlCache)) {
+                const artDoc = await db.collection('articles_raw').findOne(
+                  { slug },
+                  { projection: { urls_by_lang: 1 } }
+                );
+                urlCache[slug] = artDoc?.urls_by_lang?.[guideLang] ?? artDoc?.urls_by_lang?.['fr'] ?? null;
+              }
+              poiUrl = urlCache[slug];
+            }
+            resolved.push({ poi_id: poi.poi_id, nom: poi.nom, url_source: poiUrl });
+          }
+          resolvedPoisByPageId[p._id.toString()] = resolved;
+        }
+      }
+
+      const pages = rawPages.map((p: any) => {
+        const resolved = resolvedPoisByPageId[p._id.toString()];
+        if (!resolved) return p;
+        return { ...p, metadata: { ...p.metadata, inspiration_pois: resolved } };
+      });
 
       return reply.send({
         ...cheminDeFer,

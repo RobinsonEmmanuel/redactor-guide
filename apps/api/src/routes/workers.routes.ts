@@ -180,10 +180,15 @@ export async function workersRoutes(fastify: FastifyInstance) {
       const cheminDeFerId = cheminDeFerDoc._id.toString();
       const inspirationPages = await db.collection('pages').find({
         chemin_de_fer_id: cheminDeFerId,
-        'metadata.inspiration_id': inspirationId,
+        'metadata.page_type': 'inspiration',
+        $or: [
+          { 'metadata.inspiration_id': inspirationId },
+          { 'metadata.inspiration_title': inspiration.titre },
+        ],
       }).sort({ 'metadata.page_index': 1 }).toArray();
 
       if (inspirationPages.length === 0) {
+        console.warn(`⚠️ [sync-inspiration-pages] Aucune page trouvée pour inspiration "${inspiration.titre}" (id: ${inspirationId}) dans chemin de fer ${cheminDeFerId}`);
         return reply.send({ success: true, message: 'Aucune page chemin de fer à synchroniser', pagesUpdated: 0 });
       }
 
@@ -225,10 +230,11 @@ export async function workersRoutes(fastify: FastifyInstance) {
         const pagePoiIds = newPoisIds.slice(i * poisPerPage, (i + 1) * poisPerPage);
         const resolvedPois = await resolvePoiIds(pagePoiIds);
 
-        // Mettre à jour metadata
+        // Mettre à jour metadata (+ réparer inspiration_id si absent)
         await db.collection('pages').updateOne(
           { _id: pageDoc._id },
           { $set: {
+            'metadata.inspiration_id':       inspirationId,
             'metadata.inspiration_pois_ids': pagePoiIds,
             'metadata.inspiration_pois':     resolvedPois,
             updated_at: new Date().toISOString(),

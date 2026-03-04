@@ -81,7 +81,35 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
   const [showDropdown, setShowDropdown] = useState(false);
 
   // ── POIs inspiration (lecture seule — modifiables dans l'onglet Lieux & Inspirations) ──
-  const inspirationPois: PoiSelection[] = (page?.metadata?.inspiration_pois ?? []) as PoiSelection[];
+  const [inspirationPois, setInspirationPois] = useState<PoiSelection[]>(
+    (page?.metadata?.inspiration_pois ?? []) as PoiSelection[]
+  );
+
+  useEffect(() => {
+    const fromProp = (page?.metadata?.inspiration_pois ?? []) as PoiSelection[];
+    console.log('[PageModal] inspiration_pois depuis prop:', fromProp.length, '| page._id:', page?._id, '| metadata keys:', page?.metadata ? Object.keys(page.metadata) : 'no metadata');
+
+    if (fromProp.length > 0) {
+      setInspirationPois(fromProp);
+      return;
+    }
+
+    const pageType = page?.metadata?.page_type || page?.type_de_page;
+    if (pageType !== 'inspiration' || !page?._id || !guideId) return;
+
+    console.log('[PageModal] prop vide → fetch chemin-de-fer pour récupérer les POIs, pageId:', page._id);
+    fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer`, { credentials: 'include' })
+      .then(r => r.json())
+      .then(data => {
+        const freshPage = (data.pages || []).find(
+          (p: any) => String(p._id) === String(page._id)
+        );
+        const freshPois = (freshPage?.metadata?.inspiration_pois ?? []) as PoiSelection[];
+        console.log('[PageModal] POIs récupérés via fetch:', freshPois.length);
+        setInspirationPois(freshPois);
+      })
+      .catch(err => console.error('[PageModal] erreur fetch POIs:', err));
+  }, [page?._id]);
   
   // Extraire le type POI et les autres mentions du commentaire interne
   const extractPoiData = (commentaire: string) => {

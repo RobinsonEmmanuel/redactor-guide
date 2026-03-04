@@ -191,6 +191,17 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
           pois: p.metadata?.inspiration_pois?.length ?? 0,
           metadata_keys: p.metadata ? Object.keys(p.metadata) : [],
         })));
+        // Log brut d'une page inspiration pour débug
+        if (inspiPages.length > 0) {
+          const sample = inspiPages[0];
+          console.log('[loadPages] SAMPLE brut page inspiration:', JSON.stringify({
+            _id: sample._id,
+            metadata_page_type: sample.metadata?.page_type,
+            inspiration_pois_count: sample.metadata?.inspiration_pois?.length,
+            inspiration_pois_sample: sample.metadata?.inspiration_pois?.slice(0, 2),
+            has_metadata: !!sample.metadata,
+          }));
+        }
         setPages(loadedPages);
         // Si des pages existent en base, quitter le mode grille vide
         if (loadedPages.length > 0) setEmptyGridMode(false);

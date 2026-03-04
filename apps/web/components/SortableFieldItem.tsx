@@ -971,21 +971,69 @@ export default function SortableFieldItem({
                 )}
 
                 {/* Aperçu des calques InDesign générés */}
-                {field.sub_fields && field.sub_fields.length > 0 && (() => {
+                {(() => {
                   const sep = '_repetitif_';
                   const si  = field.name.indexOf(sep);
                   const pfx = si !== -1 ? field.name.substring(0, si) : 'TEMPLATE';
                   const grp = si !== -1 ? field.name.substring(si + sep.length) : field.name;
+
+                  // Pour inspiration_poi_cards : calques fixes générés par le service
+                  const POI_CARDS_FIELDS: Array<{ name: string; label: string; note?: string }> = [
+                    { name: 'nom',          label: 'Nom du lieu (réécrit par IA)' },
+                    { name: 'hashtag',      label: 'Hashtag éditorial' },
+                    { name: 'image',        label: 'Image emblématique' },
+                    { name: 'url_article',  label: 'URL brute de l\'article WordPress' },
+                    { name: 'lien_article', label: 'Lien article JSON {label, url}' },
+                    { name: 'url_maps',     label: 'URL brute Google Maps' },
+                    { name: 'lien_maps',    label: 'Lien Maps JSON {label, url}' },
+                  ];
+
+                  const isPoiCards = field.service_id === 'inspiration_poi_cards';
+                  const calques = isPoiCards
+                    ? POI_CARDS_FIELDS
+                    : (field.sub_fields ?? []).map((sf) => ({ name: sf.name, label: sf.label ?? '' }));
+
+                  if (calques.length === 0) return null;
+
+                  // Noms mal configurés (ne correspondent pas aux clés du service)
+                  const knownNames = new Set(POI_CARDS_FIELDS.map((f) => f.name));
+                  const badSubFields = isPoiCards
+                    ? (field.sub_fields ?? []).filter((sf) => !knownNames.has(sf.name))
+                    : [];
+
                   return (
-                    <div className="mt-3 p-3 bg-gray-900 rounded-lg">
-                      <p className="text-xs text-gray-400 mb-1.5 font-mono">// Calques InDesign générés (convention automatique) :</p>
-                      <div className="space-y-0.5">
-                        {field.sub_fields.map((sf) => (
-                          <div key={sf.name} className="flex items-center gap-2">
-                            <code className="text-xs text-green-400 font-mono">{pfx}_{grp}_{sf.name}_N</code>
-                            {sf.label && <span className="text-xs text-gray-500">— {sf.label}</span>}
+                    <div className="mt-3 space-y-2">
+                      {badSubFields.length > 0 && (
+                        <div className="flex items-start gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
+                          <span className="text-red-500 mt-0.5">⚠️</span>
+                          <div className="text-xs text-red-700">
+                            <p className="font-semibold">Noms de sous-champs incorrects — leurs instructions seront ignorées :</p>
+                            <p className="mt-0.5">
+                              {badSubFields.map((sf) => <code key={sf.name} className="bg-red-100 px-1 rounded mr-1">{sf.name}</code>)}
+                              → renomme-les avec les noms exacts du service (voir calques ci-dessous).
+                            </p>
                           </div>
-                        ))}
+                        </div>
+                      )}
+                      <div className="p-3 bg-gray-900 rounded-lg">
+                        <p className="text-xs text-gray-400 mb-1.5 font-mono">// Calques InDesign générés{isPoiCards ? ' par le service inspiration_poi_cards' : ' (convention automatique)'} :</p>
+                        <div className="space-y-0.5">
+                          {calques.map((c) => {
+                            const isDeclared = (field.sub_fields ?? []).some((sf) => sf.name === c.name);
+                            return (
+                              <div key={c.name} className="flex items-center gap-2">
+                                <code className="text-xs text-green-400 font-mono">{pfx}_{grp}_{c.name}_N</code>
+                                <span className="text-xs text-gray-500">— {c.label}</span>
+                                {isPoiCards && !isDeclared && (
+                                  <span className="text-xs text-gray-600 italic">(automatique)</span>
+                                )}
+                                {isPoiCards && isDeclared && (
+                                  <span className="text-xs text-sky-400 italic">(configuré)</span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
                   );

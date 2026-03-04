@@ -5,6 +5,19 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Bars3Icon, TrashIcon } from '@heroicons/react/24/outline';
 
+/** Sous-champs par défaut pré-configurés pour le service inspiration_poi_cards.
+ *  Mode "auto" = aucun flag = le service utilise sa logique intégrée.
+ *  L'utilisateur ne modifie que les champs qu'il veut surcharger. */
+const INSPIRATION_POI_CARDS_DEFAULT_SUBFIELDS: SubField[] = [
+  { name: 'nom',          type: 'texte', label: 'Nom du lieu'        },
+  { name: 'hashtag',      type: 'texte', label: 'Hashtag'            },
+  { name: 'image',        type: 'image', label: 'Image emblématique' },
+  { name: 'url_article',  type: 'lien',  label: 'URL article source' },
+  { name: 'lien_article', type: 'lien',  label: 'Lien article'       },
+  { name: 'url_maps',     type: 'lien',  label: 'URL Google Maps'    },
+  { name: 'lien_maps',    type: 'lien',  label: 'Lien Google Maps'   },
+];
+
 interface LinkPartConfig {
   ai_instructions?: string;
   default_value?: string;
@@ -421,7 +434,16 @@ export default function SortableFieldItem({
                 ) : (
                   <select
                     value={field.service_id}
-                    onChange={(e) => onChange({ service_id: e.target.value })}
+                    onChange={(e) => {
+                      const newServiceId = e.target.value;
+                      // Auto-remplir les sous-champs par défaut si on sélectionne inspiration_poi_cards
+                      // et que le champ n'en a pas encore (ou qu'ils sont vides)
+                      if (newServiceId === 'inspiration_poi_cards' && !(field.sub_fields?.length)) {
+                        onChange({ service_id: newServiceId, sub_fields: INSPIRATION_POI_CARDS_DEFAULT_SUBFIELDS });
+                      } else {
+                        onChange({ service_id: newServiceId });
+                      }
+                    }}
                     className="w-full px-3 py-2 text-sm border border-sky-200 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent bg-sky-50/30"
                   >
                     <option value="">-- Sélectionner un service --</option>
@@ -782,21 +804,40 @@ export default function SortableFieldItem({
                   <label className="text-xs font-medium text-gray-700">
                     Sous-champs — configuration par composant
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const existing = field.sub_fields ?? [];
-                      onChange({ sub_fields: [...existing, { name: `champ_${existing.length + 1}`, type: 'texte' as SubField['type'] }] });
-                    }}
-                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-rose-600 border border-rose-300 rounded-md hover:bg-rose-50"
-                  >
-                    + Ajouter un sous-champ
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {field.service_id === 'inspiration_poi_cards' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (field.sub_fields?.length) {
+                            if (!confirm('Réinitialiser les sous-champs ? Tes instructions personnalisées seront perdues.')) return;
+                          }
+                          onChange({ sub_fields: INSPIRATION_POI_CARDS_DEFAULT_SUBFIELDS });
+                        }}
+                        className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-sky-600 border border-sky-300 rounded-md hover:bg-sky-50"
+                        title="Remettre les 7 sous-champs par défaut du service (nom, hashtag, image, url_article, lien_article, url_maps, lien_maps)"
+                      >
+                        ↺ Valeurs par défaut
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const existing = field.sub_fields ?? [];
+                        onChange({ sub_fields: [...existing, { name: `champ_${existing.length + 1}`, type: 'texte' as SubField['type'] }] });
+                      }}
+                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-rose-600 border border-rose-300 rounded-md hover:bg-rose-50"
+                    >
+                      + Ajouter un sous-champ
+                    </button>
+                  </div>
                 </div>
 
                 {(!field.sub_fields || field.sub_fields.length === 0) ? (
                   <p className="text-xs text-gray-400 italic py-2">
-                    Aucun sous-champ défini. Ajoute les champs composant chaque entrée (image, nom, hashtag, lien…).
+                    {field.service_id === 'inspiration_poi_cards'
+                      ? 'Les 7 sous-champs standard ont été initialisés. Clique sur "↺ Valeurs par défaut" si besoin.'
+                      : 'Aucun sous-champ défini. Ajoute les champs composant chaque entrée (image, nom, hashtag, lien…).'}
                   </p>
                 ) : (
                   <div className="space-y-3">

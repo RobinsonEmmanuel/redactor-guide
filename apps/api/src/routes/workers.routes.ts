@@ -419,8 +419,32 @@ export async function workersRoutes(fastify: FastifyInstance) {
         console.warn(`⚠️ [rebuild] Aucune page de référence — les nouvelles pages auront template='INSPIRATION'`);
       }
 
+      // ── Supprimer les pages orphelines (appartenant à des inspirations supprimées) ──
+      const validInspirationIds = new Set(
+        allInspirations.map((ins: any) => ins.theme_id ?? ins.inspiration_id).filter(Boolean)
+      );
+      const validInspirationTitles = new Set(
+        allInspirations.map((ins: any) => ins.titre).filter(Boolean)
+      );
+      const orphanPages = inspiPages.filter((p: any) => {
+        const id = p.metadata?.inspiration_id;
+        const title = p.metadata?.inspiration_title;
+        return !validInspirationIds.has(id) && !validInspirationTitles.has(title);
+      });
+      if (orphanPages.length > 0) {
+        console.log(`🗑️ [rebuild] Suppression de ${orphanPages.length} page(s) orpheline(s) (inspirations obsolètes)`);
+        orphanPages.forEach((p: any) => {
+          console.log(`   - "${p.metadata?.inspiration_title}" (id=${p._id}, inspiration_id="${p.metadata?.inspiration_id}")`);
+        });
+        await db.collection('pages').deleteMany({
+          _id: { $in: orphanPages.map((p: any) => p._id) },
+        });
+      } else {
+        console.log(`✅ [rebuild] Aucune page orpheline à supprimer`);
+      }
+
       const runner = new FieldServiceRunner();
-      let pagesCreated = 0, pagesDeleted = 0, pagesUpdated = 0;
+      let pagesCreated = 0, pagesDeleted = orphanPages.length, pagesUpdated = 0;
 
       for (const inspiration of allInspirations) {
         const lieux: string[] = inspiration.lieux_associes ?? [];

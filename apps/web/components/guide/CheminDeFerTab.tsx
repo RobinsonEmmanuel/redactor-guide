@@ -71,6 +71,9 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   const [generatingStructure, setGeneratingStructure] = useState(false);
   const [structureError, setStructureError] = useState<string | null>(null);
 
+  // États pour la reconstruction des inspirations
+  const [rebuildingInspirations, setRebuildingInspirations] = useState(false);
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -855,6 +858,48 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     }
   };
 
+  const rebuildInspirations = async () => {
+    const ok = confirm(
+      '⚠️ Cette action va recalculer le nombre de pages inspiration et redistribuer les POIs selon l\'étape 4.\n\nLes pages POI, saison et fixes ne sont pas touchées.\n\nContinuer ?'
+    );
+    if (!ok) return;
+
+    setRebuildingInspirations(true);
+    try {
+      const token = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('accessToken='))
+        ?.split('=')[1];
+
+      const res = await fetch(
+        `${apiUrl}/api/v1/workers/rebuild-inspiration-sections`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ guideId }),
+          credentials: 'include',
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur');
+
+      await loadPages();
+      alert(
+        `✅ Pages inspiration synchronisées !\n\n` +
+        `• ${data.pagesCreated} page(s) créée(s)\n` +
+        `• ${data.pagesDeleted} page(s) supprimée(s)\n` +
+        `• ${data.pagesUpdated} page(s) mise(s) à jour`
+      );
+    } catch (error: any) {
+      alert(`❌ Erreur : ${error.message}`);
+    } finally {
+      setRebuildingInspirations(false);
+    }
+  };
+
   const startEmptyStructure = (count = 100) => {
     // Affiche N emplacements vides dans la grille.
     // Aucune page n'est créée en base — l'utilisateur glisse les templates dessus.
@@ -1117,6 +1162,17 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                 <div className="text-xs text-gray-500">
                   💡 Glissez depuis la palette
                 </div>
+                {pages.length > 0 && (
+                  <button
+                    onClick={rebuildInspirations}
+                    disabled={rebuildingInspirations}
+                    className="px-3 py-1.5 text-xs font-medium text-orange-600 hover:text-white border border-orange-300 hover:bg-orange-500 rounded-md transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Recalcule le nombre de pages inspiration et redistribue les POIs selon l'étape 4 (sans toucher aux autres pages)"
+                  >
+                    <ArrowPathIcon className={`w-3.5 h-3.5 ${rebuildingInspirations ? 'animate-spin' : ''}`} />
+                    {rebuildingInspirations ? 'Sync...' : 'Sync. inspirations'}
+                  </button>
+                )}
                 {pages.length > 0 && (
                   <button
                     onClick={handleClearAllPages}

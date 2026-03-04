@@ -44,13 +44,13 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         .sort({ ordre: 1 })
         .toArray();
 
-      // Résoudre inspiration_pois pour les pages inspiration qui n'ont pas encore ce champ résolu
+      // Résoudre inspiration_pois pour toutes les pages inspiration ayant des inspiration_pois_ids
+      // (toujours recalculé depuis les IDs pour garantir la cohérence)
       const inspirationPagesNeedingResolution = rawPages.filter(
         (p: any) =>
           p.metadata?.page_type === 'inspiration' &&
           Array.isArray(p.metadata?.inspiration_pois_ids) &&
-          p.metadata.inspiration_pois_ids.length > 0 &&
-          (!Array.isArray(p.metadata?.inspiration_pois) || p.metadata.inspiration_pois.length === 0)
+          p.metadata.inspiration_pois_ids.length > 0
       );
 
       let resolvedPoisByPageId: Record<string, Array<{ poi_id: string; nom: string; url_source: string | null }>> = {};

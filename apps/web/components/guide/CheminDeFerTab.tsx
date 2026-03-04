@@ -470,6 +470,31 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         autres_articles_mentions: templatePageData.autres_articles_mentions,
       });
 
+      // ── Pages inspiration : gérées par le rebuild, ne jamais créer de doublons ──
+      if (templatePageData.type === 'inspiration') {
+        const baseTitre = templatePageData.titre ?? '';
+        const existing = (pages as any[]).find((p: any) =>
+          p.metadata?.inspiration_title === baseTitre ||
+          p.metadata?.inspiration_title === baseTitre.replace(/\s*\(\d+\/\d+\)$/, '') ||
+          p.titre === baseTitre ||
+          (p.titre ?? '').startsWith(baseTitre.replace(/\s*\(\d+\/\d+\)$/, ''))
+        );
+        if (existing && targetOrder) {
+          // Déplacer la page existante à la position cible plutôt que créer un doublon
+          await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${existing._id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ ordre: targetOrder }),
+          });
+          loadPages();
+        } else if (!existing) {
+          // Pas de page existante → utiliser "Sync. inspirations" pour créer correctement
+          alert(`ℹ️ La page inspiration "${baseTitre}" doit être créée via le bouton "Sync. inspirations" pour avoir ses POIs configurés correctement.`);
+        }
+        return;
+      }
+
       // Trouver le template correspondant
       const template = templates.find((t) => t.name === templatePageData.template_name);
       if (!template) {
@@ -1147,7 +1172,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                     </div>
                   )}
 
-                  {/* Pages inspirations */}
+                  {/* Pages inspirations — affichage en lecture seule, gérées par "Sync. inspirations" */}
                   {templateProposals.proposals?.inspiration_pages && templateProposals.proposals.inspiration_pages.length > 0 && (
                     <div>
                       <div className="flex items-center gap-1.5 mb-1.5">
@@ -1156,18 +1181,16 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                           Inspirations ({templateProposals.proposals.inspiration_pages.length})
                         </h4>
                       </div>
-                      <div className="space-y-1">
+                      <p className="text-[10px] text-orange-600 bg-orange-50 border border-orange-200 rounded px-2 py-1 mb-1.5">
+                        🔒 Gérées via "Sync. inspirations"
+                      </p>
+                      <div className="space-y-1 opacity-60 pointer-events-none">
                         {templateProposals.proposals.inspiration_pages.map((page: any) => (
-                          <ProposalCardMini
-                            key={page.page_id}
-                            id={page.page_id}
-                            type="template_page"
-                            title={page.titre}
-                            description={`${page.poi_count} POIs`}
-                            icon={LightBulbIcon}
-                            color="orange"
-                            templatePage={page}
-                          />
+                          <div key={page.page_id} className="flex items-center gap-2 px-2 py-1.5 bg-orange-50 border border-orange-100 rounded text-xs text-orange-700">
+                            <LightBulbIcon className="w-3 h-3 flex-shrink-0" />
+                            <span className="truncate flex-1">{page.titre}</span>
+                            <span className="text-[10px] text-orange-500">{page.poi_count} POIs</span>
+                          </div>
                         ))}
                       </div>
                     </div>

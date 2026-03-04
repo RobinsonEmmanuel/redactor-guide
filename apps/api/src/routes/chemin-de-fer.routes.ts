@@ -130,6 +130,22 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
               }
               poiUrl = urlCache[slug];
             }
+            // Fallback : si le lookup par slug a échoué, essayer url_source direct du POI
+            if (!poiUrl && poi.url_source && typeof poi.url_source === 'string' && poi.url_source.startsWith('http')) {
+              poiUrl = poi.url_source;
+            }
+            // Fallback 2 : chercher dans articles_raw par URL si url_source n'est pas une URL directe
+            if (!poiUrl && poi.url_source && typeof poi.url_source === 'string' && !poi.url_source.startsWith('http')) {
+              const cacheKey = `url:${poi.url_source}`;
+              if (!(cacheKey in urlCache)) {
+                const artBySlug = await db.collection('articles_raw').findOne(
+                  { slug: poi.url_source },
+                  { projection: { urls_by_lang: 1 } }
+                );
+                urlCache[cacheKey] = artBySlug?.urls_by_lang?.[guideLang] ?? artBySlug?.urls_by_lang?.['fr'] ?? null;
+              }
+              poiUrl = urlCache[cacheKey];
+            }
             resolved.push({ poi_id: poi.poi_id, nom: poi.nom, url_source: poiUrl });
           }
           console.log(`   ✅ "${p.metadata?.inspiration_title}" → ${resolved.length} POIs résolus`);

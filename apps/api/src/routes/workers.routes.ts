@@ -406,6 +406,19 @@ export async function workersRoutes(fastify: FastifyInstance) {
             }
             url = urlCache[slug];
           }
+          // Fallback : url_source direct du POI si le slug n'a pas donné de résultat
+          if (!url && poi.url_source && typeof poi.url_source === 'string' && poi.url_source.startsWith('http')) {
+            url = poi.url_source;
+          }
+          // Fallback 2 : url_source peut être un slug alternatif
+          if (!url && poi.url_source && typeof poi.url_source === 'string' && !poi.url_source.startsWith('http')) {
+            const cacheKey = `url:${poi.url_source}`;
+            if (!(cacheKey in urlCache)) {
+              const art2 = await db.collection('articles_raw').findOne({ slug: poi.url_source }, { projection: { urls_by_lang: 1 } });
+              urlCache[cacheKey] = art2?.urls_by_lang?.[guideLang] ?? art2?.urls_by_lang?.['fr'] ?? null;
+            }
+            url = urlCache[cacheKey];
+          }
           out.push({ poi_id: poi.poi_id, nom: poi.nom, url_source: url });
         }
         return out;
@@ -654,6 +667,18 @@ export async function workersRoutes(fastify: FastifyInstance) {
               null;
           }
           poiUrl = articleUrlCache[poiSlug];
+        }
+        // Fallback : url_source direct si le slug n'a pas donné de résultat
+        if (!poiUrl && poi.url_source && typeof poi.url_source === 'string' && poi.url_source.startsWith('http')) {
+          poiUrl = poi.url_source;
+        }
+        if (!poiUrl && poi.url_source && typeof poi.url_source === 'string' && !poi.url_source.startsWith('http')) {
+          const cacheKey = `url:${poi.url_source}`;
+          if (!(cacheKey in articleUrlCache)) {
+            const art2 = await db.collection('articles_raw').findOne({ slug: poi.url_source }, { projection: { urls_by_lang: 1 } });
+            articleUrlCache[cacheKey] = art2?.urls_by_lang?.[guideLang] ?? art2?.urls_by_lang?.['fr'] ?? null;
+          }
+          poiUrl = articleUrlCache[cacheKey];
         }
 
         resolvedPois.push({ poi_id: poi.poi_id, nom: poi.nom, url_source: poiUrl });

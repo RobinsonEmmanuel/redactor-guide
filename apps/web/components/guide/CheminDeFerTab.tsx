@@ -66,6 +66,8 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [generatingPageIds, setGeneratingPageIds] = useState<Set<string>>(new Set());
+  // Compteur de séquence pour annuler les réponses loadPages obsolètes (race condition)
+  const loadPagesSeqRef = useRef(0);
   
   // États pour la génération de structure
   const [generatingStructure, setGeneratingStructure] = useState(false);
@@ -176,10 +178,14 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   };
 
   const loadPages = async () => {
+    // Incrémenter le compteur — seule la réponse du dernier appel est appliquée
+    const seq = ++loadPagesSeqRef.current;
     try {
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer`, {
         credentials: 'include',
       });
+      // Ignorer la réponse si un appel plus récent a déjà été lancé
+      if (seq !== loadPagesSeqRef.current) return;
       if (res.ok) {
         const data = await res.json();
         const loadedPages = data.pages || [];

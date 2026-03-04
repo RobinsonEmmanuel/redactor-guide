@@ -419,32 +419,53 @@ export async function workersRoutes(fastify: FastifyInstance) {
         console.warn(`⚠️ [rebuild] Aucune page de référence — les nouvelles pages auront template='INSPIRATION'`);
       }
 
-      // ── Supprimer les pages orphelines (appartenant à des inspirations supprimées) ──
+      // ── Supprimer toutes les pages inspiration (orphelines + fantômes sans metadata) ──
       const validInspirationIds = new Set(
         allInspirations.map((ins: any) => ins.theme_id ?? ins.inspiration_id).filter(Boolean)
       );
       const validInspirationTitles = new Set(
         allInspirations.map((ins: any) => ins.titre).filter(Boolean)
       );
+
+      // Pages orphelines : metadata.page_type=inspiration mais inspiration supprimée
       const orphanPages = inspiPages.filter((p: any) => {
         const id = p.metadata?.inspiration_id;
         const title = p.metadata?.inspiration_title;
         return !validInspirationIds.has(id) && !validInspirationTitles.has(title);
       });
-      if (orphanPages.length > 0) {
-        console.log(`🗑️ [rebuild] Suppression de ${orphanPages.length} page(s) orpheline(s) (inspirations obsolètes)`);
+
+      // Pages fantômes : titre ressemble à une inspiration (ex: "Plages secrètes (1/1)") mais
+      // metadata.page_type est absent ou incorrect — restes de rebuilds précédents bugués
+      const allInspirationTitlesRegex = allInspirations.map((ins: any) => {
+        const titre: string = ins.titre ?? '';
+        // Échappe les caractères spéciaux regex
+        const escaped = titre.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`^${escaped}(\\s*\\(\\d+\\/\\d+\\))?$`);
+      });
+      const ghostPages = allPages.filter((p: any) => {
+        if (p.metadata?.page_type === 'inspiration') return false; // déjà dans inspiPages
+        const titre: string = p.titre ?? '';
+        return allInspirationTitlesRegex.some(rx => rx.test(titre));
+      });
+
+      const toDelete = [...orphanPages, ...ghostPages];
+      if (toDelete.length > 0) {
+        console.log(`🗑️ [rebuild] Suppression de ${toDelete.length} page(s) obsolètes/fantômes:`);
         orphanPages.forEach((p: any) => {
-          console.log(`   - "${p.metadata?.inspiration_title}" (id=${p._id}, inspiration_id="${p.metadata?.inspiration_id}")`);
+          console.log(`   - orpheline: "${p.metadata?.inspiration_title}" (id=${p._id})`);
+        });
+        ghostPages.forEach((p: any) => {
+          console.log(`   - fantôme: "${p.titre}" (id=${p._id}, page_type=${p.metadata?.page_type ?? 'absent'})`);
         });
         await db.collection('pages').deleteMany({
-          _id: { $in: orphanPages.map((p: any) => p._id) },
+          _id: { $in: toDelete.map((p: any) => p._id) },
         });
       } else {
-        console.log(`✅ [rebuild] Aucune page orpheline à supprimer`);
+        console.log(`✅ [rebuild] Aucune page orpheline/fantôme à supprimer`);
       }
 
       const runner = new FieldServiceRunner();
-      let pagesCreated = 0, pagesDeleted = orphanPages.length, pagesUpdated = 0;
+      let pagesCreated = 0, pagesDeleted = toDelete.length, pagesUpdated = 0;
 
       for (const inspiration of allInspirations) {
         const lieux: string[] = inspiration.lieux_associes ?? [];

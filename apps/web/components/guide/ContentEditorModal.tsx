@@ -1128,7 +1128,12 @@ export default function ContentEditorModal({
               <button
                 type="button"
                 onClick={handleGenerateContent}
-                disabled={generating || (requiresUrlForGeneration && !page.url_source) || (requiresPoisForGeneration && !page.metadata?.inspiration_pois?.length)}
+                disabled={generating
+                  || (requiresUrlForGeneration && !page.url_source)
+                  || (requiresPoisForGeneration && !page.metadata?.inspiration_pois?.length)
+                  || (isInspirationPage && template?.info_source === 'inspiration_auto_match'
+                      && (page.metadata?.inspiration_pois ?? []).some((p: InspirationPoi) => !p.url_source))
+                }
                 title={generating ? 'Génération en cours…' : 'Générer le contenu automatiquement'}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
               >
@@ -1174,6 +1179,26 @@ export default function ContentEditorModal({
           {requiresPoisForGeneration && !page.metadata?.inspiration_pois?.length && (
             <p className="text-xs text-white/70 mt-2">⚠️ Lancez d'abord la construction du guide pour résoudre les POIs de cette inspiration</p>
           )}
+          {/* Contrôle POIs sans URL source — bloquant si source = inspiration_auto_match */}
+          {isInspirationPage && page.metadata?.inspiration_pois?.length > 0 && (() => {
+            const poisSansUrl = (page.metadata!.inspiration_pois!).filter((p: InspirationPoi) => !p.url_source);
+            if (poisSansUrl.length === 0) return null;
+            const isBlocking = template?.info_source === 'inspiration_auto_match';
+            return (
+              <div className={`mt-2 px-3 py-2 rounded text-xs border ${isBlocking ? 'bg-red-500/20 border-red-300/40 text-white' : 'bg-amber-500/20 border-amber-300/40 text-white/90'}`}>
+                <p className="font-semibold mb-1">{isBlocking ? '🚫' : '⚠️'} {poisSansUrl.length} POI{poisSansUrl.length > 1 ? 's' : ''} sans article WordPress source :</p>
+                <ul className="space-y-0.5 pl-3">
+                  {poisSansUrl.map((p: InspirationPoi) => (
+                    <li key={p.poi_id} className="truncate">· {p.nom}</li>
+                  ))}
+                </ul>
+                {isBlocking
+                  ? <p className="mt-1.5 opacity-80">La source "Articles des POIs" est sélectionnée — associe les articles manquants dans Lieux &amp; Inspirations avant de générer.</p>
+                  : <p className="mt-1.5 opacity-80">Ces POIs n'auront pas d'article source pour la génération.</p>
+                }
+              </div>
+            );
+          })()}
 
           {/* Erreur */}
           {error && (

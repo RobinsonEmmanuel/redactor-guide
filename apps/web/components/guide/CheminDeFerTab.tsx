@@ -1172,7 +1172,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                     </div>
                   )}
 
-                  {/* Pages inspirations — affichage en lecture seule, gérées par "Sync. inspirations" */}
+                  {/* Pages inspirations */}
                   {templateProposals.proposals?.inspiration_pages && templateProposals.proposals.inspiration_pages.length > 0 && (
                     <div>
                       <div className="flex items-center gap-1.5 mb-1.5">
@@ -1181,16 +1181,18 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                           Inspirations ({templateProposals.proposals.inspiration_pages.length})
                         </h4>
                       </div>
-                      <p className="text-[10px] text-orange-600 bg-orange-50 border border-orange-200 rounded px-2 py-1 mb-1.5">
-                        🔒 Gérées via "Sync. inspirations"
-                      </p>
-                      <div className="space-y-1 opacity-60 pointer-events-none">
+                      <div className="space-y-1">
                         {templateProposals.proposals.inspiration_pages.map((page: any) => (
-                          <div key={page.page_id} className="flex items-center gap-2 px-2 py-1.5 bg-orange-50 border border-orange-100 rounded text-xs text-orange-700">
-                            <LightBulbIcon className="w-3 h-3 flex-shrink-0" />
-                            <span className="truncate flex-1">{page.titre}</span>
-                            <span className="text-[10px] text-orange-500">{page.poi_count} POIs</span>
-                          </div>
+                          <ProposalCardMini
+                            key={page.page_id}
+                            id={page.page_id}
+                            type="template_page"
+                            title={page.titre}
+                            description={`${page.poi_count} POIs`}
+                            icon={LightBulbIcon}
+                            color="orange"
+                            templatePage={page}
+                          />
                         ))}
                       </div>
                     </div>

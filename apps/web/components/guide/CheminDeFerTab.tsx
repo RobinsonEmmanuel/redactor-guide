@@ -876,6 +876,17 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         );
 
         if (res.ok) {
+          // Pour les pages inspiration : recalculer automatiquement les cartes POI
+          const isInspiration = pageData.type_de_page === 'inspiration'
+            || editingPage.type_de_page === 'inspiration';
+          if (isInspiration && editingPage._id) {
+            fetch(`${apiUrl}/api/v1/workers/refresh-inspiration-pois`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ pageId: editingPage._id }),
+            }).catch(() => { /* silencieux — ne bloque pas la fermeture */ });
+          }
           loadPages();
           setShowModal(false);
         }

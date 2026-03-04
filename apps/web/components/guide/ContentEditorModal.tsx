@@ -1180,7 +1180,7 @@ export default function ContentEditorModal({
             <p className="text-xs text-white/70 mt-2">⚠️ Lancez d'abord la construction du guide pour résoudre les POIs de cette inspiration</p>
           )}
           {/* Contrôle POIs sans URL source — bloquant si source = inspiration_auto_match */}
-          {isInspirationPage && page.metadata?.inspiration_pois?.length > 0 && (() => {
+          {isInspirationPage && (page.metadata?.inspiration_pois?.length ?? 0) > 0 && (() => {
             const poisSansUrl = (page.metadata!.inspiration_pois!).filter((p: InspirationPoi) => !p.url_source);
             if (poisSansUrl.length === 0) return null;
             const isBlocking = template?.info_source === 'inspiration_auto_match';

@@ -686,7 +686,9 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   };
 
   // Templates qui nécessitent un article WordPress spécifique pour la génération
-  const TEMPLATES_REQUIRING_URL = ['POI', 'INSPIRATION'];
+  // INSPIRATION utilise les articles de ses POIs associés (metadata.inspiration_pois),
+  // pas d'url_source globale — ne pas bloquer la génération pour ce type.
+  const TEMPLATES_REQUIRING_URL = ['POI'];
 
   const handleOpenContent = async (page: Page) => {
     // Pour les pages sans contenu (draft) : toujours lancer la génération directement
@@ -695,8 +697,15 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
       const requiresUrl = TEMPLATES_REQUIRING_URL.some(t =>
         (page.template_name || '').toUpperCase().startsWith(t)
       );
-      if (requiresUrl && !page.url_source) {
+      if (requiresUrl && !(page as any).url_source) {
         alert('Aucun article WordPress source associé à cette page. Veuillez d\'abord lier un article via le bouton crayon.');
+        return;
+      }
+      // Pour les pages inspiration : vérifier la présence des POIs associés
+      const isInspirationTemplate = (page.template_name || '').toUpperCase().startsWith('INSPIRATION')
+        || (page as any).metadata?.page_type === 'inspiration';
+      if (isInspirationTemplate && !((page as any).metadata?.inspiration_pois?.length)) {
+        alert('Aucun POI associé à cette page inspiration. Lancez d\'abord "Sync. inspirations" pour configurer les POIs.');
         return;
       }
       console.log('🚀 Lancement direct de la génération pour:', page.titre);

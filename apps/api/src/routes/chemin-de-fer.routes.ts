@@ -44,14 +44,27 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         .sort({ ordre: 1 })
         .toArray();
 
+      // ── LOG DIAGNOSTIC ─────────────────────────────────────────────────────
+      console.log(`\n🔍 [GET chemin-de-fer] guideId=${guideId} cdfId=${cheminDeFerId}`);
+      console.log(`   rawPages: ${rawPages.length} total`);
+      const allInspirationRaw = rawPages.filter((p: any) => p.metadata?.page_type === 'inspiration');
+      console.log(`   pages inspiration: ${allInspirationRaw.length}`);
+      allInspirationRaw.forEach((p: any) => {
+        const ids: string[] = p.metadata?.inspiration_pois_ids ?? [];
+        const stored: any[] = p.metadata?.inspiration_pois ?? [];
+        console.log(`   [${p._id}] "${p.metadata?.inspiration_title}" — pois_ids: ${ids.length} stored_pois: ${stored.length} ids_sample: ${JSON.stringify(ids.slice(0, 2))}`);
+      });
+      // ───────────────────────────────────────────────────────────────────────
+
       // Résoudre inspiration_pois pour toutes les pages inspiration ayant des inspiration_pois_ids
-      // (toujours recalculé depuis les IDs pour garantir la cohérence)
       const inspirationPagesNeedingResolution = rawPages.filter(
         (p: any) =>
           p.metadata?.page_type === 'inspiration' &&
           Array.isArray(p.metadata?.inspiration_pois_ids) &&
           p.metadata.inspiration_pois_ids.length > 0
       );
+
+      console.log(`   pages à résoudre: ${inspirationPagesNeedingResolution.length}`);
 
       let resolvedPoisByPageId: Record<string, Array<{ poi_id: string; nom: string; url_source: string | null }>> = {};
 
@@ -61,6 +74,11 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
         const guideLang: string = guide?.language ?? guide?.langue ?? 'fr';
         const urlCache: Record<string, string | null> = {};
+
+        console.log(`   pois_selection: ${allPois.length} POIs`);
+        if (allPois.length > 0) {
+          console.log(`   sample poi_id: ${JSON.stringify(allPois.slice(0, 3).map((p: any) => p.poi_id))}`);
+        }
 
         // Fallback pour les IDs du sommaire AI (format slug) → résolution par nom
         const sommaireDoc = await db.collection('sommaire_proposals').findOne({ guide_id: guideId });
@@ -76,7 +94,10 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
 
         for (const p of inspirationPagesNeedingResolution) {
           const resolved: Array<{ poi_id: string; nom: string; url_source: string | null }> = [];
-          for (const poiId of (p.metadata.inspiration_pois_ids as string[])) {
+          const ids: string[] = p.metadata.inspiration_pois_ids;
+          console.log(`   résolution "${p.metadata?.inspiration_title}" (${ids.length} IDs): ${JSON.stringify(ids.slice(0, 3))}`);
+
+          for (const poiId of ids) {
             // 1er choix : correspondance directe
             let poi = allPois.find((x: any) => x.poi_id === poiId);
 
@@ -86,10 +107,13 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
               if (somPoi) {
                 poi = poisByNom[somPoi.nom?.toLowerCase()?.trim()];
                 if (!poi) {
+                  console.log(`     ⚠️ "${poiId}" → nom "${somPoi.nom}" non trouvé → utilisé sans URL`);
                   resolved.push({ poi_id: poiId, nom: somPoi.nom, url_source: null });
                   continue;
                 }
+                console.log(`     🔄 "${poiId}" → "${poi.poi_id}" via nom`);
               } else {
+                console.log(`     ❌ "${poiId}" introuvable partout → ignoré`);
                 continue;
               }
             }
@@ -108,6 +132,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
             }
             resolved.push({ poi_id: poi.poi_id, nom: poi.nom, url_source: poiUrl });
           }
+          console.log(`   ✅ "${p.metadata?.inspiration_title}" → ${resolved.length} POIs résolus`);
           resolvedPoisByPageId[p._id.toString()] = resolved;
         }
       }
@@ -116,6 +141,13 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         const resolved = resolvedPoisByPageId[p._id.toString()];
         if (!resolved) return p;
         return { ...p, metadata: { ...p.metadata, inspiration_pois: resolved } };
+      });
+
+      // Vérification finale
+      const inspirationFinal = pages.filter((p: any) => p.metadata?.page_type === 'inspiration');
+      console.log(`   RÉSULTAT FINAL: ${inspirationFinal.length} pages inspiration dans la réponse`);
+      inspirationFinal.forEach((p: any) => {
+        console.log(`   ✓ "${p.metadata?.inspiration_title}" → inspiration_pois: ${(p.metadata?.inspiration_pois ?? []).length}`);
       });
 
       return reply.send({

@@ -183,6 +183,14 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
       if (res.ok) {
         const data = await res.json();
         const loadedPages = data.pages || [];
+        const inspiPages = loadedPages.filter((p: any) => p.metadata?.page_type === 'inspiration');
+        console.log('[loadPages] pages inspiration reçues:', inspiPages.map((p: any) => ({
+          _id: p._id,
+          titre: p.titre || p.metadata?.inspiration_title,
+          pois_ids: p.metadata?.inspiration_pois_ids?.length ?? 0,
+          pois: p.metadata?.inspiration_pois?.length ?? 0,
+          metadata_keys: p.metadata ? Object.keys(p.metadata) : [],
+        })));
         setPages(loadedPages);
         // Si des pages existent en base, quitter le mode grille vide
         if (loadedPages.length > 0) setEmptyGridMode(false);
@@ -716,7 +724,16 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
     }
   };
 
-  const handleEditPage = (page: Page) => {
+  const handleEditPage = (page: any) => {
+    console.log('[PageModal] page reçue:', JSON.stringify({
+      _id: page._id,
+      titre: page.titre,
+      page_type: page.metadata?.page_type,
+      inspiration_pois_ids: page.metadata?.inspiration_pois_ids?.length,
+      inspiration_pois: page.metadata?.inspiration_pois?.length,
+      inspiration_pois_sample: page.metadata?.inspiration_pois?.slice(0, 2),
+      metadata_keys: page.metadata ? Object.keys(page.metadata) : [],
+    }, null, 2));
     setEditingPage(page);
     setShowModal(true);
   };

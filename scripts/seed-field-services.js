@@ -29,6 +29,31 @@ const SERVICES = [
       'La valeur produite est un JSON structuré, destiné à être parsé par le script InDesign.',
     output_type: 'json',
     context_keys: ['all_pages', 'guide'],
+    implemented: true,
+    active: true,
+  },
+  {
+    service_id: 'geocoding_maps_link',
+    label: 'Lien Google Maps (géocodage)',
+    description:
+      'Géocode le nom du POI via Photon (OpenStreetMap) et construit une URL Google Maps ' +
+      'à partir des coordonnées trouvées. Produit un JSON structuré {label, url}.',
+    output_type: 'json',
+    context_keys: ['guide', 'current_page'],
+    implemented: true,
+    active: true,
+  },
+  {
+    service_id: 'inspiration_poi_cards',
+    label: 'Cartes POI — Page Inspiration',
+    description:
+      'Génère automatiquement les N cartes POI d\'une page inspiration thématique. ' +
+      'Pour chaque POI : sélectionne la meilleure image (image_analyses), réécrit le nom ' +
+      'via IA, génère un hashtag, injecte l\'URL de l\'article WordPress et construit ' +
+      'les liens Google Maps via géocodage. Produit un tableau JSON de cartes.',
+    output_type: 'json',
+    context_keys: ['guide', 'current_page', 'inspiration_pois'],
+    implemented: true,
     active: true,
   },
 ];
@@ -54,11 +79,11 @@ async function seed() {
     );
 
     if (result.upsertedCount > 0) {
-      console.log(`✅ Créé   : ${service_id} — ${service.label}`);
+      console.log(`✅ Créé        : ${service_id} — ${service.label}`);
     } else if (result.modifiedCount > 0) {
-      console.log(`🔄 Mis à jour : ${service_id} — ${service.label}`);
+      console.log(`🔄 Mis à jour  : ${service_id} — ${service.label}`);
     } else {
-      console.log(`⏭️  Inchangé  : ${service_id} — ${service.label}`);
+      console.log(`⏭️  Inchangé   : ${service_id} — ${service.label}`);
     }
   }
 

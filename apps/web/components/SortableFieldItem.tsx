@@ -9,13 +9,11 @@ import { Bars3Icon, TrashIcon } from '@heroicons/react/24/outline';
  *  Mode "auto" = aucun flag = le service utilise sa logique intégrée.
  *  L'utilisateur ne modifie que les champs qu'il veut surcharger. */
 const INSPIRATION_POI_CARDS_DEFAULT_SUBFIELDS: SubField[] = [
-  { name: 'nom',          type: 'texte', label: 'Nom du lieu'        },
-  { name: 'hashtag',      type: 'texte', label: 'Hashtag'            },
-  { name: 'image',        type: 'image', label: 'Image emblématique' },
-  { name: 'url_article',  type: 'lien',  label: 'URL article source' },
-  { name: 'lien_article', type: 'lien',  label: 'Lien article'       },
-  { name: 'url_maps',     type: 'lien',  label: 'URL Google Maps'    },
-  { name: 'lien_maps',    type: 'lien',  label: 'Lien Google Maps'   },
+  { name: 'nom',         type: 'texte', label: 'Nom du lieu'        },
+  { name: 'hashtag',     type: 'texte', label: 'Hashtag'            },
+  { name: 'image',       type: 'image', label: 'Image emblématique' },
+  { name: 'url_article', type: 'lien',  label: 'URL article (picto lien)' },
+  { name: 'url_maps',    type: 'lien',  label: 'URL Google Maps (picto carte)' },
 ];
 
 interface LinkPartConfig {
@@ -815,7 +813,7 @@ export default function SortableFieldItem({
                           onChange({ sub_fields: INSPIRATION_POI_CARDS_DEFAULT_SUBFIELDS });
                         }}
                         className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-sky-600 border border-sky-300 rounded-md hover:bg-sky-50"
-                        title="Remettre les 7 sous-champs par défaut du service (nom, hashtag, image, url_article, lien_article, url_maps, lien_maps)"
+                        title="Remettre les 5 sous-champs par défaut du service (nom, hashtag, image, url_article, url_maps)"
                       >
                         ↺ Valeurs par défaut
                       </button>
@@ -939,12 +937,11 @@ export default function SortableFieldItem({
                                 <div className="text-xs text-sky-800 space-y-0.5">
                                   <p className="font-semibold">Ce champ est calculé automatiquement par le service :</p>
                                   {sf.name === 'image' && <p>Sélectionne la <strong>meilleure image taguée avec ce POI</strong> depuis image_analyses (score iconique › pertinence › clarté).</p>}
-                                  {(sf.name === 'lien_maps' || sf.name === 'url_maps') && <p>Géocode le POI via <strong>Photon (OpenStreetMap)</strong> et construit l'URL Google Maps.</p>}
-                                  {sf.name === 'url_article' && <p>Injecte <strong>l'URL de l'article WordPress</strong> du POI (<code className="bg-sky-100 px-1 rounded">poi.url_source</code>).</p>}
-                                  {sf.name === 'lien_article' && <p>Construit un lien structuré <code className="bg-sky-100 px-1 rounded">{'{label, url}'}</code> depuis l'URL de l'article WordPress du POI.</p>}
+                                  {sf.name === 'url_maps' && <p>Géocode le POI via <strong>Photon (OpenStreetMap)</strong> et construit l'URL Google Maps pour le <strong>picto carte</strong>.</p>}
+                                  {sf.name === 'url_article' && <p>Injecte <strong>l'URL de l'article WordPress</strong> du POI pour le <strong>picto lien</strong> (<code className="bg-sky-100 px-1 rounded">poi.url_source</code>).</p>}
                                   {sf.name === 'nom' && <p>Réécrit le nom du POI via <strong>gpt-4o-mini</strong> avec les instructions par défaut du service.</p>}
                                   {sf.name === 'hashtag' && <p>Génère un <strong>hashtag</strong> via gpt-4o-mini avec les instructions par défaut du service.</p>}
-                                  {!['image','lien_maps','url_maps','lien_article','url_article','nom','hashtag'].includes(sf.name) && <p>Le service utilise sa <strong>logique intégrée</strong> pour remplir ce champ.</p>}
+                                  {!['image','url_maps','url_article','nom','hashtag'].includes(sf.name) && <p>Le service utilise sa <strong>logique intégrée</strong> pour remplir ce champ.</p>}
                                 </div>
                               </div>
                             )}
@@ -983,15 +980,13 @@ export default function SortableFieldItem({
                                   value={sf.default_value ?? ''}
                                   onChange={(e) => updateSf({ default_value: e.target.value })}
                                   placeholder={
-                                    sf.name === 'lien_article' || sf.name === 'lien_maps' ? 'Ex: En savoir plus (libellé du lien — l\'URL est construite automatiquement)'
-                                    : sf.type === 'image' ? 'URL d\'image par défaut (https://...)'
+                                    sf.type === 'image' ? 'URL d\'image par défaut (https://...)'
                                     : 'Valeur identique pour chaque entrée…'
                                   }
                                   className="w-full px-3 py-2 text-sm border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-400 bg-emerald-50/20"
                                 />
                                 <p className="mt-1 text-xs text-gray-400">
                                   Même valeur pour toutes les entrées.
-                                  {(sf.name === 'lien_article' || sf.name === 'lien_maps') && <span className="ml-1">Pour un lien, renseigne ici le libellé — l'URL est construite automatiquement par le service.</span>}
                                 </p>
                               </div>
                             )}
@@ -1020,13 +1015,11 @@ export default function SortableFieldItem({
 
                   // Pour inspiration_poi_cards : calques fixes générés par le service
                   const POI_CARDS_FIELDS: Array<{ name: string; label: string; note?: string }> = [
-                    { name: 'nom',          label: 'Nom du lieu (réécrit par IA)' },
-                    { name: 'hashtag',      label: 'Hashtag éditorial' },
-                    { name: 'image',        label: 'Image emblématique' },
-                    { name: 'url_article',  label: 'URL brute de l\'article WordPress' },
-                    { name: 'lien_article', label: 'Lien article JSON {label, url}' },
-                    { name: 'url_maps',     label: 'URL brute Google Maps' },
-                    { name: 'lien_maps',    label: 'Lien Maps JSON {label, url}' },
+                    { name: 'nom',         label: 'Nom du lieu (réécrit par IA)' },
+                    { name: 'hashtag',     label: 'Hashtag éditorial' },
+                    { name: 'image',       label: 'Image emblématique' },
+                    { name: 'url_article', label: 'URL article WordPress → picto lien' },
+                    { name: 'url_maps',    label: 'URL Google Maps → picto carte' },
                   ];
 
                   const isPoiCards = field.service_id === 'inspiration_poi_cards';

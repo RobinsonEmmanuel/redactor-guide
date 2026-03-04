@@ -245,7 +245,7 @@ async function generateMapsLink(ctx: FieldServiceContext): Promise<FieldServiceR
 // Service inspiration_poi_cards
 //
 // Génère un tableau JSON de N cartes POI pour une page inspiration.
-// Chaque entrée contient : image, nom, hashtag, lien_article, lien_maps.
+// Chaque entrée contient : image, nom, hashtag, url_article, url_maps.
 //
 // La valeur retournée (JSON array sérialisé) est stockée dans le champ
 // repetitif du template, puis "explosée" en champs plats à l'export :
@@ -386,7 +386,7 @@ function resolveSubField(
  * Service inspiration_poi_cards
  *
  * Pour chaque POI de page.metadata.inspiration_pois, génère une entrée :
- *   { image, nom, hashtag, lien_article, lien_maps }
+ *   { image, nom, hashtag, url_article, url_maps }
  *
  * Retourne un JSON array sérialisé, stocké dans le champ repetitif.
  * À l'export, ce tableau est "explosé" en champs plats par explodeRepetitifField().
@@ -508,43 +508,25 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
       : urlArtResolved.mode === 'default' ? (urlArtResolved.defaultValue ?? poi.url_source ?? '')
       : (poi.url_source ?? '');
 
-    // ── lien_article (JSON structuré {label, url} pour hyperlien InDesign) ────
-    const artResolved = resolveSubField(fieldDef, 'lien_article', 'En savoir plus', poiVars);
-    const articleLabel = artResolved.mode === 'default' ? (artResolved.defaultValue ?? 'En savoir plus')
-      : artResolved.mode === 'ai' ? artResolved.instructions ?? 'En savoir plus'
-      : 'En savoir plus';
-    const lienArticle = poi.url_source
-      ? JSON.stringify({ label: articleLabel, url: poi.url_source })
-      : '';
-
-    // ── url_maps (URL brute Google Maps) ──────────────────────────────────────
+    // ── url_maps (URL brute Google Maps pour picto carte InDesign) ───────────
     let urlMaps = '';
-
-    // ── lien_maps (JSON structuré {label, url} pour hyperlien InDesign) ───────
-    const mapsResolved = resolveSubField(fieldDef, 'lien_maps', 'Voir sur Google Maps', poiVars);
-    const mapsLabel = mapsResolved.mode === 'default' ? (mapsResolved.defaultValue ?? 'Voir sur Google Maps')
-      : mapsResolved.mode === 'ai' ? mapsResolved.instructions ?? 'Voir sur Google Maps'
-      : 'Voir sur Google Maps';
-    let lienMaps = '';
-    if (mapsResolved.mode !== 'skip') {
+    const urlMapsResolved = resolveSubField(fieldDef, 'url_maps', '', poiVars);
+    if (urlMapsResolved.mode !== 'skip') {
       try {
         const enrichedQuery = destination ? `${poi.nom}, ${destination}` : poi.nom;
         const geo = await _geocodingService.resolve(enrichedQuery, country);
         if (geo) {
-          urlMaps  = geo.urls.google_maps;
-          lienMaps = JSON.stringify({ label: mapsLabel, url: geo.urls.google_maps });
+          urlMaps = geo.urls.google_maps;
         }
-      } catch { lienMaps = ''; }
+      } catch { urlMaps = ''; }
     }
 
     cards.push({
-      image:        imageUrl ?? '',
+      image:       imageUrl ?? '',
       nom,
       hashtag,
-      url_article:  urlArticle,   // URL brute — calque INSPIRATION_poi_cards_url_article_N
-      lien_article: lienArticle,  // JSON {label, url} — calque INSPIRATION_poi_cards_lien_article_N
-      url_maps:     urlMaps,      // URL brute — calque INSPIRATION_poi_cards_url_maps_N
-      lien_maps:    lienMaps,     // JSON {label, url} — calque INSPIRATION_poi_cards_lien_maps_N
+      url_article: urlArticle,  // URL brute → picto lien InDesign
+      url_maps:    urlMaps,     // URL brute → picto carte InDesign
     });
 
     if (i < inspirationPois.length - 1) {

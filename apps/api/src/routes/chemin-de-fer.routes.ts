@@ -150,6 +150,14 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         console.log(`   ✓ "${p.metadata?.inspiration_title}" → inspiration_pois: ${(p.metadata?.inspiration_pois ?? []).length}`);
       });
 
+      // Log structure complète du 1er page pour détecter tout problème de sérialisation
+      if (inspirationFinal.length > 0) {
+        const sample = inspirationFinal[0];
+        console.log(`   STRUCTURE page sample: keys=${JSON.stringify(Object.keys(sample))} | metadata_keys=${JSON.stringify(Object.keys(sample.metadata ?? {}))}`);
+      }
+      // Log des clés du document cheminDeFer (pour détecter un champ 'pages' parasite)
+      console.log(`   cheminDeFer keys: ${JSON.stringify(Object.keys(cheminDeFer))}`);
+
       return reply.send({
         ...cheminDeFer,
         pages,

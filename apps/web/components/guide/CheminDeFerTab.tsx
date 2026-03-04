@@ -191,15 +191,27 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
           pois: p.metadata?.inspiration_pois?.length ?? 0,
           metadata_keys: p.metadata ? Object.keys(p.metadata) : [],
         })));
-        // Log brut d'une page inspiration pour débug
+        // Log brut COMPLET d'une page inspiration pour débug (clés de l'objet page entier)
         if (inspiPages.length > 0) {
           const sample = inspiPages[0];
-          console.log('[loadPages] SAMPLE brut page inspiration:', JSON.stringify({
+          console.log('[loadPages] STRUCTURE COMPLÈTE page inspiration:', JSON.stringify({
+            all_keys: Object.keys(sample),
             _id: sample._id,
-            metadata_page_type: sample.metadata?.page_type,
-            inspiration_pois_count: sample.metadata?.inspiration_pois?.length,
-            inspiration_pois_sample: sample.metadata?.inspiration_pois?.slice(0, 2),
+            titre: sample.titre,
             has_metadata: !!sample.metadata,
+            metadata_keys: sample.metadata ? Object.keys(sample.metadata) : 'NO METADATA',
+            inspiration_pois_count: sample.metadata?.inspiration_pois?.length,
+          }));
+          // Log brut de toute la page (tronqué si trop grand)
+          const raw = JSON.stringify(sample);
+          console.log('[loadPages] RAW page (500 chars):', raw.slice(0, 500));
+        }
+        // Log structure d'une page NON-inspiration pour comparaison
+        const nonInspi = loadedPages.find((p: any) => p.metadata?.page_type !== 'inspiration');
+        if (nonInspi) {
+          console.log('[loadPages] STRUCTURE page non-inspiration:', JSON.stringify({
+            all_keys: Object.keys(nonInspi),
+            has_metadata: !!nonInspi.metadata,
           }));
         }
         setPages(loadedPages);

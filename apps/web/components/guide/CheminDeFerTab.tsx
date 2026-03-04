@@ -986,6 +986,17 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                   {loadingTemplateProposals ? 'Chargement...' : 'Actualiser'}
                 </button>
               </div>
+              {pages.length > 0 && (
+                <button
+                  onClick={rebuildInspirations}
+                  disabled={rebuildingInspirations}
+                  className="w-full mb-2 flex items-center justify-center gap-1.5 px-2 py-1.5 bg-orange-50 text-orange-700 text-xs font-medium rounded border border-orange-200 hover:bg-orange-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  title="Recalcule le nombre de pages inspiration et redistribue les POIs selon l'étape 4"
+                >
+                  <ArrowPathIcon className={`h-3 w-3 ${rebuildingInspirations ? 'animate-spin' : ''}`} />
+                  {rebuildingInspirations ? 'Sync en cours...' : '⟳ Sync. pages inspiration'}
+                </button>
+              )}
 
               {templateProposals && (
                 <div className="text-xs text-gray-600">
@@ -1162,17 +1173,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                 <div className="text-xs text-gray-500">
                   💡 Glissez depuis la palette
                 </div>
-                {pages.length > 0 && (
-                  <button
-                    onClick={rebuildInspirations}
-                    disabled={rebuildingInspirations}
-                    className="px-3 py-1.5 text-xs font-medium text-orange-600 hover:text-white border border-orange-300 hover:bg-orange-500 rounded-md transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Recalcule le nombre de pages inspiration et redistribue les POIs selon l'étape 4 (sans toucher aux autres pages)"
-                  >
-                    <ArrowPathIcon className={`w-3.5 h-3.5 ${rebuildingInspirations ? 'animate-spin' : ''}`} />
-                    {rebuildingInspirations ? 'Sync...' : 'Sync. inspirations'}
-                  </button>
-                )}
                 {pages.length > 0 && (
                   <button
                     onClick={handleClearAllPages}

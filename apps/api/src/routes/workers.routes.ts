@@ -292,18 +292,48 @@ export async function workersRoutes(fastify: FastifyInstance) {
     const { guideId } = request.body as { guideId: string };
 
     try {
-      // 1. Données de référence
-      const inspDoc       = await db.collection('inspirations').findOne({ guide_id: guideId });
+      console.log(`\n🔄 [rebuild-inspiration-sections] START — guideId: ${guideId}`);
+
+      // 1. Inspirations (étape 4)
+      const inspDoc          = await db.collection('inspirations').findOne({ guide_id: guideId });
       const allInspirations: any[] = inspDoc?.inspirations ?? [];
+      console.log(`📋 [rebuild] inspirations collection: ${inspDoc ? 'trouvé' : 'ABSENT'}, ${allInspirations.length} inspiration(s)`);
+      allInspirations.forEach((ins: any, i: number) => {
+        console.log(`   [${i}] "${ins.titre}" — theme_id: ${ins.theme_id ?? 'N/A'}, lieux_associes: ${(ins.lieux_associes ?? []).length}`);
+      });
+
       if (allInspirations.length === 0) {
         return reply.send({ success: true, message: 'Aucune inspiration', pagesCreated: 0, pagesDeleted: 0, pagesUpdated: 0 });
       }
 
+      // 2. Chemin de fer
       const cheminDeFerDoc = await db.collection('chemins_de_fer').findOne({ guide_id: guideId });
-      if (!cheminDeFerDoc) return reply.status(404).send({ error: 'Chemin de fer introuvable' });
+      if (!cheminDeFerDoc) {
+        console.error(`❌ [rebuild] chemins_de_fer introuvable pour guideId: ${guideId}`);
+        return reply.status(404).send({ error: 'Chemin de fer introuvable' });
+      }
       const cheminDeFerId = cheminDeFerDoc._id.toString();
+      console.log(`📎 [rebuild] chemin de fer _id: ${cheminDeFerId}`);
 
-      // pois_per_page depuis le guide template (défaut 6)
+      // 3. Audit des pages existantes dans ce chemin de fer
+      const allPages = await db.collection('pages').find({ chemin_de_fer_id: cheminDeFerId }).toArray();
+      console.log(`📄 [rebuild] total pages (chemin_de_fer_id=${cheminDeFerId}): ${allPages.length}`);
+      const inspiPages = allPages.filter((p: any) => p.metadata?.page_type === 'inspiration');
+      console.log(`💡 [rebuild] pages page_type=inspiration: ${inspiPages.length}`);
+      if (inspiPages.length > 0) {
+        inspiPages.forEach((p: any, i: number) => {
+          console.log(`   [${i}] id=${p._id} titre="${p.metadata?.inspiration_title}" inspiration_id="${p.metadata?.inspiration_id}" pois_ids: ${(p.metadata?.inspiration_pois_ids ?? []).length} pois: ${(p.metadata?.inspiration_pois ?? []).length}`);
+        });
+      } else {
+        // Échantillon des pages existantes pour diagnostic
+        const sample = allPages.slice(0, 3);
+        console.log(`⚠️ [rebuild] Aucune page inspiration trouvée. Échantillon des pages existantes:`);
+        sample.forEach((p: any, i: number) => {
+          console.log(`   [${i}] id=${p._id} chemin_de_fer_id="${p.chemin_de_fer_id}" page_type="${p.metadata?.page_type}" template="${p.template_name}"`);
+        });
+      }
+
+      // 4. pois_per_page depuis le guide template (défaut 6)
       const guideTemplateDoc = await db.collection('guide_templates').findOne({ guide_id: guideId });
       const guideTemplate    = guideTemplateDoc ?? await db.collection('guide_templates').findOne({ is_default: true });
       const poisPerPage: number = (() => {
@@ -315,19 +345,24 @@ export async function workersRoutes(fastify: FastifyInstance) {
         }
         return 6;
       })();
+      console.log(`📐 [rebuild] poisPerPage: ${poisPerPage}`);
 
-      // Données guide + pois_selection pour résolution POI
+      // 5. Données guide + pois_selection
       const guide    = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
       const poisDoc  = await db.collection('pois_selection').findOne({ guide_id: guideId });
       const allPois: any[] = poisDoc?.pois ?? [];
       const guideLang: string = guide?.language ?? guide?.langue ?? 'fr';
+      console.log(`🗺️ [rebuild] pois_selection: ${poisDoc ? `${allPois.length} POIs` : 'ABSENT'}, langue: ${guideLang}`);
       const urlCache: Record<string, string | null> = {};
 
       const resolvePoiIds = async (ids: string[]) => {
         const out: Array<{ poi_id: string; nom: string; url_source: string | null }> = [];
         for (const id of ids) {
           const poi = allPois.find((x: any) => x.poi_id === id);
-          if (!poi) continue;
+          if (!poi) {
+            console.warn(`   ⚠️ POI ${id} introuvable dans pois_selection`);
+            continue;
+          }
           let url: string | null = null;
           const slug: string | undefined = poi.article_source;
           if (slug) {
@@ -342,44 +377,54 @@ export async function workersRoutes(fastify: FastifyInstance) {
         return out;
       };
 
-      // Trouver une page inspiration existante (pour copier template_name, template_id, section_id)
-      const samplePage = await db.collection('pages').findOne({
-        chemin_de_fer_id: cheminDeFerId,
-        'metadata.page_type': 'inspiration',
-      });
+      // Trouver une page inspiration existante comme référence (template, section_id, etc.)
+      const samplePage = inspiPages[0] ?? null;
+      if (samplePage) {
+        console.log(`📌 [rebuild] Page de référence: id=${samplePage._id} template="${samplePage.template_name}"`);
+      } else {
+        console.warn(`⚠️ [rebuild] Aucune page de référence — les nouvelles pages auront template='INSPIRATION'`);
+      }
 
       const runner = new FieldServiceRunner();
       let pagesCreated = 0, pagesDeleted = 0, pagesUpdated = 0;
 
       for (const inspiration of allInspirations) {
         const lieux: string[] = inspiration.lieux_associes ?? [];
-        if (lieux.length === 0) continue;
+        if (lieux.length === 0) {
+          console.log(`⏭️ [rebuild] "${inspiration.titre}" ignorée (0 POI)`);
+          continue;
+        }
 
         const inspirationId: string = inspiration.theme_id ?? inspiration.inspiration_id;
         const neededCount = Math.ceil(lieux.length / poisPerPage);
+        console.log(`\n💡 [rebuild] "${inspiration.titre}" — id: ${inspirationId}, ${lieux.length} POIs → ${neededCount} page(s) nécessaire(s)`);
 
         // Trouver les pages existantes pour cette inspiration
-        const existingPages = await db.collection('pages').find({
-          chemin_de_fer_id: cheminDeFerId,
-          'metadata.page_type': 'inspiration',
-          $or: [
-            { 'metadata.inspiration_id': inspirationId },
-            { 'metadata.inspiration_title': inspiration.titre },
-          ],
-        }).sort({ 'metadata.page_index': 1 }).toArray();
+        const existingPages = inspiPages.filter((p: any) =>
+          p.metadata?.inspiration_id === inspirationId ||
+          p.metadata?.inspiration_title === inspiration.titre
+        ).sort((a: any, b: any) => (a.metadata?.page_index ?? 0) - (b.metadata?.page_index ?? 0));
+
+        console.log(`   → Pages existantes trouvées: ${existingPages.length}`);
 
         // ── Supprimer les pages en excès ──────────────────────────────────────
         if (existingPages.length > neededCount) {
           const toDelete = existingPages.slice(neededCount);
+          console.log(`   🗑️ Suppression de ${toDelete.length} page(s) en excès`);
           await db.collection('pages').deleteMany({
             _id: { $in: toDelete.map((p: any) => p._id) },
           });
           pagesDeleted += toDelete.length;
+          existingPages.splice(neededCount);
         }
 
         // ── Créer les pages manquantes ────────────────────────────────────────
         const refPage = existingPages[0] ?? samplePage;
         const now = new Date().toISOString();
+        const toCreate = neededCount - existingPages.length;
+        if (toCreate > 0) {
+          console.log(`   ➕ Création de ${toCreate} page(s) manquante(s)`);
+        }
         while (existingPages.length < neededCount) {
           const newPage: any = {
             guide_id:         guideId,
@@ -388,7 +433,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
             template_id:      refPage?.template_id   ?? null,
             section_id:       refPage?.section_id    ?? null,
             section_name:     refPage?.section_name  ?? null,
-            order:            (refPage?.order ?? 0) + existingPages.length,
+            ordre:            (refPage?.ordre ?? refPage?.order ?? 0) + existingPages.length + 1,
             status:           'draft',
             content:          {},
             metadata:         { page_type: 'inspiration' },
@@ -398,14 +443,16 @@ export async function workersRoutes(fastify: FastifyInstance) {
           const inserted = await db.collection('pages').insertOne(newPage);
           existingPages.push({ ...newPage, _id: inserted.insertedId });
           pagesCreated++;
+          console.log(`   ✅ Page créée: id=${inserted.insertedId}`);
         }
 
         // ── Mettre à jour chaque page avec la bonne tranche de POIs ──────────
         const pages = existingPages.slice(0, neededCount);
-        const template = pages[0]?.template_id
+        const templateDoc = pages[0]?.template_id
           ? await db.collection('templates').findOne({ _id: new ObjectId(pages[0].template_id) })
           : await db.collection('templates').findOne({ name: pages[0]?.template_name ?? 'INSPIRATION' });
-        const repField = ((template?.fields ?? []) as any[]).find((f: any) => f.service_id === 'inspiration_poi_cards');
+        const repField = ((templateDoc?.fields ?? []) as any[]).find((f: any) => f.service_id === 'inspiration_poi_cards');
+        console.log(`   📋 Template trouvé: ${templateDoc ? templateDoc.name : 'ABSENT'}, repField: ${repField ? repField.name : 'non configuré'}`);
 
         for (let i = 0; i < pages.length; i++) {
           const pageDoc  = pages[i];
@@ -417,17 +464,19 @@ export async function workersRoutes(fastify: FastifyInstance) {
             ? `${inspiration.titre} (${i + 1}/${totalPages})`
             : inspiration.titre;
 
+          console.log(`   📝 Page ${i + 1}/${totalPages}: "${newTitle}" — ${pageIds.length} POI IDs → ${resolved.length} résolus`);
+
           await db.collection('pages').updateOne(
             { _id: pageDoc._id },
             { $set: {
-              titre: newTitle,
+              titre:                           newTitle,
               'metadata.inspiration_id':       inspirationId,
               'metadata.inspiration_title':    inspiration.titre,
               'metadata.inspiration_pois_ids': pageIds,
               'metadata.inspiration_pois':     resolved,
               'metadata.page_index':           i + 1,
               'metadata.total_pages':          totalPages,
-              updated_at: now,
+              updated_at:                      now,
             }}
           );
 
@@ -450,16 +499,18 @@ export async function workersRoutes(fastify: FastifyInstance) {
                 { _id: pageDoc._id },
                 { $set: { content: updatedContent, updated_at: now } }
               );
+              console.log(`   🤖 Service inspiration_poi_cards OK`);
             } catch (svcErr: any) {
-              console.warn(`⚠️ [rebuild-inspiration-sections] Service échoué: ${svcErr.message}`);
+              console.warn(`   ⚠️ Service échoué: ${svcErr.message}`);
             }
           }
           pagesUpdated++;
         }
 
-        console.log(`✅ [rebuild] "${inspiration.titre}": ${neededCount} page(s) (créées: ${pagesCreated}, supprimées: ${pagesDeleted})`);
+        console.log(`✅ [rebuild] "${inspiration.titre}": ${pages.length} page(s) OK (+${toCreate} créées, -${Math.max(0, existingPages.length - neededCount - toCreate)} supprimées)`);
       }
 
+      console.log(`\n✅ [rebuild-inspiration-sections] DONE — créées: ${pagesCreated}, supprimées: ${pagesDeleted}, mises à jour: ${pagesUpdated}`);
       return reply.send({ success: true, pagesCreated, pagesDeleted, pagesUpdated });
     } catch (error: any) {
       console.error('❌ [rebuild-inspiration-sections]', error);

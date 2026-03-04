@@ -252,6 +252,7 @@ export default function ContentEditorModal({
   const [showImageSelector, setShowImageSelector] = useState(false);
   const [currentImageField, setCurrentImageField] = useState<string | null>(null);
   const [recalculatingFields, setRecalculatingFields] = useState<Set<string>>(new Set());
+  const [refreshingPois, setRefreshingPois]           = useState(false);
   const [validating, setValidating] = useState(false);
   const [validationReport, setValidationReport] = useState<any | null>(null);
   const [showValidation, setShowValidation] = useState(false);
@@ -289,6 +290,33 @@ export default function ContentEditorModal({
       setError('Erreur lors de la validation Perplexity');
     } finally {
       setValidating(false);
+    }
+  };
+
+  const handleRefreshInspirationPois = async () => {
+    setRefreshingPois(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/workers/refresh-inspiration-pois`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pageId: page._id }),
+        }
+      );
+      const data = await res.json();
+      if (res.ok) {
+        // Recharger les données de la page pour afficher les nouveaux POIs et le contenu recalculé
+        onGenerationStarted?.();
+      } else {
+        setError(data.error || 'Erreur lors du rafraîchissement des POIs');
+      }
+    } catch {
+      setError('Erreur réseau lors du rafraîchissement des POIs');
+    } finally {
+      setRefreshingPois(false);
     }
   };
 
@@ -1161,10 +1189,36 @@ export default function ContentEditorModal({
           {/* Panneau POI cards pour les pages inspiration */}
           {isInspirationPage && page.metadata?.inspiration_pois && page.metadata.inspiration_pois.length > 0 && (
             <div className="px-6 pt-5 max-w-3xl mx-auto">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                <span className="inline-block w-2 h-2 rounded-full bg-violet-400" />
-                {page.metadata.inspiration_pois.length} POI{page.metadata.inspiration_pois.length > 1 ? 's' : ''} de l'inspiration
-              </h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 rounded-full bg-violet-400" />
+                  {page.metadata.inspiration_pois.length} POI{page.metadata.inspiration_pois.length > 1 ? 's' : ''} de l'inspiration
+                </h3>
+                <button
+                  type="button"
+                  onClick={handleRefreshInspirationPois}
+                  disabled={refreshingPois}
+                  title="Ré-résoudre les POIs depuis le chemin de fer et recalculer les cartes"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-violet-200 text-violet-700 bg-violet-50 hover:bg-violet-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {refreshingPois ? (
+                    <>
+                      <svg className="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
+                      Actualisation…
+                    </>
+                  ) : (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Actualiser les POIs
+                    </>
+                  )}
+                </button>
+              </div>
               <div className="grid gap-3">
                 {(() => {
                   // Cherche le champ repetitif du template pour dériver le groupe de calques

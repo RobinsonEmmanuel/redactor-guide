@@ -150,6 +150,125 @@ export async function workersRoutes(fastify: FastifyInstance) {
   });
 
   /**
+   * POST /workers/refresh-inspiration-pois
+   * Ré-résout la liste des POIs d'une page inspiration à partir de inspiration_pois_ids
+   * puis relance le service inspiration_poi_cards.
+   *
+   * À appeler après avoir modifié la liste des POIs dans le chemin de fer (étape 4).
+   */
+  fastify.post('/workers/refresh-inspiration-pois', async (request, reply) => {
+    const db = request.server.container.db;
+    const { pageId } = request.body as { pageId: string };
+
+    try {
+      const page = await db.collection('pages').findOne({ _id: new ObjectId(pageId) });
+      if (!page) return reply.status(404).send({ error: 'Page introuvable' });
+
+      const guideId: string = page.guide_id?.toString();
+      if (!guideId) return reply.status(400).send({ error: 'guide_id manquant sur la page' });
+
+      const poisIds: string[] = page.metadata?.inspiration_pois_ids ?? [];
+      if (poisIds.length === 0) {
+        return reply.status(400).send({ error: 'Aucun inspiration_pois_ids dans les métadonnées de la page' });
+      }
+
+      console.log(`🔄 [refresh-inspiration-pois] Page ${pageId} — ${poisIds.length} POI(s) à ré-résoudre`);
+
+      // 1. Charger les données du guide
+      const guide  = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+      const poisDoc = await db.collection('pois_selection').findOne({ guide_id: guideId });
+      const allPois: any[] = poisDoc?.pois ?? [];
+
+      const guideLang: string = guide?.language ?? guide?.langue ?? 'fr';
+
+      // 2. Ré-résoudre chaque POI : nom + url_source WordPress
+      const articleUrlCache: Record<string, string | null> = {};
+      const resolvedPois: Array<{ poi_id: string; nom: string; url_source: string | null }> = [];
+
+      for (const poiId of poisIds) {
+        const poi = allPois.find((x: any) => x.poi_id === poiId);
+        if (!poi) {
+          console.warn(`  ⚠️ POI ${poiId} introuvable dans pois_selection`);
+          continue;
+        }
+
+        let poiUrl: string | null = null;
+        const poiSlug: string | undefined = poi.article_source;
+        if (poiSlug) {
+          if (!(poiSlug in articleUrlCache)) {
+            const artDoc = await db.collection('articles_raw').findOne(
+              { slug: poiSlug },
+              { projection: { urls_by_lang: 1 } }
+            );
+            articleUrlCache[poiSlug] =
+              artDoc?.urls_by_lang?.[guideLang] ??
+              artDoc?.urls_by_lang?.['fr']      ??
+              null;
+          }
+          poiUrl = articleUrlCache[poiSlug];
+        }
+
+        resolvedPois.push({ poi_id: poi.poi_id, nom: poi.nom, url_source: poiUrl });
+      }
+
+      console.log(`  ✅ ${resolvedPois.length} POI(s) résolus`);
+
+      // 3. Mettre à jour metadata.inspiration_pois en DB
+      await db.collection('pages').updateOne(
+        { _id: new ObjectId(pageId) },
+        { $set: { 'metadata.inspiration_pois': resolvedPois, updated_at: new Date().toISOString() } }
+      );
+
+      // 4. Relancer le service inspiration_poi_cards
+      const template = await db.collection('templates').findOne({ _id: new ObjectId(page.template_id) });
+      const repField = ((template?.fields ?? []) as any[]).find(
+        (f: any) => f.service_id === 'inspiration_poi_cards'
+      );
+
+      const updatedContent: Record<string, string> = { ...(page.content ?? {}) };
+
+      if (repField) {
+        const runner = new FieldServiceRunner();
+        const svcResult = await runner.run('inspiration_poi_cards', {
+          guideId,
+          guide:            guide ?? {},
+          currentPage:      { ...page, metadata: { ...page.metadata, inspiration_pois: resolvedPois } },
+          allExportedPages: [],
+          db,
+          fieldDef:         repField,
+        });
+
+        updatedContent[repField.name] = svcResult.value;
+
+        if (repField.type === 'repetitif' && svcResult.value) {
+          const flat = explodeRepetitifField(repField.name, svcResult.value);
+          Object.assign(updatedContent, flat);
+        }
+
+        console.log(`  ✅ Service inspiration_poi_cards relancé → ${repField.name}`);
+      } else {
+        console.warn(`  ⚠️ Aucun champ inspiration_poi_cards dans le template — contenu non recalculé`);
+      }
+
+      // 5. Sauvegarder le contenu mis à jour
+      await db.collection('pages').updateOne(
+        { _id: new ObjectId(pageId) },
+        { $set: { content: updatedContent, updated_at: new Date().toISOString() } }
+      );
+
+      return reply.send({
+        success:      true,
+        pageId,
+        poisResolved: resolvedPois.length,
+        poisIds,
+      });
+    } catch (error: any) {
+      console.error(`❌ [refresh-inspiration-pois]`, error);
+      return reply.status(500).send({ error: 'Erreur lors du rafraîchissement', details: error.message });
+    }
+  });
+
+  /**
    * POST /workers/generate-pois
    * Worker pour générer les POIs depuis les articles WordPress via IA
    * Traitement par batch pour un recensement exhaustif, suivi d'un appel de déduplication.

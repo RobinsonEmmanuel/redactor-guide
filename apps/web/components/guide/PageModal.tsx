@@ -169,6 +169,15 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
       if (res.ok) {
         const data = await res.json();
         setTemplates(data);
+        // Présélectionner par template_name si template_id est absent
+        if (!page?.template_id && page?.template_name) {
+          const match = (data as Template[]).find(
+            (t) => t.name?.toUpperCase() === page.template_name?.toUpperCase()
+          );
+          if (match) {
+            setFormData((prev) => ({ ...prev, template_id: match._id }));
+          }
+        }
       }
     } catch (err) {
       console.error('Erreur chargement templates:', err);

@@ -513,6 +513,21 @@ export async function workersRoutes(fastify: FastifyInstance) {
         // ── Créer les pages manquantes ────────────────────────────────────────
         const refPage = existingPages[0] ?? samplePage;
         const now = new Date().toISOString();
+
+        // Résoudre template_id depuis la base si absent sur refPage
+        const refTemplateName: string = refPage?.template_name ?? 'INSPIRATION';
+        let resolvedTemplateId: string | null = refPage?.template_id ?? null;
+        if (!resolvedTemplateId) {
+          const tmplDoc = await db.collection('templates').findOne(
+            { name: { $regex: new RegExp(`^${refTemplateName}$`, 'i') } },
+            { projection: { _id: 1 } }
+          );
+          if (tmplDoc) {
+            resolvedTemplateId = tmplDoc._id.toString();
+            console.log(`   🔍 Template résolu par nom "${refTemplateName}": id=${resolvedTemplateId}`);
+          }
+        }
+
         const toCreate = neededCount - existingPages.length;
         if (toCreate > 0) {
           console.log(`   ➕ Création de ${toCreate} page(s) manquante(s)`);
@@ -521,8 +536,8 @@ export async function workersRoutes(fastify: FastifyInstance) {
           const newPage: any = {
             guide_id:         guideId,
             chemin_de_fer_id: cheminDeFerId,
-            template_name:    refPage?.template_name ?? 'INSPIRATION',
-            template_id:      refPage?.template_id   ?? null,
+            template_name:    refTemplateName,
+            template_id:      resolvedTemplateId,
             section_id:       refPage?.section_id    ?? null,
             section_name:     refPage?.section_name  ?? null,
             ordre:            (refPage?.ordre ?? refPage?.order ?? 0) + existingPages.length + 1,
@@ -558,9 +573,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
 
           console.log(`   📝 Page ${i + 1}/${totalPages}: "${newTitle}" — ${pageIds.length} POI IDs → ${resolved.length} résolus`);
 
-          await db.collection('pages').updateOne(
-            { _id: pageDoc._id },
-            { $set: {
+          const pageUpdateFields: Record<string, any> = {
               titre:                           newTitle,
               'metadata.inspiration_id':       inspirationId,
               'metadata.inspiration_title':    inspiration.titre,
@@ -568,6 +581,16 @@ export async function workersRoutes(fastify: FastifyInstance) {
               'metadata.inspiration_pois':     resolved,
               'metadata.page_index':           i + 1,
               'metadata.total_pages':          totalPages,
+          };
+          // Patcher template_id si absent sur la page existante
+          if (!pageDoc.template_id && resolvedTemplateId) {
+            pageUpdateFields['template_id'] = resolvedTemplateId;
+          }
+
+          await db.collection('pages').updateOne(
+            { _id: pageDoc._id },
+            { $set: {
+              ...pageUpdateFields,
               updated_at:                      now,
             }}
           );

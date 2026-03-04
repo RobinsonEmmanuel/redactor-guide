@@ -114,19 +114,35 @@ export class SommaireGeneratorService {
     // 5. Générer les inspirations si demandé
     if (parts.includes('inspirations')) {
       console.log('🔹 Étape C : Génération des pages inspiration');
-      
-      // Récupérer sections et POIs (de la base si pas générés maintenant)
-      let sections = proposal.sections;
-      let pois = proposal.pois;
 
+      // Sections : priorité à ce qui vient d'être généré, sinon en base
+      let sections = proposal.sections;
       if (!sections) {
         const existingProposal = await this.db.collection('sommaire_proposals').findOne({ guide_id: guideId });
         sections = existingProposal?.proposal?.sections || [];
       }
 
-      if (!pois) {
+      // POIs : utiliser UNIQUEMENT pois_selection (référentiel stable confirmé par l'utilisateur)
+      // Fallback sur sommaire_proposals uniquement si pois_selection est vide (guide très récent)
+      let pois: SommairePOI[] = [];
+      const poisSelectionDoc = await this.db.collection('pois_selection').findOne({ guide_id: guideId });
+      const confirmedPois: any[] = poisSelectionDoc?.pois ?? [];
+
+      if (confirmedPois.length > 0) {
+        // Convertir au format SommairePOI (même structure, poi_id est déjà stable)
+        pois = confirmedPois.map((p: any) => ({
+          poi_id:            p.poi_id,
+          nom:               p.nom,
+          type:              p.type || 'lieu',
+          article_source:    p.article_source || '',
+          raison_selection:  p.raison_selection || '',
+        }));
+        console.log(`✅ [inspirations] ${pois.length} POIs confirmés depuis pois_selection`);
+      } else {
+        // Fallback : pois du sommaire proposal (non encore confirmés — guide très récent)
         const existingProposal = await this.db.collection('sommaire_proposals').findOne({ guide_id: guideId });
-        pois = existingProposal?.proposal?.pois || [];
+        pois = existingProposal?.proposal?.pois || proposal.pois || [];
+        console.log(`⚠️ [inspirations] pois_selection vide — fallback sommaire_proposals (${pois.length} POIs)`);
       }
 
       const promptInspirations = await this.loadPrompt('pages_inspiration');
@@ -134,7 +150,7 @@ export class SommaireGeneratorService {
         promptInspirations,
         destination,
         sections || [],
-        pois || []
+        pois
       );
       console.log(`✅ ${inspirationsResult.inspirations.length} pages inspiration générées`);
       proposal.inspirations = inspirationsResult.inspirations;

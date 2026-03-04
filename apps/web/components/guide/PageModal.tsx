@@ -143,7 +143,7 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
     page_id: page?.page_id || nanoid(10),
     titre: page?.titre || '',
     template_id: page?.template_id || '',
-    type_de_page: page?.type_de_page || '',
+    type_de_page: page?.type_de_page || page?.metadata?.page_type || '',
     saison: page?.saison || '',
     poi_type_extracted: extractedData.poiType,
     statut_editorial: page?.statut_editorial || 'draft',
@@ -152,7 +152,9 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
     other_mentions: extractedData.otherMentions,
   });
 
-  const isInspirationPage = formData.type_de_page === 'inspiration';
+  // Les pages inspiration peuvent avoir type_de_page='inspiration' (pages classiques)
+  // ou uniquement metadata.page_type='inspiration' (pages créées par le rebuild)
+  const isInspirationPage = formData.type_de_page === 'inspiration' || page?.metadata?.page_type === 'inspiration';
 
   useEffect(() => {
     loadTemplates();

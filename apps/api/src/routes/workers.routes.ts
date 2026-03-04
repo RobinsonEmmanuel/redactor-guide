@@ -352,17 +352,51 @@ export async function workersRoutes(fastify: FastifyInstance) {
       const poisDoc  = await db.collection('pois_selection').findOne({ guide_id: guideId });
       const allPois: any[] = poisDoc?.pois ?? [];
       const guideLang: string = guide?.language ?? guide?.langue ?? 'fr';
+      const sampleIds = allPois.slice(0, 3).map((p: any) => p.poi_id);
       console.log(`🗺️ [rebuild] pois_selection: ${poisDoc ? `${allPois.length} POIs` : 'ABSENT'}, langue: ${guideLang}`);
+      console.log(`🔑 [rebuild] Échantillon poi_id pois_selection: ${JSON.stringify(sampleIds)}`);
       const urlCache: Record<string, string | null> = {};
+
+      // Fallback: POIs du sommaire AI (poi_ids slug-based) → résolution par nom
+      const sommaireDoc = await db.collection('sommaire_proposals').findOne({ guide_id: guideId });
+      const sommairePois: any[] = sommaireDoc?.proposal?.pois ?? [];
+      // Map: old sommaire poi_id → { nom, article_source }
+      const sommairePoisMap: Record<string, { nom: string; article_source?: string }> = {};
+      for (const sp of sommairePois) {
+        if (sp.poi_id) sommairePoisMap[sp.poi_id] = { nom: sp.nom, article_source: sp.article_source };
+      }
+      // Map: nom normalisé → pois_selection entry (pour matching par nom)
+      const poisByNom: Record<string, any> = {};
+      for (const p of allPois) {
+        poisByNom[p.nom?.toLowerCase()?.trim()] = p;
+      }
+      console.log(`📚 [rebuild] sommaire_proposals: ${sommairePois.length} POIs de référence`);
 
       const resolvePoiIds = async (ids: string[]) => {
         const out: Array<{ poi_id: string; nom: string; url_source: string | null }> = [];
         for (const id of ids) {
-          const poi = allPois.find((x: any) => x.poi_id === id);
+          // 1er choix : correspondance directe par poi_id dans pois_selection
+          let poi = allPois.find((x: any) => x.poi_id === id);
+
           if (!poi) {
-            console.warn(`   ⚠️ POI ${id} introuvable dans pois_selection`);
-            continue;
+            // 2ème choix : l'ID vient du sommaire AI → retrouver le nom, puis matcher dans pois_selection
+            const somPoi = sommairePoisMap[id];
+            if (somPoi) {
+              poi = poisByNom[somPoi.nom?.toLowerCase()?.trim()];
+              if (poi) {
+                console.log(`   🔄 POI "${id}" (sommaire) → trouvé via nom "${somPoi.nom}" → poi_id="${poi.poi_id}"`);
+              } else {
+                // 3ème choix : utiliser le nom du sommaire sans URL
+                console.warn(`   ⚠️ POI "${id}" → nom sommaire "${somPoi.nom}" non trouvé dans pois_selection, utilisé sans URL`);
+                out.push({ poi_id: id, nom: somPoi.nom, url_source: null });
+                continue;
+              }
+            } else {
+              console.warn(`   ⚠️ POI "${id}" introuvable dans pois_selection ni sommaire_proposals`);
+              continue;
+            }
           }
+
           let url: string | null = null;
           const slug: string | undefined = poi.article_source;
           if (slug) {

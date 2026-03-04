@@ -62,11 +62,38 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         const guideLang: string = guide?.language ?? guide?.langue ?? 'fr';
         const urlCache: Record<string, string | null> = {};
 
+        // Fallback pour les IDs du sommaire AI (format slug) → résolution par nom
+        const sommaireDoc = await db.collection('sommaire_proposals').findOne({ guide_id: guideId });
+        const sommairePois: any[] = sommaireDoc?.proposal?.pois ?? [];
+        const sommairePoisMap: Record<string, { nom: string; article_source?: string }> = {};
+        for (const sp of sommairePois) {
+          if (sp.poi_id) sommairePoisMap[sp.poi_id] = { nom: sp.nom, article_source: sp.article_source };
+        }
+        const poisByNom: Record<string, any> = {};
+        for (const p of allPois) {
+          poisByNom[p.nom?.toLowerCase()?.trim()] = p;
+        }
+
         for (const p of inspirationPagesNeedingResolution) {
           const resolved: Array<{ poi_id: string; nom: string; url_source: string | null }> = [];
           for (const poiId of (p.metadata.inspiration_pois_ids as string[])) {
-            const poi = allPois.find((x: any) => x.poi_id === poiId);
-            if (!poi) continue;
+            // 1er choix : correspondance directe
+            let poi = allPois.find((x: any) => x.poi_id === poiId);
+
+            if (!poi) {
+              // 2ème choix : ID sommaire → match par nom dans pois_selection
+              const somPoi = sommairePoisMap[poiId];
+              if (somPoi) {
+                poi = poisByNom[somPoi.nom?.toLowerCase()?.trim()];
+                if (!poi) {
+                  resolved.push({ poi_id: poiId, nom: somPoi.nom, url_source: null });
+                  continue;
+                }
+              } else {
+                continue;
+              }
+            }
+
             let poiUrl: string | null = null;
             const slug: string | undefined = poi.article_source;
             if (slug) {

@@ -358,7 +358,20 @@ function injectBulletText(page, label, value) {
     }
 }
 
-// --- 8. Injecter Nom+Hashtag (champ fusionné avec style paragraphe) ----------
+// --- 8. Masquer/afficher un objet quelconque (Group, Rectangle…) par label ---
+// Utilise pour les groupes de cartes repetitif (_card_N) :
+// value non vide → visible=true, value vide/null → visible=false.
+// Contrairement a injectText, fonctionne sur tout type d'objet InDesign.
+function injectItemVisibility(page, label, value) {
+    var blocks = findByLabelOnPage(page, label);
+    var show = (value !== null && value !== undefined &&
+                String(value).replace(/^\s+|\s+$/, "") !== "");
+    for (var i = 0; i < blocks.length; i++) {
+        try { blocks[i].visible = show; } catch(e) {}
+    }
+}
+
+// --- 8b. Injecter Nom+Hashtag (champ fusionné avec style paragraphe) ---------
 // Injecte un champ "Nom\rHashtag" dans un seul cadre texte.
 // Le nom occupe le 1er paragraphe (style du cadre), le hashtag le 2e (style "Hashtag").
 // Champs concernes : cles contenant "_nom_hashtag_" (ex: INSPIRATION_1_nom_hashtag_1)
@@ -730,7 +743,11 @@ function injectPageContent(page, pageData) {
     for (var key in data.mappings.fields) {
         if (!data.mappings.fields.hasOwnProperty(key)) continue;
         if (SKIP_IN_MASK_STEP[key]) continue;
-        injectText(page, data.mappings.fields[key], null);
+        if (key.indexOf("_card_") !== -1) {
+            injectItemVisibility(page, data.mappings.fields[key], null); // masque le groupe entier
+        } else {
+            injectText(page, data.mappings.fields[key], null);
+        }
     }
 
     // Etape B : injection textes
@@ -742,8 +759,11 @@ function injectPageContent(page, pageData) {
         var tVal = textContent[tKey];
         if (tVal === null || tVal === undefined) continue;
         var tStrVal = String(tVal).replace(/^\s+|\s+$/, "");
-        if (tStrVal === "") continue;
-        if (tKey.indexOf("_nom_hashtag_") !== -1) {
+        if (tKey.indexOf("_card_") !== -1) {
+            injectItemVisibility(page, tMapping, tStrVal); // affiche le groupe si '1'
+        } else if (tStrVal === "") {
+            // valeur vide → ne pas injecter (le masquage Step A a deja eu lieu)
+        } else if (tKey.indexOf("_nom_hashtag_") !== -1) {
             injectNomHashtag(page, tMapping, tStrVal);
         } else if (BULLET_LIST_FIELDS[tKey]) {
             injectBulletText(page, tMapping, tStrVal);
@@ -890,7 +910,11 @@ for (var i = 0; i < data.pages.length; i++) {
     for (var key in data.mappings.fields) {
         if (!data.mappings.fields.hasOwnProperty(key)) continue;
         if (SKIP_IN_MASK_STEP[key]) continue;
-        injectText(newPage, data.mappings.fields[key], null);
+        if (key.indexOf("_card_") !== -1) {
+            injectItemVisibility(newPage, data.mappings.fields[key], null);
+        } else {
+            injectText(newPage, data.mappings.fields[key], null);
+        }
     }
 
     // Etape B : injection textes (sauf champs geres par injectPictoBar)
@@ -902,16 +926,20 @@ for (var i = 0; i < data.pages.length; i++) {
         var val = textContent[key];
         if (val === null || val === undefined) continue;
         var strVal = String(val).replace(/^\s+|\s+$/, "");
-        if (strVal === "") continue;
-        // Resoudre les placeholders {{VAR}} avec les donnees de la page courante
-        strVal = strVal.replace(/\{\{URL_ARTICLE_SOURCE\}\}/g,   pageData.url_source || "");
-        strVal = strVal.replace(/\{\{TITRE_ARTICLE_SOURCE\}\}/g, pageData.title       || "");
-        if (key.indexOf("_nom_hashtag_") !== -1) {
-            injectNomHashtag(newPage, mapping, strVal);
-        } else if (BULLET_LIST_FIELDS[key]) {
-            injectBulletText(newPage, mapping, strVal);
+        if (key.indexOf("_card_") !== -1) {
+            injectItemVisibility(newPage, mapping, strVal);
         } else {
-            injectText(newPage, mapping, strVal);
+            if (strVal === "") continue;
+            // Resoudre les placeholders {{VAR}} avec les donnees de la page courante
+            strVal = strVal.replace(/\{\{URL_ARTICLE_SOURCE\}\}/g,   pageData.url_source || "");
+            strVal = strVal.replace(/\{\{TITRE_ARTICLE_SOURCE\}\}/g, pageData.title       || "");
+            if (key.indexOf("_nom_hashtag_") !== -1) {
+                injectNomHashtag(newPage, mapping, strVal);
+            } else if (BULLET_LIST_FIELDS[key]) {
+                injectBulletText(newPage, mapping, strVal);
+            } else {
+                injectText(newPage, mapping, strVal);
+            }
         }
     }
 

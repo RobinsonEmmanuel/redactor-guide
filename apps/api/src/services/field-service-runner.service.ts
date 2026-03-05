@@ -522,6 +522,7 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     }
 
     cards.push({
+      card:         '1',         // sentinelle : '1' = groupe visible, '' = groupe masqué
       image:        imageUrl ?? '',
       nom,
       hashtag,

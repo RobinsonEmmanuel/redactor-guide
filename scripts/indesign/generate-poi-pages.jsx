@@ -839,6 +839,17 @@ function injectPageContent(page, pageData) {
         injectFrameHyperlink(page, flMapping, textContent[flKey] || null);
     }
 
+    // Etape B3 : hyperliens sur les pictos des cartes inspiration
+    // Les cles _url_article_N et _url_maps_N contiennent une URL brute a appliquer
+    // sur le cadre graphique (picto lien / picto carte) du meme label.
+    for (var lKey in textContent) {
+        if (!textContent.hasOwnProperty(lKey)) continue;
+        if (lKey.indexOf("_url_article_") === -1 && lKey.indexOf("_url_maps_") === -1) continue;
+        var lUrl = String(textContent[lKey] || "").replace(/^\s+|\s+$/, "");
+        var lLabel = data.mappings.fields[lKey] || lKey;
+        injectFrameHyperlink(page, lLabel, lUrl || null);
+    }
+
     // Etape C : injection images
     // Meme convention fallback label = nom du champ pour les sous-champs _image_N.
     for (var iKey in imageContent) {

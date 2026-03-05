@@ -233,20 +233,31 @@ export class PageRedactionService {
         console.log(`📑 Mode tous_articles_index (titres + URLs uniquement)`);
 
       } else if (infoSource === 'tous_articles_site') {
-        // Mode tous articles : l'IA se base sur l'ensemble des articles WordPress collectés
         article = null;
         articleContext = await this.buildGeneralContext(_guideId, page);
-        console.log(`📚 Mode tous_articles_site`);
+        // Basculement automatique si le contexte dépasse ~25k tokens (100k chars)
+        if (articleContext.length > 100_000) {
+          console.warn(`⚠️ tous_articles_site trop volumineux (${Math.round(articleContext.length / 4)} tok estimés) — basculement automatique vers tous_articles_index`);
+          articleContext = await this.buildArticlesIndex(_guideId, page);
+          console.log(`📑 Basculé vers tous_articles_index (${Math.round(articleContext.length / 4)} tok)`);
+        } else {
+          console.log(`📚 Mode tous_articles_site (~${Math.round(articleContext.length / 4)} tok)`);
+        }
 
       } else if (infoSource === 'tous_articles_et_llm') {
-        // Mode tous_articles_et_llm : articles du site + connaissances propres du LLM
         article = null;
         const siteContext = await this.buildGeneralContext(_guideId, page);
-        articleContext = `${siteContext}
+        // Même basculement si trop volumineux
+        if (siteContext.length > 100_000) {
+          console.warn(`⚠️ tous_articles_et_llm trop volumineux — basculement vers tous_articles_index`);
+          articleContext = await this.buildArticlesIndex(_guideId, page);
+        } else {
+          articleContext = `${siteContext}
 
 === INSTRUCTIONS COMPLÉMENTAIRES ===
 Tu peux également t'appuyer sur tes propres connaissances sur cette destination pour enrichir et compléter le contenu généré, dans la mesure où les informations du site ne suffisent pas. Veille toutefois à rester cohérent avec le ton éditorial et les informations présentes dans les articles du site.`;
-        console.log(`🧠 Mode tous_articles_et_llm`);
+        }
+        console.log(`🧠 Mode tous_articles_et_llm (~${Math.round(articleContext.length / 4)} tok)`);
 
       } else {
         // Mode non_applicable : pas de contexte éditorial (ex: sommaire, page de garde)

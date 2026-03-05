@@ -1037,8 +1037,12 @@ INSTRUCTIONS STRICTES :
           parts.push(`Photos pré-filtrées par mots-clés : ${(field.search_keywords as string[]).join(', ')}`);
         }
         parts.push(`Voici les photos analysées disponibles :\n${imagesBlock}`);
-        if (field.pool_instructions) {
-          parts.push(`Critères de sélection : ${field.pool_instructions}`);
+        // ai_instructions en priorité (champ unifié), pool_instructions pour rétrocompatibilité
+        const selectionPrompt = field.ai_instructions
+          ? this.openaiService.replaceVariables(field.ai_instructions, fieldVars)
+          : field.pool_instructions;
+        if (selectionPrompt) {
+          parts.push(`Critères de sélection :\n${selectionPrompt}`);
         }
         parts.push(`⚠️ Répondre UNIQUEMENT avec l'URL complète de l'image choisie (https://...), sans aucun texte autour.`);
         return parts.join('\n');

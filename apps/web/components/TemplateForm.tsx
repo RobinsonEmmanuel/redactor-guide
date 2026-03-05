@@ -43,7 +43,7 @@ interface TemplateField {
   pool_instructions?: string;
 }
 
-type InfoSource = 'article_source' | 'cluster_auto_match' | 'saison_auto_match' | 'inspiration_auto_match' | 'tous_articles_site' | 'tous_articles_et_llm' | 'non_applicable';
+type InfoSource = 'article_source' | 'cluster_auto_match' | 'saison_auto_match' | 'inspiration_auto_match' | 'tous_articles_index' | 'tous_articles_site' | 'tous_articles_et_llm' | 'non_applicable';
 
 const INFO_SOURCE_OPTIONS: Array<{
   value: InfoSource;
@@ -76,9 +76,15 @@ const INFO_SOURCE_OPTIONS: Array<{
     icon: '💡',
   },
   {
+    value: 'tous_articles_index',
+    label: "Index des articles du site (titres + URLs)",
+    description: "L'IA reçoit uniquement la liste des titres et URLs des articles. Idéal pour les pages de ressources/liens (ex : Aller Plus Loin) — contexte léger, pas de risque de dépasser la fenêtre du LLM.",
+    icon: '📑',
+  },
+  {
     value: 'tous_articles_site',
-    label: "Tous les articles du site",
-    description: "L'IA parcourt l'ensemble des articles WordPress collectés pour trouver les informations pertinentes.",
+    label: "Tous les articles du site (contenu complet)",
+    description: "L'IA parcourt le contenu complet de l'ensemble des articles WordPress collectés. Réservé aux pages nécessitant un contenu très détaillé — attention à la taille du contexte.",
     icon: '📚',
   },
   {

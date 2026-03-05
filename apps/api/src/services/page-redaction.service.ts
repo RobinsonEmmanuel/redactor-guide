@@ -224,6 +224,14 @@ export class PageRedactionService {
           };
         }
 
+      } else if (infoSource === 'tous_articles_index') {
+        // Mode index léger : seulement les titres + URLs de tous les articles.
+        // Adapté aux pages de ressources/liens (ex: ALLER_PLUS_LOIN) qui n'ont pas
+        // besoin du contenu complet — évite de dépasser la fenêtre de contexte du LLM.
+        article = null;
+        articleContext = await this.buildArticlesIndex(_guideId, page);
+        console.log(`📑 Mode tous_articles_index (titres + URLs uniquement)`);
+
       } else if (infoSource === 'tous_articles_site') {
         // Mode tous articles : l'IA se base sur l'ensemble des articles WordPress collectés
         article = null;
@@ -748,6 +756,40 @@ INSTRUCTIONS STRICTES :
    *  - La liste des clusters et POIs du guide
    *  - Un échantillon d'articles du site pour la couleur éditoriale
    */
+  /**
+   * Construit un contexte léger : index titre + URL de chaque article de la destination.
+   * Utilisé pour les pages de ressources/liens (info_source = 'tous_articles_index') qui
+   * n'ont besoin que de savoir QUELS articles existent, sans leur contenu complet.
+   * Poids typique : ~50 tokens/article → 200 articles = ~10 000 tokens.
+   */
+  private async buildArticlesIndex(guideId: string, page: any): Promise<string> {
+    const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+    const destination: string = guide?.destination ?? guide?.destinations?.[0] ?? '';
+
+    const parts: string[] = [];
+    parts.push(`=== GUIDE ===`);
+    parts.push(`Destination : ${destination || 'N/A'}`);
+    parts.push(`Année : ${guide?.year ?? 'N/A'}`);
+    if (page.titre) parts.push(`Page à rédiger : ${page.titre}`);
+
+    const articles = await this.db
+      .collection('articles_raw')
+      .find(
+        destination ? { categories: { $regex: destination, $options: 'i' } } : {},
+        { projection: { title: 1, url: 1, slug: 1, categories: 1 } }
+      )
+      .toArray();
+
+    parts.push(`\n=== ARTICLES DU SITE (${articles.length} articles — titres et URLs) ===`);
+    for (const art of articles) {
+      const url = art.url ?? art.slug ?? '';
+      parts.push(`- ${art.title ?? '(sans titre)'}${url ? `  →  ${url}` : ''}`);
+    }
+
+    console.log(`📑 Index articles : ${articles.length} article(s) pour "${destination || 'toutes destinations'}"`);
+    return parts.join('\n');
+  }
+
   private async buildGeneralContext(guideId: string, page: any): Promise<string> {
     const parts: string[] = [];
 

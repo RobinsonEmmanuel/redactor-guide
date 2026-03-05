@@ -1446,6 +1446,7 @@ export default function ContentEditorModal({
               ? 'guide'
               : (
                 template?.info_source === 'non_applicable' ||
+                template?.info_source === 'tous_articles_index' ||
                 template?.info_source === 'tous_articles_site' ||
                 template?.info_source === 'tous_articles_et_llm'
                   ? 'guide'

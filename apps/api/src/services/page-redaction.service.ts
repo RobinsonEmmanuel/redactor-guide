@@ -47,9 +47,29 @@ export class PageRedactionService {
       }
 
       // 2. Charger le template
-      const template = await this.db.collection('templates').findOne({ _id: new ObjectId(page.template_id) });
+      // Fallback : si template_id est null mais template_name est défini, chercher par nom.
+      // Cas typique : pages créées par drag-and-drop ou rebuild dont l'ID n'a pas été résolu.
+      let template: any = null;
+      if (page.template_id) {
+        try {
+          template = await this.db.collection('templates').findOne({ _id: new ObjectId(page.template_id) });
+        } catch {
+          console.warn(`⚠️ template_id invalide (${page.template_id}) — fallback par template_name`);
+        }
+      }
+      if (!template && page.template_name) {
+        template = await this.db.collection('templates').findOne({ template_name: page.template_name });
+        if (template) {
+          console.log(`📋 Template résolu par nom : "${page.template_name}" → ${template._id}`);
+          // Persister l'ID résolu pour éviter de répéter le fallback
+          await this.db.collection('pages').updateOne(
+            { _id: page._id },
+            { $set: { template_id: template._id } }
+          );
+        }
+      }
       if (!template) {
-        throw new Error('Template non trouvé');
+        throw new Error(`Template non trouvé (id=${page.template_id ?? 'null'}, name=${page.template_name ?? 'null'})`);
       }
 
       // 3. Charger le contenu source selon la stratégie info_source du template

@@ -50,6 +50,7 @@ interface TemplateField {
   source?: 'destination_pool';
   pool_tags?: string[];
   pool_instructions?: string;
+  search_keywords?: string[];
   link_label?: LinkPartConfig;
   link_url?: LinkPartConfig;
   validation?: {
@@ -233,6 +234,14 @@ export default function SortableFieldItem({
     setPoolTagsRaw((field.pool_tags ?? []).join(', '));
   }, [field.pool_tags?.join(',')]);
 
+  const [searchKeywordsRaw, setSearchKeywordsRaw] = useState(
+    (field.search_keywords ?? []).join(', ')
+  );
+
+  useEffect(() => {
+    setSearchKeywordsRaw((field.search_keywords ?? []).join(', '));
+  }, [field.search_keywords?.join(',')]);
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -301,11 +310,11 @@ export default function SortableFieldItem({
               : 'ai';
 
             const setMode = (m: 'ai' | 'default' | 'manual' | 'service' | 'pool') => {
-              if (m === 'ai')      onChange({ default_value: undefined, skip_ai: undefined, service_id: undefined, source: undefined, pool_tags: undefined, pool_instructions: undefined });
-              if (m === 'default') onChange({ ai_instructions: undefined, skip_ai: undefined, service_id: undefined, source: undefined, pool_tags: undefined, pool_instructions: undefined, default_value: field.default_value ?? '' });
-              if (m === 'manual')  onChange({ ai_instructions: undefined, default_value: undefined, service_id: undefined, source: undefined, pool_tags: undefined, pool_instructions: undefined, skip_ai: true });
-              if (m === 'service') onChange({ ai_instructions: undefined, default_value: undefined, skip_ai: undefined, source: undefined, pool_tags: undefined, pool_instructions: undefined, service_id: availableServices[0]?.service_id ?? '' });
-              if (m === 'pool')    onChange({ ai_instructions: undefined, default_value: undefined, skip_ai: undefined, service_id: undefined, source: 'destination_pool', pool_tags: field.pool_tags ?? [] });
+              if (m === 'ai')      onChange({ default_value: undefined, skip_ai: undefined, service_id: undefined, source: undefined, pool_tags: undefined, pool_instructions: undefined, search_keywords: undefined });
+              if (m === 'default') onChange({ ai_instructions: undefined, skip_ai: undefined, service_id: undefined, source: undefined, pool_tags: undefined, pool_instructions: undefined, search_keywords: undefined, default_value: field.default_value ?? '' });
+              if (m === 'manual')  onChange({ ai_instructions: undefined, default_value: undefined, service_id: undefined, source: undefined, pool_tags: undefined, pool_instructions: undefined, search_keywords: undefined, skip_ai: true });
+              if (m === 'service') onChange({ ai_instructions: undefined, default_value: undefined, skip_ai: undefined, source: undefined, pool_tags: undefined, pool_instructions: undefined, search_keywords: undefined, service_id: availableServices[0]?.service_id ?? '' });
+              if (m === 'pool')    onChange({ ai_instructions: undefined, default_value: undefined, skip_ai: undefined, service_id: undefined, source: 'destination_pool', pool_tags: field.pool_tags ?? [], search_keywords: field.search_keywords ?? [] });
             };
 
             return (
@@ -513,6 +522,27 @@ export default function SortableFieldItem({
 
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Mots-clés de recherche (optionnel)
+                </label>
+                <input
+                  type="text"
+                  value={searchKeywordsRaw}
+                  onChange={(e) => setSearchKeywordsRaw(e.target.value)}
+                  onBlur={(e) => {
+                    const kws = e.target.value.split(',').map((k) => k.trim()).filter(Boolean);
+                    onChange({ search_keywords: kws });
+                  }}
+                  placeholder="Ex: hotel, piscine, chambre, terrasse, resort"
+                  className="w-full px-3 py-2 text-sm border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-teal-50/30"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Filtre les images dont la description contient au moins un de ces mots. Séparer par virgules.
+                  Laisse vide pour utiliser toutes les meilleures photos de la destination.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
                   Critères de sélection (optionnel)
                 </label>
                 <textarea
@@ -523,7 +553,7 @@ export default function SortableFieldItem({
                   className="w-full px-3 py-2 text-sm border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-teal-50/30"
                 />
                 <p className="mt-1 text-xs text-gray-500">
-                  La liste des photos disponibles est injectée automatiquement. Décris ici les critères de choix.
+                  La liste des photos filtrées est injectée automatiquement. Décris ici les critères de choix final.
                 </p>
               </div>
             </>

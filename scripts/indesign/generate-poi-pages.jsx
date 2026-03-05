@@ -28,6 +28,7 @@ var BOLD_STYLE_NAME        = "Gras";        // Marqueurs **...**
 var ORANGE_STYLE_NAME      = "Orange";      // Marqueurs {...}   - couleur #f39428
 var CHIFFRE_STYLE_NAME     = "Chiffre";     // Marqueurs ^...^   - taille 18pt
 var GRAS_ORANGE_STYLE_NAME = "Gras-orange"; // Marqueurs ~...~   - gras + couleur #f39428
+var HASHTAG_PARA_STYLE_NAME = "Hashtag";    // Style paragraphe pour le hashtag des cartes inspiration
 var BULLET_LEFT_INDENT = 6.35;  // mm - retrait gauche paragraphe puce
 var BULLET_FIRST_LINE  = -6.35; // mm - retrait premiere ligne (hanging indent)
 var BULLET_SPACE_AFTER = 7;     // mm - espace apres chaque puce
@@ -357,7 +358,45 @@ function injectBulletText(page, label, value) {
     }
 }
 
-// --- 8. Injecter image (local en priorite, URL en fallback) ------------------
+// --- 8. Injecter Nom+Hashtag (champ fusionné avec style paragraphe) ----------
+// Injecte un champ "Nom\rHashtag" dans un seul cadre texte.
+// Le nom occupe le 1er paragraphe (style du cadre), le hashtag le 2e (style "Hashtag").
+// Champs concernes : cles contenant "_nom_hashtag_" (ex: INSPIRATION_1_nom_hashtag_1)
+function injectNomHashtag(page, label, value) {
+    var blocks = findByLabelOnPage(page, label);
+    for (var i = 0; i < blocks.length; i++) {
+        if (!(blocks[i] instanceof TextFrame)) continue;
+        var isEmpty = (value === null || value === undefined ||
+                       String(value).replace(/^\s+|\s+$/, "") === "");
+        if (isEmpty) {
+            blocks[i].visible = false;
+            continue;
+        }
+        var tf = blocks[i];
+        tf.visible = true;
+        // Normaliser les separateurs de paragraphe (\n ou \r) en \r (InDesign)
+        var strVal = String(value).replace(/\r\n/g, "\r").replace(/\n/g, "\r");
+        tf.contents = strVal;
+        // Appliquer le style de paragraphe "Hashtag" au 2eme paragraphe
+        try {
+            var paras = tf.parentStory.paragraphs;
+            if (paras.length >= 2) {
+                var hashStyle = doc.paragraphStyles.itemByName(HASHTAG_PARA_STYLE_NAME);
+                if (hashStyle.isValid) {
+                    paras[1].appliedParagraphStyle = hashStyle;
+                }
+            }
+        } catch(e) {}
+        // Appliquer les marqueurs de style caractere si presents
+        var hasMarkers = strVal.indexOf("**") !== -1 ||
+                         strVal.indexOf("{")  !== -1 ||
+                         strVal.indexOf("^")  !== -1 ||
+                         strVal.indexOf("~")  !== -1;
+        if (hasMarkers) { applyStyleMarkers(tf); }
+    }
+}
+
+// --- 8b. Injecter image (local en priorite, URL en fallback) -----------------
 // Note : les TextFrames sont ignores - placer un fichier dans un TextFrame
 // cree un graphic inline qui laisse une ligne blanche dans le bloc.
 function injectImage(page, label, imageData) {
@@ -704,7 +743,9 @@ function injectPageContent(page, pageData) {
         if (tVal === null || tVal === undefined) continue;
         var tStrVal = String(tVal).replace(/^\s+|\s+$/, "");
         if (tStrVal === "") continue;
-        if (BULLET_LIST_FIELDS[tKey]) {
+        if (tKey.indexOf("_nom_hashtag_") !== -1) {
+            injectNomHashtag(page, tMapping, tStrVal);
+        } else if (BULLET_LIST_FIELDS[tKey]) {
             injectBulletText(page, tMapping, tStrVal);
         } else {
             injectText(page, tMapping, tStrVal);
@@ -865,7 +906,9 @@ for (var i = 0; i < data.pages.length; i++) {
         // Resoudre les placeholders {{VAR}} avec les donnees de la page courante
         strVal = strVal.replace(/\{\{URL_ARTICLE_SOURCE\}\}/g,   pageData.url_source || "");
         strVal = strVal.replace(/\{\{TITRE_ARTICLE_SOURCE\}\}/g, pageData.title       || "");
-        if (BULLET_LIST_FIELDS[key]) {
+        if (key.indexOf("_nom_hashtag_") !== -1) {
+            injectNomHashtag(newPage, mapping, strVal);
+        } else if (BULLET_LIST_FIELDS[key]) {
             injectBulletText(newPage, mapping, strVal);
         } else {
             injectText(newPage, mapping, strVal);

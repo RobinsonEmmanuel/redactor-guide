@@ -522,11 +522,13 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     }
 
     cards.push({
-      image:       imageUrl ?? '',
+      image:        imageUrl ?? '',
       nom,
       hashtag,
-      url_article: urlArticle,  // URL brute → picto lien InDesign
-      url_maps:    urlMaps,     // URL brute → picto carte InDesign
+      // Champ fusionné pour InDesign : un seul cadre texte avec style paragraphe sur le hashtag
+      nom_hashtag:  hashtag ? `${nom}\r${hashtag}` : nom,
+      url_article:  urlArticle,  // URL brute → picto lien InDesign
+      url_maps:     urlMaps,     // URL brute → picto carte InDesign
     });
 
     if (i < inspirationPois.length - 1) {

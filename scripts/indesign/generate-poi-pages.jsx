@@ -74,7 +74,8 @@ var GABARIT_NAMES = {
     "CLUSTER":                 "D-CLUSTER",
     "POI":                     "G-POI",
     "INSPIRATION":             "H-INSPIRATION",
-    "SAISON":                  "I-SAISON"
+    "SAISON":                  "I-SAISON",
+    "ALLER_PLUS_LOIN":         "J-ALLER_PLUS_LOIN"
 };
 
 // Cache des gabarits charges (evite de recharger plusieurs fois)
@@ -1034,6 +1035,16 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var saisonPage = addPageWithMaster(msSaison, "SAISON");
         injectPageContent(saisonPage, pageData);
+        pagesGenerated++;
+        continue;
+    }
+
+    if (pageData.template === "ALLER_PLUS_LOIN") {
+        var msAllerPlusLoin = loadGabarit("ALLER_PLUS_LOIN", false);
+        if (!msAllerPlusLoin) continue;
+
+        var allerPlusLoinPage = addPageWithMaster(msAllerPlusLoin, "ALLER_PLUS_LOIN");
+        injectPageContent(allerPlusLoinPage, pageData);
         pagesGenerated++;
         continue;
     }

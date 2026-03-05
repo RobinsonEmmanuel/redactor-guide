@@ -109,10 +109,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
 
   const startPolling = useCallback((loadPagesFn: () => void) => {
     if (pollingRef.current) return; // déjà actif
-    console.log('🔄 Polling démarré (intervalle 3s, timeout 5min)');
-
     pollingRef.current = setInterval(() => {
-      console.log('🔄 Polling — rechargement pages...');
       loadPagesFn();
     }, 3000);
 
@@ -190,36 +187,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         const data = await res.json();
         const loadedPages = data.pages || [];
         const inspiPages = loadedPages.filter((p: any) => p.metadata?.page_type === 'inspiration');
-        console.log('[loadPages] pages inspiration reçues:', inspiPages.map((p: any) => ({
-          _id: p._id,
-          titre: p.titre || p.metadata?.inspiration_title,
-          pois_ids: p.metadata?.inspiration_pois_ids?.length ?? 0,
-          pois: p.metadata?.inspiration_pois?.length ?? 0,
-          metadata_keys: p.metadata ? Object.keys(p.metadata) : [],
-        })));
-        // Log brut COMPLET d'une page inspiration pour débug (clés de l'objet page entier)
-        if (inspiPages.length > 0) {
-          const sample = inspiPages[0];
-          console.log('[loadPages] STRUCTURE COMPLÈTE page inspiration:', JSON.stringify({
-            all_keys: Object.keys(sample),
-            _id: sample._id,
-            titre: sample.titre,
-            has_metadata: !!sample.metadata,
-            metadata_keys: sample.metadata ? Object.keys(sample.metadata) : 'NO METADATA',
-            inspiration_pois_count: sample.metadata?.inspiration_pois?.length,
-          }));
-          // Log brut de toute la page (tronqué si trop grand)
-          const raw = JSON.stringify(sample);
-          console.log('[loadPages] RAW page (500 chars):', raw.slice(0, 500));
-        }
-        // Log structure d'une page NON-inspiration pour comparaison
-        const nonInspi = loadedPages.find((p: any) => p.metadata?.page_type !== 'inspiration');
-        if (nonInspi) {
-          console.log('[loadPages] STRUCTURE page non-inspiration:', JSON.stringify({
-            all_keys: Object.keys(nonInspi),
-            has_metadata: !!nonInspi.metadata,
-          }));
-        }
         setPages(loadedPages);
         // Si des pages existent en base, quitter le mode grille vide
         if (loadedPages.length > 0) setEmptyGridMode(false);
@@ -241,7 +208,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         setProposal(data.proposal);
       }
     } catch (err) {
-      console.log('Aucune proposition existante');
     }
   };
 
@@ -263,7 +229,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
       if (res.ok) {
         const data = await res.json();
         setTemplateProposals(data);
-        console.log('📋 Propositions template chargées:', data);
       }
     } catch (err) {
       console.error('Erreur chargement propositions:', err);
@@ -367,7 +332,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
       const targetPage = pages.find((p) => p._id === over.id);
       if (targetPage) {
         targetOrdre = targetPage.ordre;
-        console.log(`🔄 Échange page ${activePage.ordre} ↔️ page ${targetOrdre}`);
         
         // Échanger les ordres
         const updatedPages = pages.map((p) => {
@@ -388,7 +352,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
               pages: updatedPages.map((p) => ({ _id: p._id, ordre: p.ordre })),
             }),
           });
-          console.log('✅ Échange sauvegardé');
         } catch (err) {
           console.error('❌ Erreur échange:', err);
           loadPages();
@@ -399,7 +362,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
       // Cas 2 : Drop sur un emplacement vide (déplacement libre)
       if (typeof over.id === 'string' && over.id.startsWith('empty-slot-')) {
         targetOrdre = parseInt(over.id.replace('empty-slot-', ''), 10);
-        console.log(`🔄 Déplacement page ${activePage.ordre} → position ${targetOrdre}`);
         
         // Simplement changer l'ordre de cette page
         const updatedPages = pages.map((p) => {
@@ -461,7 +423,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
 
   const handleCreatePageFromTemplatePage = async (templatePageData: any, targetOrder: number | null = null) => {
     try {
-      console.log('🎯 [handleCreatePageFromTemplatePage] Données reçues:', {
+      if (process.env.NODE_ENV === 'development') console.log('🎯 [handleCreatePageFromTemplatePage] Données reçues:', {
         titre: templatePageData.titre,
         type: templatePageData.type,
         template_name: templatePageData.template_name,
@@ -554,7 +516,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         pageData.section_id = templatePageData.section_name;
       }
 
-      console.log('📤 [handleCreatePageFromTemplatePage] pageData envoyé:', pageData);
 
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages`, {
         method: 'POST',
@@ -788,15 +749,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
   };
 
   const handleEditPage = (page: any) => {
-    console.log('[PageModal] page reçue:', JSON.stringify({
-      _id: page._id,
-      titre: page.titre,
-      page_type: page.metadata?.page_type,
-      inspiration_pois_ids: page.metadata?.inspiration_pois_ids?.length,
-      inspiration_pois: page.metadata?.inspiration_pois?.length,
-      inspiration_pois_sample: page.metadata?.inspiration_pois?.slice(0, 2),
-      metadata_keys: page.metadata ? Object.keys(page.metadata) : [],
-    }, null, 2));
     setEditingPage(page);
     setShowModal(true);
   };

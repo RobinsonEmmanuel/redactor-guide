@@ -142,31 +142,6 @@ export class ExportService {
         }
       }
 
-        // ── Overlay traduction : remplace les champs texte si une traduction existe ──
-      if (lang !== 'fr') {
-        const translatedText: Record<string, string> = page.content_translations?.[lang]?.text || {};
-        for (const [k, v] of Object.entries(translatedText)) {
-          if (!(k in textFields) || typeof v !== 'string' || !v.trim()) continue;
-
-          const originalVal = textFields[k];
-          // Si l'original est un JSON lien {label, url} et que la traduction
-          // est un label seul (pas un JSON), on reconstruit le JSON avec le label traduit.
-          // L'URL sera ensuite résolue par le step de résolution d'URLs ci-dessous.
-          if (originalVal.startsWith('{') && !v.startsWith('{')) {
-            try {
-              const originalParsed = JSON.parse(originalVal);
-              if (originalParsed && 'url' in originalParsed) {
-                textFields[k] = JSON.stringify({ ...originalParsed, label: v });
-                continue;
-              }
-            } catch { /* JSON invalide → fallback */ }
-          }
-
-          textFields[k] = v;
-        }
-
-      }
-
       // url_source : résolu en passe 3 (stocké séparément ici pour le return)
       const resolvedUrlSource = page.url_source || null;
 
@@ -249,9 +224,41 @@ export class ExportService {
       }
     }
 
-    // ── 5c. Passe 3 : résolution des URLs vers la langue cible ────────────────
-    // Appliquée APRÈS la passe 2 car les champs url_article / url_maps des blocs
-    // répétitifs (INSPIRATION, ALLER_PLUS_LOIN…) sont injectés par le FieldServiceRunner.
+    // ── 5c. Passe 3 : overlay des traductions ─────────────────────────────────
+    // Appliquée APRÈS la passe 2 pour couvrir :
+    //  - les champs template classiques (titres, textes…)
+    //  - les labels de liens (POI_lien_1, CLUSTER_lien_1, ALLER_PLUS_LOIN_lien_N…)
+    //  - les noms dans les blocs répétitifs (INSPIRATION_1_nom_N…) générés par explodeRepetitifField
+    if (lang !== 'fr') {
+      for (let i = 0; i < exportablePages.length; i++) {
+        const rawPage = exportablePages[i];
+        const translatedText: Record<string, string> =
+          (rawPage as any).content_translations?.[lang]?.text || {};
+
+        for (const [k, v] of Object.entries(translatedText)) {
+          if (typeof v !== 'string' || !v.trim()) continue;
+          if (!(k in pages[i].content.text)) continue;
+
+          const originalVal = pages[i].content.text[k];
+          // Lien JSON {label, url} → reconstruction avec label traduit
+          if (originalVal && originalVal.startsWith('{') && !v.startsWith('{')) {
+            try {
+              const originalParsed = JSON.parse(originalVal);
+              if (originalParsed && 'url' in originalParsed) {
+                pages[i].content.text[k] = JSON.stringify({ ...originalParsed, label: v });
+                continue;
+              }
+            } catch { /* JSON invalide → fallback */ }
+          }
+
+          pages[i].content.text[k] = v;
+        }
+      }
+    }
+
+    // ── 5d. Passe 4 : résolution des URLs vers la langue cible ────────────────
+    // Appliquée APRÈS la passe 3 (overlay) pour que les labels soient déjà traduits
+    // quand on reconstruit les objets lien {label, url} avec l'URL résolue.
     // Couvre : URLs brutes, JSON lien {label,url}, url_source de la page.
     if (lang !== 'fr') {
       let resolvedCount = 0;

@@ -106,15 +106,26 @@ export class GuideTranslationService {
    * Extrait les champs texte traduisibles depuis page.content.
    *
    * - Champs texte bruts (non-URL, non-JSON) → inclus tel quel
-   * - Champs JSON lien {label, url} → seul le label est extrait sous la même clé
-   *   (l'URL est préservée ; elle sera résolue à l'export par urlResolver)
-   * - URLs directes, tableaux JSON, champs non-string → exclus
+   * - Champs lien {label, url} (objet ou string JSON) → seul le label extrait sous la même clé
+   * - Champs répétitifs (array JSON) → noms des cards extraits comme clés plates
+   *   ex: "INSPIRATION_repetitif_1" → "INSPIRATION_1_nom_1", "INSPIRATION_1_nom_2", …
+   * - URLs directes, champs sans label → exclus
    */
   private extractTranslatableFields(content: Record<string, any>): Record<string, string> {
     const result: Record<string, string> = {};
 
     for (const [key, value] of Object.entries(content)) {
       if (value === null || value === undefined || value === '') continue;
+
+      // ── Champ lien stocké comme OBJET {label, url} (cas MongoDB natif) ──────
+      if (typeof value === 'object' && !Array.isArray(value)) {
+        const label = (value as any).label;
+        if (typeof label === 'string' && label.trim()) {
+          result[key] = label.trim();
+        }
+        continue;
+      }
+
       if (typeof value !== 'string') continue;
 
       const str = value.trim();
@@ -123,7 +134,7 @@ export class GuideTranslationService {
       // Exclure les URLs directes
       if (/^https?:\/\//i.test(str)) continue;
 
-      // Champ JSON lien structuré {label, url} → extraire le label
+      // ── Champ lien stocké comme STRING JSON "{label, url}" ──────────────────
       if (str.startsWith('{')) {
         try {
           const parsed = JSON.parse(str);
@@ -134,8 +145,24 @@ export class GuideTranslationService {
         continue;
       }
 
-      // Exclure les tableaux JSON (repetitif sérialisé…)
-      if (str.startsWith('[')) continue;
+      // ── Champ répétitif (array JSON) → extraire les noms par card ───────────
+      // ex: "INSPIRATION_repetitif_1" → clés plates "INSPIRATION_1_nom_1", …
+      if (str.startsWith('[')) {
+        try {
+          const cards = JSON.parse(str);
+          if (Array.isArray(cards)) {
+            // "INSPIRATION_repetitif_1" → "INSPIRATION_1"
+            const flatPrefix = key.replace(/_repetitif_/g, '_');
+            cards.forEach((card: any, idx: number) => {
+              const n = idx + 1;
+              if (typeof card.nom === 'string' && card.nom.trim()) {
+                result[`${flatPrefix}_nom_${n}`] = card.nom.trim();
+              }
+            });
+          }
+        } catch { /* JSON invalide → ignorer */ }
+        continue;
+      }
 
       result[key] = str;
     }

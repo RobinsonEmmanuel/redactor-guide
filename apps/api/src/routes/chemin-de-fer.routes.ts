@@ -44,8 +44,6 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         .sort({ ordre: 1 })
         .toArray();
 
-      const allInspirationRaw = rawPages.filter((p: any) => p.metadata?.page_type === 'inspiration');
-
       // Résoudre inspiration_pois pour toutes les pages inspiration ayant des inspiration_pois_ids
       const inspirationPagesNeedingResolution = rawPages.filter(
         (p: any) =>

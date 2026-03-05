@@ -300,6 +300,23 @@ function setTextWithStyles(textFrame, rawText) {
     applyStyleMarkers(textFrame);  // GREP trouve, applique styles, supprime marqueurs
 }
 
+// --- 5b. Couper le surplus de texte d'un bloc filonne ------------------------
+// Si le texte injecte ne tient pas dans le bloc (overflows), on tronque la story
+// au nombre de caracteres visibles dans ce bloc. Cela empeche le texte de deborder
+// dans un bloc lie (thread) et de provoquer la creation d'une page supplementaire,
+// quelle que soit la configuration Smart Text Reflow du document.
+function truncateOverflow(tf) {
+    try {
+        if (!tf.overflows) return;
+        var story    = tf.parentStory;
+        var visCount = tf.characters.length;
+        var total    = story.characters.length;
+        if (total > visCount && visCount > 0) {
+            story.characters.itemByRange(visCount, total - 1).remove();
+        }
+    } catch(e) {}
+}
+
 // --- 6. Injecter texte (masque le bloc si vide / absent) ---------------------
 // Si value est un objet JSON {"label":"...","url":"..."} (champ lien structure),
 // l'intitule est injecte comme texte et l'URL est ajoutee comme hyperlien.
@@ -331,6 +348,7 @@ function injectText(page, label, value) {
                 blocks[i].visible = linkLabel !== "" || linkUrl !== "";
                 if (blocks[i].visible) {
                     blocks[i].contents = linkLabel;
+                    truncateOverflow(blocks[i]);
                     if (linkUrl !== "") {
                         injectHyperlink(page, label, linkUrl);
                     }
@@ -348,6 +366,7 @@ function injectText(page, label, value) {
                 } else {
                     blocks[i].contents = strValue;
                 }
+                truncateOverflow(blocks[i]);
             }
         }
     }
@@ -385,6 +404,7 @@ function injectBulletText(page, label, value) {
         if (hasMarkers) {
             applyStyleMarkers(tf);
         }
+        truncateOverflow(tf);
     }
 }
 
@@ -443,6 +463,7 @@ function injectNomHashtag(page, label, value) {
                          strVal.indexOf("^")  !== -1 ||
                          strVal.indexOf("~")  !== -1;
         if (hasMarkers) { applyStyleMarkers(tf); }
+        truncateOverflow(tf);
     }
 }
 
@@ -887,13 +908,10 @@ function injectPageContent(page, pageData) {
 var master = loadGabarit("POI", true);
 
 // --- 12b. Desactiver le Smart Text Reflow ------------------------------------
-// Empeche InDesign de creer automatiquement de nouvelles pages lorsqu'un bloc
-// texte deborde (overflow). Toutes les prefereces sont restaurees apres generation.
-var savedSmartReflow      = app.textPreferences.smartTextReflow;
-var savedLimitToMaster    = app.textPreferences.limitToMasterTextFrames;
-var savedAllowPageShuffle = app.documentPreferences ? null : null; // stocke par document
+var savedSmartReflow   = app.textPreferences.smartTextReflow;
+var savedLimitToMaster = app.textPreferences.limitToMasterTextFrames;
 try {
-    app.textPreferences.smartTextReflow   = false;
+    app.textPreferences.smartTextReflow         = false;
     app.textPreferences.limitToMasterTextFrames = false;
 } catch(e) {}
 

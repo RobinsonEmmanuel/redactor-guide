@@ -536,7 +536,12 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
         prompt += `\n\n⚠️ ATTENTION - TENTATIVE ${retryCount + 1}/${this.MAX_RETRIES}\n\n${errorContext}`;
       }
 
-      console.log('📝 Prompt construit, appel OpenAI...');
+      // Estimation légère : ~4 chars = 1 token (approximation GPT)
+      const estimatedInputTokens = Math.round(prompt.length / 4);
+      console.log(`📝 Prompt prêt — ~${estimatedInputTokens} tokens input | ${maxOutputTokens} tokens output alloués`);
+      if (estimatedInputTokens > 200000) {
+        console.warn(`⚠️ Prompt très large (${estimatedInputTokens} tokens estimés) — risque de dépassement fenêtre`);
+      }
 
       // Appeler OpenAI
       const newContent = await this.openaiService.generateJSON(prompt, maxOutputTokens);

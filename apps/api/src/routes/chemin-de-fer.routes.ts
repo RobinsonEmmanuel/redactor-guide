@@ -44,17 +44,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         .sort({ ordre: 1 })
         .toArray();
 
-      // ── LOG DIAGNOSTIC ─────────────────────────────────────────────────────
-      console.log(`\n🔍 [GET chemin-de-fer] guideId=${guideId} cdfId=${cheminDeFerId}`);
-      console.log(`   rawPages: ${rawPages.length} total`);
       const allInspirationRaw = rawPages.filter((p: any) => p.metadata?.page_type === 'inspiration');
-      console.log(`   pages inspiration: ${allInspirationRaw.length}`);
-      allInspirationRaw.forEach((p: any) => {
-        const ids: string[] = p.metadata?.inspiration_pois_ids ?? [];
-        const stored: any[] = p.metadata?.inspiration_pois ?? [];
-        console.log(`   [${p._id}] "${p.metadata?.inspiration_title}" — pois_ids: ${ids.length} stored_pois: ${stored.length} ids_sample: ${JSON.stringify(ids.slice(0, 2))}`);
-      });
-      // ───────────────────────────────────────────────────────────────────────
 
       // Résoudre inspiration_pois pour toutes les pages inspiration ayant des inspiration_pois_ids
       const inspirationPagesNeedingResolution = rawPages.filter(
@@ -63,8 +53,6 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           Array.isArray(p.metadata?.inspiration_pois_ids) &&
           p.metadata.inspiration_pois_ids.length > 0
       );
-
-      console.log(`   pages à résoudre: ${inspirationPagesNeedingResolution.length}`);
 
       let resolvedPoisByPageId: Record<string, Array<{ poi_id: string; nom: string; url_source: string | null }>> = {};
 
@@ -75,12 +63,6 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         const guideLang: string = guide?.language ?? guide?.langue ?? 'fr';
         const urlCache: Record<string, string | null> = {};
 
-        console.log(`   pois_selection: ${allPois.length} POIs`);
-        if (allPois.length > 0) {
-          console.log(`   sample poi_id: ${JSON.stringify(allPois.slice(0, 3).map((p: any) => p.poi_id))}`);
-        }
-
-        // Fallback pour les IDs du sommaire AI (format slug) → résolution par nom
         const sommaireDoc = await db.collection('sommaire_proposals').findOne({ guide_id: guideId });
         const sommairePois: any[] = sommaireDoc?.proposal?.pois ?? [];
         const sommairePoisMap: Record<string, { nom: string; article_source?: string }> = {};
@@ -95,25 +77,19 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         for (const p of inspirationPagesNeedingResolution) {
           const resolved: Array<{ poi_id: string; nom: string; url_source: string | null }> = [];
           const ids: string[] = p.metadata.inspiration_pois_ids;
-          console.log(`   résolution "${p.metadata?.inspiration_title}" (${ids.length} IDs): ${JSON.stringify(ids.slice(0, 3))}`);
 
           for (const poiId of ids) {
-            // 1er choix : correspondance directe
             let poi = allPois.find((x: any) => x.poi_id === poiId);
 
             if (!poi) {
-              // 2ème choix : ID sommaire → match par nom dans pois_selection
               const somPoi = sommairePoisMap[poiId];
               if (somPoi) {
                 poi = poisByNom[somPoi.nom?.toLowerCase()?.trim()];
                 if (!poi) {
-                  console.log(`     ⚠️ "${poiId}" → nom "${somPoi.nom}" non trouvé → utilisé sans URL`);
                   resolved.push({ poi_id: poiId, nom: somPoi.nom, url_source: null });
                   continue;
                 }
-                console.log(`     🔄 "${poiId}" → "${poi.poi_id}" via nom`);
               } else {
-                console.log(`     ❌ "${poiId}" introuvable partout → ignoré`);
                 continue;
               }
             }
@@ -130,11 +106,9 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
               }
               poiUrl = urlCache[slug];
             }
-            // Fallback : si le lookup par slug a échoué, essayer url_source direct du POI
             if (!poiUrl && poi.url_source && typeof poi.url_source === 'string' && poi.url_source.startsWith('http')) {
               poiUrl = poi.url_source;
             }
-            // Fallback 2 : chercher dans articles_raw par URL si url_source n'est pas une URL directe
             if (!poiUrl && poi.url_source && typeof poi.url_source === 'string' && !poi.url_source.startsWith('http')) {
               const cacheKey = `url:${poi.url_source}`;
               if (!(cacheKey in urlCache)) {
@@ -148,7 +122,6 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
             }
             resolved.push({ poi_id: poi.poi_id, nom: poi.nom, url_source: poiUrl });
           }
-          console.log(`   ✅ "${p.metadata?.inspiration_title}" → ${resolved.length} POIs résolus`);
           resolvedPoisByPageId[p._id.toString()] = resolved;
         }
       }
@@ -158,21 +131,6 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         if (!resolved) return p;
         return { ...p, metadata: { ...p.metadata, inspiration_pois: resolved } };
       });
-
-      // Vérification finale
-      const inspirationFinal = pages.filter((p: any) => p.metadata?.page_type === 'inspiration');
-      console.log(`   RÉSULTAT FINAL: ${inspirationFinal.length} pages inspiration dans la réponse`);
-      inspirationFinal.forEach((p: any) => {
-        console.log(`   ✓ "${p.metadata?.inspiration_title}" → inspiration_pois: ${(p.metadata?.inspiration_pois ?? []).length}`);
-      });
-
-      // Log structure complète du 1er page pour détecter tout problème de sérialisation
-      if (inspirationFinal.length > 0) {
-        const sample = inspirationFinal[0];
-        console.log(`   STRUCTURE page sample: keys=${JSON.stringify(Object.keys(sample))} | metadata_keys=${JSON.stringify(Object.keys(sample.metadata ?? {}))}`);
-      }
-      // Log des clés du document cheminDeFer (pour détecter un champ 'pages' parasite)
-      console.log(`   cheminDeFer keys: ${JSON.stringify(Object.keys(cheminDeFer))}`);
 
       return reply.send({
         ...cheminDeFer,

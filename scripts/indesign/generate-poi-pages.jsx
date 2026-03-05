@@ -1047,32 +1047,56 @@ var finalMsg = pagesGenerated + " page(s) générée(s) ✔  |  "
              + "JSON : " + data.pages.length + " page(s)";
 
 if (doc.pages.length !== data.pages.length) {
-    finalMsg += "\n\n⚠ ÉCART DÉTECTÉ (" + (doc.pages.length - data.pages.length)
-              + " pages en trop ou en moins)\n";
-    finalMsg += "Gabarit appliqué sur chaque page :\n";
+    finalMsg += "\n\n[!] ECART : " + doc.pages.length + " pages dans le doc vs "
+              + data.pages.length + " dans le JSON\n";
+    finalMsg += "Gabarit par page :\n";
     for (var rp = 0; rp < doc.pages.length; rp++) {
         var rpPage = doc.pages.item(rp);
         var rpMaster = "?";
         try { rpMaster = rpPage.appliedMaster ? rpPage.appliedMaster.name : "[None]"; } catch(e) {}
-        finalMsg += "  Page " + (rp + 1) + " : " + rpMaster + "\n";
+        finalMsg += "  p." + (rp + 1) + " : " + rpMaster + "\n";
     }
 }
 
+// --- Ecrire le rapport de debordement dans un fichier texte -------------------
+// Un fichier overflow-report.txt est cree a cote du JSON si des blocs ont ete
+// tronques. L'alerte n'affiche qu'un resume d'une ligne pour eviter les dialogs
+// interminables lors des generations de 100+ pages.
 if (overflowWarnings.length > 0) {
-    finalMsg += "\n\n✂ Texte trop long — " + overflowWarnings.length + " bloc(s) tronqué(s) :\n";
-    for (var ow = 0; ow < overflowWarnings.length; ow++) {
-        finalMsg += "  • p." + overflowWarnings[ow].page
-                 + " [" + overflowWarnings[ow].label + "]"
-                 + (overflowWarnings[ow].titre ? "  « " + overflowWarnings[ow].titre + " »" : "")
-                 + "\n";
-    }
-    finalMsg += "→ Réduisez le texte de ces champs dans l'éditeur de contenu.";
+    var overflowReportPath = rootFolder + "/overflow-report.txt";
+    var overflowWritten    = false;
+    try {
+        var now        = new Date();
+        var nowStr     = now.getFullYear() + "-"
+                       + (now.getMonth() + 1 < 10 ? "0" : "") + (now.getMonth() + 1) + "-"
+                       + (now.getDate()         < 10 ? "0" : "") + now.getDate()      + " "
+                       + (now.getHours()        < 10 ? "0" : "") + now.getHours()     + ":"
+                       + (now.getMinutes()      < 10 ? "0" : "") + now.getMinutes();
+        var rf = new File(overflowReportPath);
+        rf.encoding = "UTF-8";
+        rf.open("w");
+        rf.writeln("TEXTE TROP LONG - " + nowStr);
+        rf.writeln("Blocs tronques : " + overflowWarnings.length);
+        rf.writeln("----------------------------------------------------");
+        for (var ow = 0; ow < overflowWarnings.length; ow++) {
+            rf.writeln("p." + overflowWarnings[ow].page
+                     + "  [" + overflowWarnings[ow].label + "]"
+                     + (overflowWarnings[ow].titre ? "  " + overflowWarnings[ow].titre : ""));
+        }
+        rf.writeln("----------------------------------------------------");
+        rf.writeln("Reduisez le texte de ces champs dans l editeur de contenu.");
+        rf.close();
+        overflowWritten = true;
+    } catch(e) {}
+
+    finalMsg += "\n\n[!] " + overflowWarnings.length + " bloc(s) tronque(s)"
+              + (overflowWritten ? " -> voir overflow-report.txt" : " (impossible d ecrire le fichier rapport)");
 }
 
 if (missingGabarits.length > 0) {
-    finalMsg += "\n\n⚠ Gabarit(s) introuvable(s) — pages ignorées :\n";
+    finalMsg += "\n[!] Gabarit(s) introuvable(s) :";
     for (var mg = 0; mg < missingGabarits.length; mg++) {
-        finalMsg += "  • " + missingGabarits[mg] + "\n";
+        finalMsg += " " + missingGabarits[mg];
     }
 }
 

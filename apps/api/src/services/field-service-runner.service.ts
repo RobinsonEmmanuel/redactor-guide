@@ -405,6 +405,49 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     return { value: '[]' };
   }
 
+  // ── Résolution des URLs d'articles (même logique 3-niveaux que chemin-de-fer.routes.ts) ──
+  // Une seule requête DB pour tous les POIs de la page.
+  const articleUrlCache: Record<string, string> = {};
+  {
+    const slugsToCheck = inspirationPois.flatMap((p) => {
+      const ids: string[] = [];
+      if (p.poi_id) { ids.push(p.poi_id); ids.push(p.poi_id.replace(/_/g, '-')); }
+      if (p.url_source && !p.url_source.startsWith('http')) {
+        ids.push(p.url_source); ids.push(p.url_source.replace(/_/g, '-'));
+      }
+      return ids;
+    }).filter(Boolean);
+
+    if (slugsToCheck.length > 0) {
+      const articles = await db.collection('articles_raw').find(
+        { guide_id: ctx.guideId, slug: { $in: [...new Set(slugsToCheck)] } },
+        { projection: { slug: 1, urls_by_lang: 1 } }
+      ).toArray();
+      for (const art of articles) {
+        const url: string | null = art.urls_by_lang?.fr ?? null;
+        if (url && art.slug) articleUrlCache[String(art.slug)] = url;
+      }
+    }
+  }
+
+  /** Résout l'URL article d'un POI : url_source directe > lookup par poi_id > lookup par url_source slug */
+  function resolvePoiArticleUrl(poi: { poi_id?: string; url_source: string | null }): string {
+    if (poi.url_source?.startsWith('http')) return poi.url_source;
+    if (poi.poi_id) {
+      const url = articleUrlCache[poi.poi_id]
+               ?? articleUrlCache[poi.poi_id.replace(/_/g, '-')]
+               ?? null;
+      if (url) return url;
+    }
+    if (poi.url_source) {
+      const url = articleUrlCache[poi.url_source]
+               ?? articleUrlCache[poi.url_source.replace(/_/g, '-')]
+               ?? null;
+      if (url) return url;
+    }
+    return '';
+  }
+
   // Angle éditorial de l'inspiration (contexte commun à tous les POIs)
   const inspirationId: string | undefined = currentPage.metadata?.inspiration_id;
   let angleEditorial = '';
@@ -473,10 +516,11 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     const imagesPoiText = formatPoiImagesForPrompt(poiImages);
 
     // Variables spécifiques à ce POI (enrichissent pageVars)
+    const resolvedPoiUrl = resolvePoiArticleUrl(poi);
     const poiVars: Record<string, string> = {
       ...pageVars,
       POI_NOM:         poi.nom,
-      POI_URL_ARTICLE: poi.url_source ?? '',
+      POI_URL_ARTICLE: resolvedPoiUrl,
       IMAGES_POI:      imagesPoiText,
     };
 
@@ -544,11 +588,11 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     // mode 'skip' → hashtag vide (géré ailleurs)
 
     // ── url_article (URL brute de l'article source) ───────────────────────────
-    // Mode auto/ai → poi.url_source | default → valeur fixe | manual (skip_ai) → vide
+    // Utilise resolvedPoiUrl (résolution 3-niveaux) plutôt que poi.url_source brut
     const urlArtResolved = resolveSubField(fieldDef, 'url_article', '', poiVars);
     const urlArticle = urlArtResolved.mode === 'skip'    ? ''
-      : urlArtResolved.mode === 'default' ? (urlArtResolved.defaultValue ?? poi.url_source ?? '')
-      : (poi.url_source ?? '');
+      : urlArtResolved.mode === 'default' ? (urlArtResolved.defaultValue ?? resolvedPoiUrl)
+      : resolvedPoiUrl;
 
     // ── url_maps (URL brute Google Maps pour picto carte InDesign) ───────────
     let urlMaps = '';

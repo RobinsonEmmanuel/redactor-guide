@@ -73,7 +73,8 @@ var GABARIT_NAMES = {
     "CARTE_DESTINATION":       "E-CARTE_DESTINATION",
     "CLUSTER":                 "D-CLUSTER",
     "POI":                     "G-POI",
-    "INSPIRATION":             "H-INSPIRATION"
+    "INSPIRATION":             "H-INSPIRATION",
+    "SAISON":                  "I-SAISON"
 };
 
 // Cache des gabarits charges (evite de recharger plusieurs fois)
@@ -1022,6 +1023,17 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var inspiPage = addPageWithMaster(msInspi, "INSPIRATION");
         injectPageContent(inspiPage, pageData);
+        pagesGenerated++;
+        continue;
+    }
+
+    // -- SAISON ---------------------------------------------------------------
+    if (pageData.template === "SAISON") {
+        var msSaison = loadGabarit("SAISON", false);
+        if (!msSaison) continue;
+
+        var saisonPage = addPageWithMaster(msSaison, "SAISON");
+        injectPageContent(saisonPage, pageData);
         pagesGenerated++;
         continue;
     }

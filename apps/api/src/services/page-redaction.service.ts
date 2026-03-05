@@ -380,9 +380,11 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
       const promptRegles = await this.loadPrompt('regles_ecriture');
 
       // 7. Générer avec retry automatique (uniquement les champs sans default_value)
-      // Calculer les output tokens nécessaires selon le nombre de champs (évite de saturer la
-      // fenêtre de contexte des modèles reasoning qui comptent raisonnement + input + output)
-      const estimatedOutputTokens = Math.min(12000, Math.max(2000, fieldsForAI.length * 400 + 1000));
+      // Pour gpt-5-mini : context total 400k, max_output 128k.
+      // max_output_tokens couvre la réponse visible ; le reasoning interne s'y ajoute.
+      // → on alloue au minimum 16k pour laisser de la marge au raisonnement interne,
+      //   et on monte selon le nombre de champs (textes longs = plus d'output nécessaire).
+      const estimatedOutputTokens = Math.min(32000, Math.max(16000, fieldsForAI.length * 500 + 2000));
       console.log(`🎯 Output tokens alloués : ${estimatedOutputTokens} (${fieldsForAI.length} champ(s) à générer)`);
 
       const result = await this.generateWithRetry(

@@ -83,6 +83,15 @@ var gabaritCache = {};
 // Liste des gabarits manquants detectes (pour le rapport final)
 var missingGabarits = [];
 
+// Liste des blocs tronques (texte trop long) detectes pendant la generation
+// Format : { page: N, label: "...", titre: "..." }
+var overflowWarnings = [];
+
+// Contexte de la page en cours de generation (mis a jour a chaque iteration).
+// Permet a truncateOverflow de contextualiser les avertissements.
+var currentPageNum   = 0;
+var currentPageTitre = "";
+
 // Charge un gabarit InDesign par nom de template.
 // Retourne le MasterSpread ou null si introuvable.
 // param templateName : nom du template (ex: "PRESENTATION_GUIDE")
@@ -305,6 +314,8 @@ function setTextWithStyles(textFrame, rawText) {
 // au nombre de caracteres visibles dans ce bloc. Cela empeche le texte de deborder
 // dans un bloc lie (thread) et de provoquer la creation d'une page supplementaire,
 // quelle que soit la configuration Smart Text Reflow du document.
+// Le label du bloc et le numero de page sont ajoutes a overflowWarnings pour
+// figurer dans le rapport final.
 function truncateOverflow(tf) {
     try {
         if (!tf.overflows) return;
@@ -312,6 +323,11 @@ function truncateOverflow(tf) {
         var visCount = tf.characters.length;
         var total    = story.characters.length;
         if (total > visCount && visCount > 0) {
+            overflowWarnings.push({
+                page:  currentPageNum,
+                titre: currentPageTitre,
+                label: tf.label || "(sans label)"
+            });
             story.characters.itemByRange(visCount, total - 1).remove();
         }
     } catch(e) {}
@@ -933,6 +949,10 @@ for (var i = 0; i < data.pages.length; i++) {
 
     var pageData = data.pages[i];
 
+    // Mettre a jour le contexte pour les avertissements de debordement
+    currentPageNum   = pageData.page_number || (i + 1);
+    currentPageTitre = pageData.titre || pageData.title || "";
+
     // -- COUVERTURE - placee en debut de document -----------------------------
     if (pageData.template === "COUVERTURE") {
         var msCover = loadGabarit("COUVERTURE", false);
@@ -1038,8 +1058,19 @@ if (doc.pages.length !== data.pages.length) {
     }
 }
 
+if (overflowWarnings.length > 0) {
+    finalMsg += "\n\n✂ Texte trop long — " + overflowWarnings.length + " bloc(s) tronqué(s) :\n";
+    for (var ow = 0; ow < overflowWarnings.length; ow++) {
+        finalMsg += "  • p." + overflowWarnings[ow].page
+                 + " [" + overflowWarnings[ow].label + "]"
+                 + (overflowWarnings[ow].titre ? "  « " + overflowWarnings[ow].titre + " »" : "")
+                 + "\n";
+    }
+    finalMsg += "→ Réduisez le texte de ces champs dans l'éditeur de contenu.";
+}
+
 if (missingGabarits.length > 0) {
-    finalMsg += "\n⚠ Gabarit(s) introuvable(s) — pages ignorées :\n";
+    finalMsg += "\n\n⚠ Gabarit(s) introuvable(s) — pages ignorées :\n";
     for (var mg = 0; mg < missingGabarits.length; mg++) {
         finalMsg += "  • " + missingGabarits[mg] + "\n";
     }

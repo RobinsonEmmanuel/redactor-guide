@@ -72,7 +72,16 @@ export class ExportService {
         const tgtUrl = art.urls_by_lang?.[lang];
         if (frUrl && tgtUrl) urlMap.set(frUrl, tgtUrl);
       }
-      urlResolver = (frUrl: string) => urlMap.get(frUrl) ?? frUrl;
+      console.log(`🌐 [EXPORT][${lang}] URL resolver : ${urlMap.size} article(s) avec URL en ${lang}`);
+      urlResolver = (frUrl: string) => {
+        const resolved = urlMap.get(frUrl);
+        if (resolved) {
+          console.log(`   ✅ URL résolue [${lang}]: ${frUrl} → ${resolved}`);
+        } else {
+          console.log(`   ⚠️  URL fallback FR: ${frUrl}`);
+        }
+        return resolved ?? frUrl;
+      };
     }
 
     // ── 5. Construire les pages exportées — passe 1 ────────────────────────
@@ -141,13 +150,27 @@ export class ExportService {
         }
       }
 
-      // ── Overlay traduction : remplace les champs texte si une traduction existe ──
+        // ── Overlay traduction : remplace les champs texte si une traduction existe ──
       if (lang !== 'fr') {
         const translatedText: Record<string, string> = page.content_translations?.[lang]?.text || {};
         for (const [k, v] of Object.entries(translatedText)) {
-          if (k in textFields && typeof v === 'string' && v.trim()) {
-            textFields[k] = v;
+          if (!(k in textFields) || typeof v !== 'string' || !v.trim()) continue;
+
+          const originalVal = textFields[k];
+          // Si l'original est un JSON lien {label, url} et que la traduction
+          // est un label seul (pas un JSON), on reconstruit le JSON avec le label traduit.
+          // L'URL sera ensuite résolue par le step de résolution d'URLs ci-dessous.
+          if (originalVal.startsWith('{') && !v.startsWith('{')) {
+            try {
+              const originalParsed = JSON.parse(originalVal);
+              if (originalParsed && 'url' in originalParsed) {
+                textFields[k] = JSON.stringify({ ...originalParsed, label: v });
+                continue;
+              }
+            } catch { /* JSON invalide → fallback */ }
           }
+
+          textFields[k] = v;
         }
 
         // ── Résolution des URLs vers la langue cible ──────────────────────

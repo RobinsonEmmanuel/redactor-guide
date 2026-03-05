@@ -103,8 +103,12 @@ export class GuideTranslationService {
   }
 
   /**
-   * Extrait les champs texte traduisibles depuis page.content
-   * Exclut : images (URLs), JSON structurés, champs vides, tableaux repetitif JSON
+   * Extrait les champs texte traduisibles depuis page.content.
+   *
+   * - Champs texte bruts (non-URL, non-JSON) → inclus tel quel
+   * - Champs JSON lien {label, url} → seul le label est extrait sous la même clé
+   *   (l'URL est préservée ; elle sera résolue à l'export par urlResolver)
+   * - URLs directes, tableaux JSON, champs non-string → exclus
    */
   private extractTranslatableFields(content: Record<string, any>): Record<string, string> {
     const result: Record<string, string> = {};
@@ -116,11 +120,22 @@ export class GuideTranslationService {
       const str = value.trim();
       if (!str) continue;
 
-      // Exclure les URLs
+      // Exclure les URLs directes
       if (/^https?:\/\//i.test(str)) continue;
 
-      // Exclure les JSON structurés (lien, repetitif sérialisé…)
-      if (str.startsWith('{') || str.startsWith('[')) continue;
+      // Champ JSON lien structuré {label, url} → extraire le label
+      if (str.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(str);
+          if (parsed && typeof parsed.label === 'string' && parsed.label.trim()) {
+            result[key] = parsed.label.trim();
+          }
+        } catch { /* JSON invalide → ignorer */ }
+        continue;
+      }
+
+      // Exclure les tableaux JSON (repetitif sérialisé…)
+      if (str.startsWith('[')) continue;
 
       result[key] = str;
     }

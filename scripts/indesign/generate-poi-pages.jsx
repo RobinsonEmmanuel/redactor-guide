@@ -886,6 +886,17 @@ function injectPageContent(page, pageData) {
 // G-POI est requis - le script s'arrete s'il est absent.
 var master = loadGabarit("POI", true);
 
+// --- 12b. Desactiver le Smart Text Reflow ------------------------------------
+// Empeche InDesign de creer automatiquement de nouvelles pages lorsqu'un bloc
+// texte deborde (overflow). Toutes les prefereces sont restaurees apres generation.
+var savedSmartReflow      = app.textPreferences.smartTextReflow;
+var savedLimitToMaster    = app.textPreferences.limitToMasterTextFrames;
+var savedAllowPageShuffle = app.documentPreferences ? null : null; // stocke par document
+try {
+    app.textPreferences.smartTextReflow   = false;
+    app.textPreferences.limitToMasterTextFrames = false;
+} catch(e) {}
+
 // --- 13. Purger les pages existantes du document -----------------------------
 // Le document peut contenir des pages residuelles (page blanche initiale,
 // reliquat d'une generation precedente, etc.).
@@ -1015,4 +1026,11 @@ if (missingGabarits.length > 0) {
         finalMsg += "  • " + missingGabarits[mg] + "\n";
     }
 }
+
+// Restaurer les preferences Smart Text Reflow
+try {
+    app.textPreferences.smartTextReflow         = savedSmartReflow;
+    app.textPreferences.limitToMasterTextFrames = savedLimitToMaster;
+} catch(e) {}
+
 alert(finalMsg);

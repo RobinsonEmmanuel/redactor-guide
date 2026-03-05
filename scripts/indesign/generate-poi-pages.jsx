@@ -22,16 +22,9 @@ var doc = app.activeDocument;
 // --- Configuration -----------------------------------------------------------
 // Mettre a true pour afficher une alerte de diagnostic picto sur chaque page POI.
 // Desactiver (false) en production.
-var DEBUG_PICTOS = false;
-
-// Mettre a true pour afficher un rapport de diagnostic sur chaque page INSPIRATION.
-var DEBUG_INSPIRATION = true;
-
-// Mettre a true pour tracer la creation des pages (spreads, pages parasites).
-// Affiche un rapport apres chaque page ajoutee : nb spreads, nb pages par spread,
-// pages supprimees. Permet d'identifier les pages vides generees par les gabarits
-// multi-pages. Desactiver (false) en production.
-var DEBUG_PAGES = true;
+var DEBUG_PICTOS      = false;
+var DEBUG_INSPIRATION = false;
+var DEBUG_PAGES       = false;
 
 var BOLD_STYLE_NAME        = "Gras";        // Marqueurs **...**
 var ORANGE_STYLE_NAME      = "Orange";      // Marqueurs {...}   - couleur #f39428
@@ -151,16 +144,25 @@ function overrideAllFromMaster(masterSpread, targetPage) {
 }
 
 // --- 2c. Ajouter une page, appliquer un gabarit et purger les pages supplementaires -
+// IMPORTANT : la purge est basee sur le COMPTAGE avant/apres (beforeCount).
+// Elle ne supprime QUE les pages ajoutees automatiquement par InDesign (gabarits
+// multi-pages, ex : H-INSPIRATION sur 2 pages) et ne touche JAMAIS aux pages
+// precedemment generees — contrairement a une purge par spread qui supprimerait
+// la page voisine dans les cahiers recto-verso.
 function addPageWithMaster(masterSpread, templateName) {
-    var targetPage = doc.pages.add();
+    var beforeCount = doc.pages.length;
+    var targetPage  = doc.pages.add();
     targetPage.appliedMaster = masterSpread;
     overrideAllFromMaster(masterSpread, targetPage);
 
-    // Supprimer toute page ajoutee par InDesign au meme cahier
-    var spread = targetPage.parent;
-    for (var xp = spread.pages.length - 1; xp >= 0; xp--) {
-        if (spread.pages[xp] !== targetPage) {
-            try { spread.pages[xp].remove(); } catch(e2) {}
+    // Supprimer uniquement les pages SUPPLEMENTAIRES creees par InDesign
+    // (au-dela de la page cible qu'on vient d'ajouter).
+    while (doc.pages.length > beforeCount + 1) {
+        var extraPage = doc.pages.lastItem();
+        if (extraPage !== targetPage) {
+            try { extraPage.remove(); } catch(e) { break; }
+        } else {
+            break;
         }
     }
 
@@ -980,122 +982,13 @@ for (var i = 0; i < data.pages.length; i++) {
 
     var newPage = addPageWithMaster(master, "POI");
 
-    var textContent  = pageData.content.text   || {};
-    var imageContent = pageData.content.images || {};
-
-    // ---- DEBUG POI (une seule page) ----------------------------------------
-    if (DEBUG_PICTOS) {
-        // Alerte 1 : textContent + presence dans les mappings
-        var dbg1 = "=== DEBUG POI page " + (i+1) + " - CONTENU JSON ===\n\n";
-        dbg1 += "textContent (" + (function(){ var n=0; for(var k in textContent) if(textContent.hasOwnProperty(k)) n++; return n; }()) + " cles) :\n";
-        for (var _tk in textContent) {
-            if (!textContent.hasOwnProperty(_tk)) continue;
-            var _tv = String(textContent[_tk] || "");
-            var _inMap = data.mappings.fields.hasOwnProperty(_tk) ? "MAP OK -> " + data.mappings.fields[_tk] : "ABSENT DES MAPPINGS";
-            dbg1 += "  " + _tk + " [" + _inMap + "] = \"" + _tv.substring(0, 40) + "\"\n";
-        }
-        alert(dbg1);
-
-        // Alerte 2 : labels sur la page vs mappings POI
-        var dbg2 = "=== DEBUG POI page " + (i+1) + " - LABELS & MAPPINGS POI ===\n\n";
-        var _pi2 = newPage.allPageItems;
-        dbg2 += "Labels sur la page :\n";
-        for (var _d2 = 0; _d2 < _pi2.length; _d2++) {
-            try { var _l2 = _pi2[_d2].label; if (_l2) dbg2 += "  " + _l2 + "\n"; } catch(e) {}
-        }
-        dbg2 += "\nMappings contenant 'POI' :\n";
-        var _poiFound = false;
-        for (var _mk2 in data.mappings.fields) {
-            if (!data.mappings.fields.hasOwnProperty(_mk2)) continue;
-            if (_mk2.indexOf("POI") !== -1) { dbg2 += "  " + _mk2 + " -> " + data.mappings.fields[_mk2] + "\n"; _poiFound = true; }
-        }
-        if (!_poiFound) dbg2 += "  (AUCUN champ POI dans data.mappings.fields !)\n";
-        alert(dbg2);
-    }
-    // ---- FIN DEBUG ---------------------------------------------------------
-
-    // Etape A : masquer tous les champs mappes (sauf statiques du gabarit)
-    for (var key in data.mappings.fields) {
-        if (!data.mappings.fields.hasOwnProperty(key)) continue;
-        if (SKIP_IN_MASK_STEP[key]) continue;
-        if (key.indexOf("_card_") !== -1) {
-            injectItemVisibility(newPage, data.mappings.fields[key], null);
-        } else {
-            injectText(newPage, data.mappings.fields[key], null);
-        }
-    }
-
-    // Etape B : injection textes (sauf champs geres par injectPictoBar)
-    for (var key in textContent) {
-        if (!textContent.hasOwnProperty(key)) continue;
-        if (SKIP_IN_TEXT_STEP[key]) continue;
-        var mapping = data.mappings.fields[key];
-        if (!mapping) continue;
-        var val = textContent[key];
-        if (val === null || val === undefined) continue;
-        var strVal = String(val).replace(/^\s+|\s+$/, "");
-        if (key.indexOf("_card_") !== -1) {
-            injectItemVisibility(newPage, mapping, strVal);
-        } else {
-            if (strVal === "") continue;
-            // Resoudre les placeholders {{VAR}} avec les donnees de la page courante
-            strVal = strVal.replace(/\{\{URL_ARTICLE_SOURCE\}\}/g,   pageData.url_source || "");
-            strVal = strVal.replace(/\{\{TITRE_ARTICLE_SOURCE\}\}/g, pageData.title       || "");
-            if (key.indexOf("_nom_hashtag_") !== -1) {
-                injectNomHashtag(newPage, mapping, strVal);
-            } else if (BULLET_LIST_FIELDS[key]) {
-                injectBulletText(newPage, mapping, strVal);
-            } else {
-                injectText(newPage, mapping, strVal);
-            }
-        }
-    }
-
-    // Etape B2 : liens sur cadres graphiques (FRAME_LINK_FIELDS)
-    for (var flKey in FRAME_LINK_FIELDS) {
-        if (!FRAME_LINK_FIELDS.hasOwnProperty(flKey)) continue;
-        var flMapping = data.mappings.fields[flKey];
-        if (!flMapping) continue;
-        injectFrameHyperlink(newPage, flMapping, textContent[flKey] || null);
-    }
-
-    // Etape C : injection images
-    for (var imgKey in imageContent) {
-        if (!imageContent.hasOwnProperty(imgKey)) continue;
-        var imgMapping = data.mappings.fields[imgKey];
-        if (!imgMapping) continue;
-        injectImage(newPage, imgMapping, imageContent[imgKey]);
-    }
-
-    // Etape D : pictos + duree
-    var durationVal = textContent["POI_meta_duree"] || textContent["POI_meta_1"] || null;
+    // Injection unifiee via injectPageContent (textes, images, liens cadres)
+    // puis injectPictoBar pour la barre pictos + duree (champs SKIP_IN_TEXT_STEP).
+    injectPageContent(newPage, pageData);
+    var durationVal = (pageData.content.text || {})["POI_meta_duree"]
+                   || (pageData.content.text || {})["POI_meta_1"]
+                   || null;
     injectPictoBar(newPage, pageData.content, durationVal);
-
-    // ---- DEBUG FINAL (apres toutes les etapes) ------------------------------
-    if (DEBUG_PICTOS) {
-        var dbgF = "=== ETAT FINAL (apres A+B+C+D+E) ===\n\n";
-        var _piF = newPage.allPageItems;
-        for (var _dF = 0; _dF < _piF.length; _dF++) {
-            try {
-                var _lF = _piF[_dF].label;
-                if (!_lF) continue;
-                var _visF = _piF[_dF].visible;
-                var _contF = "";
-                try { if (_piF[_dF] instanceof TextFrame) _contF = String(_piF[_dF].contents).substring(0, 30); else _contF = "[img]"; } catch(e) {}
-                // Verifier la visibilite des parents
-                var _parentVis = "parent?";
-                try {
-                    var _par = _piF[_dF].parent;
-                    if (_par && typeof _par.visible !== "undefined") _parentVis = "parent.visible=" + _par.visible + " (" + _par.typename + ")";
-                    else _parentVis = "parent=page";
-                } catch(e) { _parentVis = "parent=page"; }
-                dbgF += _lF + "\n  visible=" + _visF + " " + _parentVis + "\n  \"" + _contF + "\"\n";
-            } catch(e) {}
-        }
-        alert(dbgF);
-        DEBUG_PICTOS = false;
-    }
-    // ---- FIN DEBUG FINAL ---------------------------------------------------
 
     pagesGenerated++;
 }

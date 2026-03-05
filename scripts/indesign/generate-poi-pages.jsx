@@ -33,7 +33,8 @@ var BOLD_STYLE_NAME        = "Gras";        // Marqueurs **...**
 var ORANGE_STYLE_NAME      = "Orange";      // Marqueurs {...}   - couleur #f39428
 var CHIFFRE_STYLE_NAME     = "Chiffre";     // Marqueurs ^...^   - taille 18pt
 var GRAS_ORANGE_STYLE_NAME = "Gras-orange"; // Marqueurs ~...~   - gras + couleur #f39428
-var HASHTAG_PARA_STYLE_NAME = "Hashtag";    // Style paragraphe pour le hashtag des cartes inspiration
+var HASHTAG_PARA_STYLE_NAME  = "Hashtag";          // Style paragraphe pour le hashtag des cartes inspiration
+var NOM_POI_PARA_STYLE_NAME  = "Inspiration_nom";  // Style paragraphe pour le nom du POI (1er paragraphe)
 var BULLET_LEFT_INDENT = 6.35;  // mm - retrait gauche paragraphe puce
 var BULLET_FIRST_LINE  = -6.35; // mm - retrait premiere ligne (hanging indent)
 var BULLET_SPACE_AFTER = 7;     // mm - espace apres chaque puce
@@ -395,24 +396,19 @@ function injectNomHashtag(page, label, value) {
         tf.visible = true;
         // Normaliser les separateurs de paragraphe (\n ou \r) en \r (InDesign)
         var strVal = String(value).replace(/\r\n/g, "\r").replace(/\n/g, "\r");
-        // Capturer le style original du cadre AVANT l'injection (le cadre herite
-        // du gabarit H-INSPIRATION, qui peut utiliser "Hashtag" comme style par defaut).
-        // Ce style sera reapplique au 1er paragraphe (nom) apres injection.
-        var nomParaStyle = null;
-        try { nomParaStyle = tf.paragraphs[0].appliedParagraphStyle; } catch(e) {}
-
         tf.contents = strVal;
 
         // Appliquer les styles de paragraphe :
-        //   - 1er paragraphe (nom)    : style original du cadre (capture ci-dessus)
+        //   - 1er paragraphe (nom)    : style "Inspiration_nom"
         //   - 2eme paragraphe (hashtag, commence par #) : style "Hashtag"
         // Utiliser tf.paragraphs (propre au cadre) et NON tf.parentStory.paragraphs
         // (qui retournerait tous les paragraphes du story, decalant les indices).
         try {
-            var paras = tf.paragraphs;
+            var paras    = tf.paragraphs;
+            var nomStyle  = doc.paragraphStyles.itemByName(NOM_POI_PARA_STYLE_NAME);
             var hashStyle = doc.paragraphStyles.itemByName(HASHTAG_PARA_STYLE_NAME);
-            if (paras.length >= 1 && nomParaStyle) {
-                paras[0].appliedParagraphStyle = nomParaStyle;
+            if (paras.length >= 1 && nomStyle.isValid) {
+                paras[0].appliedParagraphStyle = nomStyle;
             }
             if (paras.length >= 2 && hashStyle.isValid) {
                 paras[1].appliedParagraphStyle = hashStyle;

@@ -523,9 +523,18 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
         extraVars
       );
 
+      // Troncature de sécurité : promptRegles ne devrait pas dépasser ~60k chars (~15k tokens)
+      const MAX_REGLES_CHARS = 60_000;
+      const reglesUsed = promptRegles.length > MAX_REGLES_CHARS
+        ? promptRegles.slice(0, MAX_REGLES_CHARS) + '\n[... tronqué pour respecter la fenêtre de contexte]'
+        : promptRegles;
+      if (promptRegles.length > MAX_REGLES_CHARS) {
+        console.warn(`⚠️ promptRegles tronqué : ${promptRegles.length} → ${MAX_REGLES_CHARS} chars`);
+      }
+
       // Construire le prompt (avec erreurs de la tentative précédente si retry)
       let prompt = this.openaiService.replaceVariables(promptRedaction, {
-        REGLES_REGION_LOVERS: promptRegles,
+        REGLES_REGION_LOVERS: reglesUsed,
         ARTICLE_WORDPRESS: articleContext,
         TEMPLATE_INSTRUCTIONS: templateInstructions,
       });
@@ -536,11 +545,14 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
         prompt += `\n\n⚠️ ATTENTION - TENTATIVE ${retryCount + 1}/${this.MAX_RETRIES}\n\n${errorContext}`;
       }
 
-      // Estimation légère : ~4 chars = 1 token (approximation GPT)
-      const estimatedInputTokens = Math.round(prompt.length / 4);
-      console.log(`📝 Prompt prêt — ~${estimatedInputTokens} tokens input | ${maxOutputTokens} tokens output alloués`);
-      if (estimatedInputTokens > 200000) {
-        console.warn(`⚠️ Prompt très large (${estimatedInputTokens} tokens estimés) — risque de dépassement fenêtre`);
+      // Log des tailles de chaque composant (diagnostic fenêtre de contexte)
+      const tokEst = (s: string) => Math.round(s.length / 4);
+      console.log(`📝 Prompt prêt — ~${tokEst(prompt)}k tokens input | ${maxOutputTokens} output`);
+      if (retryCount === 0) {
+        console.log(`   promptRedaction: ~${tokEst(promptRedaction)} tok | promptRegles: ~${tokEst(reglesUsed)} tok | articleContext: ~${tokEst(articleContext)} tok | templateInstructions: ~${tokEst(templateInstructions)} tok`);
+      }
+      if (tokEst(prompt) > 200_000) {
+        console.warn(`⚠️ Prompt très large — risque de dépassement fenêtre`);
       }
 
       // Appeler OpenAI

@@ -782,50 +782,20 @@ function injectPageContent(page, pageData) {
     }
 
     // --- Diagnostic INSPIRATION (DEBUG_INSPIRATION = true) -------------------
+    // Affiche uniquement l'etat des slots _card_N (visibles ou masques)
+    // et verifie que le label correspondant existe bien sur la page.
     if (DEBUG_INSPIRATION && pageData.template === "INSPIRATION") {
-        var diagMsg = "=== DIAGNOSTIC INSPIRATION ===\n";
+        var diagMsg = "=== INSPIRATION — slots card ===\n";
         diagMsg += "Titre : " + (pageData.titre || "?") + "\n\n";
-
-        var mappedKeys   = [];
-        var unmappedKeys = [];
         for (var dKey in textContent) {
             if (!textContent.hasOwnProperty(dKey)) continue;
-            if (data.mappings.fields[dKey]) {
-                mappedKeys.push(dKey);
-            } else {
-                unmappedKeys.push(dKey + " [fallback label=" + dKey + "]");
-            }
+            if (dKey.indexOf("_card_") === -1) continue;
+            var cardVal   = String(textContent[dKey]);
+            var cardLabel = data.mappings.fields[dKey] || dKey;
+            var found     = findByLabelOnPage(page, cardLabel).length > 0;
+            diagMsg += dKey + " = \"" + cardVal + "\""
+                     + " | label InDesign : " + (found ? "TROUVE" : "ABSENT") + "\n";
         }
-        diagMsg += "Cles JSON AVEC mapping (" + mappedKeys.length + ") :\n"
-                 + (mappedKeys.join("\n") || "(aucune)") + "\n\n";
-        diagMsg += "Cles JSON SANS mapping => label=cle (" + unmappedKeys.length + ") :\n"
-                 + (unmappedKeys.join("\n") || "(aucune)") + "\n\n";
-
-        var imgMappedKeys   = [];
-        var imgUnmappedKeys = [];
-        for (var diKey in imageContent) {
-            if (!imageContent.hasOwnProperty(diKey)) continue;
-            if (data.mappings.fields[diKey]) {
-                imgMappedKeys.push(diKey);
-            } else {
-                imgUnmappedKeys.push(diKey + " [fallback label=" + diKey + "]");
-            }
-        }
-        diagMsg += "Cles IMAGES SANS mapping => label=cle (" + imgUnmappedKeys.length + ") :\n"
-                 + (imgUnmappedKeys.join("\n") || "(aucune)") + "\n\n";
-
-        var allLabels = [];
-        try {
-            for (var pi = 0; pi < page.allPageItems.length; pi++) {
-                var itm = page.allPageItems[pi];
-                if (itm.label && String(itm.label).replace(/^\s+|\s+$/, "") !== "") {
-                    allLabels.push(itm.label);
-                }
-            }
-        } catch(e) {}
-        diagMsg += "Labels trouves sur la page (" + allLabels.length + ") :\n"
-                 + (allLabels.join("\n") || "(aucun)");
-
         alert(diagMsg);
     }
     // -------------------------------------------------------------------------

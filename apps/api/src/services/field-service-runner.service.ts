@@ -443,15 +443,24 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
 
   const cards: Array<Record<string, string>> = [];
 
-  // Si l'utilisateur a modifié manuellement le contenu (ajout/suppression d'entrées),
-  // respecter le nombre d'entrées sauvegardées plutôt que le nombre de POIs en metadata.
-  // Exemple : user supprime POI 6 dans la modal → savedCards.length = 5 → on génère 5 cartes.
-  const poisToGenerate = savedCards.length > 0
+  // Nombre de slots visibles : soit le nombre sauvegardé manuellement (si l'utilisateur
+  // a supprimé des entrées via la modal), soit le nombre total de POIs.
+  // On boucle toujours sur TOUS les POIs pour que explodeRepetitifField puisse
+  // produire les slots vides (card='') au-delà du nombre visible — nécessaire pour
+  // que InDesign masque les groupes correspondants.
+  const visibleCount = savedCards.length > 0
     ? Math.min(savedCards.length, inspirationPois.length)
     : inspirationPois.length;
 
-  for (let i = 0; i < poisToGenerate; i++) {
+  for (let i = 0; i < inspirationPois.length; i++) {
     const poi = inspirationPois[i];
+
+    // Slot supprimé par l'utilisateur → carte masquée (card=''), pas d'appel IA/DB
+    if (i >= visibleCount) {
+      cards.push({ card: '', image: '', nom: '', hashtag: '', nom_hashtag: '', url_article: '', url_maps: '' });
+      continue;
+    }
+
     console.log(`[inspiration_poi_cards] POI ${i + 1}/${inspirationPois.length} : "${poi.nom}"`);
 
     // Image manuellement choisie par l'utilisateur pour cette entrée (priorité absolue)
@@ -565,7 +574,7 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
       url_maps:     urlMaps,     // URL brute → picto carte InDesign
     });
 
-    if (i < poisToGenerate - 1) {
+    if (i < visibleCount - 1) {
       await new Promise(r => setTimeout(r, 400));
     }
   }

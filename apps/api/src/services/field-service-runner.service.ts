@@ -554,14 +554,15 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
 // ─────────────────────────────────────────────────────────────────────────────
 export function explodeRepetitifField(
   fieldName: string,
-  value: string
+  value: string,
+  maxRepetitions?: number
 ): Record<string, string> {
   const SEP = '_repetitif_';
   const sepIdx = fieldName.indexOf(SEP);
   if (sepIdx === -1) return {};
 
   const prefix = fieldName.substring(0, sepIdx);           // "INSPIRATION"
-  const group  = fieldName.substring(sepIdx + SEP.length); // "poi_cards"
+  const group  = fieldName.substring(sepIdx + SEP.length); // "1"
 
   let entries: Array<Record<string, string>>;
   try {
@@ -571,11 +572,25 @@ export function explodeRepetitifField(
     return {};
   }
 
+  // Noms des sous-champs déduits du premier item (pour générer les slots vides)
+  const subKeys = entries.length > 0 ? Object.keys(entries[0]) : [];
+  // Nombre total de slots à produire : au moins le nombre d'entrées réelles,
+  // au plus max_repetitions si fourni (pour masquer les cadres vides dans InDesign)
+  const totalSlots = Math.max(entries.length, maxRepetitions ?? 0);
+
   const flat: Record<string, string> = {};
-  for (let i = 0; i < entries.length; i++) {
+  for (let i = 0; i < totalSlots; i++) {
     const n = i + 1;
-    for (const [subKey, subVal] of Object.entries(entries[i])) {
-      flat[`${prefix}_${group}_${subKey}_${n}`] = String(subVal ?? '');
+    if (i < entries.length) {
+      // Slot avec données
+      for (const [subKey, subVal] of Object.entries(entries[i])) {
+        flat[`${prefix}_${group}_${subKey}_${n}`] = String(subVal ?? '');
+      }
+    } else {
+      // Slot vide → chaîne vide pour que le script InDesign masque le cadre
+      for (const subKey of subKeys) {
+        flat[`${prefix}_${group}_${subKey}_${n}`] = '';
+      }
     }
   }
   return flat;

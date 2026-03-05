@@ -85,7 +85,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
                 // Si le champ est de type repetitif, on explose le tableau JSON en
                 // champs plats pour que la modale et l'export InDesign les voient directement.
                 if (field.type === 'repetitif' && svcResult.value) {
-                  const flat = explodeRepetitifField(field.name, svcResult.value);
+                  const flat = explodeRepetitifField(field.name, svcResult.value, field.max_repetitions);
                   Object.assign(result.content, flat);
                 }
 
@@ -258,7 +258,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
             });
             updatedContent[repField.name] = svcResult.value;
             if (repField.type === 'repetitif' && svcResult.value) {
-              Object.assign(updatedContent, explodeRepetitifField(repField.name, svcResult.value));
+              Object.assign(updatedContent, explodeRepetitifField(repField.name, svcResult.value, repField.max_repetitions));
             }
           } catch (svcErr: any) {
             console.warn(`⚠️ [sync-inspiration-pages] Service échoué page ${pageDoc._id}: ${svcErr.message}`);
@@ -608,7 +608,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
               });
               const updatedContent: Record<string, string> = { ...(pageDoc.content ?? {}), [repField.name]: svcResult.value };
               if (repField.type === 'repetitif' && svcResult.value) {
-                Object.assign(updatedContent, explodeRepetitifField(repField.name, svcResult.value));
+                Object.assign(updatedContent, explodeRepetitifField(repField.name, svcResult.value, repField.max_repetitions));
               }
               await db.collection('pages').updateOne(
                 { _id: pageDoc._id },
@@ -737,7 +737,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
         updatedContent[repField.name] = svcResult.value;
 
         if (repField.type === 'repetitif' && svcResult.value) {
-          const flat = explodeRepetitifField(repField.name, svcResult.value);
+          const flat = explodeRepetitifField(repField.name, svcResult.value, repField.max_repetitions);
           Object.assign(updatedContent, flat);
         }
 

@@ -443,7 +443,14 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
 
   const cards: Array<Record<string, string>> = [];
 
-  for (let i = 0; i < inspirationPois.length; i++) {
+  // Si l'utilisateur a modifié manuellement le contenu (ajout/suppression d'entrées),
+  // respecter le nombre d'entrées sauvegardées plutôt que le nombre de POIs en metadata.
+  // Exemple : user supprime POI 6 dans la modal → savedCards.length = 5 → on génère 5 cartes.
+  const poisToGenerate = savedCards.length > 0
+    ? Math.min(savedCards.length, inspirationPois.length)
+    : inspirationPois.length;
+
+  for (let i = 0; i < poisToGenerate; i++) {
     const poi = inspirationPois[i];
     console.log(`[inspiration_poi_cards] POI ${i + 1}/${inspirationPois.length} : "${poi.nom}"`);
 
@@ -558,7 +565,7 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
       url_maps:     urlMaps,     // URL brute → picto carte InDesign
     });
 
-    if (i < inspirationPois.length - 1) {
+    if (i < poisToGenerate - 1) {
       await new Promise(r => setTimeout(r, 400));
     }
   }

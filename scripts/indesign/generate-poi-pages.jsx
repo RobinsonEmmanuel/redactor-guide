@@ -395,15 +395,27 @@ function injectNomHashtag(page, label, value) {
         tf.visible = true;
         // Normaliser les separateurs de paragraphe (\n ou \r) en \r (InDesign)
         var strVal = String(value).replace(/\r\n/g, "\r").replace(/\n/g, "\r");
+        // Capturer le style original du cadre AVANT l'injection (le cadre herite
+        // du gabarit H-INSPIRATION, qui peut utiliser "Hashtag" comme style par defaut).
+        // Ce style sera reapplique au 1er paragraphe (nom) apres injection.
+        var nomParaStyle = null;
+        try { nomParaStyle = tf.paragraphs[0].appliedParagraphStyle; } catch(e) {}
+
         tf.contents = strVal;
-        // Appliquer le style de paragraphe "Hashtag" au 2eme paragraphe
+
+        // Appliquer les styles de paragraphe :
+        //   - 1er paragraphe (nom)    : style original du cadre (capture ci-dessus)
+        //   - 2eme paragraphe (hashtag, commence par #) : style "Hashtag"
+        // Utiliser tf.paragraphs (propre au cadre) et NON tf.parentStory.paragraphs
+        // (qui retournerait tous les paragraphes du story, decalant les indices).
         try {
-            var paras = tf.parentStory.paragraphs;
-            if (paras.length >= 2) {
-                var hashStyle = doc.paragraphStyles.itemByName(HASHTAG_PARA_STYLE_NAME);
-                if (hashStyle.isValid) {
-                    paras[1].appliedParagraphStyle = hashStyle;
-                }
+            var paras = tf.paragraphs;
+            var hashStyle = doc.paragraphStyles.itemByName(HASHTAG_PARA_STYLE_NAME);
+            if (paras.length >= 1 && nomParaStyle) {
+                paras[0].appliedParagraphStyle = nomParaStyle;
+            }
+            if (paras.length >= 2 && hashStyle.isValid) {
+                paras[1].appliedParagraphStyle = hashStyle;
             }
         } catch(e) {}
         // Appliquer les marqueurs de style caractere si presents

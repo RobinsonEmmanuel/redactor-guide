@@ -299,16 +299,24 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
       });
 
       // 5b. Si des champs image actifs (non default_value) utilisent le pool destination,
-      //     charger les meilleures photos et injecter IMAGES_DESTINATION dans extraVars
+      //     charger les meilleures photos et injecter IMAGES_DESTINATION dans extraVars.
+      //     On conserve aussi les URLs brutes pour la déduplication post-génération.
       const hasPoolFields = fieldsForAI.some((f: any) => f.source === 'destination_pool');
+      let poolImageUrls: string[] = [];
       if (hasPoolFields) {
-        const poolContext = await this.buildImagePoolContext(_guideId, template.fields);
-        extraVars.IMAGES_DESTINATION = poolContext;
+        const poolAnalyses = await this._queryPoolAnalyses(_guideId, template.fields, 40);
+        poolImageUrls = poolAnalyses.map((a: any) => a.url);
+        // Formater en texte pour le prompt
+        const poolLines = poolAnalyses.slice(0, 20).map((img: any, i: number) => {
+          const a = (img as any).analysis ?? {};
+          return `${i + 1}. ${img.url}\n   Type: ${a.detail_type ?? 'N/A'} | Score: ${img.score?.toFixed(2) ?? '0'} | ${a.analysis_summary ?? ''}`;
+        });
+        extraVars.IMAGES_DESTINATION = poolLines.join('\n') || '(aucune image disponible)';
         const poolFieldNames = fieldsForAI
           .filter((f: any) => f.source === 'destination_pool')
           .map((f: any) => f.name)
           .join(', ');
-        console.log(`🖼️ Pool destination injecté pour [${poolFieldNames}] — ${poolContext.split('\n').length} lignes`);
+        console.log(`🖼️ Pool destination injecté pour [${poolFieldNames}] — ${poolImageUrls.length} images disponibles`);
       }
 
       const templateForAI = { ...template, fields: fieldsForAI };
@@ -333,10 +341,23 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
         extraVars   // variables supplémentaires selon le mode (ex: SAISON, MOIS_REFERENCE)
       );
 
-      // 8. Fusionner valeurs par défaut + contenu généré par l'IA
+      // 7b. Dédoublonner les champs image : si l'IA a sélectionné la même URL pour
+      //     plusieurs champs, remplacer les doublons par la prochaine image disponible
+      //     dans le pool (article + destination), triée par qualité.
+      const imageReplacementPool = [
+        ...(article?.images ?? []),   // images de l'article courant en priorité
+        ...poolImageUrls,             // puis pool destination
+      ];
+      const dedupedContent = this.deduplicateImageFields(
+        result.content,
+        template.fields,
+        imageReplacementPool
+      );
+
+      // 8. Fusionner valeurs par défaut + contenu généré (dédoublonné)
       return {
         ...result,
-        content: { ...defaultContent, ...result.content },
+        content: { ...defaultContent, ...dedupedContent },
       };
     } catch (error: any) {
       console.error('❌ Erreur génération contenu:', error);
@@ -1155,10 +1176,13 @@ INSTRUCTIONS STRICTES :
    *  4. Trie par score qualite moyen (visual_clarity + composition + lighting) desc
    *  5. Retourne les TOP_N sous forme de liste texte pour le prompt
    */
-  private async buildImagePoolContext(guideId: string, fields: any[]): Promise<string> {
-    const TOP_N = 20;
-
-    // Collecter tous les pool_tags définis sur les champs pool
+  /**
+   * Requête commune au pool de photos destination.
+   * Retourne les analyses triées par score qualité (forte pertinence en premier).
+   * Partagée par buildImagePoolContext (texte pour le prompt) et
+   * deduplicateImageFields (URLs pour le remplacement des doublons).
+   */
+  private async _queryPoolAnalyses(guideId: string, fields: any[], topN = 40): Promise<Array<{ url: string; score: number }>> {
     const allPoolTags: string[] = [];
     for (const f of fields) {
       if (f.source === 'destination_pool' && f.pool_tags?.length) {
@@ -1167,12 +1191,9 @@ INSTRUCTIONS STRICTES :
     }
     const uniqueTags = [...new Set(allPoolTags.map((t: string) => t.toLowerCase().trim()))];
 
-    // Charger les images analysées liées à la destination du guide
-    // On filtre en croisant les URLs d'articles_raw de la destination
     const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(guideId) });
     const destination: string = guide?.destination ?? guide?.destinations?.[0] ?? '';
 
-    // Recuperer les URLs d'images connues pour cette destination via articles_raw
     const destArticles = await this.db
       .collection('articles_raw')
       .find(
@@ -1183,97 +1204,129 @@ INSTRUCTIONS STRICTES :
 
     const destImageUrls = new Set<string>();
     for (const art of destArticles) {
-      if (art.images?.length) {
-        for (const url of art.images) {
-          destImageUrls.add(url);
-        }
-      }
+      if (art.images?.length) for (const url of art.images) destImageUrls.add(url);
     }
 
-    // Charger les analyses depuis image_analyses
-    let query: any = {};
-    if (destImageUrls.size > 0) {
-      query = { url: { $in: [...destImageUrls] } };
-    }
+    let query: any = {
+      'analysis.is_composite':    { $ne: true },
+      'analysis.has_text_overlay': { $ne: true },
+    };
+    if (destImageUrls.size > 0) query.url = { $in: [...destImageUrls] };
 
-    // Filtre par tags : correspondance partielle, case-insensitive.
-    // Chaque tag est cherché comme sous-chaîne dans detail_type ET dans analysis_summary.
-    // Cela évite les non-correspondances dues à des valeurs comme "carte_geographique"
-    // quand l'utilisateur a saisi "carte", ou à des descriptions textuelles non balisées.
     if (uniqueTags.length > 0) {
       const tagPattern = uniqueTags
         .map((t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
         .join('|');
       const tagRegex = new RegExp(tagPattern, 'i');
       query['$or'] = [
-        { 'analysis.detail_type':    { $regex: tagRegex } },
+        { 'analysis.detail_type':      { $regex: tagRegex } },
         { 'analysis.analysis_summary': { $regex: tagRegex } },
       ];
     }
 
-    // Exclure les images composites (collages, mosaïques) et les images avec texte superposé
-    query['analysis.is_composite']   = { $ne: true };
-    query['analysis.has_text_overlay'] = { $ne: true };
-
-    const allAnalyses = await this.db.collection('image_analyses').find(query).toArray();
+    let allAnalyses = await this.db.collection('image_analyses').find(query).toArray();
 
     if (allAnalyses.length === 0 && destImageUrls.size > 0) {
-      // Fallback sans filtre destination si aucun résultat
-      let fallbackQuery: any = {
-        'analysis.is_composite':     { $ne: true },
+      const fallbackQuery: any = {
+        'analysis.is_composite':    { $ne: true },
         'analysis.has_text_overlay': { $ne: true },
       };
       if (uniqueTags.length > 0) {
-        const tagPattern = uniqueTags
-          .map((t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-          .join('|');
-        const tagRegex = new RegExp(tagPattern, 'i');
+        const tp = uniqueTags.map((t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+        const tr = new RegExp(tp, 'i');
         fallbackQuery['$or'] = [
-          { 'analysis.detail_type':    { $regex: tagRegex } },
-          { 'analysis.analysis_summary': { $regex: tagRegex } },
+          { 'analysis.detail_type':      { $regex: tr } },
+          { 'analysis.analysis_summary': { $regex: tr } },
         ];
       }
       const fallback = await this.db.collection('image_analyses').find(fallbackQuery).toArray();
       allAnalyses.push(...fallback);
     }
 
-    // Calculer le score qualite moyen pour le tri
     const scored = allAnalyses.map((img: any) => {
       const a = img.analysis ?? {};
       const scores = [
-        a.visual_clarity_score,
-        a.composition_quality_score,
-        a.lighting_quality_score,
-        a.readability_small_screen_score,
+        a.visual_clarity_score, a.composition_quality_score,
+        a.lighting_quality_score, a.readability_small_screen_score,
       ].filter((s: any) => typeof s === 'number');
       const avg = scores.length > 0 ? scores.reduce((acc: number, s: number) => acc + s, 0) / scores.length : 0;
-      return { ...img, _qualityScore: avg };
+      return { url: String(img.url), score: avg, editorial: img.analysis?.editorial_relevance };
     });
 
-    // Priorité aux images "forte" pertinence editoriale, puis les autres
-    const forte = scored.filter((img: any) => img.analysis?.editorial_relevance === 'forte');
-    const others = scored.filter((img: any) => img.analysis?.editorial_relevance !== 'forte');
+    const forte  = scored.filter((i: any) => i.editorial === 'forte').sort((a: any, b: any) => b.score - a.score);
+    const others = scored.filter((i: any) => i.editorial !== 'forte').sort((a: any, b: any) => b.score - a.score);
+    return [...forte, ...others].slice(0, topN);
+  }
 
-    forte.sort((a: any, b: any) => b._qualityScore - a._qualityScore);
-    others.sort((a: any, b: any) => b._qualityScore - a._qualityScore);
+  private async buildImagePoolContext(guideId: string, fields: any[]): Promise<string> {
+    const analyses = await this._queryPoolAnalyses(guideId, fields, 20);
 
-    const selected = [...forte, ...others].slice(0, TOP_N);
-
-    if (selected.length === 0) {
+    if (analyses.length === 0) {
       console.warn(`⚠️ Pool destination vide pour guideId=${guideId} — aucune image analysee trouvee`);
       return '(aucune image analysee disponible pour cette destination)';
     }
 
-    console.log(`🖼️ Pool destination : ${selected.length} images selectionnees (${forte.length} forte, ${others.length} autres) pour "${destination || 'N/A'}"`);
+    console.log(`🖼️ Pool destination : ${analyses.length} images selectionnees pour guideId=${guideId}`);
 
-    const lines = selected.map((img: any, i: number) => {
+    const lines = analyses.map((img: any, i: number) => {
       const a = img.analysis ?? {};
       const type = a.detail_type ?? 'N/A';
-      const score = img._qualityScore.toFixed(2);
+      const score = img.score?.toFixed(2) ?? '0.00';
       const summary = a.analysis_summary ?? '';
       return `${i + 1}. ${img.url}\n   Type: ${type} | Score qualite: ${score} | ${summary}`;
     });
 
     return lines.join('\n');
+  }
+
+  /**
+   * Dédoublonne les champs image dans le contenu généré par l'IA.
+   *
+   * Si plusieurs champs de type 'image' ont la même URL, les doublons sont
+   * remplacés par la prochaine URL disponible dans replacementPool (triée par
+   * qualité, déjà utilisées exclues). Les champs dont la valeur est absente ou
+   * non-HTTP sont ignorés.
+   *
+   * @param content         Contenu généré par l'IA ({ fieldName: value })
+   * @param fields          Définitions des champs du template
+   * @param replacementPool Pool d'URLs de remplacement triées par priorité
+   */
+  private deduplicateImageFields(
+    content: Record<string, any>,
+    fields: any[],
+    replacementPool: string[]
+  ): Record<string, any> {
+    const imageFields = fields.filter(
+      (f: any) => f.type === 'image' && !f.default_value && !f.skip_ai
+    );
+    if (imageFields.length <= 1) return content;
+
+    const result = { ...content };
+    const usedUrls = new Set<string>();
+
+    for (const field of imageFields) {
+      const url: string | undefined = result[field.name];
+      if (!url || typeof url !== 'string' || !url.startsWith('http')) continue;
+
+      if (!usedUrls.has(url)) {
+        usedUrls.add(url);
+      } else {
+        // Doublon détecté : chercher la prochaine URL non encore utilisée
+        const replacement = replacementPool.find((u) => !usedUrls.has(u));
+        if (replacement) {
+          console.log(
+            `🔄 [dedup] Image dupliquée pour "${field.name}" remplacée :` +
+            `\n    avant : ...${url.slice(-50)}` +
+            `\n    après : ...${replacement.slice(-50)}`
+          );
+          result[field.name] = replacement;
+          usedUrls.add(replacement);
+        } else {
+          console.warn(`⚠️ [dedup] Aucune image alternative pour "${field.name}" — doublon conservé`);
+        }
+      }
+    }
+
+    return result;
   }
 }

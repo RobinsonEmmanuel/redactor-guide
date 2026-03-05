@@ -908,7 +908,23 @@ function injectPageContent(page, pageData) {
 // G-POI est requis - le script s'arrete s'il est absent.
 var master = loadGabarit("POI", true);
 
-// --- 13. Generation des pages ------------------------------------------------
+// --- 13. Purger les pages existantes du document -----------------------------
+// Le document peut contenir des pages residuelles (page blanche initiale,
+// reliquat d'une generation precedente, etc.).
+// On supprime toutes les pages sauf la derniere (InDesign exige au moins 1 page),
+// puis cette derniere sera ecrasee par la premiere page generee (COUVERTURE AT_BEGINNING).
+try {
+    while (doc.pages.length > 1) {
+        doc.pages.lastItem().remove();
+    }
+    if (DEBUG_PAGES) {
+        alert("Document purgé : " + doc.pages.length + " page(s) residuelle(s) conservée(s) (minimum requis).");
+    }
+} catch(purgeErr) {
+    if (DEBUG_PAGES) { alert("Purge : erreur — " + purgeErr); }
+}
+
+// --- 14. Generation des pages ------------------------------------------------
 var pagesGenerated = 0;
 
 for (var i = 0; i < data.pages.length; i++) {

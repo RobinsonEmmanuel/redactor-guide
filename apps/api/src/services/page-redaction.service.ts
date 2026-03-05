@@ -1278,27 +1278,6 @@ INSTRUCTIONS STRICTES :
     return [...forte, ...others].slice(0, topN);
   }
 
-  private async buildImagePoolContext(guideId: string, fields: any[]): Promise<string> {
-    const analyses = await this._queryPoolAnalyses(guideId, fields, 20);
-
-    if (analyses.length === 0) {
-      console.warn(`⚠️ Pool destination vide pour guideId=${guideId} — aucune image analysee trouvee`);
-      return '(aucune image analysee disponible pour cette destination)';
-    }
-
-    console.log(`🖼️ Pool destination : ${analyses.length} images selectionnees pour guideId=${guideId}`);
-
-    const lines = analyses.map((img: any, i: number) => {
-      const a = img.analysis ?? {};
-      const type = a.detail_type ?? 'N/A';
-      const score = img.score?.toFixed(2) ?? '0.00';
-      const summary = a.analysis_summary ?? '';
-      return `${i + 1}. ${img.url}\n   Type: ${type} | Score qualite: ${score} | ${summary}`;
-    });
-
-    return lines.join('\n');
-  }
-
   /**
    * Dédoublonne les champs image dans le contenu généré par l'IA.
    *

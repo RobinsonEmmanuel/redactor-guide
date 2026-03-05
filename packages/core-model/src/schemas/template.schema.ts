@@ -225,6 +225,13 @@ export const TemplateFieldSchema = z.object({
    * Ex: "Préférer une image panoramique sans texte superposé."
    */
   pool_instructions: z.string().optional(),
+
+  /**
+   * Mots-clés de recherche pour filtrer les images du pool par leur description
+   * (analysis_summary, detail_type). Plus précis que pool_tags qui filtre sur detail_type uniquement.
+   * Ex: ['hotel', 'piscine', 'terrasse']
+   */
+  search_keywords: z.array(z.string()).optional(),
 });
 
 export type TemplateField = z.infer<typeof TemplateFieldSchema>;

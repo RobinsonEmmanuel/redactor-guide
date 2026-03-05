@@ -24,6 +24,11 @@ var doc = app.activeDocument;
 // Desactiver (false) en production.
 var DEBUG_PICTOS = false;
 
+// Mettre a true pour afficher un rapport de diagnostic sur chaque page INSPIRATION.
+// Affiche : cles JSON avec/sans mapping, labels trouves sur la page.
+// Desactiver (false) en production.
+var DEBUG_INSPIRATION = true;
+
 var BOLD_STYLE_NAME        = "Gras";        // Marqueurs **...**
 var ORANGE_STYLE_NAME      = "Orange";      // Marqueurs {...}   - couleur #f39428
 var CHIFFRE_STYLE_NAME     = "Chiffre";     // Marqueurs ^...^   - taille 18pt
@@ -740,23 +745,87 @@ function injectPageContent(page, pageData) {
     var textContent  = pageData.content.text   || {};
     var imageContent = pageData.content.images || {};
 
-    // Etape A : masquer tous les champs mappes du template courant
+    // Etape A : masquer tous les champs du template courant.
+    // Passe 1 : champs declares dans data.mappings.fields (templates de premier niveau)
     for (var key in data.mappings.fields) {
         if (!data.mappings.fields.hasOwnProperty(key)) continue;
         if (SKIP_IN_MASK_STEP[key]) continue;
         if (key.indexOf("_card_") !== -1) {
-            injectItemVisibility(page, data.mappings.fields[key], null); // masque le groupe entier
+            injectItemVisibility(page, data.mappings.fields[key], null);
         } else {
             injectText(page, data.mappings.fields[key], null);
         }
     }
+    // Passe 2 : champs exploses absents de data.mappings.fields (repetitif sous-champs)
+    // Utilise le nom du champ comme label (convention label = nom champ).
+    for (var aKey in textContent) {
+        if (!textContent.hasOwnProperty(aKey)) continue;
+        if (data.mappings.fields[aKey]) continue; // deja traite en passe 1
+        if (SKIP_IN_MASK_STEP[aKey]) continue;
+        if (aKey.indexOf("_card_") !== -1) {
+            injectItemVisibility(page, aKey, null); // masque le groupe initialement
+        } else {
+            injectText(page, aKey, null);
+        }
+    }
+
+    // --- Diagnostic INSPIRATION (DEBUG_INSPIRATION = true) -------------------
+    if (DEBUG_INSPIRATION && pageData.template === "INSPIRATION") {
+        var diagMsg = "=== DIAGNOSTIC INSPIRATION ===\n";
+        diagMsg += "Titre : " + (pageData.titre || "?") + "\n\n";
+
+        var mappedKeys   = [];
+        var unmappedKeys = [];
+        for (var dKey in textContent) {
+            if (!textContent.hasOwnProperty(dKey)) continue;
+            if (data.mappings.fields[dKey]) {
+                mappedKeys.push(dKey);
+            } else {
+                unmappedKeys.push(dKey + " [fallback label=" + dKey + "]");
+            }
+        }
+        diagMsg += "Cles JSON AVEC mapping (" + mappedKeys.length + ") :\n"
+                 + (mappedKeys.join("\n") || "(aucune)") + "\n\n";
+        diagMsg += "Cles JSON SANS mapping => label=cle (" + unmappedKeys.length + ") :\n"
+                 + (unmappedKeys.join("\n") || "(aucune)") + "\n\n";
+
+        var imgMappedKeys   = [];
+        var imgUnmappedKeys = [];
+        for (var diKey in imageContent) {
+            if (!imageContent.hasOwnProperty(diKey)) continue;
+            if (data.mappings.fields[diKey]) {
+                imgMappedKeys.push(diKey);
+            } else {
+                imgUnmappedKeys.push(diKey + " [fallback label=" + diKey + "]");
+            }
+        }
+        diagMsg += "Cles IMAGES SANS mapping => label=cle (" + imgUnmappedKeys.length + ") :\n"
+                 + (imgUnmappedKeys.join("\n") || "(aucune)") + "\n\n";
+
+        var allLabels = [];
+        try {
+            for (var pi = 0; pi < page.allPageItems.length; pi++) {
+                var itm = page.allPageItems[pi];
+                if (itm.label && String(itm.label).replace(/^\s+|\s+$/, "") !== "") {
+                    allLabels.push(itm.label);
+                }
+            }
+        } catch(e) {}
+        diagMsg += "Labels trouves sur la page (" + allLabels.length + ") :\n"
+                 + (allLabels.join("\n") || "(aucun)");
+
+        alert(diagMsg);
+    }
+    // -------------------------------------------------------------------------
 
     // Etape B : injection textes
+    // Pour les champs exploses (INSPIRATION_1_card_N, _nom_hashtag_N, etc.)
+    // absents de data.mappings.fields (qui ne contient que les champs de premier niveau),
+    // on utilise le nom du champ lui-meme comme label InDesign (convention label = nom champ).
     for (var tKey in textContent) {
         if (!textContent.hasOwnProperty(tKey)) continue;
         if (SKIP_IN_TEXT_STEP[tKey]) continue;
-        var tMapping = data.mappings.fields[tKey];
-        if (!tMapping) continue;
+        var tMapping = data.mappings.fields[tKey] || tKey; // fallback : label = nom du champ
         var tVal = textContent[tKey];
         if (tVal === null || tVal === undefined) continue;
         var tStrVal = String(tVal).replace(/^\s+|\s+$/, "");
@@ -776,16 +845,15 @@ function injectPageContent(page, pageData) {
     // Etape B2 : liens sur cadres graphiques (FRAME_LINK_FIELDS)
     for (var flKey in FRAME_LINK_FIELDS) {
         if (!FRAME_LINK_FIELDS.hasOwnProperty(flKey)) continue;
-        var flMapping = data.mappings.fields[flKey];
-        if (!flMapping) continue;
+        var flMapping = data.mappings.fields[flKey] || flKey;
         injectFrameHyperlink(page, flMapping, textContent[flKey] || null);
     }
 
     // Etape C : injection images
+    // Meme convention fallback label = nom du champ pour les sous-champs _image_N.
     for (var iKey in imageContent) {
         if (!imageContent.hasOwnProperty(iKey)) continue;
-        var iMapping = data.mappings.fields[iKey];
-        if (!iMapping) continue;
+        var iMapping = data.mappings.fields[iKey] || iKey;
         injectImage(page, iMapping, imageContent[iKey]);
     }
 }

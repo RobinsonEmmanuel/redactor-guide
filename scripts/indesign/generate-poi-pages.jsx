@@ -253,7 +253,7 @@ function applyStyleMarkers(tf) {
         // -- Gras : **text** --------------------------------------------------
         app.findGrepPreferences   = NothingEnum.NOTHING;
         app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "\\*\\*[^*]+\\*\\*";
+        app.findGrepPreferences.findWhat = "\\*\\*(?:[^*\r]|\r)+\\*\\*";
         var boldMatches = story.findGrep();
         app.findGrepPreferences = NothingEnum.NOTHING;
         if (boldStyle.isValid) {
@@ -272,7 +272,7 @@ function applyStyleMarkers(tf) {
         // -- Orange : {text} --------------------------------------------------
         app.findGrepPreferences   = NothingEnum.NOTHING;
         app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "\\{[^}]+\\}";
+        app.findGrepPreferences.findWhat = "\\{(?:[^}\r]|\r)+\\}";
         var orangeMatches = story.findGrep();
         app.findGrepPreferences = NothingEnum.NOTHING;
         if (orangeStyle.isValid) {
@@ -291,7 +291,7 @@ function applyStyleMarkers(tf) {
         // -- Chiffre : ^text^ -------------------------------------------------
         app.findGrepPreferences   = NothingEnum.NOTHING;
         app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "\\^[^^]+\\^";
+        app.findGrepPreferences.findWhat = "\\^(?:[^^\r]|\r)+\\^";
         var chiffreMatches = story.findGrep();
         app.findGrepPreferences = NothingEnum.NOTHING;
         if (chiffreStyle.isValid) {
@@ -308,9 +308,11 @@ function applyStyleMarkers(tf) {
         app.changeGrepPreferences = NothingEnum.NOTHING;
 
         // -- Gras-orange : ~text~ ---------------------------------------------
+        // [^~\r] + (\r[^~\r])* permet de matcher du texte multi-paragraphes
+        // car InDesign GREP ne matche pas \r avec [^~] par defaut.
         app.findGrepPreferences   = NothingEnum.NOTHING;
         app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "~[^~]+~";
+        app.findGrepPreferences.findWhat = "~(?:[^~\r]|\r)+~";
         var grasOrangeMatches = story.findGrep();
         app.findGrepPreferences = NothingEnum.NOTHING;
         if (grasOrangeStyle.isValid) {

@@ -176,7 +176,7 @@ export class ExportService {
           // Les sous-champs _image_N sont routés vers content.images (format { url, local })
           // car le script InDesign injecte les images depuis content.images uniquement.
           if (field.type === 'repetitif' && result.value) {
-            const flat = explodeRepetitifField(field.name, result.value);
+            const flat = explodeRepetitifField(field.name, result.value, field.max_repetitions);
             for (const [k, v] of Object.entries(flat)) {
               if (k.includes('_image_') && typeof v === 'string' && v.startsWith('http')) {
                 pages[i].content.images[k] = {

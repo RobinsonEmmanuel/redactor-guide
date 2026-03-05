@@ -335,7 +335,7 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
         const poolAnalyses = await this._queryPoolAnalyses(_guideId, template.fields, 40);
         poolImageUrls = poolAnalyses.map((a: any) => a.url);
         // Formater en texte pour le prompt
-        const poolLines = poolAnalyses.slice(0, 20).map((img: any, i: number) => {
+        const poolLines = poolAnalyses.slice(0, 15).map((img: any, i: number) => {
           const a = (img as any).analysis ?? {};
           return `${i + 1}. ${img.url}\n   Type: ${a.detail_type ?? 'N/A'} | Score: ${img.score?.toFixed(2) ?? '0'} | ${a.analysis_summary ?? ''}`;
         });
@@ -360,13 +360,19 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
       const promptRegles = await this.loadPrompt('regles_ecriture');
 
       // 7. Générer avec retry automatique (uniquement les champs sans default_value)
+      // Calculer les output tokens nécessaires selon le nombre de champs (évite de saturer la
+      // fenêtre de contexte des modèles reasoning qui comptent raisonnement + input + output)
+      const estimatedOutputTokens = Math.min(12000, Math.max(2000, fieldsForAI.length * 400 + 1000));
+      console.log(`🎯 Output tokens alloués : ${estimatedOutputTokens} (${fieldsForAI.length} champ(s) à générer)`);
+
       const result = await this.generateWithRetry(
         templateForAI,
         articleContext,
         promptRedaction,
         promptRegles,
         article,    // passé pour la substitution de variables dans les ai_instructions
-        extraVars   // variables supplémentaires selon le mode (ex: SAISON, MOIS_REFERENCE)
+        extraVars,  // variables supplémentaires selon le mode (ex: SAISON, MOIS_REFERENCE)
+        estimatedOutputTokens
       );
 
       // 7b. Dédoublonner les champs image : si l'IA a sélectionné la même URL pour
@@ -476,8 +482,9 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
     articleContext: string,
     promptRedaction: string,
     promptRegles: string,
-    articleSource?: any,                  // article résolu (pour substitution {{URL_ARTICLE_SOURCE}}, etc.)
-    extraVars: Record<string, string> = {} // variables supplémentaires (SAISON, MOIS_REFERENCE, etc.)
+    articleSource?: any,                   // article résolu (pour substitution {{URL_ARTICLE_SOURCE}}, etc.)
+    extraVars: Record<string, string> = {}, // variables supplémentaires (SAISON, MOIS_REFERENCE, etc.)
+    maxOutputTokens: number = 12000
   ): Promise<RedactionResult> {
     let generatedContent: Record<string, any> = {};
     let retryCount = 0;
@@ -510,7 +517,7 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
       console.log('📝 Prompt construit, appel OpenAI...');
 
       // Appeler OpenAI
-      const newContent = await this.openaiService.generateJSON(prompt, 16000);
+      const newContent = await this.openaiService.generateJSON(prompt, maxOutputTokens);
 
       // Fusionner avec le contenu précédent (pour garder les champs déjà valides)
       generatedContent = { ...generatedContent, ...newContent };
@@ -763,6 +770,8 @@ INSTRUCTIONS STRICTES :
    * Poids typique : ~50 tokens/article → 200 articles = ~10 000 tokens.
    */
   private async buildArticlesIndex(guideId: string, page: any): Promise<string> {
+    const MAX_ARTICLES = 200;
+
     const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(guideId) });
     const destination: string = guide?.destination ?? guide?.destinations?.[0] ?? '';
 
@@ -772,21 +781,23 @@ INSTRUCTIONS STRICTES :
     parts.push(`Année : ${guide?.year ?? 'N/A'}`);
     if (page.titre) parts.push(`Page à rédiger : ${page.titre}`);
 
+    // Projeter uniquement title + urls_by_lang (pas categories, qui peut être très volumineux)
     const articles = await this.db
       .collection('articles_raw')
       .find(
         destination ? { categories: { $regex: destination, $options: 'i' } } : {},
-        { projection: { title: 1, url: 1, slug: 1, categories: 1 } }
+        { projection: { title: 1, url: 1, 'urls_by_lang.fr': 1 } }
       )
+      .limit(MAX_ARTICLES)
       .toArray();
 
     parts.push(`\n=== ARTICLES DU SITE (${articles.length} articles — titres et URLs) ===`);
     for (const art of articles) {
-      const url = art.url ?? art.slug ?? '';
+      const url = art.urls_by_lang?.fr ?? art.url ?? '';
       parts.push(`- ${art.title ?? '(sans titre)'}${url ? `  →  ${url}` : ''}`);
     }
 
-    console.log(`📑 Index articles : ${articles.length} article(s) pour "${destination || 'toutes destinations'}"`);
+    console.log(`📑 Index articles : ${articles.length} article(s) (max ${MAX_ARTICLES}) pour "${destination || 'toutes destinations'}"`);
     return parts.join('\n');
   }
 

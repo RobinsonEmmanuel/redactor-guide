@@ -53,6 +53,28 @@ export class ExportService {
       }
     }
 
+    // ── 4b. Construire le resolver d'URLs par langue ───────────────────────
+    // Pour lang !== 'fr' : remplace les URLs françaises par la version cible.
+    // Source : articles_raw.urls_by_lang.{lang} ; fallback sur l'URL française.
+    let urlResolver: (frUrl: string) => string = (u) => u; // identité pour FR
+    if (lang !== 'fr') {
+      const articles = await db
+        .collection('articles_raw')
+        .find(
+          { [`urls_by_lang.${lang}`]: { $exists: true } },
+          { projection: { 'urls_by_lang': 1 } }
+        )
+        .toArray();
+
+      const urlMap = new Map<string, string>();
+      for (const art of articles) {
+        const frUrl  = art.urls_by_lang?.fr;
+        const tgtUrl = art.urls_by_lang?.[lang];
+        if (frUrl && tgtUrl) urlMap.set(frUrl, tgtUrl);
+      }
+      urlResolver = (frUrl: string) => urlMap.get(frUrl) ?? frUrl;
+    }
+
     // ── 5. Construire les pages exportées — passe 1 ────────────────────────
     // Les champs avec service_id sont intentionnellement ignorés ici ;
     // ils seront calculés en passe 2, une fois toutes les pages connues.
@@ -127,7 +149,31 @@ export class ExportService {
             textFields[k] = v;
           }
         }
+
+        // ── Résolution des URLs vers la langue cible ──────────────────────
+        // Les champs URL ne sont pas traduits par le LLM ; on résout via urlResolver.
+        // 1. Champs texte bruts (URL directe)
+        // 2. Champs lien structuré JSON {"label":"...","url":"..."} → on résout l'url interne
+        for (const k of Object.keys(textFields)) {
+          const v = textFields[k];
+          if (/^https?:\/\//i.test(v)) {
+            textFields[k] = urlResolver(v);
+          } else if (v.startsWith('{')) {
+            try {
+              const parsed = JSON.parse(v);
+              if (parsed && typeof parsed.url === 'string' && /^https?:\/\//i.test(parsed.url)) {
+                parsed.url = urlResolver(parsed.url);
+                textFields[k] = JSON.stringify(parsed);
+              }
+            } catch { /* JSON invalide → laisser tel quel */ }
+          }
+        }
       }
+
+      // Résolution de url_source (URL de l'article principal de la page)
+      const resolvedUrlSource = lang !== 'fr' && page.url_source
+        ? urlResolver(page.url_source)
+        : (page.url_source || null);
 
       return {
         id: page._id.toString(),
@@ -136,7 +182,7 @@ export class ExportService {
         section: page.section_id || null,
         titre: page.titre,
         status: page.statut_editorial,
-        url_source: page.url_source || null,
+        url_source: resolvedUrlSource,
         entity_meta: {
           page_type:          page.metadata?.page_type          ?? null,
           cluster_id:         page.metadata?.cluster_id         ?? null,

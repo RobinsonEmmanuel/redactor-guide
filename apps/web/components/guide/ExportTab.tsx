@@ -1,7 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { ArrowDownTrayIcon, ArrowPathIcon, CheckCircleIcon, DocumentTextIcon, PhotoIcon, SwatchIcon } from '@heroicons/react/24/outline';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  ArrowDownTrayIcon,
+  ArrowPathIcon,
+  CheckCircleIcon,
+  DocumentTextIcon,
+  PhotoIcon,
+  SwatchIcon,
+  LanguageIcon,
+  ExclamationTriangleIcon,
+  ClockIcon,
+} from '@heroicons/react/24/outline';
 
 interface ExportTabProps {
   guideId: string;
@@ -10,15 +20,15 @@ interface ExportTabProps {
 }
 
 const LANGUAGES = [
-  { code: 'fr', label: 'Français', flag: '🇫🇷' },
-  { code: 'en', label: 'Anglais',  flag: '🇬🇧' },
-  { code: 'de', label: 'Allemand', flag: '🇩🇪' },
-  { code: 'it', label: 'Italien',  flag: '🇮🇹' },
-  { code: 'es', label: 'Espagnol', flag: '🇪🇸' },
-  { code: 'pt-pt', label: 'Portugais', flag: '🇵🇹' },
-  { code: 'nl', label: 'Néerlandais', flag: '🇳🇱' },
-  { code: 'da', label: 'Danois',   flag: '🇩🇰' },
-  { code: 'sv', label: 'Suédois',  flag: '🇸🇪' },
+  { code: 'fr',    label: 'Français',    flag: '🇫🇷', native: true },
+  { code: 'en',    label: 'Anglais',     flag: '🇬🇧', native: false },
+  { code: 'de',    label: 'Allemand',    flag: '🇩🇪', native: false },
+  { code: 'it',    label: 'Italien',     flag: '🇮🇹', native: false },
+  { code: 'es',    label: 'Espagnol',    flag: '🇪🇸', native: false },
+  { code: 'pt-pt', label: 'Portugais',   flag: '🇵🇹', native: false },
+  { code: 'nl',    label: 'Néerlandais', flag: '🇳🇱', native: false },
+  { code: 'da',    label: 'Danois',      flag: '🇩🇰', native: false },
+  { code: 'sv',    label: 'Suédois',     flag: '🇸🇪', native: false },
 ];
 
 const TEMPLATE_COLORS: Record<string, string> = {
@@ -35,6 +45,15 @@ const TEMPLATE_COLORS: Record<string, string> = {
   A_PROPOS_RL:               'bg-gray-100 text-gray-700',
 };
 
+type TranslationStatus = 'idle' | 'processing' | 'completed' | 'failed';
+
+interface TranslationState {
+  status: TranslationStatus;
+  progress: { done: number; total: number } | null;
+  translated_at: string | null;
+  error: string | null;
+}
+
 export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>(['fr']);
   const [preview, setPreview] = useState<any>(null);
@@ -42,9 +61,18 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
   const [downloading, setDownloading] = useState<Record<string, boolean>>({});
   const [downloadingZip, setDownloadingZip] = useState<Record<string, boolean>>({});
   const [downloadedFiles, setDownloadedFiles] = useState<string[]>([]);
+  const [translationStates, setTranslationStates] = useState<Record<string, TranslationState>>({});
+  const [translating, setTranslating] = useState<Record<string, boolean>>({});
+  const pollingRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
   useEffect(() => {
     loadPreview();
+    // Charger le statut de traduction pour toutes les langues non-FR
+    LANGUAGES.filter(l => !l.native).forEach(l => loadTranslationStatus(l.code));
+    return () => {
+      // Nettoyer les intervalles de polling au démontage
+      Object.values(pollingRefs.current).forEach(clearInterval);
+    };
   }, []);
 
   const loadPreview = async () => {
@@ -53,14 +81,63 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/export/preview`, {
         credentials: 'include',
       });
-      if (res.ok) {
-        const data = await res.json();
-        setPreview(data);
-      }
+      if (res.ok) setPreview(await res.json());
     } catch (err) {
       console.error('Erreur chargement preview:', err);
     } finally {
       setLoadingPreview(false);
+    }
+  };
+
+  const loadTranslationStatus = useCallback(async (lang: string) => {
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/translation-status?lang=${lang}`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setTranslationStates(prev => ({ ...prev, [lang]: data }));
+      return data;
+    } catch (err) {
+      console.error(`Erreur statut traduction ${lang}:`, err);
+    }
+  }, [apiUrl, guideId]);
+
+  const startPolling = useCallback((lang: string) => {
+    if (pollingRefs.current[lang]) clearInterval(pollingRefs.current[lang]);
+    pollingRefs.current[lang] = setInterval(async () => {
+      const data = await loadTranslationStatus(lang);
+      if (data?.status === 'completed' || data?.status === 'failed') {
+        clearInterval(pollingRefs.current[lang]);
+        delete pollingRefs.current[lang];
+        setTranslating(prev => ({ ...prev, [lang]: false }));
+      }
+    }, 3000);
+  }, [loadTranslationStatus]);
+
+  const translateLanguage = async (lang: string) => {
+    setTranslating(prev => ({ ...prev, [lang]: true }));
+    setTranslationStates(prev => ({
+      ...prev,
+      [lang]: { status: 'processing', progress: { done: 0, total: 0 }, translated_at: null, error: null },
+    }));
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/translate?lang=${lang}`,
+        { method: 'POST', credentials: 'include' }
+      );
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Erreur traduction');
+      }
+      startPolling(lang);
+    } catch (err: any) {
+      setTranslating(prev => ({ ...prev, [lang]: false }));
+      setTranslationStates(prev => ({
+        ...prev,
+        [lang]: { status: 'failed', progress: null, translated_at: null, error: err.message },
+      }));
     }
   };
 
@@ -78,20 +155,15 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
         { credentials: 'include' }
       );
       if (!res.ok) throw new Error('Erreur export');
-
       const data = await res.json();
       const destination = data.meta?.destination?.toLowerCase().replace(/\s+/g, '_') || 'guide';
       const year = data.meta?.year || new Date().getFullYear();
       const filename = `guide_${destination}_${year}_${lang}.json`;
-
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.click();
+      a.href = url; a.download = filename; a.click();
       URL.revokeObjectURL(url);
-
       setDownloadedFiles(prev => [...prev.filter(f => !f.includes(`_${lang}.json`)), filename]);
     } catch (err) {
       alert(`Erreur lors de l'export en ${lang}`);
@@ -100,16 +172,6 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     }
   };
 
-  const downloadAllSelected = async () => {
-    for (const lang of selectedLanguages) {
-      await downloadExport(lang);
-    }
-  };
-
-  /**
-   * Télécharge un ZIP complet (JSON + images) depuis /export/zip.
-   * Le serveur télécharge les images côté Railway et les empaquète.
-   */
   const downloadZip = async (lang: string) => {
     setDownloadingZip(prev => ({ ...prev, [lang]: true }));
     try {
@@ -118,25 +180,62 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
         { credentials: 'include' }
       );
       if (!res.ok) throw new Error(`Erreur ${res.status}`);
-
       const blob = await res.blob();
       const dest = preview?.meta?.destination?.toLowerCase().replace(/\s+/g, '_') || 'guide';
       const year = preview?.meta?.year || new Date().getFullYear();
       const filename = `guide_${dest}_${year}_${lang}.zip`;
-
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.click();
+      a.href = url; a.download = filename; a.click();
       URL.revokeObjectURL(url);
-
       setDownloadedFiles(prev => [...prev.filter(f => !f.endsWith(`_${lang}.zip`)), filename]);
     } catch (err) {
       alert(`Erreur lors du téléchargement du ZIP en ${lang}`);
     } finally {
       setDownloadingZip(prev => ({ ...prev, [lang]: false }));
     }
+  };
+
+  const downloadAllSelected = async () => {
+    for (const lang of selectedLanguages) await downloadExport(lang);
+  };
+
+  const renderTranslationBadge = (lang: string) => {
+    const state = translationStates[lang];
+    if (!state || state.status === 'idle') {
+      return (
+        <span className="text-xs text-gray-400 flex items-center gap-1">
+          <LanguageIcon className="w-3 h-3" /> Non traduit
+        </span>
+      );
+    }
+    if (state.status === 'processing') {
+      const { done = 0, total = 0 } = state.progress || {};
+      return (
+        <span className="text-xs text-blue-600 flex items-center gap-1">
+          <ArrowPathIcon className="w-3 h-3 animate-spin" />
+          {total > 0 ? `${done}/${total} pages` : 'En cours…'}
+        </span>
+      );
+    }
+    if (state.status === 'completed') {
+      const date = state.translated_at
+        ? new Date(state.translated_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+        : '';
+      return (
+        <span className="text-xs text-green-600 flex items-center gap-1">
+          <CheckCircleIcon className="w-3 h-3" /> Traduit {date}
+        </span>
+      );
+    }
+    if (state.status === 'failed') {
+      return (
+        <span className="text-xs text-red-500 flex items-center gap-1">
+          <ExclamationTriangleIcon className="w-3 h-3" /> Erreur
+        </span>
+      );
+    }
+    return null;
   };
 
   return (
@@ -168,8 +267,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
               >
                 {Object.values(downloadingZip).some(Boolean)
                   ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                  : <ArrowDownTrayIcon className="w-4 h-4" />
-                }
+                  : <ArrowDownTrayIcon className="w-4 h-4" />}
                 ZIP + images
               </button>
             </div>
@@ -201,8 +299,6 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                 <div className="text-xs text-green-600 mt-1">Pages totales</div>
               </div>
             </div>
-
-            {/* Répartition par template */}
             {preview.summary_by_template && (
               <div className="flex flex-wrap gap-2">
                 {Object.entries(preview.summary_by_template).map(([template, count]) => (
@@ -224,51 +320,100 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
           <h3 className="text-sm font-semibold text-gray-700 mb-3">
             Langues à exporter <span className="text-gray-400 font-normal">(un fichier JSON par langue)</span>
           </h3>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="space-y-2">
             {LANGUAGES.map(lang => {
               const isSelected = selectedLanguages.includes(lang.code);
               const isDownloading = downloading[lang.code];
               const isDownloaded = downloadedFiles.some(f => f.endsWith(`_${lang.code}.json`));
+              const tState = translationStates[lang.code];
+              const isTranslating = translating[lang.code] || tState?.status === 'processing';
+              const isTranslated = lang.native || tState?.status === 'completed';
+
               return (
-                <div key={lang.code} className="flex items-center gap-2">
+                <div
+                  key={lang.code}
+                  className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
+                    isSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-100 hover:border-gray-200'
+                  }`}
+                >
+                  {/* Sélection */}
                   <button
                     type="button"
                     onClick={() => toggleLanguage(lang.code)}
-                    className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border-2 text-sm transition-all ${
-                      isSelected
-                        ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium'
-                        : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                    }`}
+                    className="flex items-center gap-2 flex-1 min-w-0"
                   >
-                    <span>{lang.flag}</span>
-                    <span>{lang.label}</span>
-                    {isDownloaded && <CheckCircleIcon className="w-4 h-4 text-green-500 ml-auto" />}
+                    <span className="text-lg">{lang.flag}</span>
+                    <div className="text-left min-w-0">
+                      <div className={`text-sm font-medium ${isSelected ? 'text-blue-700' : 'text-gray-700'}`}>
+                        {lang.label}
+                      </div>
+                      {!lang.native && (
+                        <div className="mt-0.5">
+                          {renderTranslationBadge(lang.code)}
+                        </div>
+                      )}
+                    </div>
+                    {isDownloaded && <CheckCircleIcon className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />}
                   </button>
+
+                  {/* Actions traduction (langues non-FR) */}
+                  {!lang.native && (
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {isTranslating ? (
+                        <button
+                          disabled
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg cursor-not-allowed"
+                        >
+                          <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+                          Traduction…
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => translateLanguage(lang.code)}
+                          title={isTranslated ? 'Retraduire' : 'Lancer la traduction via IA'}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                            isTranslated
+                              ? 'text-gray-500 bg-white border-gray-200 hover:bg-gray-50'
+                              : 'text-blue-700 bg-blue-50 border-blue-300 hover:bg-blue-100'
+                          }`}
+                        >
+                          <LanguageIcon className="w-3.5 h-3.5" />
+                          {isTranslated ? 'Retraduire' : 'Traduire'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Actions téléchargement (quand sélectionné) */}
                   {isSelected && (
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 flex-shrink-0">
+                      {/* Avertissement si non traduit */}
+                      {!lang.native && !isTranslated && (
+                        <span title="Contenu en français — traduction non effectuée">
+                          <ClockIcon className="w-4 h-4 text-amber-400 mt-1" />
+                        </span>
+                      )}
                       {/* JSON seul */}
                       <button
                         onClick={() => downloadExport(lang.code)}
                         disabled={isDownloading}
                         className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
-                        title={`JSON ${lang.label}`}
+                        title={`Télécharger JSON ${lang.label}`}
                       >
                         {isDownloading
                           ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                          : <ArrowDownTrayIcon className="w-4 h-4" />
-                        }
+                          : <ArrowDownTrayIcon className="w-4 h-4" />}
                       </button>
                       {/* ZIP + images */}
                       <button
                         onClick={() => downloadZip(lang.code)}
                         disabled={downloadingZip[lang.code]}
                         className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
-                        title={`ZIP + images ${lang.label} (opération longue)`}
+                        title={`ZIP + images ${lang.label}`}
                       >
                         {downloadingZip[lang.code]
                           ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                          : <span className="text-xs font-bold">ZIP</span>
-                        }
+                          : <span className="text-xs font-bold">ZIP</span>}
                       </button>
                     </div>
                   )}

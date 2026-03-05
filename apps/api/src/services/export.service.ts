@@ -119,6 +119,16 @@ export class ExportService {
         }
       }
 
+      // ── Overlay traduction : remplace les champs texte si une traduction existe ──
+      if (lang !== 'fr') {
+        const translatedText: Record<string, string> = page.content_translations?.[lang]?.text || {};
+        for (const [k, v] of Object.entries(translatedText)) {
+          if (k in textFields && typeof v === 'string' && v.trim()) {
+            textFields[k] = v;
+          }
+        }
+      }
+
       return {
         id: page._id.toString(),
         page_number: page.ordre,

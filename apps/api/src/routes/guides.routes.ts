@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ObjectId } from 'mongodb';
+import { GuideTranslationService } from '../services/guide-translation.service.js';
 
 const CreateGuideSchema = z.object({
   name: z.string().min(1),
@@ -242,6 +243,117 @@ export async function guidesRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({ error: 'Erreur lors du chargement des articles' });
     }
   });
+
+  /**
+   * POST /guides/:guideId/translate?lang=en
+   * Lance la traduction du guide dans la langue cible (job asynchrone).
+   * Crée/met à jour un enregistrement dans guide_translation_jobs.
+   * Répond immédiatement — le frontend poll /translation-status pour suivre.
+   */
+  fastify.post('/guides/:guideId/translate', async (request, reply) => {
+    const db = request.server.container.db;
+    const { guideId } = request.params as { guideId: string };
+    const { lang } = request.query as { lang?: string };
+
+    if (!lang || !VALID_LANGS.includes(lang)) {
+      return reply.status(400).send({ error: `Langue invalide. Valeurs acceptées : ${VALID_LANGS.join(', ')}` });
+    }
+    if (!ObjectId.isValid(guideId)) {
+      return reply.status(400).send({ error: 'guideId invalide' });
+    }
+
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+    if (!openaiApiKey) {
+      return reply.status(500).send({ error: 'OPENAI_API_KEY non configurée' });
+    }
+
+    // Vérifier qu'un job n'est pas déjà en cours
+    const existingJob = await db.collection('guide_translation_jobs').findOne(
+      { guide_id: guideId, lang },
+      { sort: { created_at: -1 } }
+    );
+    if (existingJob?.status === 'processing') {
+      return reply.send({ status: 'processing', jobId: existingJob._id.toString() });
+    }
+
+    // Créer le job
+    const jobDoc = {
+      guide_id: guideId,
+      lang,
+      status: 'processing',
+      progress: { done: 0, total: 0 },
+      error: null,
+      created_at: new Date(),
+      updated_at: new Date(),
+    };
+    const insertResult = await db.collection('guide_translation_jobs').insertOne(jobDoc);
+    const jobId = insertResult.insertedId.toString();
+
+    // Lancer la traduction en arrière-plan (pas de await)
+    const service = new GuideTranslationService(openaiApiKey);
+    service.translateGuide(
+      guideId,
+      lang,
+      db,
+      async (progress) => {
+        await db.collection('guide_translation_jobs').updateOne(
+          { _id: new ObjectId(jobId) },
+          { $set: { progress, updated_at: new Date() } }
+        ).catch(() => {});
+      }
+    ).then(async (stats) => {
+      await db.collection('guide_translation_jobs').updateOne(
+        { _id: new ObjectId(jobId) },
+        {
+          $set: {
+            status: 'completed',
+            stats,
+            progress: { done: stats.translated + stats.skipped + stats.errors, total: stats.translated + stats.skipped + stats.errors },
+            translated_at: new Date(),
+            updated_at: new Date(),
+          },
+        }
+      ).catch(() => {});
+      console.log(`✅ [TRANSLATE] Guide ${guideId} → ${lang} terminé:`, stats);
+    }).catch(async (err: any) => {
+      await db.collection('guide_translation_jobs').updateOne(
+        { _id: new ObjectId(jobId) },
+        { $set: { status: 'failed', error: err.message, updated_at: new Date() } }
+      ).catch(() => {});
+      console.error(`❌ [TRANSLATE] Guide ${guideId} → ${lang} échoué:`, err.message);
+    });
+
+    return reply.send({ status: 'processing', jobId });
+  });
+
+  /**
+   * GET /guides/:guideId/translation-status?lang=en
+   * Retourne le statut de traduction pour la langue donnée.
+   */
+  fastify.get('/guides/:guideId/translation-status', async (request, reply) => {
+    const db = request.server.container.db;
+    const { guideId } = request.params as { guideId: string };
+    const { lang } = request.query as { lang?: string };
+
+    if (!lang) return reply.status(400).send({ error: 'lang requis' });
+
+    const job = await db.collection('guide_translation_jobs').findOne(
+      { guide_id: guideId, lang },
+      { sort: { created_at: -1 } }
+    );
+
+    if (!job) {
+      return reply.send({ status: 'idle', progress: null, translated_at: null });
+    }
+
+    return reply.send({
+      status: job.status,
+      progress: job.progress || null,
+      translated_at: job.translated_at || null,
+      stats: job.stats || null,
+      error: job.error || null,
+    });
+  });
 }
 
 function normalizeArticle(a: any, targetLang: string) {
@@ -258,3 +370,5 @@ function normalizeArticle(a: any, targetLang: string) {
     updated_at:   a.updated_at ?? '',
   };
 }
+
+const VALID_LANGS = ['en', 'de', 'it', 'es', 'pt-pt', 'nl', 'da', 'sv'];

@@ -305,11 +305,13 @@ function applyStyleMarkers(tf) {
         app.changeGrepPreferences = NothingEnum.NOTHING;
 
         // -- Gras-orange : ~text~ ---------------------------------------------
-        // (?s) = mode dotall : "." matche aussi \r (retour paragraphe InDesign)
-        // +?  = non-greedy pour ne pas englober plusieurs paires ~...~
+        // [~] = classe de caractere pour matcher un tilde LITTERAL.
+        // En GREP InDesign, "~" seul est un prefixe de code special (ex: ~n = fin de para).
+        // [~] contourne ce comportement et force la correspondance avec le caractere "~".
+        // (?s) = mode dotall, +? = non-greedy.
         app.findGrepPreferences   = NothingEnum.NOTHING;
         app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "(?s)~.+?~";
+        app.findGrepPreferences.findWhat = "(?s)[~].+?[~]";
         var grasOrangeMatches = story.findGrep();
         app.findGrepPreferences = NothingEnum.NOTHING;
         if (grasOrangeStyle.isValid) {
@@ -319,7 +321,7 @@ function applyStyleMarkers(tf) {
         }
         app.findGrepPreferences   = NothingEnum.NOTHING;
         app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat   = "~";
+        app.findGrepPreferences.findWhat   = "[~]";
         app.changeGrepPreferences.changeTo = "";
         story.changeGrep();
         app.findGrepPreferences   = NothingEnum.NOTHING;

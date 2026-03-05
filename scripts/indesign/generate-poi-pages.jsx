@@ -100,7 +100,8 @@ var GABARIT_NAMES = {
     "POI":                     "G-POI",
     "INSPIRATION":             "H-INSPIRATION",
     "SAISON":                  "I-SAISON",
-    "ALLER_PLUS_LOIN":         "J-ALLER_PLUS_LOIN"
+    "ALLER_PLUS_LOIN":         "J-ALLER_PLUS_LOIN",
+    "A_PROPOS_RL":             "K-A_PROPOS_RL"
 };
 
 // Cache des gabarits charges (evite de recharger plusieurs fois)
@@ -1070,6 +1071,17 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var allerPlusLoinPage = addPageWithMaster(msAllerPlusLoin, "ALLER_PLUS_LOIN");
         injectPageContent(allerPlusLoinPage, pageData);
+        pagesGenerated++;
+        continue;
+    }
+
+    // -- A_PROPOS_RL ----------------------------------------------------------
+    if (pageData.template === "A_PROPOS_RL") {
+        var msAProposRL = loadGabarit("A_PROPOS_RL", false);
+        if (!msAProposRL) continue;
+
+        var aProposRLPage = addPageWithMaster(msAProposRL, "A_PROPOS_RL");
+        injectPageContent(aProposRLPage, pageData);
         pagesGenerated++;
         continue;
     }

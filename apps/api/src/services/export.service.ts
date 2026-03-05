@@ -73,15 +73,7 @@ export class ExportService {
         if (frUrl && tgtUrl) urlMap.set(frUrl, tgtUrl);
       }
       console.log(`🌐 [EXPORT][${lang}] URL resolver : ${urlMap.size} article(s) avec URL en ${lang}`);
-      urlResolver = (frUrl: string) => {
-        const resolved = urlMap.get(frUrl);
-        if (resolved) {
-          console.log(`   ✅ URL résolue [${lang}]: ${frUrl} → ${resolved}`);
-        } else {
-          console.log(`   ⚠️  URL fallback FR: ${frUrl}`);
-        }
-        return resolved ?? frUrl;
-      };
+      urlResolver = (frUrl: string) => urlMap.get(frUrl) ?? frUrl;
     }
 
     // ── 5. Construire les pages exportées — passe 1 ────────────────────────
@@ -173,30 +165,10 @@ export class ExportService {
           textFields[k] = v;
         }
 
-        // ── Résolution des URLs vers la langue cible ──────────────────────
-        // Les champs URL ne sont pas traduits par le LLM ; on résout via urlResolver.
-        // 1. Champs texte bruts (URL directe)
-        // 2. Champs lien structuré JSON {"label":"...","url":"..."} → on résout l'url interne
-        for (const k of Object.keys(textFields)) {
-          const v = textFields[k];
-          if (/^https?:\/\//i.test(v)) {
-            textFields[k] = urlResolver(v);
-          } else if (v.startsWith('{')) {
-            try {
-              const parsed = JSON.parse(v);
-              if (parsed && typeof parsed.url === 'string' && /^https?:\/\//i.test(parsed.url)) {
-                parsed.url = urlResolver(parsed.url);
-                textFields[k] = JSON.stringify(parsed);
-              }
-            } catch { /* JSON invalide → laisser tel quel */ }
-          }
-        }
       }
 
-      // Résolution de url_source (URL de l'article principal de la page)
-      const resolvedUrlSource = lang !== 'fr' && page.url_source
-        ? urlResolver(page.url_source)
-        : (page.url_source || null);
+      // url_source : résolu en passe 3 (stocké séparément ici pour le return)
+      const resolvedUrlSource = page.url_source || null;
 
       return {
         id: page._id.toString(),
@@ -275,6 +247,52 @@ export class ExportService {
           pages[i].content.text[field.name] = '';
         }
       }
+    }
+
+    // ── 5c. Passe 3 : résolution des URLs vers la langue cible ────────────────
+    // Appliquée APRÈS la passe 2 car les champs url_article / url_maps des blocs
+    // répétitifs (INSPIRATION, ALLER_PLUS_LOIN…) sont injectés par le FieldServiceRunner.
+    // Couvre : URLs brutes, JSON lien {label,url}, url_source de la page.
+    if (lang !== 'fr') {
+      let resolvedCount = 0;
+      let fallbackCount = 0;
+
+      for (const page of pages) {
+        for (const k of Object.keys(page.content.text)) {
+          const v = page.content.text[k];
+          if (!v || typeof v !== 'string') continue;
+
+          if (/^https?:\/\//i.test(v)) {
+            const resolved = urlResolver(v);
+            if (resolved !== v) resolvedCount++;
+            else fallbackCount++;
+            page.content.text[k] = resolved;
+          } else if (v.startsWith('{')) {
+            try {
+              const parsed = JSON.parse(v);
+              if (parsed && typeof parsed.url === 'string' && /^https?:\/\//i.test(parsed.url)) {
+                const resolved = urlResolver(parsed.url);
+                if (resolved !== parsed.url) resolvedCount++;
+                else fallbackCount++;
+                parsed.url = resolved;
+                page.content.text[k] = JSON.stringify(parsed);
+              }
+            } catch { /* JSON invalide → laisser tel quel */ }
+          }
+        }
+      }
+
+      // Résolution de url_source sur chaque page
+      for (const page of pages) {
+        if (page.url_source && /^https?:\/\//i.test(page.url_source)) {
+          const resolved = urlResolver(page.url_source);
+          if (resolved !== page.url_source) resolvedCount++;
+          else fallbackCount++;
+          (page as any).url_source = resolved;
+        }
+      }
+
+      console.log(`🌐 [EXPORT][${lang}] URLs résolues : ${resolvedCount} ✅  |  fallback FR : ${fallbackCount} ⚠️`);
     }
 
     // ── 6. Construire le mapping field→calque depuis les templates réels ──────

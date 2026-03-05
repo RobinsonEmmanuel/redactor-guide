@@ -146,6 +146,30 @@ function overrideAllFromMaster(masterSpread, targetPage) {
     }
 }
 
+// --- 2c. Ajouter une page, appliquer un gabarit et purger les pages supplementaires -
+// Dans un document "pages en regard" (facing pages), appliquer un gabarit 2 pages
+// a une page unique pousse InDesign a inserer automatiquement une page vide pour
+// completer le cahier. Cette fonction supprime ces pages parasites apres application.
+// Retourne la page cible (inchangee).
+function addPageWithMaster(masterSpread) {
+    var targetPage = doc.pages.add();
+    targetPage.appliedMaster = masterSpread;
+    overrideAllFromMaster(masterSpread, targetPage);
+
+    // Supprimer toute page ajoutee par InDesign au meme cahier (sheet/spread)
+    // qui ne serait pas notre page cible.
+    try {
+        var spread = targetPage.parent;
+        for (var xp = spread.pages.length - 1; xp >= 0; xp--) {
+            if (spread.pages[xp] !== targetPage) {
+                try { spread.pages[xp].remove(); } catch(e2) {}
+            }
+        }
+    } catch(e) {}
+
+    return targetPage;
+}
+
 // --- 2b. Trouver les blocs par label (page courante uniquement) ---------------
 // Recherche simple dans page.allPageItems (collection recursive, items overrides seulement).
 // Ne tente PAS de re-overrider : overrideAllFromMaster() doit avoir ete appele avant.
@@ -878,6 +902,13 @@ for (var i = 0; i < data.pages.length; i++) {
         var coverPage = doc.pages.add(LocationOptions.AT_BEGINNING);
         coverPage.appliedMaster = msCover;
         overrideAllFromMaster(msCover, coverPage);
+        // Purger les pages supplementaires ajoutees par InDesign (gabarit 2 pages)
+        try {
+            var covSpread = coverPage.parent;
+            for (var cx = covSpread.pages.length - 1; cx >= 0; cx--) {
+                if (covSpread.pages[cx] !== coverPage) { try { covSpread.pages[cx].remove(); } catch(e2) {} }
+            }
+        } catch(e) {}
         injectPageContent(coverPage, pageData);
         pagesGenerated++;
         continue;
@@ -888,9 +919,7 @@ for (var i = 0; i < data.pages.length; i++) {
         var msPresGuide = loadGabarit("PRESENTATION_GUIDE", false);
         if (!msPresGuide) continue;
 
-        var presPage = doc.pages.add();
-        presPage.appliedMaster = msPresGuide;
-        overrideAllFromMaster(msPresGuide, presPage);
+        var presPage = addPageWithMaster(msPresGuide);
         injectPageContent(presPage, pageData);
         pagesGenerated++;
         continue;
@@ -901,9 +930,7 @@ for (var i = 0; i < data.pages.length; i++) {
         var msCluster = loadGabarit("CLUSTER", false);
         if (!msCluster) continue;
 
-        var clusterPage = doc.pages.add();
-        clusterPage.appliedMaster = msCluster;
-        overrideAllFromMaster(msCluster, clusterPage);
+        var clusterPage = addPageWithMaster(msCluster);
         injectPageContent(clusterPage, pageData);
         pagesGenerated++;
         continue;
@@ -914,9 +941,7 @@ for (var i = 0; i < data.pages.length; i++) {
         var msCarteDest = loadGabarit("CARTE_DESTINATION", false);
         if (!msCarteDest) continue;
 
-        var carteDestPage = doc.pages.add();
-        carteDestPage.appliedMaster = msCarteDest;
-        overrideAllFromMaster(msCarteDest, carteDestPage);
+        var carteDestPage = addPageWithMaster(msCarteDest);
         injectPageContent(carteDestPage, pageData);
         pagesGenerated++;
         continue;
@@ -927,9 +952,7 @@ for (var i = 0; i < data.pages.length; i++) {
         var msPresDest = loadGabarit("PRESENTATION_DESTINATION", false);
         if (!msPresDest) continue;
 
-        var presDestPage = doc.pages.add();
-        presDestPage.appliedMaster = msPresDest;
-        overrideAllFromMaster(msPresDest, presDestPage);
+        var presDestPage = addPageWithMaster(msPresDest);
         injectPageContent(presDestPage, pageData);
         pagesGenerated++;
         continue;
@@ -940,9 +963,7 @@ for (var i = 0; i < data.pages.length; i++) {
         var msInspi = loadGabarit("INSPIRATION", false);
         if (!msInspi) continue;
 
-        var inspiPage = doc.pages.add();
-        inspiPage.appliedMaster = msInspi;
-        overrideAllFromMaster(msInspi, inspiPage);
+        var inspiPage = addPageWithMaster(msInspi);
         injectPageContent(inspiPage, pageData);
         pagesGenerated++;
         continue;
@@ -951,9 +972,7 @@ for (var i = 0; i < data.pages.length; i++) {
     // -- POI ------------------------------------------------------------------
     if (pageData.template !== "POI") continue;
 
-    var newPage = doc.pages.add();
-    newPage.appliedMaster = master;
-    overrideAllFromMaster(master, newPage);
+    var newPage = addPageWithMaster(master);
 
     var textContent  = pageData.content.text   || {};
     var imageContent = pageData.content.images || {};

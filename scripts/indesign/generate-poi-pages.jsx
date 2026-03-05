@@ -771,11 +771,23 @@ function injectPageContent(page, pageData) {
         if (data.mappings.fields[aKey]) continue; // deja traite en passe 1
         if (SKIP_IN_MASK_STEP[aKey]) continue;
         if (aKey.indexOf("_card_") !== -1) {
-            injectItemVisibility(page, aKey, null); // masque le groupe initialement
+            injectItemVisibility(page, aKey, null);
         } else {
             injectText(page, aKey, null);
         }
     }
+    // Passe 3 : masquer TOUS les groupes _card_ presents sur la page (par scan direct).
+    // Garantit le masquage meme si le JSON ne contient pas de slot vide pour ce groupe
+    // (ex : max_repetitions non defini dans le template → slot 6 absent du JSON).
+    try {
+        var allItems = page.allPageItems;
+        for (var pi = 0; pi < allItems.length; pi++) {
+            var pItem = allItems[pi];
+            if (pItem.label && pItem.label.indexOf("_card_") !== -1) {
+                try { pItem.visible = false; } catch(e2) {}
+            }
+        }
+    } catch(e) {}
 
     // --- Diagnostic INSPIRATION (DEBUG_INSPIRATION = true) -------------------
     // Affiche uniquement l'etat des slots _card_N (visibles ou masques)

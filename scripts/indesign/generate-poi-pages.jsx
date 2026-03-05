@@ -53,16 +53,13 @@ var BULLET_LIST_FIELDS = BULLET_LIST_FIELDS_FALLBACK;
 // POI_meta_1 et POI_meta_duree designent le meme champ selon la convention de nommage du template
 // POI_lien_1 est maintenant traite par injectText (lien structure JSON) - retire des deux listes
 // POI_lien_2 est un cadre graphique cliquable - gere par injectFrameHyperlink, pas injectText
+// POI_lien_2 et ALLER_PLUS_LOIN_lien_N : NE PAS ajouter ici.
+// injectText gere deja les JSON {"label","url"} → il injecte le label dans le cadre texte.
+// FRAME_LINK_FIELDS s'occupe en plus d'appliquer le lien sur le groupe entier.
 var SKIP_IN_TEXT_STEP  = {
     "POI_meta_duree":            true,
     "POI_meta_1":                true,
-    "POI_lien_2":                true,
-    "ALLER_PLUS_LOIN_lien_1":    true,
-    "ALLER_PLUS_LOIN_lien_2":    true,
-    "ALLER_PLUS_LOIN_lien_3":    true,
-    "ALLER_PLUS_LOIN_lien_4":    true,
-    "ALLER_PLUS_LOIN_lien_5":    true,
-    "ALLER_PLUS_LOIN_lien_6":    true
+    "POI_lien_2":                true
 };
 
 // Champs a NE PAS masquer a l'etape A (injectText null ne sait pas masquer les cadres graphiques)

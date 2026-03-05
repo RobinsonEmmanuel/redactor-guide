@@ -234,6 +234,19 @@ export default function SortableFieldItem({
     setPoolTagsRaw((field.pool_tags ?? []).join(', '));
   }, [field.pool_tags?.join(',')]);
 
+  // Propager pool_tags vers le parent avec debounce
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const tags = poolTagsRaw.split(',').map((t) => t.trim()).filter(Boolean);
+      const current = (field.pool_tags ?? []).join(',');
+      if (tags.join(',') !== current) {
+        onChange({ pool_tags: tags });
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [poolTagsRaw]);
+
   const [searchKeywordsRaw, setSearchKeywordsRaw] = useState(
     (field.search_keywords ?? []).join(', ')
   );
@@ -241,6 +254,19 @@ export default function SortableFieldItem({
   useEffect(() => {
     setSearchKeywordsRaw((field.search_keywords ?? []).join(', '));
   }, [field.search_keywords?.join(',')]);
+
+  // Propager search_keywords vers le parent avec debounce (évite onBlur qui rate le clic "Enregistrer")
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const kws = searchKeywordsRaw.split(',').map((k) => k.trim()).filter(Boolean);
+      const current = (field.search_keywords ?? []).join(',');
+      if (kws.join(',') !== current) {
+        onChange({ search_keywords: kws });
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchKeywordsRaw]);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -508,10 +534,6 @@ export default function SortableFieldItem({
                   type="text"
                   value={poolTagsRaw}
                   onChange={(e) => setPoolTagsRaw(e.target.value)}
-                  onBlur={(e) => {
-                    const tags = e.target.value.split(',').map((t) => t.trim()).filter(Boolean);
-                    onChange({ pool_tags: tags });
-                  }}
                   placeholder="Ex: paysage, vue_aerienne, détail"
                   className="w-full px-3 py-2 text-sm border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-teal-50/30"
                 />
@@ -528,10 +550,6 @@ export default function SortableFieldItem({
                   type="text"
                   value={searchKeywordsRaw}
                   onChange={(e) => setSearchKeywordsRaw(e.target.value)}
-                  onBlur={(e) => {
-                    const kws = e.target.value.split(',').map((k) => k.trim()).filter(Boolean);
-                    onChange({ search_keywords: kws });
-                  }}
                   placeholder="Ex: hotel, piscine, chambre, terrasse, resort"
                   className="w-full px-3 py-2 text-sm border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-teal-50/30"
                 />

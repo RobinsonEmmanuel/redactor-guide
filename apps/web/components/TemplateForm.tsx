@@ -41,6 +41,7 @@ interface TemplateField {
   source?: 'destination_pool';
   pool_tags?: string[];
   pool_instructions?: string;
+  search_keywords?: string[];
 }
 
 type InfoSource = 'article_source' | 'cluster_auto_match' | 'saison_auto_match' | 'inspiration_auto_match' | 'tous_articles_index' | 'tous_articles_site' | 'tous_articles_et_llm' | 'non_applicable';

@@ -152,40 +152,16 @@ function overrideAllFromMaster(masterSpread, targetPage) {
 
 // --- 2c. Ajouter une page, appliquer un gabarit et purger les pages supplementaires -
 function addPageWithMaster(masterSpread, templateName) {
-    var docPagesBefore  = doc.pages.length;
-    var docSpreadsBefore = doc.spreads.length;
-
     var targetPage = doc.pages.add();
-    var pagesAfterAdd = doc.pages.length;
-
     targetPage.appliedMaster = masterSpread;
-    var pagesAfterMaster = doc.pages.length;
-
     overrideAllFromMaster(masterSpread, targetPage);
 
-    // Supprimer toute page ajoutee par InDesign au meme cahier (sheet/spread)
-    var spread        = targetPage.parent;
-    var spreadPagesBefore = spread.pages.length;
-    var removedCount  = 0;
+    // Supprimer toute page ajoutee par InDesign au meme cahier
+    var spread = targetPage.parent;
     for (var xp = spread.pages.length - 1; xp >= 0; xp--) {
         if (spread.pages[xp] !== targetPage) {
-            try { spread.pages[xp].remove(); removedCount++; } catch(e2) {}
+            try { spread.pages[xp].remove(); } catch(e2) {}
         }
-    }
-    var docPagesAfter   = doc.pages.length;
-    var docSpreadsAfter = doc.spreads.length;
-
-    if (DEBUG_PAGES) {
-        var msg = "=== addPageWithMaster [" + (templateName || "?") + "] ===\n";
-        msg += "Pages doc : " + docPagesBefore + " → apres add(): " + pagesAfterAdd
-             + " → apres appliedMaster: " + pagesAfterMaster
-             + " → apres purge: " + docPagesAfter + "\n";
-        msg += "Spreads doc : " + docSpreadsBefore + " → " + docSpreadsAfter + "\n";
-        msg += "Pages dans le cahier cible avant purge : " + spreadPagesBefore
-             + " | supprimees : " + removedCount + "\n";
-        msg += "Gabarit applique : " + (masterSpread ? masterSpread.name : "null") + "\n";
-        msg += "Nb pages gabarit : " + (masterSpread ? masterSpread.pages.length : "?");
-        alert(msg);
     }
 
     return targetPage;
@@ -917,12 +893,7 @@ try {
     while (doc.pages.length > 1) {
         doc.pages.lastItem().remove();
     }
-    if (DEBUG_PAGES) {
-        alert("Document purgé : " + doc.pages.length + " page(s) residuelle(s) conservée(s) (minimum requis).");
-    }
-} catch(purgeErr) {
-    if (DEBUG_PAGES) { alert("Purge : erreur — " + purgeErr); }
-}
+} catch(purgeErr) {}
 
 // --- 14. Generation des pages ------------------------------------------------
 var pagesGenerated = 0;
@@ -937,15 +908,13 @@ for (var i = 0; i < data.pages.length; i++) {
         if (!msCover) continue;
 
         var coverPage = doc.pages.add(LocationOptions.AT_BEGINNING);
+        // Supprimer la page residuelle qui etait au rang 0 avant l'insertion
+        // (maintenant au rang 1 apres AT_BEGINNING) pour eviter un blanc parasite.
+        try {
+            if (doc.pages.length > 1) { doc.pages.item(1).remove(); }
+        } catch(e) {}
         coverPage.appliedMaster = msCover;
         overrideAllFromMaster(msCover, coverPage);
-        // Purger les pages supplementaires ajoutees par InDesign (gabarit 2 pages)
-        try {
-            var covSpread = coverPage.parent;
-            for (var cx = covSpread.pages.length - 1; cx >= 0; cx--) {
-                if (covSpread.pages[cx] !== coverPage) { try { covSpread.pages[cx].remove(); } catch(e2) {} }
-            }
-        } catch(e) {}
         injectPageContent(coverPage, pageData);
         pagesGenerated++;
         continue;
@@ -1131,12 +1100,26 @@ for (var i = 0; i < data.pages.length; i++) {
     pagesGenerated++;
 }
 
-var finalMsg = pagesGenerated + " page(s) g\u00e9n\u00e9r\u00e9e(s) avec succ\u00e8s \u2714";
-if (missingGabarits.length > 0) {
-    finalMsg += "\n\n\u26a0 Gabarit(s) introuvable(s) dans ce document \u2014 pages ignor\u00e9es :\n";
-    for (var mg = 0; mg < missingGabarits.length; mg++) {
-        finalMsg += "  \u2022 " + missingGabarits[mg] + "\n";
+var finalMsg = pagesGenerated + " page(s) générée(s) ✔  |  "
+             + doc.pages.length + " page(s) dans le document  |  "
+             + "JSON : " + data.pages.length + " page(s)";
+
+if (doc.pages.length !== data.pages.length) {
+    finalMsg += "\n\n⚠ ÉCART DÉTECTÉ (" + (doc.pages.length - data.pages.length)
+              + " pages en trop ou en moins)\n";
+    finalMsg += "Gabarit appliqué sur chaque page :\n";
+    for (var rp = 0; rp < doc.pages.length; rp++) {
+        var rpPage = doc.pages.item(rp);
+        var rpMaster = "?";
+        try { rpMaster = rpPage.appliedMaster ? rpPage.appliedMaster.name : "[None]"; } catch(e) {}
+        finalMsg += "  Page " + (rp + 1) + " : " + rpMaster + "\n";
     }
-    finalMsg += "\nV\u00e9rifie que ces gabarits existent bien dans le panneau Pages (Fen\u00eatre \u2192 Pages).";
+}
+
+if (missingGabarits.length > 0) {
+    finalMsg += "\n⚠ Gabarit(s) introuvable(s) — pages ignorées :\n";
+    for (var mg = 0; mg < missingGabarits.length; mg++) {
+        finalMsg += "  • " + missingGabarits[mg] + "\n";
+    }
 }
 alert(finalMsg);

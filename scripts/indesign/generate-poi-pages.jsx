@@ -53,16 +53,41 @@ var BULLET_LIST_FIELDS = BULLET_LIST_FIELDS_FALLBACK;
 // POI_meta_1 et POI_meta_duree designent le meme champ selon la convention de nommage du template
 // POI_lien_1 est maintenant traite par injectText (lien structure JSON) - retire des deux listes
 // POI_lien_2 est un cadre graphique cliquable - gere par injectFrameHyperlink, pas injectText
-var SKIP_IN_TEXT_STEP  = { "POI_meta_duree": true, "POI_meta_1": true, "POI_lien_2": true };
+var SKIP_IN_TEXT_STEP  = {
+    "POI_meta_duree":            true,
+    "POI_meta_1":                true,
+    "POI_lien_2":                true,
+    "ALLER_PLUS_LOIN_lien_1":    true,
+    "ALLER_PLUS_LOIN_lien_2":    true,
+    "ALLER_PLUS_LOIN_lien_3":    true,
+    "ALLER_PLUS_LOIN_lien_4":    true,
+    "ALLER_PLUS_LOIN_lien_5":    true,
+    "ALLER_PLUS_LOIN_lien_6":    true
+};
 
 // Champs a NE PAS masquer a l'etape A (injectText null ne sait pas masquer les cadres graphiques)
-// POI_lien_2 : masquage/affichage gere par injectFrameHyperlink
-var SKIP_IN_MASK_STEP  = { "POI_lien_2": true };
+var SKIP_IN_MASK_STEP  = {
+    "POI_lien_2":                true,
+    "ALLER_PLUS_LOIN_lien_1":    true,
+    "ALLER_PLUS_LOIN_lien_2":    true,
+    "ALLER_PLUS_LOIN_lien_3":    true,
+    "ALLER_PLUS_LOIN_lien_4":    true,
+    "ALLER_PLUS_LOIN_lien_5":    true,
+    "ALLER_PLUS_LOIN_lien_6":    true
+};
 
 // Champs dont la valeur est un lien {label, url} ou une URL brute a appliquer
 // sur un cadre GRAPHIQUE (non-TextFrame) via HyperlinkPageItemSource.
 // Cle = nom du champ JSON, valeur = true.
-var FRAME_LINK_FIELDS  = { "POI_lien_2": true };
+var FRAME_LINK_FIELDS  = {
+    "POI_lien_2":                true,
+    "ALLER_PLUS_LOIN_lien_1":    true,
+    "ALLER_PLUS_LOIN_lien_2":    true,
+    "ALLER_PLUS_LOIN_lien_3":    true,
+    "ALLER_PLUS_LOIN_lien_4":    true,
+    "ALLER_PLUS_LOIN_lien_5":    true,
+    "ALLER_PLUS_LOIN_lien_6":    true
+};
 
 // Noms des gabarits InDesign associes a chaque template
 // Ajouter ici chaque nouveau template : { "NOM_TEMPLATE": "NOM_GABARIT_INDESIGN" }

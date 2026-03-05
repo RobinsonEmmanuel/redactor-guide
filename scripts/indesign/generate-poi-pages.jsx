@@ -69,7 +69,8 @@ var GABARIT_NAMES = {
     "PRESENTATION_DESTINATION":"C-PRESENTATION_DESTINATION",
     "CARTE_DESTINATION":       "E-CARTE_DESTINATION",
     "CLUSTER":                 "D-CLUSTER",
-    "POI":                     "G-POI"
+    "POI":                     "G-POI",
+    "INSPIRATION":             "H-INSPIRATION"
 };
 
 // Cache des gabarits charges (evite de recharger plusieurs fois)
@@ -861,6 +862,19 @@ for (var i = 0; i < data.pages.length; i++) {
         presDestPage.appliedMaster = msPresDest;
         overrideAllFromMaster(msPresDest, presDestPage);
         injectPageContent(presDestPage, pageData);
+        pagesGenerated++;
+        continue;
+    }
+
+    // -- INSPIRATION ----------------------------------------------------------
+    if (pageData.template === "INSPIRATION") {
+        var msInspi = loadGabarit("INSPIRATION", false);
+        if (!msInspi) continue;
+
+        var inspiPage = doc.pages.add();
+        inspiPage.appliedMaster = msInspi;
+        overrideAllFromMaster(msInspi, inspiPage);
+        injectPageContent(inspiPage, pageData);
         pagesGenerated++;
         continue;
     }

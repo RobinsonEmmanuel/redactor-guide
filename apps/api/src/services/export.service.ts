@@ -173,9 +173,22 @@ export class ExportService {
 
           // Si le champ est de type repetitif, exploser le tableau JSON en champs plats
           // pour que le script InDesign trouve des calques nommés individuellement.
+          // Les sous-champs _image_N sont routés vers content.images (format { url, local })
+          // car le script InDesign injecte les images depuis content.images uniquement.
           if (field.type === 'repetitif' && result.value) {
             const flat = explodeRepetitifField(field.name, result.value);
-            Object.assign(pages[i].content.text, flat);
+            for (const [k, v] of Object.entries(flat)) {
+              if (k.includes('_image_') && typeof v === 'string' && v.startsWith('http')) {
+                pages[i].content.images[k] = {
+                  url: v,
+                  indesign_layer: k,
+                  local_filename: `${k.toLowerCase()}.jpg`,
+                  local_path: 'images/inspiration/',
+                };
+              } else {
+                pages[i].content.text[k] = v;
+              }
+            }
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);

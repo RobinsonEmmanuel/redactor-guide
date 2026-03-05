@@ -428,14 +428,32 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     INSPIRATION_LIEUX:    inspirationPois.map((p) => p.nom).join(', '),
   };
 
+  // Lire les cartes déjà sauvegardées manuellement (images choisies par l'utilisateur)
+  // pour les préserver lors d'une régénération export, sans les écraser.
+  const fieldName: string = fieldDef?.name ?? '';
+  let savedCards: Array<Record<string, string>> = [];
+  try {
+    const rawSaved = currentPage.content?.[fieldName];
+    savedCards = Array.isArray(rawSaved)
+      ? rawSaved
+      : typeof rawSaved === 'string'
+        ? JSON.parse(rawSaved)
+        : [];
+  } catch { savedCards = []; }
+
   const cards: Array<Record<string, string>> = [];
 
   for (let i = 0; i < inspirationPois.length; i++) {
     const poi = inspirationPois[i];
     console.log(`[inspiration_poi_cards] POI ${i + 1}/${inspirationPois.length} : "${poi.nom}"`);
 
+    // Image manuellement choisie par l'utilisateur pour cette entrée (priorité absolue)
+    const savedImage: string | undefined = savedCards[i]?.image;
+    const hasManualImage = typeof savedImage === 'string' && savedImage.startsWith('http');
+
     // Charger les images disponibles pour ce POI (une seule requête DB, réutilisée)
-    const poiImages = await loadPoiImages(db, poi.nom);
+    // Saut possible si l'image manuelle est déjà définie et que le mode n'est pas IA
+    const poiImages = hasManualImage ? [] : await loadPoiImages(db, poi.nom);
     const imagesPoiText = formatPoiImagesForPrompt(poiImages);
 
     // Variables spécifiques à ce POI (enrichissent pageVars)
@@ -447,28 +465,36 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     };
 
     // ── image ─────────────────────────────────────────────────────────────────
-    // Mode "Géré par le service" (skip_ai / pas d'instructions) → meilleure image auto
-    // Mode "Généré par IA" avec ai_instructions → l'IA choisit dans {{IMAGES_POI}}
-    const imgResolved = resolveSubField(
-      fieldDef, 'image',
-      '',   // pas de fallback : sélection auto si pas d'instructions IA
-      poiVars
-    );
-    let imageUrl: string | null = poiImages[0]?.url ?? null; // défaut : meilleure image rankée
+    // Priorité : image manuelle sauvegardée > mode service > IA > auto (meilleure rankée)
+    let imageUrl: string | null = hasManualImage
+      ? savedImage!
+      : poiImages[0]?.url ?? null;
 
-    if (imgResolved.mode === 'default') {
-      imageUrl = imgResolved.defaultValue || null;
-    } else if (imgResolved.mode === 'ai' && imgResolved.instructions && poiImages.length > 0) {
-      try {
-        const prompt =
-          `${imgResolved.instructions}\n\n` +
-          `Images disponibles pour "${poi.nom}" :\n${imagesPoiText}\n\n` +
-          `Réponds UNIQUEMENT avec l'URL complète de l'image choisie (https://…), sans aucun texte autour.`;
-        const aiUrl = (await miniAI(prompt)).trim();
-        if (aiUrl.startsWith('http')) imageUrl = aiUrl;
-      } catch { /* fallback : meilleure image rankée */ }
+    if (!hasManualImage) {
+      const imgResolved = resolveSubField(
+        fieldDef, 'image',
+        '',   // pas de fallback : sélection auto si pas d'instructions IA
+        poiVars
+      );
+
+      if (imgResolved.mode === 'default') {
+        imageUrl = imgResolved.defaultValue || null;
+      } else if (imgResolved.mode === 'ai' && imgResolved.instructions) {
+        // Charger les images si besoin (non chargées ci-dessus car hasManualImage=false mais poiImages peut être vide)
+        const imgs = poiImages.length > 0 ? poiImages : await loadPoiImages(db, poi.nom);
+        if (imgs.length > 0) {
+          try {
+            const prompt =
+              `${imgResolved.instructions}\n\n` +
+              `Images disponibles pour "${poi.nom}" :\n${formatPoiImagesForPrompt(imgs)}\n\n` +
+              `Réponds UNIQUEMENT avec l'URL complète de l'image choisie (https://…), sans aucun texte autour.`;
+            const aiUrl = (await miniAI(prompt)).trim();
+            if (aiUrl.startsWith('http')) imageUrl = aiUrl;
+          } catch { /* fallback : meilleure image rankée */ }
+        }
+      }
     }
-    // mode 'skip' → imageUrl reste null (champ laissé vide pour sélection manuelle)
+    // mode 'skip' ou image manuelle → imageUrl est déjà défini
 
     // ── nom ───────────────────────────────────────────────────────────────────
     const nomResolved = resolveSubField(

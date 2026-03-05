@@ -25,9 +25,13 @@ var doc = app.activeDocument;
 var DEBUG_PICTOS = false;
 
 // Mettre a true pour afficher un rapport de diagnostic sur chaque page INSPIRATION.
-// Affiche : cles JSON avec/sans mapping, labels trouves sur la page.
-// Desactiver (false) en production.
 var DEBUG_INSPIRATION = true;
+
+// Mettre a true pour tracer la creation des pages (spreads, pages parasites).
+// Affiche un rapport apres chaque page ajoutee : nb spreads, nb pages par spread,
+// pages supprimees. Permet d'identifier les pages vides generees par les gabarits
+// multi-pages. Desactiver (false) en production.
+var DEBUG_PAGES = true;
 
 var BOLD_STYLE_NAME        = "Gras";        // Marqueurs **...**
 var ORANGE_STYLE_NAME      = "Orange";      // Marqueurs {...}   - couleur #f39428
@@ -147,25 +151,42 @@ function overrideAllFromMaster(masterSpread, targetPage) {
 }
 
 // --- 2c. Ajouter une page, appliquer un gabarit et purger les pages supplementaires -
-// Dans un document "pages en regard" (facing pages), appliquer un gabarit 2 pages
-// a une page unique pousse InDesign a inserer automatiquement une page vide pour
-// completer le cahier. Cette fonction supprime ces pages parasites apres application.
-// Retourne la page cible (inchangee).
-function addPageWithMaster(masterSpread) {
+function addPageWithMaster(masterSpread, templateName) {
+    var docPagesBefore  = doc.pages.length;
+    var docSpreadsBefore = doc.spreads.length;
+
     var targetPage = doc.pages.add();
+    var pagesAfterAdd = doc.pages.length;
+
     targetPage.appliedMaster = masterSpread;
+    var pagesAfterMaster = doc.pages.length;
+
     overrideAllFromMaster(masterSpread, targetPage);
 
     // Supprimer toute page ajoutee par InDesign au meme cahier (sheet/spread)
-    // qui ne serait pas notre page cible.
-    try {
-        var spread = targetPage.parent;
-        for (var xp = spread.pages.length - 1; xp >= 0; xp--) {
-            if (spread.pages[xp] !== targetPage) {
-                try { spread.pages[xp].remove(); } catch(e2) {}
-            }
+    var spread        = targetPage.parent;
+    var spreadPagesBefore = spread.pages.length;
+    var removedCount  = 0;
+    for (var xp = spread.pages.length - 1; xp >= 0; xp--) {
+        if (spread.pages[xp] !== targetPage) {
+            try { spread.pages[xp].remove(); removedCount++; } catch(e2) {}
         }
-    } catch(e) {}
+    }
+    var docPagesAfter   = doc.pages.length;
+    var docSpreadsAfter = doc.spreads.length;
+
+    if (DEBUG_PAGES) {
+        var msg = "=== addPageWithMaster [" + (templateName || "?") + "] ===\n";
+        msg += "Pages doc : " + docPagesBefore + " → apres add(): " + pagesAfterAdd
+             + " → apres appliedMaster: " + pagesAfterMaster
+             + " → apres purge: " + docPagesAfter + "\n";
+        msg += "Spreads doc : " + docSpreadsBefore + " → " + docSpreadsAfter + "\n";
+        msg += "Pages dans le cahier cible avant purge : " + spreadPagesBefore
+             + " | supprimees : " + removedCount + "\n";
+        msg += "Gabarit applique : " + (masterSpread ? masterSpread.name : "null") + "\n";
+        msg += "Nb pages gabarit : " + (masterSpread ? masterSpread.pages.length : "?");
+        alert(msg);
+    }
 
     return targetPage;
 }
@@ -919,7 +940,7 @@ for (var i = 0; i < data.pages.length; i++) {
         var msPresGuide = loadGabarit("PRESENTATION_GUIDE", false);
         if (!msPresGuide) continue;
 
-        var presPage = addPageWithMaster(msPresGuide);
+        var presPage = addPageWithMaster(msPresGuide, "PRESENTATION_GUIDE");
         injectPageContent(presPage, pageData);
         pagesGenerated++;
         continue;
@@ -930,7 +951,7 @@ for (var i = 0; i < data.pages.length; i++) {
         var msCluster = loadGabarit("CLUSTER", false);
         if (!msCluster) continue;
 
-        var clusterPage = addPageWithMaster(msCluster);
+        var clusterPage = addPageWithMaster(msCluster, "CLUSTER");
         injectPageContent(clusterPage, pageData);
         pagesGenerated++;
         continue;
@@ -941,7 +962,7 @@ for (var i = 0; i < data.pages.length; i++) {
         var msCarteDest = loadGabarit("CARTE_DESTINATION", false);
         if (!msCarteDest) continue;
 
-        var carteDestPage = addPageWithMaster(msCarteDest);
+        var carteDestPage = addPageWithMaster(msCarteDest, "CARTE_DESTINATION");
         injectPageContent(carteDestPage, pageData);
         pagesGenerated++;
         continue;
@@ -952,7 +973,7 @@ for (var i = 0; i < data.pages.length; i++) {
         var msPresDest = loadGabarit("PRESENTATION_DESTINATION", false);
         if (!msPresDest) continue;
 
-        var presDestPage = addPageWithMaster(msPresDest);
+        var presDestPage = addPageWithMaster(msPresDest, "PRESENTATION_DESTINATION");
         injectPageContent(presDestPage, pageData);
         pagesGenerated++;
         continue;
@@ -963,7 +984,7 @@ for (var i = 0; i < data.pages.length; i++) {
         var msInspi = loadGabarit("INSPIRATION", false);
         if (!msInspi) continue;
 
-        var inspiPage = addPageWithMaster(msInspi);
+        var inspiPage = addPageWithMaster(msInspi, "INSPIRATION");
         injectPageContent(inspiPage, pageData);
         pagesGenerated++;
         continue;
@@ -972,7 +993,7 @@ for (var i = 0; i < data.pages.length; i++) {
     // -- POI ------------------------------------------------------------------
     if (pageData.template !== "POI") continue;
 
-    var newPage = addPageWithMaster(master);
+    var newPage = addPageWithMaster(master, "POI");
 
     var textContent  = pageData.content.text   || {};
     var imageContent = pageData.content.images || {};

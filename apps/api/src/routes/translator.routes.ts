@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { env } from '../config/env';
+import { COLLECTIONS } from '../config/collections.js';
 
 export default async function translatorRoutes(fastify: FastifyInstance) {
   /**
@@ -17,7 +18,7 @@ export default async function translatorRoutes(fastify: FastifyInstance) {
 
     try {
       // Créer un job de traduction
-      const job = await db.collection('translation_jobs').insertOne({
+      const job = await db.collection(COLLECTIONS.translation_jobs).insertOne({
         status: 'pending',
         input_json: jsonData,
         output_json: null,
@@ -87,7 +88,7 @@ export default async function translatorRoutes(fastify: FastifyInstance) {
         return reply.code(400).send({ error: 'Job ID invalide' });
       }
 
-      const job = await db.collection('translation_jobs').findOne({
+      const job = await db.collection(COLLECTIONS.translation_jobs).findOne({
         _id: new ObjectId(jobId),
       });
 
@@ -120,7 +121,7 @@ export default async function translatorRoutes(fastify: FastifyInstance) {
         return reply.code(400).send({ error: 'Job ID invalide' });
       }
 
-      const job = await db.collection('translation_jobs').findOne({
+      const job = await db.collection(COLLECTIONS.translation_jobs).findOne({
         _id: new ObjectId(jobId),
       });
 

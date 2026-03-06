@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
+import { COLLECTIONS } from '../config/collections.js';
 
 /**
  * Routes de diagnostic pour débugger la génération de sommaire
@@ -23,7 +24,7 @@ export async function debugRoutes(fastify: FastifyInstance) {
     try {
       // 1. Vérifier le guide
       result.checks.guide = { status: 'checking' };
-      const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+      const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
       
       if (!guide) {
         result.checks.guide = { status: 'error', message: 'Guide non trouvé' };
@@ -64,7 +65,7 @@ export async function debugRoutes(fastify: FastifyInstance) {
 
       // 4. Vérifier le site
       result.checks.site = { status: 'checking' };
-      const site = await db.collection('sites').findOne({ url: guide.wpConfig.siteUrl });
+      const site = await db.collection(COLLECTIONS.sites).findOne({ url: guide.wpConfig.siteUrl });
       
       if (!site) {
         result.checks.site = { 
@@ -87,11 +88,11 @@ export async function debugRoutes(fastify: FastifyInstance) {
 
       // 5. Vérifier les articles
       result.checks.articles = { status: 'checking' };
-      const articlesTotal = await db.collection('articles_raw').countDocuments({
+      const articlesTotal = await db.collection(COLLECTIONS.articles_raw).countDocuments({
         site_id: site._id.toString(),
       });
 
-      const articlesWithDestination = await db.collection('articles_raw').countDocuments({
+      const articlesWithDestination = await db.collection(COLLECTIONS.articles_raw).countDocuments({
         site_id: site._id.toString(),
         categories: { $in: [guide.destination] },
       });
@@ -115,7 +116,7 @@ export async function debugRoutes(fastify: FastifyInstance) {
         result.errors.push(`Aucun article avec la destination "${guide.destination}"`);
         
         // Lister les catégories disponibles
-        const allArticles = await db.collection('articles_raw')
+        const allArticles = await db.collection(COLLECTIONS.articles_raw)
           .find({ site_id: site._id.toString() })
           .limit(10)
           .toArray();
@@ -138,9 +139,9 @@ export async function debugRoutes(fastify: FastifyInstance) {
 
       // 6. Vérifier les prompts
       result.checks.prompts = { status: 'checking' };
-      const promptSections = await db.collection('prompts').findOne({ intent: 'structure_sections', actif: true });
-      const promptPOIs = await db.collection('prompts').findOne({ intent: 'selection_pois', actif: true });
-      const promptInspirations = await db.collection('prompts').findOne({ intent: 'pages_inspiration', actif: true });
+      const promptSections = await db.collection(COLLECTIONS.prompts).findOne({ intent: 'structure_sections', actif: true });
+      const promptPOIs = await db.collection(COLLECTIONS.prompts).findOne({ intent: 'selection_pois', actif: true });
+      const promptInspirations = await db.collection(COLLECTIONS.prompts).findOne({ intent: 'pages_inspiration', actif: true });
 
       const missingPrompts = [];
       if (!promptSections) missingPrompts.push('structure_sections');

@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { Db } from 'mongodb';
 import type { ImageAnalysis, SelectionCriteria } from '@redactor-guide/core-model';
+import { COLLECTIONS } from '../config/collections.js';
 
 export type { ImageAnalysis, SelectionCriteria };
 
@@ -41,13 +42,13 @@ export class ImageAnalysisService {
       
       try {
         // 1. Chercher dans le cache global
-        const cachedAnalysis = await this.db.collection('image_analyses').findOne({ url });
+        const cachedAnalysis = await this.db.collection(COLLECTIONS.image_analyses).findOne({ url });
 
         if (cachedAnalysis) {
           console.log(`✅ Image ${i + 1}/${imageUrls.length}: trouvée en cache`);
           
           // Incrémenter le compteur de réutilisation
-          await this.db.collection('image_analyses').updateOne(
+          await this.db.collection(COLLECTIONS.image_analyses).updateOne(
             { url },
             { 
               $inc: { reuse_count: 1 },
@@ -70,7 +71,7 @@ export class ImageAnalysisService {
           const analysis = await this.analyzeSingleImage(url, analysisPrompt, i);
           
           // 3. Sauvegarder dans le cache global
-          await this.db.collection('image_analyses').insertOne({
+          await this.db.collection(COLLECTIONS.image_analyses).insertOne({
             url,
             analysis: analysis.analysis,
             analyzed_at: analysis.analyzed_at,

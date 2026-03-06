@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { Db, ObjectId } from 'mongodb';
 import { env } from '../config/env';
 import { z } from 'zod';
+import { COLLECTIONS } from '../config/collections.js';
 
 const ManualPOISchema = z.object({
   nom: z.string().min(1),
@@ -28,7 +29,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
         console.log(`🔍 [POIs] Génération POIs pour guide ${guideId}`);
 
         // 1. Vérifier que le guide existe
-        const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+        const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
         if (!guide) {
           return reply.code(404).send({ error: 'Guide non trouvé' });
         }
@@ -39,7 +40,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
           ? { categories: { $regex: destination, $options: 'i' } }
           : {};
 
-        const articlesCount = await db.collection('articles_raw').countDocuments(destinationFilter);
+        const articlesCount = await db.collection(COLLECTIONS.articles_raw).countDocuments(destinationFilter);
 
         if (articlesCount === 0) {
           return reply.code(400).send({ 
@@ -52,7 +53,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
 
         // 3. Créer un job de génération
         const jobId = new ObjectId();
-        await db.collection('pois_generation_jobs').insertOne({
+        await db.collection(COLLECTIONS.pois_generation_jobs).insertOne({
           _id: jobId,
           guide_id: guideId,
           status: 'pending',
@@ -94,7 +95,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
               console.error('❌ [QStash] Erreur:', qstashError);
               
               // Marquer le job comme failed
-              await db.collection('pois_generation_jobs').updateOne(
+              await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
                 { _id: jobId },
                 { 
                   $set: { 
@@ -124,7 +125,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
           // Fallback : impossible sans QStash
           console.error('⚠️ QStash non configuré - impossible de générer les POIs');
           
-          await db.collection('pois_generation_jobs').deleteOne({ _id: jobId });
+          await db.collection(COLLECTIONS.pois_generation_jobs).deleteOne({ _id: jobId });
           
           return reply.code(503).send({
             error: 'QStash non configuré',
@@ -152,7 +153,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { guideId } = request.params;
       try {
-        const job = await db.collection('pois_generation_jobs').findOne(
+        const job = await db.collection(COLLECTIONS.pois_generation_jobs).findOne(
           {
             guide_id: guideId,
             status: { $in: ['extraction_complete', 'deduplicating', 'dedup_complete'] },
@@ -201,7 +202,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
           return reply.code(400).send({ error: 'Job ID invalide' });
         }
 
-        const job = await db.collection('pois_generation_jobs').findOne({
+        const job = await db.collection(COLLECTIONS.pois_generation_jobs).findOne({
           _id: new ObjectId(jobId),
         });
 
@@ -245,14 +246,14 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       try {
         if (!ObjectId.isValid(jobId)) return reply.code(400).send({ error: 'Job ID invalide' });
 
-        const job = await db.collection('pois_generation_jobs').findOne({ _id: new ObjectId(jobId) });
+        const job = await db.collection(COLLECTIONS.pois_generation_jobs).findOne({ _id: new ObjectId(jobId) });
         if (!job) return reply.code(404).send({ error: 'Job non trouvé' });
 
         const rawPois: any[] = job.preview_pois || [];
         if (rawPois.length === 0) return reply.code(400).send({ error: 'Aucun POI extrait à dédoublonner' });
 
         // Marquer le job comme en cours de déduplication
-        await db.collection('pois_generation_jobs').updateOne(
+        await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
           { _id: new ObjectId(jobId) },
           { $set: { status: 'deduplicating', updated_at: new Date() } }
         );
@@ -279,7 +280,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
 
         if (!qstashResponse.ok) {
           const err = await qstashResponse.text();
-          await db.collection('pois_generation_jobs').updateOne(
+          await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
             { _id: new ObjectId(jobId) },
             { $set: { status: 'extraction_complete', updated_at: new Date() } }
           ).catch(() => {});
@@ -291,7 +292,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
 
       } catch (error: any) {
         console.error('❌ [DEDUP] Erreur:', error);
-        await db.collection('pois_generation_jobs').updateOne(
+        await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
           { _id: new ObjectId(jobId) },
           { $set: { status: 'extraction_complete', updated_at: new Date() } }
         ).catch(() => {});
@@ -313,7 +314,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       try {
         if (!ObjectId.isValid(jobId)) return reply.code(400).send({ error: 'Job ID invalide' });
 
-        const job = await db.collection('pois_generation_jobs').findOne({ _id: new ObjectId(jobId) });
+        const job = await db.collection(COLLECTIONS.pois_generation_jobs).findOne({ _id: new ObjectId(jobId) });
         if (!job) return reply.code(404).send({ error: 'Job non trouvé' });
 
         // Si une liste validée est fournie par l'UI, on l'utilise directement
@@ -335,7 +336,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
         }));
 
         const now = new Date();
-        await db.collection('pois_selection').updateOne(
+        await db.collection(COLLECTIONS.pois_selection).updateOne(
           { guide_id: guideId },
           {
             $set: { guide_id: guideId, pois, updated_at: now },
@@ -344,7 +345,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
           { upsert: true }
         );
 
-        await db.collection('pois_generation_jobs').updateOne(
+        await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
           { _id: new ObjectId(jobId) },
           { $set: { status: 'completed', count: pois.length, updated_at: new Date() } }
         );
@@ -369,7 +370,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { guideId } = request.params;
       try {
-        const result = await db.collection('pois_generation_jobs').findOneAndUpdate(
+        const result = await db.collection(COLLECTIONS.pois_generation_jobs).findOneAndUpdate(
           {
             guide_id: guideId,
             status: { $in: ['deduplicating', 'dedup_complete', 'extraction_complete'] },
@@ -403,13 +404,13 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       const { guideId } = request.params;
       try {
         // Marquer les jobs en cours comme "cancelled" pour que le worker s'arrête proprement
-        const cancelResult = await db.collection('pois_generation_jobs').updateMany(
+        const cancelResult = await db.collection(COLLECTIONS.pois_generation_jobs).updateMany(
           { guide_id: guideId, status: { $in: ['pending', 'processing', 'deduplicating'] } },
           { $set: { status: 'cancelled', updated_at: new Date() } }
         );
 
         // Supprimer les jobs terminés ou échoués (historique)
-        const deleteResult = await db.collection('pois_generation_jobs').deleteMany(
+        const deleteResult = await db.collection(COLLECTIONS.pois_generation_jobs).deleteMany(
           { guide_id: guideId, status: { $in: ['completed', 'failed', 'cancelled', 'extraction_complete', 'dedup_complete'] } }
         );
 
@@ -432,7 +433,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       const { guideId } = request.params;
 
       try {
-        const selection = await db.collection('pois_selection').findOne({ guide_id: guideId });
+        const selection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
         
         if (!selection) {
           return reply.send({ pois: [] });
@@ -474,7 +475,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
 
         // Ajouter à la collection
         const now = new Date();
-        await db.collection('pois_selection').updateOne(
+        await db.collection(COLLECTIONS.pois_selection).updateOne(
           { guide_id: guideId },
           {
             $push: { pois: newPOI } as any,
@@ -528,7 +529,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
 
         // Ajouter à la collection (si pas déjà présent)
         const now = new Date();
-        const result = await db.collection('pois_selection').updateOne(
+        const result = await db.collection(COLLECTIONS.pois_selection).updateOne(
           { 
             guide_id: guideId,
             'pois.region_lovers_id': { $ne: region_lovers_id },
@@ -569,7 +570,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       const { guideId, poiId } = request.params;
 
       try {
-        const result = await db.collection('pois_selection').updateOne(
+        const result = await db.collection(COLLECTIONS.pois_selection).updateOne(
           { guide_id: guideId },
           {
             $pull: { pois: { poi_id: poiId } } as any,
@@ -603,7 +604,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
 
       try {
         // 1. Récupérer le guide pour obtenir destination_rl_id
-        const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+        const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
         if (!guide) {
           return reply.code(404).send({ error: 'Guide non trouvé' });
         }
@@ -737,7 +738,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
         console.log(`🔄 [POI] Réaffectation POI ${poiId} → cluster ${cluster_id || 'unassigned'}`);
 
         // 1. Récupérer le document pois_selection
-        const poisSelection = await db.collection('pois_selection').findOne({ guide_id: guideId });
+        const poisSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
         
         if (!poisSelection) {
           return reply.code(404).send({ error: 'Aucune sélection de POIs trouvée pour ce guide' });
@@ -762,7 +763,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
         poisSelection.pois[poiIndex] = updatedPoi;
 
         // 4. Sauvegarder dans MongoDB
-        await db.collection('pois_selection').updateOne(
+        await db.collection(COLLECTIONS.pois_selection).updateOne(
           { guide_id: guideId },
           {
             $set: {

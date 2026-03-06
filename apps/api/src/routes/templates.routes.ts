@@ -6,6 +6,7 @@ import {
   Template,
 } from '@redactor-guide/core-model';
 import { ObjectId } from 'mongodb';
+import { COLLECTIONS } from '../config/collections.js';
 
 /**
  * Supprime le champ `indesign_layer` de chaque field du template.
@@ -26,7 +27,7 @@ export async function templatesRoutes(fastify: FastifyInstance) {
     try {
       const db = request.server.container.db;
       const templates = await db
-        .collection('templates')
+        .collection(COLLECTIONS.templates)
         .find({})
         .sort({ name: 1 })
         .toArray();
@@ -51,7 +52,7 @@ export async function templatesRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ error: 'ID invalide' });
       }
 
-      const template = await db.collection('templates').findOne({ _id: new ObjectId(id) });
+      const template = await db.collection(COLLECTIONS.templates).findOne({ _id: new ObjectId(id) });
 
       if (!template) {
         return reply.status(404).send({ error: 'Template non trouvé' });
@@ -76,7 +77,7 @@ export async function templatesRoutes(fastify: FastifyInstance) {
       const body = CreateTemplateSchema.parse(request.body);
 
       // Vérifier que le nom n'existe pas déjà
-      const existing = await db.collection('templates').findOne({ name: body.name });
+      const existing = await db.collection(COLLECTIONS.templates).findOne({ name: body.name });
       if (existing) {
         return reply.status(409).send({ error: `Un template avec le nom "${body.name}" existe déjà` });
       }
@@ -108,9 +109,9 @@ export async function templatesRoutes(fastify: FastifyInstance) {
         updated_at: now,
       };
 
-      const result = await db.collection('templates').insertOne(template);
+      const result = await db.collection(COLLECTIONS.templates).insertOne(template);
 
-      const created = await db.collection('templates').findOne({ _id: result.insertedId });
+      const created = await db.collection(COLLECTIONS.templates).findOne({ _id: result.insertedId });
 
       return reply.status(201).send(created);
     } catch (error) {
@@ -140,7 +141,7 @@ export async function templatesRoutes(fastify: FastifyInstance) {
 
       // Si le nom change, vérifier qu'il n'existe pas déjà
       if (body.name) {
-        const existing = await db.collection('templates').findOne({
+        const existing = await db.collection(COLLECTIONS.templates).findOne({
           name: body.name,
           _id: { $ne: new ObjectId(id) },
         });
@@ -151,7 +152,7 @@ export async function templatesRoutes(fastify: FastifyInstance) {
 
       // Si les champs sont fournis, valider la convention de nommage
       if (body.fields) {
-        const templateName = body.name || (await db.collection('templates').findOne({ _id: new ObjectId(id) }))?.name;
+        const templateName = body.name || (await db.collection(COLLECTIONS.templates).findOne({ _id: new ObjectId(id) }))?.name;
         if (!templateName) {
           return reply.status(404).send({ error: 'Template non trouvé' });
         }
@@ -179,7 +180,7 @@ export async function templatesRoutes(fastify: FastifyInstance) {
       const sanitizedBody = body.fields
         ? { ...body, fields: sanitizeFields(body.fields) }
         : body;
-      const result = await db.collection('templates').findOneAndUpdate(
+      const result = await db.collection(COLLECTIONS.templates).findOneAndUpdate(
         { _id: new ObjectId(id) },
         { $set: { ...sanitizedBody, updated_at: now } },
         { returnDocument: 'after' }
@@ -212,7 +213,7 @@ export async function templatesRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ error: 'ID invalide' });
       }
 
-      const result = await db.collection('templates').deleteOne({ _id: new ObjectId(id) });
+      const result = await db.collection(COLLECTIONS.templates).deleteOne({ _id: new ObjectId(id) });
 
       if (result.deletedCount === 0) {
         return reply.status(404).send({ error: 'Template non trouvé' });

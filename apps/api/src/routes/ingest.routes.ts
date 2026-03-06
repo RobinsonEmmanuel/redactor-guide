@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { env } from '../config/env';
+import { COLLECTIONS } from '../config/collections.js';
 
 const IngestBodySchema = z.object({
   siteId: z.string().min(1, 'siteId requis'),
@@ -30,7 +31,7 @@ export async function ingestRoutes(fastify: FastifyInstance) {
       // Charger le prompt d'analyse si demandé
       let analysisPrompt: string | undefined;
       if (body.analyzeImages) {
-        const promptDoc = await db.collection('prompts').findOne({
+        const promptDoc = await db.collection(COLLECTIONS.prompts).findOne({
           intent: 'analyse_image',
           actif: true,
         });

@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ObjectId } from 'mongodb';
 import { GuideTranslationService } from '../services/guide-translation.service.js';
+import { COLLECTIONS } from '../config/collections.js';
 
 // Langues cibles supportées pour la traduction IA.
 // 'fr' est volontairement absent : c'est la langue source, non une cible.
@@ -29,7 +30,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
   // Liste des guides
   fastify.get('/guides', async (request) => {
     const db = request.server.container.db;
-    const guides = await db.collection('guides').find().sort({ year: -1 }).toArray();
+    const guides = await db.collection(COLLECTIONS.guides).find().sort({ year: -1 }).toArray();
     return { guides };
   });
 
@@ -39,14 +40,14 @@ export async function guidesRoutes(fastify: FastifyInstance) {
     const db = request.server.container.db;
     
     try {
-      const guide = await db.collection('guides').findOne({ _id: new ObjectId(id) });
+      const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(id) });
       
       if (!guide) {
         return reply.status(404).send({ error: 'Guide non trouvé' });
       }
       
       // Récupérer le chemin de fer associé
-      const cheminDeFer = await db.collection('chemins_de_fer').findOne({ guide_id: id });
+      const cheminDeFer = await db.collection(COLLECTIONS.chemins_de_fer).findOne({ guide_id: id });
       
       return { ...guide, chemin_de_fer: cheminDeFer };
     } catch (error) {
@@ -63,14 +64,14 @@ export async function guidesRoutes(fastify: FastifyInstance) {
       const data = CreateGuideSchema.parse(request.body);
       
       const now = new Date().toISOString();
-      const result = await db.collection('guides').insertOne({
+      const result = await db.collection(COLLECTIONS.guides).insertOne({
         ...data,
         createdAt: now,
         updatedAt: now,
       });
       
       // Créer automatiquement le chemin de fer associé
-      await db.collection('chemins_de_fer').insertOne({
+      await db.collection(COLLECTIONS.chemins_de_fer).insertOne({
         guide_id: result.insertedId.toString(),
         nom: data.name,
         version: data.version,
@@ -102,7 +103,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
     try {
       const data = CreateGuideSchema.partial().parse(request.body);
       
-      const result = await db.collection('guides').updateOne(
+      const result = await db.collection(COLLECTIONS.guides).updateOne(
         { _id: new ObjectId(id) },
         {
           $set: {
@@ -134,7 +135,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
     const db = request.server.container.db;
     
     try {
-      const result = await db.collection('guides').deleteOne({
+      const result = await db.collection(COLLECTIONS.guides).deleteOne({
         _id: new ObjectId(id),
       });
       
@@ -183,7 +184,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
 
     try {
       // 1. Récupérer guide (langue + destination)
-      const guide = await db.collection('guides').findOne(
+      const guide = await db.collection(COLLECTIONS.guides).findOne(
         { _id: new ObjectId(id) },
         { projection: { language: 1, destination: 1, destinations: 1 } }
       );
@@ -213,7 +214,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
       if (slugParam || q) {
         // Pas de pagination pour les lookups et recherches
         const rawArticles = await db
-          .collection('articles_raw')
+          .collection(COLLECTIONS.articles_raw)
           .find(filter, { projection })
           .limit(200)
           .toArray();
@@ -224,8 +225,8 @@ export async function guidesRoutes(fastify: FastifyInstance) {
 
       // 3. Vue paginée
       const [total, rawArticles] = await Promise.all([
-        db.collection('articles_raw').countDocuments(filter),
-        db.collection('articles_raw')
+        db.collection(COLLECTIONS.articles_raw).countDocuments(filter),
+        db.collection(COLLECTIONS.articles_raw)
           .find(filter, { projection })
           .sort({ title: 1 })
           .skip(skip)
@@ -272,7 +273,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
     }
 
     // Vérifier qu'un job n'est pas déjà en cours
-    const existingJob = await db.collection('guide_translation_jobs').findOne(
+    const existingJob = await db.collection(COLLECTIONS.guide_translation_jobs).findOne(
       { guide_id: guideId, lang },
       { sort: { created_at: -1 } }
     );
@@ -290,7 +291,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
       created_at: new Date(),
       updated_at: new Date(),
     };
-    const insertResult = await db.collection('guide_translation_jobs').insertOne(jobDoc);
+    const insertResult = await db.collection(COLLECTIONS.guide_translation_jobs).insertOne(jobDoc);
     const jobId = insertResult.insertedId.toString();
 
     // Lancer la traduction en arrière-plan (pas de await)
@@ -300,13 +301,13 @@ export async function guidesRoutes(fastify: FastifyInstance) {
       lang,
       db,
       async (progress) => {
-        await db.collection('guide_translation_jobs').updateOne(
+        await db.collection(COLLECTIONS.guide_translation_jobs).updateOne(
           { _id: new ObjectId(jobId) },
           { $set: { progress, updated_at: new Date() } }
         ).catch(() => {});
       }
     ).then(async (stats) => {
-      await db.collection('guide_translation_jobs').updateOne(
+      await db.collection(COLLECTIONS.guide_translation_jobs).updateOne(
         { _id: new ObjectId(jobId) },
         {
           $set: {
@@ -320,7 +321,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
       ).catch(() => {});
       console.log(`✅ [TRANSLATE] Guide ${guideId} → ${lang} terminé:`, stats);
     }).catch(async (err: any) => {
-      await db.collection('guide_translation_jobs').updateOne(
+      await db.collection(COLLECTIONS.guide_translation_jobs).updateOne(
         { _id: new ObjectId(jobId) },
         { $set: { status: 'failed', error: err.message, updated_at: new Date() } }
       ).catch(() => {});
@@ -341,7 +342,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
 
     if (!lang) return reply.status(400).send({ error: 'lang requis' });
 
-    const job = await db.collection('guide_translation_jobs').findOne(
+    const job = await db.collection(COLLECTIONS.guide_translation_jobs).findOne(
       { guide_id: guideId, lang },
       { sort: { created_at: -1 } }
     );

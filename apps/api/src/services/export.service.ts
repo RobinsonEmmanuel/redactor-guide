@@ -10,6 +10,7 @@ import {
   resolveVariantLayerFromMappings,
 } from '../config/export-mappings.js';
 import {
+import { COLLECTIONS } from '../config/collections.js';
   FieldServiceRunner,
   explodeRepetitifField,
   type ExportedPageSnapshot,
@@ -26,16 +27,16 @@ export class ExportService {
     const lang = options.language || 'fr';
 
     // ── 1. Récupérer le guide ──────────────────────────────────────────────
-    const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+    const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
     if (!guide) throw new Error('Guide non trouvé');
 
     // ── 2. Récupérer le chemin de fer ──────────────────────────────────────
-    const cheminDeFer = await db.collection('chemins_de_fer').findOne({ guide_id: guideId });
+    const cheminDeFer = await db.collection(COLLECTIONS.chemins_de_fer).findOne({ guide_id: guideId });
     if (!cheminDeFer) throw new Error('Chemin de fer non trouvé');
 
     // ── 3. Récupérer toutes les pages avec leur contenu ────────────────────
     const allPages = await db
-      .collection('pages')
+      .collection(COLLECTIONS.pages)
       .find({ chemin_de_fer_id: cheminDeFer._id.toString() })
       .sort({ ordre: 1 })
       .toArray();
@@ -48,7 +49,7 @@ export class ExportService {
     const templates: Record<string, any> = {};
     for (const tid of templateIds) {
       if (ObjectId.isValid(tid)) {
-        const tpl = await db.collection('templates').findOne({ _id: new ObjectId(tid) });
+        const tpl = await db.collection(COLLECTIONS.templates).findOne({ _id: new ObjectId(tid) });
         if (tpl) templates[tid] = tpl;
       }
     }
@@ -59,7 +60,7 @@ export class ExportService {
     let urlResolver: (frUrl: string) => string = (u) => u; // identité pour FR
     if (lang !== 'fr') {
       const articles = await db
-        .collection('articles_raw')
+        .collection(COLLECTIONS.articles_raw)
         .find(
           { [`urls_by_lang.${lang}`]: { $exists: true } },
           { projection: { 'urls_by_lang': 1 } }

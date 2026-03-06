@@ -6,6 +6,7 @@ import {
   UpdateFieldServiceSchema,
 } from '@redactor-guide/core-model';
 import { REGISTERED_SERVICES, FieldServiceRunner } from '../services/field-service-runner.service.js';
+import { COLLECTIONS } from '../config/collections.js';
 
 /** Métadonnées des services natifs (créés automatiquement en base s'ils sont absents). */
 const BUILTIN_SERVICES: Array<{
@@ -58,9 +59,9 @@ async function seedBuiltinServices(fastify: FastifyInstance): Promise<void> {
   const now = new Date().toISOString();
 
   for (const svc of BUILTIN_SERVICES) {
-    const existing = await db.collection('field_services').findOne({ service_id: svc.service_id });
+    const existing = await db.collection(COLLECTIONS.field_services).findOne({ service_id: svc.service_id });
     if (!existing) {
-      await db.collection('field_services').insertOne({ ...svc, active: true, created_at: now, updated_at: now });
+      await db.collection(COLLECTIONS.field_services).insertOne({ ...svc, active: true, created_at: now, updated_at: now });
       fastify.log.info(`[field-services] Service natif créé : ${svc.service_id}`);
     }
   }
@@ -81,7 +82,7 @@ export async function fieldServicesRoutes(fastify: FastifyInstance) {
 
       const filter = showAll ? {} : { active: true };
       const services = await db
-        .collection('field_services')
+        .collection(COLLECTIONS.field_services)
         .find(filter)
         .sort({ label: 1 })
         .toArray();
@@ -112,7 +113,7 @@ export async function fieldServicesRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ error: 'ID invalide' });
       }
 
-      const service = await db.collection('field_services').findOne({ _id: new ObjectId(id) });
+      const service = await db.collection(COLLECTIONS.field_services).findOne({ _id: new ObjectId(id) });
       if (!service) {
         return reply.status(404).send({ error: 'Service non trouvé' });
       }
@@ -138,7 +139,7 @@ export async function fieldServicesRoutes(fastify: FastifyInstance) {
 
       // Vérifier l'unicité du service_id
       const existing = await db
-        .collection('field_services')
+        .collection(COLLECTIONS.field_services)
         .findOne({ service_id: body.service_id });
       if (existing) {
         return reply.status(409).send({
@@ -148,10 +149,10 @@ export async function fieldServicesRoutes(fastify: FastifyInstance) {
 
       const now = new Date().toISOString();
       const doc = { ...body, created_at: now, updated_at: now };
-      const result = await db.collection('field_services').insertOne(doc);
+      const result = await db.collection(COLLECTIONS.field_services).insertOne(doc);
 
       const created = await db
-        .collection('field_services')
+        .collection(COLLECTIONS.field_services)
         .findOne({ _id: result.insertedId });
 
       return reply.status(201).send({
@@ -186,7 +187,7 @@ export async function fieldServicesRoutes(fastify: FastifyInstance) {
 
         // Si service_id change, vérifier l'unicité
         if (body.service_id) {
-          const existing = await db.collection('field_services').findOne({
+          const existing = await db.collection(COLLECTIONS.field_services).findOne({
             service_id: body.service_id,
             _id: { $ne: new ObjectId(id) },
           });
@@ -198,7 +199,7 @@ export async function fieldServicesRoutes(fastify: FastifyInstance) {
         }
 
         const now = new Date().toISOString();
-        const result = await db.collection('field_services').findOneAndUpdate(
+        const result = await db.collection(COLLECTIONS.field_services).findOneAndUpdate(
           { _id: new ObjectId(id) },
           { $set: { ...body, updated_at: now } },
           { returnDocument: 'after' }
@@ -237,7 +238,7 @@ export async function fieldServicesRoutes(fastify: FastifyInstance) {
       }
 
       const result = await db
-        .collection('field_services')
+        .collection(COLLECTIONS.field_services)
         .deleteOne({ _id: new ObjectId(id) });
 
       if (result.deletedCount === 0) {
@@ -272,8 +273,8 @@ export async function fieldServicesRoutes(fastify: FastifyInstance) {
       }
 
       const [page, guide] = await Promise.all([
-        db.collection('pages').findOne({ _id: new ObjectId(pageId) }),
-        db.collection('guides').findOne({ _id: new ObjectId(guideId) }),
+        db.collection(COLLECTIONS.pages).findOne({ _id: new ObjectId(pageId) }),
+        db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) }),
       ]);
 
       if (!page) return reply.status(404).send({ error: 'Page non trouvée' });
@@ -289,7 +290,7 @@ export async function fieldServicesRoutes(fastify: FastifyInstance) {
       });
 
       // Persister en base
-      await db.collection('pages').updateOne(
+      await db.collection(COLLECTIONS.pages).updateOne(
         { _id: new ObjectId(pageId) },
         { $set: { [`content.${fieldName}`]: result.value, updated_at: new Date().toISOString() } }
       );

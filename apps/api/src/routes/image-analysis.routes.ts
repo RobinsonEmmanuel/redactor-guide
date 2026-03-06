@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ObjectId } from 'mongodb';
 import { ImageAnalysisService } from '../services/image-analysis.service';
+import { COLLECTIONS } from '../config/collections.js';
 
 const AnalyzeArticleImagesSchema = z.object({
   articleId: z.string().optional(),
@@ -32,7 +33,7 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
       }
 
       // Charger le prompt d'analyse
-      const promptDoc = await db.collection('prompts').findOne({
+      const promptDoc = await db.collection(COLLECTIONS.prompts).findOne({
         intent: 'analyse_image',
         actif: true,
       });
@@ -46,11 +47,11 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
       // Charger l'article
       let article;
       if (body.articleId) {
-        article = await db.collection('articles_raw').findOne({
+        article = await db.collection(COLLECTIONS.articles_raw).findOne({
           _id: new ObjectId(body.articleId)
         });
       } else if (body.articleUrl) {
-        article = await db.collection('articles_raw').findOne({
+        article = await db.collection(COLLECTIONS.articles_raw).findOne({
           'urls_by_lang.fr': body.articleUrl
         });
       }
@@ -92,7 +93,7 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
       );
 
       // Mettre à jour l'article avec les analyses
-      await db.collection('articles_raw').updateOne(
+      await db.collection(COLLECTIONS.articles_raw).updateOne(
         { _id: article._id },
         {
           $set: {
@@ -141,7 +142,7 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
         });
       }
 
-      const promptDoc = await db.collection('prompts').findOne({
+      const promptDoc = await db.collection(COLLECTIONS.prompts).findOne({
         intent: 'analyse_image',
         actif: true,
       });
@@ -154,11 +155,11 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
       // Charger l'article
       let article;
       if (body.articleId) {
-        article = await db.collection('articles_raw').findOne({
+        article = await db.collection(COLLECTIONS.articles_raw).findOne({
           _id: new ObjectId(body.articleId)
         });
       } else if (body.articleUrl) {
-        article = await db.collection('articles_raw').findOne({
+        article = await db.collection(COLLECTIONS.articles_raw).findOne({
           'urls_by_lang.fr': body.articleUrl
         });
       }
@@ -187,7 +188,7 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
       );
 
       // Mettre à jour l'article avec les nouvelles analyses
-      await db.collection('articles_raw').updateOne(
+      await db.collection(COLLECTIONS.articles_raw).updateOne(
         { _id: article._id },
         {
           $set: {
@@ -239,7 +240,7 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
       try {
         // upsert: true — crée le document si l'image n'est pas encore dans image_analyses
         // (cas : analyse IA désactivée ou échouée lors de l'upload)
-        await db.collection('image_analyses').updateOne(
+        await db.collection(COLLECTIONS.image_analyses).updateOne(
           { url },
           {
             $addToSet: { poi_names: { $each: poi_names } },
@@ -277,7 +278,7 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
 
       try {
         const images = await db
-          .collection('image_analyses')
+          .collection(COLLECTIONS.image_analyses)
           .find(
             { poi_names: poi_name.trim() },
             {
@@ -341,7 +342,7 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
       try {
         const { articleId } = request.params;
 
-        const article = await db.collection('articles_raw').findOne(
+        const article = await db.collection(COLLECTIONS.articles_raw).findOne(
           { _id: new ObjectId(articleId) },
           { projection: { images_analysis: 1, images: 1, title: 1, images_analyzed_at: 1 } }
         );

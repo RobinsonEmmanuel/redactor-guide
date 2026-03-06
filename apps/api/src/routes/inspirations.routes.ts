@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { Db } from 'mongodb';
+import { COLLECTIONS } from '../config/collections.js';
 
 /**
  * Normalise les lieux_associes d'une liste d'inspirations
@@ -18,7 +19,7 @@ async function normalizeLieuxAssocies(
   guideId: string,
   inspirations: any[]
 ): Promise<any[]> {
-  const poisDoc    = await db.collection('pois_selection').findOne({ guide_id: guideId });
+  const poisDoc    = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
   const allPois: any[] = poisDoc?.pois ?? [];
 
   if (allPois.length === 0) return inspirations; // pois_selection vide → rien à normaliser
@@ -30,7 +31,7 @@ async function normalizeLieuxAssocies(
   }
 
   // Fallback : sommaire_proposals contient les IDs AI avec leur nom lisible
-  const sommaireDoc = await db.collection('sommaire_proposals').findOne({ guide_id: guideId });
+  const sommaireDoc = await db.collection(COLLECTIONS.sommaire_proposals).findOne({ guide_id: guideId });
   const sommairePoisMap: Record<string, string> = {}; // old_poi_id → nom
   for (const sp of (sommaireDoc?.proposal?.pois ?? [])) {
     if (sp.poi_id && sp.nom) sommairePoisMap[sp.poi_id] = sp.nom;
@@ -82,7 +83,7 @@ export default async function inspirationsRoutes(fastify: FastifyInstance) {
       const { guideId } = request.params;
 
       try {
-        const inspirationsDoc = await db.collection('inspirations').findOne({ guide_id: guideId });
+        const inspirationsDoc = await db.collection(COLLECTIONS.inspirations).findOne({ guide_id: guideId });
 
         if (!inspirationsDoc) {
           return reply.send({ inspirations: [] });
@@ -120,7 +121,7 @@ export default async function inspirationsRoutes(fastify: FastifyInstance) {
         // Aligner tous les lieux_associes sur les poi_id de pois_selection
         const normalizedInspirations = await normalizeLieuxAssocies(db, guideId, inspirations);
 
-        await db.collection('inspirations').updateOne(
+        await db.collection(COLLECTIONS.inspirations).updateOne(
           { guide_id: guideId },
           {
             $set: {

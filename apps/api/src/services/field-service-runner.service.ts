@@ -1,6 +1,7 @@
 import { Db } from 'mongodb';
 import OpenAI from 'openai';
 import { GeocodingService } from './geocoding.service.js';
+import { COLLECTIONS } from '../config/collections.js';
 
 /**
  * Contexte passé à chaque service lors de l'export.
@@ -283,7 +284,7 @@ interface PoiImageEntry {
  */
 async function loadPoiImages(db: Db, poiName: string): Promise<PoiImageEntry[]> {
   const docs = await db
-    .collection('image_analyses')
+    .collection(COLLECTIONS.image_analyses)
     .find({ poi_names: poiName })
     .project({
       url: 1,
@@ -419,7 +420,7 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     }).filter(Boolean);
 
     if (slugsToCheck.length > 0) {
-      const articles = await db.collection('articles_raw').find(
+      const articles = await db.collection(COLLECTIONS.articles_raw).find(
         { guide_id: ctx.guideId, slug: { $in: [...new Set(slugsToCheck)] } },
         { projection: { slug: 1, urls_by_lang: 1 } }
       ).toArray();
@@ -452,7 +453,7 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
   const inspirationId: string | undefined = currentPage.metadata?.inspiration_id;
   let angleEditorial = '';
   if (inspirationId) {
-    const inspDoc = await db.collection('inspirations').findOne({ guide_id: ctx.guideId });
+    const inspDoc = await db.collection(COLLECTIONS.inspirations).findOne({ guide_id: ctx.guideId });
     const inspItem = (inspDoc?.inspirations ?? []).find(
       (i: any) => i.theme_id === inspirationId || i.inspiration_id === inspirationId
     );

@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ObjectId } from 'mongodb';
 import {
+import { COLLECTIONS } from '../config/collections.js';
   CreatePromptSchema,
   UpdatePromptSchema,
   PromptResolutionSchema,
@@ -136,12 +137,12 @@ Important : Retourne UNIQUEMENT le JSON, sans texte avant ou après.`,
     ];
 
       // Supprimer anciens prompts
-      await db.collection('prompts').deleteMany({
+      await db.collection(COLLECTIONS.prompts).deleteMany({
         intent: { $in: ['structure_sections', 'selection_pois', 'pages_inspiration', 'redaction_page', 'regles_ecriture'] },
       });
 
       // Insérer nouveaux prompts
-      const result = await db.collection('prompts').insertMany(
+      const result = await db.collection(COLLECTIONS.prompts).insertMany(
         PROMPTS.map((p) => ({
           ...p,
           created_at: new Date(),
@@ -184,7 +185,7 @@ Important : Retourne UNIQUEMENT le JSON, sans texte avant ou après.`,
       if (langue_source) filter.langue_source = langue_source;
 
       const prompts = await db
-        .collection('prompts')
+        .collection(COLLECTIONS.prompts)
         .find(filter)
         .sort({ intent: 1, page_type: 1, date_mise_a_jour: -1 })
         .toArray();
@@ -209,7 +210,7 @@ Important : Retourne UNIQUEMENT le JSON, sans texte avant ou après.`,
         return reply.status(400).send({ error: 'ID invalide' });
       }
 
-      const prompt = await db.collection('prompts').findOne({ _id: new ObjectId(id) });
+      const prompt = await db.collection(COLLECTIONS.prompts).findOne({ _id: new ObjectId(id) });
 
       if (!prompt) {
         return reply.status(404).send({ error: 'Prompt non trouvé' });
@@ -233,7 +234,7 @@ Important : Retourne UNIQUEMENT le JSON, sans texte avant ou après.`,
 
       // Vérifier l'unicité (intent + page_type + langue_source) pour les prompts actifs
       if (body.actif !== false) {
-        const existing = await db.collection('prompts').findOne({
+        const existing = await db.collection(COLLECTIONS.prompts).findOne({
           intent: body.intent,
           page_type: body.page_type || null,
           langue_source: body.langue_source,
@@ -255,8 +256,8 @@ Important : Retourne UNIQUEMENT le JSON, sans texte avant ou après.`,
         date_mise_a_jour: now,
       };
 
-      const result = await db.collection('prompts').insertOne(prompt);
-      const created = await db.collection('prompts').findOne({ _id: result.insertedId });
+      const result = await db.collection(COLLECTIONS.prompts).insertOne(prompt);
+      const created = await db.collection(COLLECTIONS.prompts).findOne({ _id: result.insertedId });
 
       return reply.status(201).send(created);
     } catch (error) {
@@ -284,7 +285,7 @@ Important : Retourne UNIQUEMENT le JSON, sans texte avant ou après.`,
 
       // Vérifier l'unicité si on modifie intent/page_type/langue_source/actif
       if (body.intent || body.page_type !== undefined || body.langue_source || body.actif !== undefined) {
-        const current = await db.collection('prompts').findOne({ _id: new ObjectId(id) });
+        const current = await db.collection(COLLECTIONS.prompts).findOne({ _id: new ObjectId(id) });
         if (!current) {
           return reply.status(404).send({ error: 'Prompt non trouvé' });
         }
@@ -295,7 +296,7 @@ Important : Retourne UNIQUEMENT le JSON, sans texte avant ou après.`,
         const newActif = body.actif !== undefined ? body.actif : current.actif;
 
         if (newActif) {
-          const existing = await db.collection('prompts').findOne({
+          const existing = await db.collection(COLLECTIONS.prompts).findOne({
             _id: { $ne: new ObjectId(id) },
             intent: newIntent,
             page_type: newPageType || null,
@@ -313,7 +314,7 @@ Important : Retourne UNIQUEMENT le JSON, sans texte avant ou après.`,
 
       const now = new Date().toISOString();
 
-      const result = await db.collection('prompts').findOneAndUpdate(
+      const result = await db.collection(COLLECTIONS.prompts).findOneAndUpdate(
         { _id: new ObjectId(id) },
         { $set: { ...body, date_mise_a_jour: now } },
         { returnDocument: 'after' }
@@ -346,7 +347,7 @@ Important : Retourne UNIQUEMENT le JSON, sans texte avant ou après.`,
         return reply.status(400).send({ error: 'ID invalide' });
       }
 
-      const result = await db.collection('prompts').deleteOne({ _id: new ObjectId(id) });
+      const result = await db.collection(COLLECTIONS.prompts).deleteOne({ _id: new ObjectId(id) });
 
       if (result.deletedCount === 0) {
         return reply.status(404).send({ error: 'Prompt non trouvé' });
@@ -372,7 +373,7 @@ Important : Retourne UNIQUEMENT le JSON, sans texte avant ou après.`,
         return reply.status(400).send({ error: 'ID invalide' });
       }
 
-      const original = await db.collection('prompts').findOne({ _id: new ObjectId(id) });
+      const original = await db.collection(COLLECTIONS.prompts).findOne({ _id: new ObjectId(id) });
 
       if (!original) {
         return reply.status(404).send({ error: 'Prompt non trouvé' });
@@ -391,8 +392,8 @@ Important : Retourne UNIQUEMENT le JSON, sans texte avant ou après.`,
         date_mise_a_jour: now,
       };
 
-      const result = await db.collection('prompts').insertOne(duplicate);
-      const created = await db.collection('prompts').findOne({ _id: result.insertedId });
+      const result = await db.collection(COLLECTIONS.prompts).insertOne(duplicate);
+      const created = await db.collection(COLLECTIONS.prompts).findOne({ _id: result.insertedId });
 
       return reply.status(201).send(created);
     } catch (error) {
@@ -412,7 +413,7 @@ Important : Retourne UNIQUEMENT le JSON, sans texte avant ou après.`,
 
       // Stratégie 1: intent + page_type + langue
       if (criteria.page_type) {
-        const prompt = await db.collection('prompts').findOne({
+        const prompt = await db.collection(COLLECTIONS.prompts).findOne({
           intent: criteria.intent,
           page_type: criteria.page_type,
           langue_source: criteria.langue,
@@ -425,7 +426,7 @@ Important : Retourne UNIQUEMENT le JSON, sans texte avant ou après.`,
       }
 
       // Stratégie 2: intent + langue (sans page_type spécifique)
-      const promptGeneral = await db.collection('prompts').findOne({
+      const promptGeneral = await db.collection(COLLECTIONS.prompts).findOne({
         intent: criteria.intent,
         page_type: null,
         langue_source: criteria.langue,
@@ -438,7 +439,7 @@ Important : Retourne UNIQUEMENT le JSON, sans texte avant ou après.`,
 
       // Stratégie 3: intent + langue_source par défaut (fr)
       if (criteria.langue !== 'fr') {
-        const promptDefault = await db.collection('prompts').findOne({
+        const promptDefault = await db.collection(COLLECTIONS.prompts).findOne({
           intent: criteria.intent,
           page_type: criteria.page_type || null,
           langue_source: 'fr',

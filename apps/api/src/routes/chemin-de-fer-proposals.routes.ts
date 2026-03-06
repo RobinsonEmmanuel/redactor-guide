@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
+import { COLLECTIONS } from '../config/collections.js';
 
 export default async function cheminDeFerProposalsRoutes(fastify: FastifyInstance) {
   const db = fastify.mongo.db!;
@@ -17,7 +18,7 @@ export default async function cheminDeFerProposalsRoutes(fastify: FastifyInstanc
         console.log(`📋 [Proposals] Génération des propositions pour guide ${guideId}`);
 
         // 1. Charger le guide
-        const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+        const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
         if (!guide) {
           return reply.code(404).send({ error: 'Guide non trouvé' });
         }
@@ -25,13 +26,13 @@ export default async function cheminDeFerProposalsRoutes(fastify: FastifyInstanc
         // 2. Charger le template de guide
         let guideTemplate;
         if (guide.guide_template_id) {
-          guideTemplate = await db.collection('guide_templates').findOne({
+          guideTemplate = await db.collection(COLLECTIONS.guide_templates).findOne({
             _id: new ObjectId(guide.guide_template_id),
           });
         }
 
         if (!guideTemplate) {
-          guideTemplate = await db.collection('guide_templates').findOne({ is_default: true });
+          guideTemplate = await db.collection(COLLECTIONS.guide_templates).findOne({ is_default: true });
         }
 
         if (!guideTemplate) {
@@ -41,9 +42,9 @@ export default async function cheminDeFerProposalsRoutes(fastify: FastifyInstanc
         }
 
         // 3. Charger les données des étapes 3 et 4
-        const clusters = await db.collection('cluster_assignments').findOne({ guide_id: guideId });
-        const inspirations = await db.collection('inspirations').findOne({ guide_id: guideId });
-        const pois = await db.collection('pois_selection').findOne({ guide_id: guideId });
+        const clusters = await db.collection(COLLECTIONS.cluster_assignments).findOne({ guide_id: guideId });
+        const inspirations = await db.collection(COLLECTIONS.inspirations).findOne({ guide_id: guideId });
+        const pois = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
 
         console.log(`📊 Données chargées:`);
         console.log(`  - Template: ${guideTemplate.name}`);

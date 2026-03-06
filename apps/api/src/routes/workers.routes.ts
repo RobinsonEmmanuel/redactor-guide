@@ -3,6 +3,7 @@ import { ObjectId } from 'mongodb';
 import { PageRedactionService } from '../services/page-redaction.service';
 import { JsonTranslatorService } from '../services/json-translator.service';
 import { FieldServiceRunner, explodeRepetitifField } from '../services/field-service-runner.service.js';
+import { COLLECTIONS } from '../config/collections.js';
 
 export async function workersRoutes(fastify: FastifyInstance) {
   /**
@@ -59,15 +60,15 @@ export async function workersRoutes(fastify: FastifyInstance) {
       // (Les services globaux comme sommaire_generator restent en passe 2 d'export.)
       const PER_PAGE_SERVICES = new Set<string>(['geocoding_maps_link', 'inspiration_poi_cards']);
       try {
-        const rawPageDoc = await db.collection('pages').findOne({ _id: new ObjectId(pageId) });
+        const rawPageDoc = await db.collection(COLLECTIONS.pages).findOne({ _id: new ObjectId(pageId) });
         if (rawPageDoc) {
-          const template = await db.collection('templates').findOne({ _id: new ObjectId(rawPageDoc.template_id) });
+          const template = await db.collection(COLLECTIONS.templates).findOne({ _id: new ObjectId(rawPageDoc.template_id) });
           const serviceFields = ((template?.fields ?? []) as any[]).filter(
             (f: any) => f.service_id && PER_PAGE_SERVICES.has(f.service_id)
           );
 
           if (serviceFields.length > 0) {
-            const guide  = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+            const guide  = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
             const runner = new FieldServiceRunner();
 
             for (const field of serviceFields) {
@@ -101,7 +102,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
       }
 
       // Sauvegarder le contenu généré (même si validation échoue, pour permettre édition manuelle)
-      await db.collection('pages').updateOne(
+      await db.collection(COLLECTIONS.pages).updateOne(
         { _id: new ObjectId(pageId) },
         { 
           $set: { 
@@ -128,7 +129,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
       
       // Marquer la page en erreur
       try {
-        await db.collection('pages').updateOne(
+        await db.collection(COLLECTIONS.pages).updateOne(
           { _id: new ObjectId(pageId) },
           { 
             $set: { 
@@ -164,7 +165,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
 
     try {
       // 1. Charger la liste à jour des lieux_associes
-      const inspDoc = await db.collection('inspirations').findOne({ guide_id: guideId });
+      const inspDoc = await db.collection(COLLECTIONS.inspirations).findOne({ guide_id: guideId });
       const inspiration = (inspDoc?.inspirations ?? []).find(
         (i: any) => i.theme_id === inspirationId || i.inspiration_id === inspirationId
       );
@@ -174,11 +175,11 @@ export async function workersRoutes(fastify: FastifyInstance) {
       const newPoisIds: string[] = inspiration.lieux_associes ?? [];
 
       // 2. Trouver toutes les pages du chemin de fer pour cette inspiration
-      const cheminDeFerDoc = await db.collection('chemins_de_fer').findOne({ guide_id: guideId });
+      const cheminDeFerDoc = await db.collection(COLLECTIONS.chemins_de_fer).findOne({ guide_id: guideId });
       if (!cheminDeFerDoc) return reply.status(404).send({ error: 'Chemin de fer introuvable' });
 
       const cheminDeFerId = cheminDeFerDoc._id.toString();
-      const inspirationPages = await db.collection('pages').find({
+      const inspirationPages = await db.collection(COLLECTIONS.pages).find({
         chemin_de_fer_id: cheminDeFerId,
         'metadata.page_type': 'inspiration',
         $or: [
@@ -197,8 +198,8 @@ export async function workersRoutes(fastify: FastifyInstance) {
       const poisPerPage = Math.ceil(newPoisIds.length / pageCount) || 1;
 
       // 4. Charger données guide + pois_selection pour résolution
-      const guide    = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
-      const poisDoc  = await db.collection('pois_selection').findOne({ guide_id: guideId });
+      const guide    = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
+      const poisDoc  = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
       const allPois: any[] = poisDoc?.pois ?? [];
       const guideLang: string = guide?.language ?? guide?.langue ?? 'fr';
       const articleUrlCache: Record<string, string | null> = {};
@@ -212,7 +213,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
           const slug: string | undefined = poi.article_source;
           if (slug) {
             if (!(slug in articleUrlCache)) {
-              const artDoc = await db.collection('articles_raw').findOne({ slug }, { projection: { urls_by_lang: 1 } });
+              const artDoc = await db.collection(COLLECTIONS.articles_raw).findOne({ slug }, { projection: { urls_by_lang: 1 } });
               articleUrlCache[slug] = artDoc?.urls_by_lang?.[guideLang] ?? artDoc?.urls_by_lang?.['fr'] ?? null;
             }
             poiUrl = articleUrlCache[slug];
@@ -231,7 +232,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
         const resolvedPois = await resolvePoiIds(pagePoiIds);
 
         // Mettre à jour metadata (+ réparer inspiration_id si absent)
-        await db.collection('pages').updateOne(
+        await db.collection(COLLECTIONS.pages).updateOne(
           { _id: pageDoc._id },
           { $set: {
             'metadata.inspiration_id':       inspirationId,
@@ -242,7 +243,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
         );
 
         // Relancer le service inspiration_poi_cards
-        const template = await db.collection('templates').findOne({ _id: new ObjectId(pageDoc.template_id) });
+        const template = await db.collection(COLLECTIONS.templates).findOne({ _id: new ObjectId(pageDoc.template_id) });
         const repField  = ((template?.fields ?? []) as any[]).find((f: any) => f.service_id === 'inspiration_poi_cards');
         const updatedContent: Record<string, string> = { ...(pageDoc.content ?? {}) };
 
@@ -265,7 +266,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
           }
         }
 
-        await db.collection('pages').updateOne(
+        await db.collection(COLLECTIONS.pages).updateOne(
           { _id: pageDoc._id },
           { $set: { content: updatedContent, updated_at: new Date().toISOString() } }
         );
@@ -295,7 +296,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
       console.log(`\n🔄 [rebuild-inspiration-sections] START — guideId: ${guideId}`);
 
       // 1. Inspirations (étape 4)
-      const inspDoc          = await db.collection('inspirations').findOne({ guide_id: guideId });
+      const inspDoc          = await db.collection(COLLECTIONS.inspirations).findOne({ guide_id: guideId });
       const allInspirations: any[] = inspDoc?.inspirations ?? [];
       console.log(`📋 [rebuild] inspirations collection: ${inspDoc ? 'trouvé' : 'ABSENT'}, ${allInspirations.length} inspiration(s)`);
       allInspirations.forEach((ins: any, i: number) => {
@@ -307,7 +308,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
       }
 
       // 2. Chemin de fer
-      const cheminDeFerDoc = await db.collection('chemins_de_fer').findOne({ guide_id: guideId });
+      const cheminDeFerDoc = await db.collection(COLLECTIONS.chemins_de_fer).findOne({ guide_id: guideId });
       if (!cheminDeFerDoc) {
         console.error(`❌ [rebuild] chemins_de_fer introuvable pour guideId: ${guideId}`);
         return reply.status(404).send({ error: 'Chemin de fer introuvable' });
@@ -316,7 +317,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
       console.log(`📎 [rebuild] chemin de fer _id: ${cheminDeFerId}`);
 
       // 3. Audit des pages existantes dans ce chemin de fer
-      const allPages = await db.collection('pages').find({ chemin_de_fer_id: cheminDeFerId }).toArray();
+      const allPages = await db.collection(COLLECTIONS.pages).find({ chemin_de_fer_id: cheminDeFerId }).toArray();
       console.log(`📄 [rebuild] total pages (chemin_de_fer_id=${cheminDeFerId}): ${allPages.length}`);
       const inspiPages = allPages.filter((p: any) => p.metadata?.page_type === 'inspiration');
       console.log(`💡 [rebuild] pages page_type=inspiration: ${inspiPages.length}`);
@@ -334,8 +335,8 @@ export async function workersRoutes(fastify: FastifyInstance) {
       }
 
       // 4. pois_per_page depuis le guide template (défaut 6)
-      const guideTemplateDoc = await db.collection('guide_templates').findOne({ guide_id: guideId });
-      const guideTemplate    = guideTemplateDoc ?? await db.collection('guide_templates').findOne({ is_default: true });
+      const guideTemplateDoc = await db.collection(COLLECTIONS.guide_templates).findOne({ guide_id: guideId });
+      const guideTemplate    = guideTemplateDoc ?? await db.collection(COLLECTIONS.guide_templates).findOne({ is_default: true });
       const poisPerPage: number = (() => {
         for (const block of (guideTemplate?.sections ?? [])) {
           if (block.source === 'inspirations' && block.pois_per_page) return block.pois_per_page;
@@ -348,8 +349,8 @@ export async function workersRoutes(fastify: FastifyInstance) {
       console.log(`📐 [rebuild] poisPerPage: ${poisPerPage}`);
 
       // 5. Données guide + pois_selection
-      const guide    = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
-      const poisDoc  = await db.collection('pois_selection').findOne({ guide_id: guideId });
+      const guide    = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
+      const poisDoc  = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
       const allPois: any[] = poisDoc?.pois ?? [];
       const guideLang: string = guide?.language ?? guide?.langue ?? 'fr';
       const sampleIds = allPois.slice(0, 3).map((p: any) => p.poi_id);
@@ -358,7 +359,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
       const urlCache: Record<string, string | null> = {};
 
       // Fallback: POIs du sommaire AI (poi_ids slug-based) → résolution par nom
-      const sommaireDoc = await db.collection('sommaire_proposals').findOne({ guide_id: guideId });
+      const sommaireDoc = await db.collection(COLLECTIONS.sommaire_proposals).findOne({ guide_id: guideId });
       const sommairePois: any[] = sommaireDoc?.proposal?.pois ?? [];
       // Map: old sommaire poi_id → { nom, article_source }
       const sommairePoisMap: Record<string, { nom: string; article_source?: string }> = {};
@@ -401,7 +402,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
           const slug: string | undefined = poi.article_source;
           if (slug) {
             if (!(slug in urlCache)) {
-              const art = await db.collection('articles_raw').findOne({ slug }, { projection: { urls_by_lang: 1 } });
+              const art = await db.collection(COLLECTIONS.articles_raw).findOne({ slug }, { projection: { urls_by_lang: 1 } });
               urlCache[slug] = art?.urls_by_lang?.[guideLang] ?? art?.urls_by_lang?.['fr'] ?? null;
             }
             url = urlCache[slug];
@@ -414,7 +415,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
           if (!url && poi.url_source && typeof poi.url_source === 'string' && !poi.url_source.startsWith('http')) {
             const cacheKey = `url:${poi.url_source}`;
             if (!(cacheKey in urlCache)) {
-              const art2 = await db.collection('articles_raw').findOne({ slug: poi.url_source }, { projection: { urls_by_lang: 1 } });
+              const art2 = await db.collection(COLLECTIONS.articles_raw).findOne({ slug: poi.url_source }, { projection: { urls_by_lang: 1 } });
               urlCache[cacheKey] = art2?.urls_by_lang?.[guideLang] ?? art2?.urls_by_lang?.['fr'] ?? null;
             }
             url = urlCache[cacheKey];
@@ -470,7 +471,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
         ghostPages.forEach((p: any) => {
           console.log(`   - fantôme: "${p.titre}" (id=${p._id}, page_type=${p.metadata?.page_type ?? 'absent'})`);
         });
-        await db.collection('pages').deleteMany({
+        await db.collection(COLLECTIONS.pages).deleteMany({
           _id: { $in: toDelete.map((p: any) => p._id) },
         });
       } else {
@@ -503,7 +504,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
         if (existingPages.length > neededCount) {
           const toDelete = existingPages.slice(neededCount);
           console.log(`   🗑️ Suppression de ${toDelete.length} page(s) en excès`);
-          await db.collection('pages').deleteMany({
+          await db.collection(COLLECTIONS.pages).deleteMany({
             _id: { $in: toDelete.map((p: any) => p._id) },
           });
           pagesDeleted += toDelete.length;
@@ -518,7 +519,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
         const refTemplateName: string = refPage?.template_name ?? 'INSPIRATION';
         let resolvedTemplateId: string | null = refPage?.template_id ?? null;
         if (!resolvedTemplateId) {
-          const tmplDoc = await db.collection('templates').findOne(
+          const tmplDoc = await db.collection(COLLECTIONS.templates).findOne(
             { name: { $regex: new RegExp(`^${refTemplateName}$`, 'i') } },
             { projection: { _id: 1 } }
           );
@@ -547,7 +548,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
             created_at:       now,
             updated_at:       now,
           };
-          const inserted = await db.collection('pages').insertOne(newPage);
+          const inserted = await db.collection(COLLECTIONS.pages).insertOne(newPage);
           existingPages.push({ ...newPage, _id: inserted.insertedId });
           pagesCreated++;
           console.log(`   ✅ Page créée: id=${inserted.insertedId}`);
@@ -556,8 +557,8 @@ export async function workersRoutes(fastify: FastifyInstance) {
         // ── Mettre à jour chaque page avec la bonne tranche de POIs ──────────
         const pages = existingPages.slice(0, neededCount);
         const templateDoc = pages[0]?.template_id
-          ? await db.collection('templates').findOne({ _id: new ObjectId(pages[0].template_id) })
-          : await db.collection('templates').findOne({ name: pages[0]?.template_name ?? 'INSPIRATION' });
+          ? await db.collection(COLLECTIONS.templates).findOne({ _id: new ObjectId(pages[0].template_id) })
+          : await db.collection(COLLECTIONS.templates).findOne({ name: pages[0]?.template_name ?? 'INSPIRATION' });
         const repField = ((templateDoc?.fields ?? []) as any[]).find((f: any) => f.service_id === 'inspiration_poi_cards');
         console.log(`   📋 Template trouvé: ${templateDoc ? templateDoc.name : 'ABSENT'}, repField: ${repField ? repField.name : 'non configuré'}`);
 
@@ -587,7 +588,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
             pageUpdateFields['template_id'] = resolvedTemplateId;
           }
 
-          await db.collection('pages').updateOne(
+          await db.collection(COLLECTIONS.pages).updateOne(
             { _id: pageDoc._id },
             { $set: {
               ...pageUpdateFields,
@@ -610,7 +611,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
               if (repField.type === 'repetitif' && svcResult.value) {
                 Object.assign(updatedContent, explodeRepetitifField(repField.name, svcResult.value, repField.max_repetitions));
               }
-              await db.collection('pages').updateOne(
+              await db.collection(COLLECTIONS.pages).updateOne(
                 { _id: pageDoc._id },
                 { $set: { content: updatedContent, updated_at: now } }
               );
@@ -645,7 +646,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
     const { pageId } = request.body as { pageId: string };
 
     try {
-      const page = await db.collection('pages').findOne({ _id: new ObjectId(pageId) });
+      const page = await db.collection(COLLECTIONS.pages).findOne({ _id: new ObjectId(pageId) });
       if (!page) return reply.status(404).send({ error: 'Page introuvable' });
 
       const guideId: string = page.guide_id?.toString();
@@ -659,8 +660,8 @@ export async function workersRoutes(fastify: FastifyInstance) {
       console.log(`🔄 [refresh-inspiration-pois] Page ${pageId} — ${poisIds.length} POI(s) à ré-résoudre`);
 
       // 1. Charger les données du guide
-      const guide  = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
-      const poisDoc = await db.collection('pois_selection').findOne({ guide_id: guideId });
+      const guide  = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
+      const poisDoc = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
       const allPois: any[] = poisDoc?.pois ?? [];
 
       const guideLang: string = guide?.language ?? guide?.langue ?? 'fr';
@@ -680,7 +681,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
         const poiSlug: string | undefined = poi.article_source;
         if (poiSlug) {
           if (!(poiSlug in articleUrlCache)) {
-            const artDoc = await db.collection('articles_raw').findOne(
+            const artDoc = await db.collection(COLLECTIONS.articles_raw).findOne(
               { slug: poiSlug },
               { projection: { urls_by_lang: 1 } }
             );
@@ -698,7 +699,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
         if (!poiUrl && poi.url_source && typeof poi.url_source === 'string' && !poi.url_source.startsWith('http')) {
           const cacheKey = `url:${poi.url_source}`;
           if (!(cacheKey in articleUrlCache)) {
-            const art2 = await db.collection('articles_raw').findOne({ slug: poi.url_source }, { projection: { urls_by_lang: 1 } });
+            const art2 = await db.collection(COLLECTIONS.articles_raw).findOne({ slug: poi.url_source }, { projection: { urls_by_lang: 1 } });
             articleUrlCache[cacheKey] = art2?.urls_by_lang?.[guideLang] ?? art2?.urls_by_lang?.['fr'] ?? null;
           }
           poiUrl = articleUrlCache[cacheKey];
@@ -710,13 +711,13 @@ export async function workersRoutes(fastify: FastifyInstance) {
       console.log(`  ✅ ${resolvedPois.length} POI(s) résolus`);
 
       // 3. Mettre à jour metadata.inspiration_pois en DB
-      await db.collection('pages').updateOne(
+      await db.collection(COLLECTIONS.pages).updateOne(
         { _id: new ObjectId(pageId) },
         { $set: { 'metadata.inspiration_pois': resolvedPois, updated_at: new Date().toISOString() } }
       );
 
       // 4. Relancer le service inspiration_poi_cards
-      const template = await db.collection('templates').findOne({ _id: new ObjectId(page.template_id) });
+      const template = await db.collection(COLLECTIONS.templates).findOne({ _id: new ObjectId(page.template_id) });
       const repField = ((template?.fields ?? []) as any[]).find(
         (f: any) => f.service_id === 'inspiration_poi_cards'
       );
@@ -747,7 +748,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
       }
 
       // 5. Sauvegarder le contenu mis à jour
-      await db.collection('pages').updateOne(
+      await db.collection(COLLECTIONS.pages).updateOne(
         { _id: new ObjectId(pageId) },
         { $set: { content: updatedContent, updated_at: new Date().toISOString() } }
       );
@@ -778,7 +779,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
       console.log(`🚀 [WORKER] Génération POIs par batch pour guide ${guideId}`);
 
       // Garde anti-doublon : refuser si un autre job est déjà en cours pour ce guide
-      const existingProcessing = await db.collection('pois_generation_jobs').findOne({
+      const existingProcessing = await db.collection(COLLECTIONS.pois_generation_jobs).findOne({
         guide_id: guideId,
         status: 'processing',
         _id: { $ne: new ObjectId(jobId) },
@@ -787,14 +788,14 @@ export async function workersRoutes(fastify: FastifyInstance) {
       });
       if (existingProcessing) {
         console.warn(`⚠️ [WORKER] Job ${existingProcessing._id} déjà en cours pour guide ${guideId} — abandon du doublon ${jobId}`);
-        await db.collection('pois_generation_jobs').updateOne(
+        await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
           { _id: new ObjectId(jobId) },
           { $set: { status: 'failed', error: 'Doublon : un job est déjà en cours', updated_at: new Date() } }
         );
         return reply.send({ success: false, reason: 'duplicate' });
       }
 
-      await db.collection('pois_generation_jobs').updateOne(
+      await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
         { _id: new ObjectId(jobId) },
         { $set: { status: 'processing', updated_at: new Date() } }
       );
@@ -813,7 +814,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
       });
 
       // 1. Charger le guide
-      const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+      const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
       if (!guide) throw new Error('Guide non trouvé');
 
       const destination: string = guide.destination;
@@ -823,7 +824,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
       const destinationFilter = { categories: { $regex: destination, $options: 'i' } };
 
       const articles = await db
-        .collection('articles_raw')
+        .collection(COLLECTIONS.articles_raw)
         .find(destinationFilter)
         .project({ title: 1, slug: 1, markdown: 1, url: 1 })
         .toArray();
@@ -838,14 +839,14 @@ export async function workersRoutes(fastify: FastifyInstance) {
       const PROMPT_ID_EXTRACTION = process.env.PROMPT_ID_POI_EXTRACTION ?? 'prompt_1770544848350_9j5m305ukj';
       const PROMPT_ID_DEDUP      = process.env.PROMPT_ID_POI_DEDUP      ?? 'deduplication_POI_24022026';
 
-      const promptExtractionDoc = await db.collection('prompts').findOne({ prompt_id: PROMPT_ID_EXTRACTION });
+      const promptExtractionDoc = await db.collection(COLLECTIONS.prompts).findOne({ prompt_id: PROMPT_ID_EXTRACTION });
       if (!promptExtractionDoc) {
         throw new Error(`Prompt d'extraction POI non trouvé (id: ${PROMPT_ID_EXTRACTION})`);
       }
       console.log(`📋 Prompt extraction: ${promptExtractionDoc.prompt_nom || promptExtractionDoc.prompt_id}`);
 
       // Prompt de déduplication (optionnel — fallback intégré si absent)
-      const promptDedupDoc = await db.collection('prompts').findOne({ prompt_id: PROMPT_ID_DEDUP });
+      const promptDedupDoc = await db.collection(COLLECTIONS.prompts).findOne({ prompt_id: PROMPT_ID_DEDUP });
       if (promptDedupDoc) {
         console.log(`📋 Prompt dédup: ${promptDedupDoc.prompt_nom || promptDedupDoc.prompt_id}`);
       } else {
@@ -867,7 +868,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
 
       console.log(`🤖 Classification IA de ${(articles as any[]).length} articles...`);
 
-      await db.collection('pois_generation_jobs').updateOne(
+      await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
         { _id: new ObjectId(jobId) },
         { $set: { progress: `Classification IA de ${(articles as any[]).length} articles...`, updated_at: new Date() } }
       );
@@ -933,7 +934,7 @@ Retourne STRICTEMENT un objet JSON valide, sans texte additionnel :
 
       console.log(`📊 Classification: ${monoArticles.length} mono-POI, ${multiArticles.length} multi-POI, ${excludedArticles.length} exclus`);
 
-      await db.collection('pois_generation_jobs').updateOne(
+      await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
         { _id: new ObjectId(jobId) },
         {
           $set: {
@@ -978,7 +979,7 @@ Retourne STRICTEMENT un objet JSON valide, sans texte additionnel :
           pois: allRawPois.filter(p => p._extraction_mode === 'mono'),
           is_mono_batch: true,
         });
-        await db.collection('pois_generation_jobs').updateOne(
+        await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
           { _id: new ObjectId(jobId) },
           { $set: { preview_pois: [...allRawPois], preview_batches: [...previewBatches], updated_at: new Date() } }
         );
@@ -1033,7 +1034,7 @@ Retourne STRICTEMENT un objet JSON valide, sans texte additionnel :
         const batchNum = batchIdx + 1;
 
         // Vérifier à chaque batch si le job a été annulé
-        const currentJob = await db.collection('pois_generation_jobs').findOne({ _id: new ObjectId(jobId) });
+        const currentJob = await db.collection(COLLECTIONS.pois_generation_jobs).findOne({ _id: new ObjectId(jobId) });
         if (!currentJob || currentJob.status === 'cancelled') {
           console.log(`🛑 [WORKER] Job ${jobId} annulé — arrêt à batch ${batchNum}/${totalBatches}`);
           return reply.send({ success: false, reason: 'cancelled' });
@@ -1044,7 +1045,7 @@ Retourne STRICTEMENT un objet JSON valide, sans texte additionnel :
 
         console.log(`🔄 Batch ${batchNum}/${totalBatches} — articles ${firstArticleNum}-${firstArticleNum + batchArticles.length - 1}`);
 
-        await db.collection('pois_generation_jobs').updateOne(
+        await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
           { _id: new ObjectId(jobId) },
           { $set: { status: 'processing', progress: `Batch ${batchNum}/${totalBatches}`, updated_at: new Date() } }
         );
@@ -1185,7 +1186,7 @@ Retourne STRICTEMENT un JSON valide sans texte additionnel :
                 pois: enrichedWithMode,
               });
 
-              await db.collection('pois_generation_jobs').updateOne(
+              await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
                 { _id: new ObjectId(jobId) },
                 { $set: { preview_pois: allRawPois, preview_batches: previewBatches, updated_at: new Date() } }
               );
@@ -1214,7 +1215,7 @@ Retourne STRICTEMENT un JSON valide sans texte additionnel :
 
       // 5. Marquer l'extraction comme terminée (sans déduplication ni sauvegarde dans pois_selection)
       // Le dédoublonnage et la confirmation sont déclenchés manuellement depuis l'interface
-      await db.collection('pois_generation_jobs').updateOne(
+      await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
         { _id: new ObjectId(jobId) },
         {
           $set: {
@@ -1240,7 +1241,7 @@ Retourne STRICTEMENT un JSON valide sans texte additionnel :
       console.error(`❌ [WORKER] Erreur génération POIs:`, error);
 
       try {
-        await db.collection('pois_generation_jobs').updateOne(
+        await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
           { _id: new ObjectId(jobId) },
           { $set: { status: 'failed', error: error.message, progress: null, updated_at: new Date() } }
         );
@@ -1373,13 +1374,13 @@ Retourne STRICTEMENT un JSON valide sans texte additionnel :
     try {
       console.log(`🔄 [WORKER-DEDUP] Dédoublonnage job ${jobId}`);
 
-      const job = await db.collection('pois_generation_jobs').findOne({ _id: new ObjectId(jobId) });
+      const job = await db.collection(COLLECTIONS.pois_generation_jobs).findOne({ _id: new ObjectId(jobId) });
       if (!job) throw new Error(`Job ${jobId} introuvable`);
 
       const rawPois: any[] = job.preview_pois || [];
       if (rawPois.length === 0) throw new Error('Aucun POI à dédoublonner');
 
-      const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+      const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
       const destination: string = guide?.destination ?? '';
 
       // ── Phase 1 : déduplication algorithmique ─────────────────────────────────
@@ -1496,7 +1497,7 @@ Si aucun doublon détecté : retourne { "groupes": [] }`;
       console.log(`✅ [WORKER-DEDUP] Phase 2 LLM : ${dedupPois.length} POIs (${removedLLM} supplémentaires)`);
       console.log(`✅ [WORKER-DEDUP] TOTAL : ${dedupPois.length} POIs uniques (${totalRemoved} doublons sur ${rawPois.length})`);
 
-      await db.collection('pois_generation_jobs').updateOne(
+      await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
         { _id: new ObjectId(jobId) },
         {
           $set: {
@@ -1514,7 +1515,7 @@ Si aucun doublon détecté : retourne { "groupes": [] }`;
 
     } catch (error: any) {
       console.error(`❌ [WORKER-DEDUP] Erreur:`, error);
-      await db.collection('pois_generation_jobs').updateOne(
+      await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
         { _id: new ObjectId(jobId) },
         { $set: { status: 'extraction_complete', error_dedup: error.message, updated_at: new Date() } }
       ).catch(() => {});
@@ -1538,7 +1539,7 @@ Si aucun doublon détecté : retourne { "groupes": [] }`;
       }
 
       // Charger le job
-      const job = await db.collection('translation_jobs').findOne({
+      const job = await db.collection(COLLECTIONS.translation_jobs).findOne({
         _id: new ObjectId(jobId),
       });
 
@@ -1547,7 +1548,7 @@ Si aucun doublon détecté : retourne { "groupes": [] }`;
       }
 
       // Marquer comme "en cours"
-      await db.collection('translation_jobs').updateOne(
+      await db.collection(COLLECTIONS.translation_jobs).updateOne(
         { _id: new ObjectId(jobId) },
         { 
           $set: { 
@@ -1568,7 +1569,7 @@ Si aucun doublon détecté : retourne { "groupes": [] }`;
 
       if (result.success) {
         // Succès
-        await db.collection('translation_jobs').updateOne(
+        await db.collection(COLLECTIONS.translation_jobs).updateOne(
           { _id: new ObjectId(jobId) },
           {
             $set: {
@@ -1584,7 +1585,7 @@ Si aucun doublon détecté : retourne { "groupes": [] }`;
         return reply.send({ success: true, stats: result.stats });
       } else {
         // Erreur
-        await db.collection('translation_jobs').updateOne(
+        await db.collection(COLLECTIONS.translation_jobs).updateOne(
           { _id: new ObjectId(jobId) },
           {
             $set: {
@@ -1607,7 +1608,7 @@ Si aucun doublon détecté : retourne { "groupes": [] }`;
 
       // Marquer comme "failed"
       if (ObjectId.isValid(jobId)) {
-        await db.collection('translation_jobs').updateOne(
+        await db.collection(COLLECTIONS.translation_jobs).updateOne(
           { _id: new ObjectId(jobId) },
           {
             $set: {

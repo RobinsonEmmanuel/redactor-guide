@@ -17,6 +17,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { v2 as cloudinary } from 'cloudinary';
 import { ImageAnalysisService } from '../services/image-analysis.service';
+import { COLLECTIONS } from '../config/collections.js';
 
 export const UPLOADS_DIR =
   process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads');
@@ -157,7 +158,7 @@ export async function imageUploadRoutes(fastify: FastifyInstance) {
 
     const openaiApiKey = process.env.OPENAI_API_KEY;
     const promptDoc = openaiApiKey
-      ? await db.collection('prompts').findOne({
+      ? await db.collection(COLLECTIONS.prompts).findOne({
           $or: [
             { prompt_id: 'analyse_image', actif: true },
             { intent: 'analyse_image',    actif: true },

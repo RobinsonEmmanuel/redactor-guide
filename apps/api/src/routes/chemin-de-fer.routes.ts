@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ObjectId } from 'mongodb';
 import {
+import { COLLECTIONS } from '../config/collections.js';
   UpdateCheminDeFerSchema,
   CreatePageSchema,
   UpdatePageSchema,
@@ -22,7 +23,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ error: 'Guide ID invalide' });
       }
 
-      const cheminDeFer = await db.collection('chemins_de_fer').findOne({ guide_id: guideId });
+      const cheminDeFer = await db.collection(COLLECTIONS.chemins_de_fer).findOne({ guide_id: guideId });
 
       if (!cheminDeFer) {
         return reply.status(404).send({ error: 'Chemin de fer non trouvé' });
@@ -32,14 +33,14 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
 
       // Récupérer les pages du chemin de fer
       const rawPages = await db
-        .collection('pages')
+        .collection(COLLECTIONS.pages)
         .find({ chemin_de_fer_id: cheminDeFerId })
         .sort({ ordre: 1 })
         .toArray();
 
       // Récupérer les sections
       const sections = await db
-        .collection('sections')
+        .collection(COLLECTIONS.sections)
         .find({ chemin_de_fer_id: cheminDeFerId })
         .sort({ ordre: 1 })
         .toArray();
@@ -55,13 +56,13 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       let resolvedPoisByPageId: Record<string, Array<{ poi_id: string; nom: string; url_source: string | null }>> = {};
 
       if (inspirationPagesNeedingResolution.length > 0) {
-        const poisDoc = await db.collection('pois_selection').findOne({ guide_id: guideId });
+        const poisDoc = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
         const allPois: any[] = poisDoc?.pois ?? [];
-        const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+        const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
         const guideLang: string = guide?.language ?? guide?.langue ?? 'fr';
         const urlCache: Record<string, string | null> = {};
 
-        const sommaireDoc = await db.collection('sommaire_proposals').findOne({ guide_id: guideId });
+        const sommaireDoc = await db.collection(COLLECTIONS.sommaire_proposals).findOne({ guide_id: guideId });
         const sommairePois: any[] = sommaireDoc?.proposal?.pois ?? [];
         const sommairePoisMap: Record<string, { nom: string; article_source?: string }> = {};
         for (const sp of sommairePois) {
@@ -96,7 +97,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
             const slug: string | undefined = poi.article_source;
             if (slug) {
               if (!(slug in urlCache)) {
-                const artDoc = await db.collection('articles_raw').findOne(
+                const artDoc = await db.collection(COLLECTIONS.articles_raw).findOne(
                   { slug },
                   { projection: { urls_by_lang: 1 } }
                 );
@@ -110,7 +111,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
             if (!poiUrl && poi.url_source && typeof poi.url_source === 'string' && !poi.url_source.startsWith('http')) {
               const cacheKey = `url:${poi.url_source}`;
               if (!(cacheKey in urlCache)) {
-                const artBySlug = await db.collection('articles_raw').findOne(
+                const artBySlug = await db.collection(COLLECTIONS.articles_raw).findOne(
                   { slug: poi.url_source },
                   { projection: { urls_by_lang: 1 } }
                 );
@@ -157,7 +158,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       const body = UpdateCheminDeFerSchema.parse(request.body);
       const now = new Date().toISOString();
 
-      const result = await db.collection('chemins_de_fer').findOneAndUpdate(
+      const result = await db.collection(COLLECTIONS.chemins_de_fer).findOneAndUpdate(
         { guide_id: guideId },
         { $set: { ...body, updated_at: now } },
         { returnDocument: 'after' }
@@ -192,7 +193,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       }
 
       // Récupérer le chemin de fer
-      const cheminDeFer = await db.collection('chemins_de_fer').findOne({ guide_id: guideId });
+      const cheminDeFer = await db.collection(COLLECTIONS.chemins_de_fer).findOne({ guide_id: guideId });
       if (!cheminDeFer) {
         return reply.status(404).send({ error: 'Chemin de fer non trouvé' });
       }
@@ -204,7 +205,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ error: 'Template ID invalide' });
       }
 
-      const template = await db.collection('templates').findOne({ _id: new ObjectId(body.template_id) });
+      const template = await db.collection(COLLECTIONS.templates).findOne({ _id: new ObjectId(body.template_id) });
       if (!template) {
         return reply.status(404).send({ error: 'Template non trouvé' });
       }
@@ -218,11 +219,11 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         updated_at: now,
       };
 
-      const result = await db.collection('pages').insertOne(page);
-      const created = await db.collection('pages').findOne({ _id: result.insertedId });
+      const result = await db.collection(COLLECTIONS.pages).insertOne(page);
+      const created = await db.collection(COLLECTIONS.pages).findOne({ _id: result.insertedId });
 
       // Mettre à jour le compteur de pages
-      await db.collection('chemins_de_fer').updateOne(
+      await db.collection(COLLECTIONS.chemins_de_fer).updateOne(
         { _id: cheminDeFer._id },
         { $inc: { nombre_pages: 1 }, $set: { updated_at: now } }
       );
@@ -255,7 +256,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         const body = UpdatePageSchema.parse(request.body);
         const now = new Date().toISOString();
 
-        const result = await db.collection('pages').findOneAndUpdate(
+        const result = await db.collection(COLLECTIONS.pages).findOneAndUpdate(
           { _id: new ObjectId(pageId) },
           { $set: { ...body, updated_at: now } },
           { returnDocument: 'after' }
@@ -287,10 +288,10 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         const db = request.server.container.db;
         const { guideId } = request.params;
 
-        const result = await db.collection('pages').deleteMany({ guide_id: guideId });
+        const result = await db.collection(COLLECTIONS.pages).deleteMany({ guide_id: guideId });
 
         const now = new Date().toISOString();
-        await db.collection('chemins_de_fer').updateOne(
+        await db.collection(COLLECTIONS.chemins_de_fer).updateOne(
           { guide_id: guideId },
           { $set: { nombre_pages: 0, updated_at: now } }
         );
@@ -318,7 +319,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           return reply.status(400).send({ error: 'Page ID invalide' });
         }
 
-        const result = await db.collection('pages').deleteOne({ _id: new ObjectId(pageId) });
+        const result = await db.collection(COLLECTIONS.pages).deleteOne({ _id: new ObjectId(pageId) });
 
         if (result.deletedCount === 0) {
           return reply.status(404).send({ error: 'Page non trouvée' });
@@ -326,7 +327,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
 
         // Mettre à jour le compteur
         const now = new Date().toISOString();
-        await db.collection('chemins_de_fer').updateOne(
+        await db.collection(COLLECTIONS.chemins_de_fer).updateOne(
           { guide_id: guideId },
           { $inc: { nombre_pages: -1 }, $set: { updated_at: now } }
         );
@@ -362,7 +363,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           },
         }));
 
-        await db.collection('pages').bulkWrite(bulkOps);
+        await db.collection(COLLECTIONS.pages).bulkWrite(bulkOps);
 
         return reply.send({ success: true });
       } catch (error) {
@@ -385,7 +386,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         const body = CreateSectionSchema.parse(request.body);
 
         // Récupérer le chemin de fer
-        const cheminDeFer = await db.collection('chemins_de_fer').findOne({ guide_id: guideId });
+        const cheminDeFer = await db.collection(COLLECTIONS.chemins_de_fer).findOne({ guide_id: guideId });
         if (!cheminDeFer) {
           return reply.status(404).send({ error: 'Chemin de fer non trouvé' });
         }
@@ -398,8 +399,8 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           updated_at: now,
         };
 
-        const result = await db.collection('sections').insertOne(section);
-        const created = await db.collection('sections').findOne({ _id: result.insertedId });
+        const result = await db.collection(COLLECTIONS.sections).insertOne(section);
+        const created = await db.collection(COLLECTIONS.sections).findOne({ _id: result.insertedId });
 
         return reply.status(201).send(created);
       } catch (error) {
@@ -427,7 +428,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           return reply.status(400).send({ error: 'Page ID invalide' });
         }
 
-        const page = await db.collection('pages').findOne({ _id: new ObjectId(pageId) });
+        const page = await db.collection(COLLECTIONS.pages).findOne({ _id: new ObjectId(pageId) });
 
         if (!page) {
           return reply.status(404).send({ error: 'Page non trouvée' });
@@ -460,7 +461,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         const now = new Date().toISOString();
 
         // Récupérer la page actuelle pour vérifier son statut
-        const currentPage = await db.collection('pages').findOne({ _id: new ObjectId(pageId) });
+        const currentPage = await db.collection(COLLECTIONS.pages).findOne({ _id: new ObjectId(pageId) });
         if (!currentPage) {
           return reply.status(404).send({ error: 'Page non trouvée' });
         }
@@ -469,7 +470,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         const shouldUpdateStatus = currentPage.statut_editorial === 'non_conforme' || currentPage.statut_editorial === 'draft';
         const newStatus = shouldUpdateStatus ? 'relue' : currentPage.statut_editorial;
 
-        const result = await db.collection('pages').findOneAndUpdate(
+        const result = await db.collection(COLLECTIONS.pages).findOneAndUpdate(
           { _id: new ObjectId(pageId) },
           {
             $set: {
@@ -509,7 +510,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           return reply.status(400).send({ error: 'Page ID invalide' });
         }
 
-        const page = await db.collection('pages').findOne({ _id: new ObjectId(pageId) });
+        const page = await db.collection(COLLECTIONS.pages).findOne({ _id: new ObjectId(pageId) });
         if (!page) {
           return reply.status(404).send({ error: 'Page non trouvée' });
         }
@@ -532,7 +533,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         }
 
         // Marquer la page comme "en cours de génération"
-        await db.collection('pages').updateOne(
+        await db.collection(COLLECTIONS.pages).updateOne(
           { _id: new ObjectId(pageId) },
           { 
             $set: { 
@@ -576,7 +577,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
               console.error('❌ [QStash] Erreur:', qstashError);
               
               // Remettre le statut à draft en cas d'erreur
-              await db.collection('pages').updateOne(
+              await db.collection(COLLECTIONS.pages).updateOne(
                 { _id: new ObjectId(pageId) },
                 { 
                   $set: { 
@@ -619,7 +620,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           }
 
           // Sauvegarder le contenu généré
-          await db.collection('pages').updateOne(
+          await db.collection(COLLECTIONS.pages).updateOne(
             { _id: new ObjectId(pageId) },
             { 
               $set: { 
@@ -642,7 +643,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         
         // Remettre le statut à non_conforme en cas d'erreur
         try {
-          await db.collection('pages').updateOne(
+          await db.collection(COLLECTIONS.pages).updateOne(
             { _id: new ObjectId(pageId) },
             { 
               $set: { 
@@ -680,7 +681,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           return reply.status(400).send({ error: 'Page ID invalide' });
         }
 
-        const page = await db.collection('pages').findOne({ _id: new ObjectId(pageId) });
+        const page = await db.collection(COLLECTIONS.pages).findOne({ _id: new ObjectId(pageId) });
         if (!page) {
           return reply.status(404).send({ error: 'Page non trouvée' });
         }
@@ -690,7 +691,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         }
 
         // Récupérer l'article WordPress correspondant
-        const article = await db.collection('articles_raw').findOne({ 
+        const article = await db.collection(COLLECTIONS.articles_raw).findOne({ 
           'urls_by_lang.fr': page.url_source 
         });
 
@@ -757,7 +758,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       }
 
       const pages = await db
-        .collection('pages')
+        .collection(COLLECTIONS.pages)
         .find(filter, { projection: { titre: 1 } })
         .toArray();
 
@@ -795,7 +796,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
 
     try {
       // 1. Récupérer la destination du guide pour filtrer les articles
-      const guide = await db.collection('guides').findOne(
+      const guide = await db.collection(COLLECTIONS.guides).findOne(
         { _id: new (require('mongodb').ObjectId)(guideId) },
         { projection: { destination: 1 } }
       );
@@ -818,7 +819,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       }
 
       const articles = await db
-        .collection('articles_raw')
+        .collection(COLLECTIONS.articles_raw)
         .find(filter, { projection: { title: 1, slug: 1, images_analysis: 1 } })
         .toArray();
 
@@ -882,7 +883,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
     console.log(`📋 Génération sommaire - Parties demandées: ${partsToGenerate.join(', ')}`);
 
     // Vérifier que le guide existe
-    const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+    const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
     if (!guide) {
       return reply.code(404).send({ error: 'Guide non trouvé' });
     }
@@ -898,13 +899,13 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
     }
 
     // Récupérer le site_id depuis la collection sites (via siteUrl)
-    const site = await db.collection('sites').findOne({ url: guide.wpConfig.siteUrl });
+    const site = await db.collection(COLLECTIONS.sites).findOne({ url: guide.wpConfig.siteUrl });
     if (!site) {
       return reply.code(400).send({ error: 'Site WordPress non trouvé dans la base' });
     }
 
     // Vérifier qu'il y a des articles pour ce site avec cette destination
-    const articlesCount = await db.collection('articles_raw').countDocuments({ 
+    const articlesCount = await db.collection(COLLECTIONS.articles_raw).countDocuments({ 
       site_id: site._id.toString(),
       categories: { $in: [guide.destination] }, // Catégories contient la destination
     });
@@ -937,7 +938,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       });
 
       // Récupérer la proposition existante si elle existe
-      const existingProposal = await db.collection('sommaire_proposals').findOne({ guide_id: guideId });
+      const existingProposal = await db.collection(COLLECTIONS.sommaire_proposals).findOne({ guide_id: guideId });
       const baseProposal = existingProposal?.proposal || {};
 
       // Générer uniquement les parties demandées
@@ -950,7 +951,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       };
 
       // Sauvegarder la proposition fusionnée
-      await db.collection('sommaire_proposals').updateOne(
+      await db.collection(COLLECTIONS.sommaire_proposals).updateOne(
         { guide_id: guideId },
         {
           $set: {
@@ -989,7 +990,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       console.log(`🏗️ [Generate Structure] Début pour guide ${guideId}`);
 
       // 1. Charger le guide
-      const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+      const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
       if (!guide) {
         return reply.code(404).send({ error: 'Guide non trouvé' });
       }
@@ -997,14 +998,14 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       // 2. Charger le template de guide (ou utiliser le template par défaut)
       let guideTemplate;
       if (guide.guide_template_id) {
-        guideTemplate = await db.collection('guide_templates').findOne({
+        guideTemplate = await db.collection(COLLECTIONS.guide_templates).findOne({
           _id: new ObjectId(guide.guide_template_id),
         });
       }
 
       if (!guideTemplate) {
         // Utiliser le template par défaut
-        guideTemplate = await db.collection('guide_templates').findOne({ is_default: true });
+        guideTemplate = await db.collection(COLLECTIONS.guide_templates).findOne({ is_default: true });
       }
 
       if (!guideTemplate) {
@@ -1016,9 +1017,9 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       console.log(`📋 Template: ${guideTemplate.name}`);
 
       // 3. Charger les données des étapes précédentes
-      const clusters = await db.collection('cluster_assignments').findOne({ guide_id: guideId });
-      const inspirations = await db.collection('inspirations').findOne({ guide_id: guideId });
-      const pois = await db.collection('pois_selection').findOne({ guide_id: guideId });
+      const clusters = await db.collection(COLLECTIONS.cluster_assignments).findOne({ guide_id: guideId });
+      const inspirations = await db.collection(COLLECTIONS.inspirations).findOne({ guide_id: guideId });
+      const pois = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
 
       console.log(`📊 Données chargées:`);
       console.log(`  - Clusters: ${clusters?.clusters_metadata?.length || 0}`);
@@ -1038,7 +1039,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       // 5. Créer ou mettre à jour le document chemin_de_fer EN PREMIER
       //    (nécessaire pour obtenir l'_id avant d'insérer les pages)
       const now = new Date().toISOString();
-      const cdfResult = await db.collection('chemins_de_fer').findOneAndUpdate(
+      const cdfResult = await db.collection(COLLECTIONS.chemins_de_fer).findOneAndUpdate(
         { guide_id: guideId },
         {
           $set: {
@@ -1056,7 +1057,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       const cheminDeFerId = cdfResult?._id?.toString() ?? '';
 
       // 6. Supprimer les pages existantes avant de régénérer
-      const deleteResult = await db.collection('pages').deleteMany({ chemin_de_fer_id: cheminDeFerId });
+      const deleteResult = await db.collection(COLLECTIONS.pages).deleteMany({ chemin_de_fer_id: cheminDeFerId });
       if (deleteResult.deletedCount > 0) {
         console.log(`🗑️ [Generate Structure] ${deleteResult.deletedCount} page(s) existante(s) supprimée(s)`);
       }
@@ -1072,7 +1073,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       const normalizedPages = await Promise.all(rawPages.map(async (p: any) => {
         // Résoudre template_id depuis le nom
         if (!templateCache[p.template_name]) {
-          const tpl = await db.collection('templates').findOne({ name: p.template_name });
+          const tpl = await db.collection(COLLECTIONS.templates).findOne({ name: p.template_name });
           templateCache[p.template_name] = tpl ?? null;
         }
         const tpl = templateCache[p.template_name];
@@ -1092,7 +1093,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         const articleSlug: string | undefined = p.metadata?.article_source;
         if (articleSlug) {
           if (!(articleSlug in articleUrlCache)) {
-            const article = await db.collection('articles_raw').findOne(
+            const article = await db.collection(COLLECTIONS.articles_raw).findOne(
               { slug: articleSlug },
               { projection: { urls_by_lang: 1 } }
             );
@@ -1123,7 +1124,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
             const poiSlug: string | undefined = poi.article_source;
             if (poiSlug) {
               if (!(poiSlug in articleUrlCache)) {
-                const artDoc = await db.collection('articles_raw').findOne(
+                const artDoc = await db.collection(COLLECTIONS.articles_raw).findOne(
                   { slug: poiSlug },
                   { projection: { urls_by_lang: 1 } }
                 );
@@ -1165,7 +1166,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
 
       // 8. Sauvegarder toutes les pages normalisées
       if (normalizedPages.length > 0) {
-        await db.collection('pages').insertMany(normalizedPages);
+        await db.collection(COLLECTIONS.pages).insertMany(normalizedPages);
         console.log(`✅ ${normalizedPages.length} pages sauvegardées`);
       }
 
@@ -1201,7 +1202,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
     const { guideId } = request.params as { guideId: string };
     const db = request.server.container.db;
 
-    const proposal = await db.collection('sommaire_proposals').findOne({ guide_id: guideId });
+    const proposal = await db.collection(COLLECTIONS.sommaire_proposals).findOne({ guide_id: guideId });
     
     if (!proposal) {
       return reply.code(404).send({ error: 'Aucune proposition de sommaire trouvée' });
@@ -1224,15 +1225,15 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
 
       try {
         // Récupérer le guide (pour la destination) et la page (pour le template)
-        const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+        const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
         const destination: string = guide?.destination ?? 'destination inconnue';
 
-        const page = await db.collection('pages').findOne({ _id: new ObjectId(pageId) });
+        const page = await db.collection(COLLECTIONS.pages).findOne({ _id: new ObjectId(pageId) });
         if (!page) return reply.code(404).send({ error: 'Page non trouvée' });
 
         // Récupérer le template pour avoir les labels des champs
         const template = page.template_id
-          ? await db.collection('templates').findOne({ _id: new ObjectId(page.template_id) })
+          ? await db.collection(COLLECTIONS.templates).findOne({ _id: new ObjectId(page.template_id) })
           : null;
 
         const fieldLabelMap: Record<string, string> = {};
@@ -1308,7 +1309,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
 
         // ── Charger le prompt Perplexity depuis la DB ─────────────────────────
         const PROMPT_ID_FACTUEL = process.env.PROMPT_ID_FACTUEL ?? 'validation_factuelle_poi';
-        const factuelPromptDoc = await db.collection('prompts').findOne({ prompt_id: PROMPT_ID_FACTUEL });
+        const factuelPromptDoc = await db.collection(COLLECTIONS.prompts).findOne({ prompt_id: PROMPT_ID_FACTUEL });
 
         const fieldsText = fieldsToValidate.map(f => `- ${f.label} (${f.name}) : "${f.value}"`).join('\n');
         const nomsChamps = fieldsToValidate.map(f => `"${f.name}"`).join(', ');
@@ -1333,7 +1334,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         const [report, articleDoc] = await Promise.all([
           perplexity.validatePageContent(renderedPrompt),
           page.url_source
-            ? db.collection('articles_raw').findOne({ 'urls_by_lang.fr': page.url_source })
+            ? db.collection(COLLECTIONS.articles_raw).findOne({ 'urls_by_lang.fr': page.url_source })
             : Promise.resolve(null),
         ]);
 
@@ -1351,7 +1352,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
 
               // ── Charger le prompt depuis la collection (fallback intégré si absent) ──
               const PROMPT_ID_CONSISTENCY = process.env.PROMPT_ID_CONSISTENCY ?? 'validation_coherence_article';
-              const consistencyPromptDoc = await db.collection('prompts').findOne({ prompt_id: PROMPT_ID_CONSISTENCY });
+              const consistencyPromptDoc = await db.collection(COLLECTIONS.prompts).findOne({ prompt_id: PROMPT_ID_CONSISTENCY });
 
               let consistencyPrompt: string;
               if (consistencyPromptDoc?.texte_prompt) {
@@ -1396,7 +1397,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         }
 
         // Sauvegarder le rapport dans la page pour consultation ultérieure
-        await db.collection('pages').updateOne(
+        await db.collection(COLLECTIONS.pages).updateOne(
           { _id: new ObjectId(pageId) },
           { $set: { last_validation: report, updated_at: new Date().toISOString() } }
         );

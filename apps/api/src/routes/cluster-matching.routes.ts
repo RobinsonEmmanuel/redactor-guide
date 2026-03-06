@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { Db, ObjectId } from 'mongodb';
 import { ClusterMatchingService, POI } from '../services/cluster-matching.service';
+import { COLLECTIONS } from '../config/collections.js';
 
 export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
   const db: Db = fastify.mongo.db!;
@@ -19,7 +20,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         console.log(`🎯 [Matching] Affectation clusters pour guide ${guideId}`);
 
         // 1. Récupérer le guide et vérifier destination_rl_id
-        const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+        const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
         if (!guide) {
           return reply.code(404).send({ error: 'Guide non trouvé' });
         }
@@ -34,7 +35,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         const regionId = guide.destination_rl_id;
 
         // 2. Charger les POIs depuis pois_selection (étape 3)
-        const poisSelection = await db.collection('pois_selection').findOne({ guide_id: guideId });
+        const poisSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
         
         if (!poisSelection || !poisSelection.pois || poisSelection.pois.length === 0) {
           return reply.code(400).send({ 
@@ -169,7 +170,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
           place_count: (c.drafts || c.place_instances || []).length,
         }));
 
-        await db.collection('cluster_assignments').updateOne(
+        await db.collection(COLLECTIONS.cluster_assignments).updateOne(
           { guide_id: guideId },
           {
             $set: {
@@ -220,7 +221,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
           return poi;
         });
 
-        await db.collection('pois_selection').updateOne(
+        await db.collection(COLLECTIONS.pois_selection).updateOne(
           { guide_id: guideId },
           {
             $set: {
@@ -259,7 +260,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         console.log(`🎯 [Matching] Affectation clusters pour guide ${guideId}`);
 
         // 1. Récupérer le guide et vérifier destination_rl_id
-        const guide = await db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+        const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
         if (!guide) {
           return reply.code(404).send({ error: 'Guide non trouvé' });
         }
@@ -274,7 +275,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         const regionId = guide.destination_rl_id;
 
         // 2. Charger les POIs depuis pois_selection
-        const poisSelection = await db.collection('pois_selection').findOne({ guide_id: guideId });
+        const poisSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
         
         if (!poisSelection || !poisSelection.pois || poisSelection.pois.length === 0) {
           return reply.code(400).send({ 
@@ -377,7 +378,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         });
 
         // 7. Sauvegarder dans MongoDB
-        await db.collection('cluster_assignments').updateOne(
+        await db.collection(COLLECTIONS.cluster_assignments).updateOne(
           { guide_id: guideId },
           {
             $set: {
@@ -424,7 +425,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
           return poi;
         });
 
-        await db.collection('pois_selection').updateOne(
+        await db.collection(COLLECTIONS.pois_selection).updateOne(
           { guide_id: guideId },
           {
             $set: {
@@ -459,7 +460,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
       const { guideId } = request.params;
 
       try {
-        const assignment = await db.collection('cluster_assignments').findOne({ guide_id: guideId });
+        const assignment = await db.collection(COLLECTIONS.cluster_assignments).findOne({ guide_id: guideId });
 
         if (!assignment) {
           // Retourner un objet vide au lieu de 404 pour éviter les logs d'erreur dans la console
@@ -508,7 +509,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         const stats = clusterMatchingService.generateStats(assignment);
 
         // Sauvegarder
-        await db.collection('cluster_assignments').updateOne(
+        await db.collection(COLLECTIONS.cluster_assignments).updateOne(
           { guide_id: guideId },
           {
             $set: {
@@ -564,11 +565,11 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         };
 
         // Ajouter le cluster aux métadonnées dans cluster_assignments
-        const assignment = await db.collection('cluster_assignments').findOne({ guide_id: guideId });
+        const assignment = await db.collection(COLLECTIONS.cluster_assignments).findOne({ guide_id: guideId });
         
         if (assignment) {
           // Ajouter aux métadonnées existantes
-          await db.collection('cluster_assignments').updateOne(
+          await db.collection(COLLECTIONS.cluster_assignments).updateOne(
             { guide_id: guideId },
             {
               $push: { clusters_metadata: newCluster } as any,
@@ -577,7 +578,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
           );
         } else {
           // Créer un nouveau document si pas de matching encore
-          await db.collection('cluster_assignments').insertOne({
+          await db.collection(COLLECTIONS.cluster_assignments).insertOne({
             guide_id: guideId,
             clusters_metadata: [newCluster],
             assignment: { clusters: {}, unassigned: [] },
@@ -615,7 +616,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         console.log(`🗑️ [Cluster] Suppression cluster ${clusterId} du guide ${guideId}`);
 
         // 1. Récupérer les POIs affectés à ce cluster
-        const poisSelection = await db.collection('pois_selection').findOne({ guide_id: guideId });
+        const poisSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
         
         if (poisSelection) {
           // Compter les POIs affectés
@@ -637,7 +638,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
           });
 
           // Sauvegarder les POIs mis à jour
-          await db.collection('pois_selection').updateOne(
+          await db.collection(COLLECTIONS.pois_selection).updateOne(
             { guide_id: guideId },
             {
               $set: {
@@ -651,7 +652,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         }
 
         // 2. Supprimer le cluster des métadonnées
-        const result = await db.collection('cluster_assignments').updateOne(
+        const result = await db.collection(COLLECTIONS.cluster_assignments).updateOne(
           { guide_id: guideId },
           {
             $pull: { clusters_metadata: { cluster_id: clusterId } } as any,

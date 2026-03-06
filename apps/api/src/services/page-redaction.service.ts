@@ -3,6 +3,7 @@ import { SAISON_MOIS } from '@redactor-guide/core-model';
 import { OpenAIService } from './openai.service';
 import { FieldValidatorService, ValidationError } from './field-validator.service';
 import { ImageAnalysisService, SelectionCriteria } from './image-analysis.service';
+import { COLLECTIONS } from '../config/collections.js';
 
 export interface RedactionRequest {
   guideId: string;
@@ -41,7 +42,7 @@ export class PageRedactionService {
       console.log(`🚀 Démarrage rédaction IA pour page ${pageId}`);
 
       // 1. Charger la page
-      const page = await this.db.collection('pages').findOne({ _id: new ObjectId(pageId) });
+      const page = await this.db.collection(COLLECTIONS.pages).findOne({ _id: new ObjectId(pageId) });
       if (!page) {
         throw new Error('Page non trouvée');
       }
@@ -52,17 +53,17 @@ export class PageRedactionService {
       let template: any = null;
       if (page.template_id) {
         try {
-          template = await this.db.collection('templates').findOne({ _id: new ObjectId(page.template_id) });
+          template = await this.db.collection(COLLECTIONS.templates).findOne({ _id: new ObjectId(page.template_id) });
         } catch {
           console.warn(`⚠️ template_id invalide (${page.template_id}) — fallback par template_name`);
         }
       }
       if (!template && page.template_name) {
-        template = await this.db.collection('templates').findOne({ template_name: page.template_name });
+        template = await this.db.collection(COLLECTIONS.templates).findOne({ template_name: page.template_name });
         if (template) {
           console.log(`📋 Template résolu par nom : "${page.template_name}" → ${template._id}`);
           // Persister l'ID résolu pour éviter de répéter le fallback
-          await this.db.collection('pages').updateOne(
+          await this.db.collection(COLLECTIONS.pages).updateOne(
             { _id: page._id },
             { $set: { template_id: template._id } }
           );
@@ -137,7 +138,7 @@ export class PageRedactionService {
           }
         }
 
-        const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(_guideId) });
+        const guide = await this.db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(_guideId) });
         const destination = guide?.destination ?? guide?.destinations?.[0] ?? '';
 
         const moisRef = saison ? (SAISON_MOIS[saison as keyof typeof SAISON_MOIS]?.[0] ?? '') : '';
@@ -174,7 +175,7 @@ export class PageRedactionService {
         const inspirationPois: Array<{ nom: string; url_source: string | null }> =
           page.metadata?.inspiration_pois ?? [];
 
-        const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(_guideId) });
+        const guide = await this.db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(_guideId) });
 
         if (inspirationPois.length === 0) {
           console.warn(`⚠️ Mode inspiration_auto_match : aucun POI résolu sur la page "${page.titre}" — fallback contexte général`);
@@ -262,7 +263,7 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
       } else {
         // Mode non_applicable : pas de contexte éditorial (ex: sommaire, page de garde)
         article = null;
-        const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(_guideId) });
+        const guide = await this.db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(_guideId) });
         articleContext = [
           `=== GUIDE ===`,
           `Destination : ${guide?.destination ?? guide?.destinations?.[0] ?? 'N/A'}`,
@@ -459,7 +460,7 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
       // Charger le prompt d'analyse
       // Chercher par prompt_id OU par intent pour plus de flexibilité
       console.log('🔍 Recherche du prompt analyse_image...');
-      const promptDoc = await this.db.collection('prompts').findOne({
+      const promptDoc = await this.db.collection(COLLECTIONS.prompts).findOne({
         $or: [
           { prompt_id: 'analyse_image', actif: true },
           { intent: 'analyse_image', actif: true },
@@ -469,8 +470,8 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
       if (!promptDoc) {
         console.warn('⚠️ Prompt analyse_image introuvable (cherché par prompt_id ou intent)');
         // Compter combien de prompts existent en base pour debug
-        const totalPrompts = await this.db.collection('prompts').countDocuments();
-        const activePrompts = await this.db.collection('prompts').countDocuments({ actif: true });
+        const totalPrompts = await this.db.collection(COLLECTIONS.prompts).countDocuments();
+        const activePrompts = await this.db.collection(COLLECTIONS.prompts).countDocuments({ actif: true });
         console.warn(`   Base contient ${totalPrompts} prompt(s) total, ${activePrompts} actif(s)`);
         console.warn('   → Skip analyse images');
         return;
@@ -486,7 +487,7 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
       );
 
       // Sauvegarder les analyses
-      await this.db.collection('articles_raw').updateOne(
+      await this.db.collection(COLLECTIONS.articles_raw).updateOne(
         { _id: article._id },
         {
           $set: {
@@ -684,7 +685,7 @@ INSTRUCTIONS STRICTES :
     const namePattern = escapeRegex(name);
 
     // 1. Priorité absolue : titre contient le nom du cluster ET "que faire"
-    const bestMatch = await this.db.collection('articles_raw').findOne({
+    const bestMatch = await this.db.collection(COLLECTIONS.articles_raw).findOne({
       $and: [
         { title: { $regex: namePattern, $options: 'i' } },
         { title: { $regex: 'que faire', $options: 'i' } },
@@ -693,7 +694,7 @@ INSTRUCTIONS STRICTES :
     if (bestMatch) return bestMatch;
 
     // 2. Titre contient le nom du cluster (sans contrainte sur "que faire")
-    const nameMatch = await this.db.collection('articles_raw').findOne({
+    const nameMatch = await this.db.collection(COLLECTIONS.articles_raw).findOne({
       title: { $regex: namePattern, $options: 'i' },
     });
     if (nameMatch) return nameMatch;
@@ -705,7 +706,7 @@ INSTRUCTIONS STRICTES :
       const wordPatterns = significantWords.map((w) => ({
         title: { $regex: escapeRegex(w), $options: 'i' },
       }));
-      const partialMatch = await this.db.collection('articles_raw').findOne({
+      const partialMatch = await this.db.collection(COLLECTIONS.articles_raw).findOne({
         $and: [
           { title: { $regex: 'que faire', $options: 'i' } },
           { $and: wordPatterns },
@@ -753,7 +754,7 @@ INSTRUCTIONS STRICTES :
         : { $or: destWords.map((w) => ({ title: { $regex: w, $options: 'i' } })) };
 
       // 1. "Partir à [destination] en [mois]"
-      const exactMatch = await this.db.collection('articles_raw').findOne({
+      const exactMatch = await this.db.collection(COLLECTIONS.articles_raw).findOne({
         $and: [
           destCondition,
           { title: { $regex: monthPattern, $options: 'i' } },
@@ -766,7 +767,7 @@ INSTRUCTIONS STRICTES :
       }
 
       // 2. [destination] + [mois] (sans "partir")
-      const looseMatch = await this.db.collection('articles_raw').findOne({
+      const looseMatch = await this.db.collection(COLLECTIONS.articles_raw).findOne({
         $and: [
           destCondition,
           { title: { $regex: monthPattern, $options: 'i' } },
@@ -791,7 +792,7 @@ INSTRUCTIONS STRICTES :
     }
 
     // Chercher l'article par son URL (toutes langues)
-    const article = await this.db.collection('articles_raw').findOne({
+    const article = await this.db.collection(COLLECTIONS.articles_raw).findOne({
       $or: [
         { 'urls_by_lang.fr': urlSource },
         { 'urls_by_lang.en': urlSource },
@@ -822,7 +823,7 @@ INSTRUCTIONS STRICTES :
   private async buildArticlesIndex(guideId: string, page: any): Promise<string> {
     const MAX_ARTICLES = 200;
 
-    const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+    const guide = await this.db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
     const destination: string = guide?.destination ?? guide?.destinations?.[0] ?? '';
 
     const parts: string[] = [];
@@ -833,7 +834,7 @@ INSTRUCTIONS STRICTES :
 
     // Projeter uniquement title + urls_by_lang (pas categories, qui peut être très volumineux)
     const articles = await this.db
-      .collection('articles_raw')
+      .collection(COLLECTIONS.articles_raw)
       .find(
         destination ? { categories: { $regex: destination, $options: 'i' } } : {},
         { projection: { title: 1, url: 1, 'urls_by_lang.fr': 1 } }
@@ -855,7 +856,7 @@ INSTRUCTIONS STRICTES :
     const parts: string[] = [];
 
     // 1. Métadonnées du guide
-    const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+    const guide = await this.db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
     if (guide) {
       parts.push(`=== GUIDE ===`);
       parts.push(`Destination : ${guide.destination ?? guide.destinations?.[0] ?? 'N/A'}`);
@@ -866,7 +867,7 @@ INSTRUCTIONS STRICTES :
     }
 
     // 2. Structure du guide (clusters + POIs)
-    const poisDoc = await this.db.collection('pois_selection').findOne({ guide_id: guideId });
+    const poisDoc = await this.db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
     if (poisDoc != null && poisDoc.pois?.length > 0) {
       parts.push(`\n=== STRUCTURE DU GUIDE (clusters et lieux) ===`);
       const byCluster: Record<string, string[]> = {};
@@ -907,7 +908,7 @@ INSTRUCTIONS STRICTES :
       : {};
 
     const allArticles = await this.db
-      .collection('articles_raw')
+      .collection(COLLECTIONS.articles_raw)
       .find(destinationFilter, { projection: { title: 1, url: 1, categories: 1, tags: 1, markdown: 1, html_brut: 1 } })
       .toArray();
 
@@ -965,7 +966,7 @@ INSTRUCTIONS STRICTES :
    * Charger un prompt depuis la base
    */
   private async loadPrompt(intent: string): Promise<string> {
-    const prompt = await this.db.collection('prompts').findOne({
+    const prompt = await this.db.collection(COLLECTIONS.prompts).findOne({
       intent,
       actif: true,
     });
@@ -1253,7 +1254,7 @@ INSTRUCTIONS STRICTES :
   private async tagImagesWithPOI(imageUrls: string[], poiName: string): Promise<void> {
     if (!poiName || imageUrls.length === 0) return;
     try {
-      await this.db.collection('image_analyses').updateMany(
+      await this.db.collection(COLLECTIONS.image_analyses).updateMany(
         { url: { $in: imageUrls } },
         { $addToSet: { poi_names: poiName } }
       );
@@ -1314,11 +1315,11 @@ INSTRUCTIONS STRICTES :
    */
   /** Retourne l'ensemble des URLs d'images associées à la destination du guide. */
   private async _buildDestImageUrls(guideId: string): Promise<Set<string>> {
-    const guide = await this.db.collection('guides').findOne({ _id: new ObjectId(guideId) });
+    const guide = await this.db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
     const destination: string = guide?.destination ?? guide?.destinations?.[0] ?? '';
 
     const destArticles = await this.db
-      .collection('articles_raw')
+      .collection(COLLECTIONS.articles_raw)
       .find(
         destination ? { categories: { $regex: destination, $options: 'i' } } : {},
         { projection: { images: 1 } }
@@ -1360,7 +1361,7 @@ INSTRUCTIONS STRICTES :
       ];
     }
 
-    let analyses = await this.db.collection('image_analyses').find(baseFilter).toArray();
+    let analyses = await this.db.collection(COLLECTIONS.image_analyses).find(baseFilter).toArray();
 
     // Fallback sans filtre destination si aucun résultat
     if (analyses.length === 0 && destImageUrls.size > 0) {
@@ -1376,7 +1377,7 @@ INSTRUCTIONS STRICTES :
           { 'analysis.analysis_summary': { $regex: r } },
         ];
       }
-      analyses = await this.db.collection('image_analyses').find(fallback).toArray();
+      analyses = await this.db.collection(COLLECTIONS.image_analyses).find(fallback).toArray();
     }
 
     const scored = analyses.map((img: any) => {

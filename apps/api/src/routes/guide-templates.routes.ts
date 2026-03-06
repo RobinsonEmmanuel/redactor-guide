@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ObjectId } from 'mongodb';
 import {
+import { COLLECTIONS } from '../config/collections.js';
   CreateGuideTemplateSchema,
   UpdateGuideTemplateSchema,
 } from '@redactor-guide/core-model';
@@ -13,7 +14,7 @@ export default async function guideTemplatesRoutes(
   fastify: FastifyInstance
 ): Promise<void> {
   const db = fastify.mongo.db!;
-  const guideTemplatesCollection = db.collection('guide_templates');
+  const guideTemplatesCollection = db.collection(COLLECTIONS.guide_templates);
 
   /**
    * GET /guide-templates
@@ -236,7 +237,7 @@ export default async function guideTemplatesRoutes(
         }
 
         // Vérifier qu'aucun guide n'utilise ce template
-        const guidesUsingTemplate = await db.collection('guides').countDocuments({
+        const guidesUsingTemplate = await db.collection(COLLECTIONS.guides).countDocuments({
           guide_template_id: id,
         });
 

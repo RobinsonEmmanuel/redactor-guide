@@ -12,6 +12,7 @@
  */
 import OpenAI from 'openai';
 import { Db, ObjectId } from 'mongodb';
+import { parseLinkField } from '../utils/link-field.js';
 
 const LANGUAGE_NAMES: Record<string, string> = {
   en:     'English (British)',
@@ -117,12 +118,10 @@ export class GuideTranslationService {
     for (const [key, value] of Object.entries(content)) {
       if (value === null || value === undefined || value === '') continue;
 
-      // ── Champ lien stocké comme OBJET {label, url} (cas MongoDB natif) ──────
-      if (typeof value === 'object' && !Array.isArray(value)) {
-        const label = (value as any).label;
-        if (typeof label === 'string' && label.trim()) {
-          result[key] = label.trim();
-        }
+      // ── Champ lien {label, url} — objet MongoDB natif ou string JSON ──────────
+      const link = parseLinkField(value);
+      if (link !== null) {
+        if (link.label.trim()) result[key] = link.label.trim();
         continue;
       }
 
@@ -134,16 +133,8 @@ export class GuideTranslationService {
       // Exclure les URLs directes
       if (/^https?:\/\//i.test(str)) continue;
 
-      // ── Champ lien stocké comme STRING JSON "{label, url}" ──────────────────
-      if (str.startsWith('{')) {
-        try {
-          const parsed = JSON.parse(str);
-          if (parsed && typeof parsed.label === 'string' && parsed.label.trim()) {
-            result[key] = parsed.label.trim();
-          }
-        } catch { /* JSON invalide → ignorer */ }
-        continue;
-      }
+      // Exclure les strings JSON qui ne sont pas des liens (objets autres)
+      if (str.startsWith('{')) continue;
 
       // ── Champ répétitif (array JSON) → extraire les noms par card ───────────
       // ex: "INSPIRATION_repetitif_1" → clés plates "INSPIRATION_1_nom_1", …

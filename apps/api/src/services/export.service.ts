@@ -10,11 +10,12 @@ import {
   resolveVariantLayerFromMappings,
 } from '../config/export-mappings.js';
 import {
-import { COLLECTIONS } from '../config/collections.js';
   FieldServiceRunner,
   explodeRepetitifField,
   type ExportedPageSnapshot,
 } from './field-service-runner.service.js';
+import { COLLECTIONS } from '../config/collections.js';
+import { parseLinkField, buildLinkField } from '../utils/link-field.js';
 
 const EXPORTED_STATUSES = ['generee_ia', 'relue', 'validee', 'texte_coule', 'visuels_montes'];
 
@@ -128,18 +129,12 @@ export class ExportService {
             local_path: `images/${tplSlug}/`,
           };
         } else {
-          // Champ lien structuré {label, url} — conserver la représentation JSON
+          // Champ lien structuré {label, url} — sérialiser en JSON string
           // pour que le normaliseur et le script InDesign puissent l'interpréter.
-          if (
-            value !== null &&
-            typeof value === 'object' &&
-            !Array.isArray(value) &&
-            ('url' in (value as object) || 'label' in (value as object))
-          ) {
-            textFields[field.name] = JSON.stringify(value);
-          } else {
-            textFields[field.name] = String(value);
-          }
+          const linkParsed = parseLinkField(value);
+          textFields[field.name] = linkParsed
+            ? buildLinkField(linkParsed.label, linkParsed.url)
+            : String(value);
         }
       }
 
@@ -242,14 +237,10 @@ export class ExportService {
 
           const originalVal = pages[i].content.text[k];
           // Lien JSON {label, url} → reconstruction avec label traduit
-          if (originalVal && originalVal.startsWith('{') && !v.startsWith('{')) {
-            try {
-              const originalParsed = JSON.parse(originalVal);
-              if (originalParsed && 'url' in originalParsed) {
-                pages[i].content.text[k] = JSON.stringify({ ...originalParsed, label: v });
-                continue;
-              }
-            } catch { /* JSON invalide → fallback */ }
+          const originalLink = parseLinkField(originalVal);
+          if (originalLink && !v.startsWith('{')) {
+            pages[i].content.text[k] = buildLinkField(v, originalLink.url);
+            continue;
           }
 
           pages[i].content.text[k] = v;

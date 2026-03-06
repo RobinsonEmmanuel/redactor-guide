@@ -103,12 +103,25 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
         }
       );
 
-      console.log(`✅ ${analyses.length} images analysées et sauvegardées`);
+      // Supprimer les images inutilisables (collages, overlays) de articles_raw.images
+      const pruneResult = await imageAnalysisService.pruneUnusableImages(
+        article._id,
+        article.images,
+        analyses
+      );
+      if (pruneResult.removed > 0) {
+        console.log(`🗑️  ${pruneResult.removed} image(s) inutilisable(s) supprimée(s) de l'article (composite ou overlay) : ${pruneResult.removedUrls.join(', ')}`);
+      }
+
+      console.log(`✅ ${analyses.length} images analysées — ${pruneResult.kept} utilisables, ${pruneResult.removed} supprimées`);
 
       return reply.send({
         success: true,
         articleId: article._id.toString(),
         imagesCount: analyses.length,
+        usableCount: pruneResult.kept,
+        prunedCount: pruneResult.removed,
+        prunedUrls: pruneResult.removedUrls,
         analyses
       });
 
@@ -198,13 +211,26 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
         }
       );
 
-      console.log(`✅ ${analyses.length} images ré-analysées et sauvegardées`);
+      // Supprimer les images inutilisables (collages, overlays) de articles_raw.images
+      const pruneResult = await imageAnalysisService.pruneUnusableImages(
+        article._id,
+        article.images,
+        analyses
+      );
+      if (pruneResult.removed > 0) {
+        console.log(`🗑️  ${pruneResult.removed} image(s) inutilisable(s) supprimée(s) de l'article (composite ou overlay) : ${pruneResult.removedUrls.join(', ')}`);
+      }
+
+      console.log(`✅ ${analyses.length} images ré-analysées — ${pruneResult.kept} utilisables, ${pruneResult.removed} supprimées`);
 
       return reply.send({
         success: true,
         reanalyzed: true,
         articleId: article._id.toString(),
         imagesCount: analyses.length,
+        usableCount: pruneResult.kept,
+        prunedCount: pruneResult.removed,
+        prunedUrls: pruneResult.removedUrls,
         analyses
       });
 

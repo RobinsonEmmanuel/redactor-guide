@@ -302,6 +302,58 @@ export class ImageAnalysisService {
     });
   }
 
+  /**
+   * Supprime de articles_raw.images les URLs inutilisables détectées après analyse.
+   * Une image est inutilisable si elle est un collage (is_composite) ou porte un
+   * texte/logo incrusté (has_text_overlay).
+   *
+   * Les documents image_analyses correspondants sont conservés en base (avec leurs
+   * flags) pour éviter de re-soumettre ces URLs à l'analyse lors d'une prochaine passe.
+   *
+   * Retourne un résumé : { removed, kept, removedUrls }
+   */
+  async pruneUnusableImages(
+    articleId: import('mongodb').ObjectId,
+    originalUrls: string[],
+    analyses: ImageAnalysis[]
+  ): Promise<{ removed: number; kept: number; removedUrls: string[] }> {
+    // Construire un Set des URLs inutilisables
+    const unusableUrls = new Set<string>(
+      analyses
+        .filter((a) => a.analysis.is_composite || a.analysis.has_text_overlay)
+        .map((a) => a.url)
+    );
+
+    if (unusableUrls.size === 0) {
+      return { removed: 0, kept: originalUrls.length, removedUrls: [] };
+    }
+
+    const usableUrls = originalUrls.filter((url) => !unusableUrls.has(url));
+    const removedUrls = originalUrls.filter((url) => unusableUrls.has(url));
+
+    // Mettre à jour l'article : remplacer images par la liste filtrée
+    await this.db.collection(COLLECTIONS.articles_raw).updateOne(
+      { _id: articleId },
+      {
+        $set: {
+          images:               usableUrls,
+          images_pruned_at:     new Date().toISOString(),
+          images_pruned_count:  removedUrls.length,
+        },
+      }
+    );
+
+    // Marquer les documents image_analyses correspondants comme inutilisables
+    if (removedUrls.length > 0) {
+      await this.db.collection(COLLECTIONS.image_analyses).updateMany(
+        { url: { $in: removedUrls } },
+        { $set: { pruned_from_articles: true } }
+      );
+    }
+
+    return { removed: removedUrls.length, kept: usableUrls.length, removedUrls };
+  }
+
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }

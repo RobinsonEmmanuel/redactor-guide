@@ -247,16 +247,18 @@ export class WordPressIngestionService implements IWordPressIngestionService {
     let count = 0;
 
     // 1. Créer/mettre à jour le document dans la collection sites
+    // Note : _id est dans $setOnInsert uniquement — MongoDB interdit de modifier
+    // un _id existant via $set (immutable field error).
     await this.sitesCollection.updateOne(
       { url: siteUrl },
       {
         $set: {
           url: siteUrl,
-          _id: siteId,
           name: new URL(siteUrl).hostname,
           updated_at: new Date(),
         },
         $setOnInsert: {
+          _id: siteId,
           created_at: new Date(),
         },
       },

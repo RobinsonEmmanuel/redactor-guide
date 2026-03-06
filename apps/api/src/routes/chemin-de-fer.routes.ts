@@ -2,12 +2,12 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ObjectId } from 'mongodb';
 import {
-import { COLLECTIONS } from '../config/collections.js';
   UpdateCheminDeFerSchema,
   CreatePageSchema,
   UpdatePageSchema,
   CreateSectionSchema,
 } from '@redactor-guide/core-model';
+import { COLLECTIONS } from '../config/collections.js';
 
 export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   /**

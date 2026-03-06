@@ -1,10 +1,10 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ObjectId } from 'mongodb';
 import {
-import { COLLECTIONS } from '../config/collections.js';
   CreateGuideTemplateSchema,
   UpdateGuideTemplateSchema,
 } from '@redactor-guide/core-model';
+import { COLLECTIONS } from '../config/collections.js';
 
 interface GuideTemplateIdParam {
   id: string;

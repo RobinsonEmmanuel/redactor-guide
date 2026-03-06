@@ -2,11 +2,11 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ObjectId } from 'mongodb';
 import {
-import { COLLECTIONS } from '../config/collections.js';
   CreatePromptSchema,
   UpdatePromptSchema,
   PromptResolutionSchema,
 } from '@redactor-guide/core-model';
+import { COLLECTIONS } from '../config/collections.js';
 
 export async function promptsRoutes(fastify: FastifyInstance) {
   /**

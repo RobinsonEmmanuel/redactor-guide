@@ -3,6 +3,10 @@ import { z } from 'zod';
 import { ObjectId } from 'mongodb';
 import { GuideTranslationService } from '../services/guide-translation.service.js';
 
+// Langues cibles supportées pour la traduction IA.
+// 'fr' est volontairement absent : c'est la langue source, non une cible.
+const VALID_TRANSLATION_LANGS = ['en', 'de', 'it', 'es', 'pt-pt', 'nl', 'da', 'sv'] as const;
+
 const CreateGuideSchema = z.object({
   name: z.string().min(1),
   slug: z.string().min(1),
@@ -255,8 +259,8 @@ export async function guidesRoutes(fastify: FastifyInstance) {
     const { guideId } = request.params as { guideId: string };
     const { lang } = request.query as { lang?: string };
 
-    if (!lang || !VALID_LANGS.includes(lang)) {
-      return reply.status(400).send({ error: `Langue invalide. Valeurs acceptées : ${VALID_LANGS.join(', ')}` });
+    if (!lang || !(VALID_TRANSLATION_LANGS as readonly string[]).includes(lang)) {
+      return reply.status(400).send({ error: `Langue invalide. Valeurs acceptées : ${VALID_TRANSLATION_LANGS.join(', ')}` });
     }
     if (!ObjectId.isValid(guideId)) {
       return reply.status(400).send({ error: 'guideId invalide' });
@@ -371,4 +375,3 @@ function normalizeArticle(a: any, targetLang: string) {
   };
 }
 
-const VALID_LANGS = ['en', 'de', 'it', 'es', 'pt-pt', 'nl', 'da', 'sv'];

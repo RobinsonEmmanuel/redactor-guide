@@ -84,7 +84,9 @@ export default function GuideBookCard({ guide }: GuideBookCardProps) {
                 {guide.name}
               </p>
               <h3 className="font-bold text-xl text-white drop-shadow-lg leading-tight">
-                {guide.destinations.join(', ')}
+                {Array.isArray(guide.destinations)
+                  ? guide.destinations.join(', ')
+                  : guide.destination ?? guide.name}
               </h3>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-white/90 drop-shadow">

@@ -13,6 +13,13 @@ const IngestBodySchema = z.object({
   analyzeImages: z.boolean().default(false),
 });
 
+const SyncTranslationsBodySchema = z.object({
+  siteId: z.string().min(1, 'siteId requis'),
+  siteUrl: z.string().url(),
+  jwtToken: z.string().min(1, 'jwtToken requis'),
+  languages: z.array(z.string()).min(1, 'Au moins une langue cible requise'),
+});
+
 const INGEST_JOBS = 'ingest_jobs';
 
 export async function ingestRoutes(fastify: FastifyInstance) {
@@ -166,6 +173,41 @@ export async function ingestRoutes(fastify: FastifyInstance) {
     if (job.result) out.result = job.result as { count: number; errors?: string[] };
     if (job.error) out.error = job.error as string;
     return reply.send(out);
+  });
+
+  /**
+   * POST /ingest/sync-translations
+   * Synchronise uniquement les URLs de traduction (appel léger ?_fields=…) pour
+   * un site déjà ingéré en FR. Ne re-télécharge pas le contenu des articles.
+   * À appeler avant un export dans une langue cible pour enrichir urls_by_lang.
+   */
+  fastify.post('/ingest/sync-translations', async (request, reply) => {
+    try {
+      const body = SyncTranslationsBodySchema.parse(request.body);
+      const wpService = fastify.container.getWordPressIngestionService();
+
+      const result = await wpService.syncTranslationUrls(
+        body.siteId,
+        body.siteUrl,
+        body.jwtToken,
+        body.languages
+      );
+
+      return reply.status(200).send({
+        success: true,
+        updated: result.updated,
+        skipped: result.skipped,
+        errors: result.errors.length > 0 ? result.errors : undefined,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return reply.status(400).send({ error: 'Données invalides', details: error.errors });
+      }
+      fastify.log.error(error);
+      return reply.status(500).send({
+        error: error instanceof Error ? error.message : 'Erreur sync-translations',
+      });
+    }
   });
 
   /**

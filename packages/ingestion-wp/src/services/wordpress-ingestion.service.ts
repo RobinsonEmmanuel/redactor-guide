@@ -2,6 +2,7 @@ import { Db, Collection } from 'mongodb';
 import { ArticleRawSchema, type ArticleRaw, type ImageAnalysis } from '@redactor-guide/core-model';
 import {
   WordPressPostSchema,
+  WordPressPostUrlMinSchema,
   WordPressMediaSchema,
   WordPressCategorySchema,
   WordPressTagSchema,
@@ -30,6 +31,16 @@ export interface IWordPressIngestionService {
     analysisPrompt?: string,
     analyzeImages?: boolean
   ): Promise<IngestArticlesResult>;
+  /**
+   * Synchronise uniquement les URLs de traduction (appel léger avec _fields)
+   * pour un site déjà ingéré en FR. À appeler avant un export traduit.
+   */
+  syncTranslationUrls(
+    siteId: string,
+    siteUrl: string,
+    jwtToken: string,
+    languages: string[]
+  ): Promise<{ updated: number; skipped: number; errors: string[] }>;
   /** Définir le callback pour l'analyse d'images via IA */
   setImageAnalysisCallback(callback: (imageUrls: string[], analysisPrompt: string) => Promise<ImageAnalysis[]>): void;
 }
@@ -215,10 +226,12 @@ export class WordPressIngestionService implements IWordPressIngestionService {
    * Aucune transformation éditoriale.
    * 
    * Stratégie multi-langue :
-   * 1. Récupère tous les articles pour chaque langue (fr, en, de, es, it, pt, nl, pl, ru)
-   * 2. Groupe par `guid` (qui pointe toujours vers l'URL FR pour les traductions WPML)
+   * 1. Récupère tous les articles pour chaque langue (fr, en, de, es, it, pt, nl, …)
+   * 2. Groupe par URL FR :
+   *    - Priorité : `wpml_translations[locale=fr_*].href` (fiable même si le slug change)
+   *    - Fallback  : `guid` (fonctionne dans les configs WPML standard où guid = URL FR)
    * 3. Construit `urls_by_lang` en mappant les `link` de chaque langue
-   * 4. Stocke UN SEUL article par guid (version FR) avec toutes les URLs
+   * 4. Stocke UN SEUL article par URL FR avec toutes les URLs
    * 5. Optionnel : analyse les images avec OpenAI Vision
    */
   async ingestArticlesToRaw(
@@ -289,7 +302,6 @@ export class WordPressIngestionService implements IWordPressIngestionService {
 
           for (const post of posts) {
             const guid = post.guid?.rendered ?? '';
-            if (!guid) continue;
 
             // Déterminer la clé de groupement (URL FR)
             let frUrl: string;
@@ -297,12 +309,20 @@ export class WordPressIngestionService implements IWordPressIngestionService {
               // Pour les articles FR, la clé est leur propre link
               frUrl = post.link;
             } else {
-              // Pour les traductions, le guid pointe vers l'URL FR
-              // Si le guid est au format ?p=ID, on skip (article orphelin)
-              if (guid.includes('?p=')) {
-                continue;
+              // Stratégie 1 : wpml_translations contient l'URL FR de l'article original.
+              // Fiable même quand le slug change selon la langue (ex : visite → visita).
+              const frTranslation = post.wpml_translations?.find(
+                (t) => t.locale.startsWith('fr') && t.href
+              );
+
+              if (frTranslation?.href) {
+                frUrl = frTranslation.href;
+              } else {
+                // Stratégie 2 (fallback) : le guid pointe vers l'URL FR dans les
+                // configurations WPML standard. Skip si format ?p=ID (article orphelin).
+                if (!guid || guid.includes('?p=')) continue;
+                frUrl = guid;
               }
-              frUrl = guid;
             }
 
             // LOG DEBUG : afficher les 3 premiers articles de chaque langue pour debug
@@ -331,6 +351,41 @@ export class WordPressIngestionService implements IWordPressIngestionService {
     }
 
     console.log(`Total: ${articlesByFrUrl.size} articles uniques (groupés par URL FR)`);
+
+    // ── Réconciliation des groupes orphelins ──────────────────────────────────
+    // Cas résiduel : le guid d'une traduction pointait vers l'URL d'une autre
+    // traduction (pas FR) qui est elle-même correctement rattachée à un groupe FR.
+    // On construit un index inverse url→clé_fr pour détecter et fusionner ces cas.
+
+    const urlToFrKey = new Map<string, string>();
+    for (const [frKey, postsByLang] of articlesByFrUrl.entries()) {
+      urlToFrKey.set(frKey, frKey);
+      for (const [, post] of postsByLang.entries()) {
+        urlToFrKey.set(post.link, frKey);
+      }
+    }
+
+    const orphans = [...articlesByFrUrl.entries()].filter(([, g]) => !g.has('fr'));
+    let reconciledCount = 0;
+
+    for (const [orphanKey, orphanGroup] of orphans) {
+      const targetFrKey = urlToFrKey.get(orphanKey);
+      if (targetFrKey && targetFrKey !== orphanKey && articlesByFrUrl.has(targetFrKey)) {
+        const targetGroup = articlesByFrUrl.get(targetFrKey)!;
+        if (targetGroup.has('fr')) {
+          for (const [lang, post] of orphanGroup.entries()) {
+            if (!targetGroup.has(lang)) targetGroup.set(lang, post);
+          }
+          articlesByFrUrl.delete(orphanKey);
+          reconciledCount++;
+          console.log(`🔗 Réconcilié (guid chaîné) : "${orphanKey.substring(0, 60)}" → "${targetFrKey.substring(0, 60)}"`);
+        }
+      }
+    }
+
+    if (reconciledCount > 0) {
+      console.log(`✅ ${reconciledCount} groupe(s) réconcilié(s). Total final : ${articlesByFrUrl.size} articles.`);
+    }
 
     // LOG DEBUG : afficher les langues disponibles pour les 3 premiers groupes
     let debugCount = 0;
@@ -474,6 +529,105 @@ export class WordPressIngestionService implements IWordPressIngestionService {
   }
 
   /**
+   * Synchronise uniquement les URLs de traduction pour un site déjà ingéré en FR.
+   *
+   * Pour chaque langue cible, fait un appel WP REST léger avec
+   * ?_fields=id,link,guid,wpml_translations afin d'éviter de télécharger le
+   * contenu complet. Pour chaque post trouvé on identifie l'article FR
+   * correspondant via wpml_translations puis on met à jour uniquement
+   * `urls_by_lang.{lang}` dans articles_raw.
+   *
+   * À appeler après une ingestion FR, ou à la demande avant un export traduit.
+   */
+  async syncTranslationUrls(
+    siteId: string,
+    siteUrl: string,
+    jwtToken: string,
+    languages: string[]
+  ): Promise<{ updated: number; skipped: number; errors: string[] }> {
+    const errors: string[] = [];
+    let updated = 0;
+    let skipped = 0;
+
+    const nonFrLangs = languages.filter((l) => l !== 'fr');
+    if (nonFrLangs.length === 0) return { updated, skipped, errors };
+
+    console.log(`🌐 Sync URLs traductions — ${nonFrLangs.join(', ')} pour site ${siteId}`);
+
+    for (const lang of nonFrLangs) {
+      console.log(`  -> Langue : ${lang}`);
+      let page = 1;
+      const perPage = 100;
+      let hasMore = true;
+      let langUpdated = 0;
+
+      while (hasMore) {
+        try {
+          const queryParams = new URLSearchParams({
+            page: page.toString(),
+            per_page: perPage.toString(),
+            status: 'publish',
+            lang,
+            _fields: 'id,link,guid,wpml_translations',
+          });
+          const url = `${siteUrl}/wp-json/wp/v2/posts?${queryParams}`;
+          const rawData = await this.getWithAuth<unknown[]>(url, jwtToken);
+
+          if (rawData.length === 0) break;
+
+          for (const raw of rawData) {
+            const post = WordPressPostUrlMinSchema.parse(raw);
+
+            // Trouver l'URL FR de référence via wpml_translations
+            const frTranslation = post.wpml_translations?.find(
+              (t) => t.locale.startsWith('fr') && t.href
+            );
+            const frUrl = frTranslation?.href ?? post.guid?.rendered;
+
+            if (!frUrl || frUrl.includes('?p=')) {
+              skipped++;
+              continue;
+            }
+
+            // Chercher l'article FR en base (par site_id + urls_by_lang.fr)
+            const filter = {
+              site_id: siteId,
+              $or: [
+                { 'urls_by_lang.fr': frUrl },
+                { 'urls_by_lang.fr': { $regex: new RegExp(escapeRegex(frUrl.replace(/\/$/, '')), 'i') } },
+              ],
+            };
+
+            const result = await this.articlesRawCollection.updateOne(
+              filter,
+              { $set: { [`urls_by_lang.${lang}`]: post.link } }
+            );
+
+            if (result.matchedCount > 0) {
+              langUpdated++;
+            } else {
+              skipped++;
+            }
+          }
+
+          page++;
+          hasMore = rawData.length === perPage;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          errors.push(`[${lang}] page ${page} : ${msg}`);
+          break;
+        }
+      }
+
+      updated += langUpdated;
+      console.log(`     ${langUpdated} URLs mises à jour pour [${lang}]`);
+    }
+
+    console.log(`✅ Sync terminé — ${updated} URLs mises à jour, ${skipped} ignorées`);
+    return { updated, skipped, errors };
+  }
+
+  /**
    * Ingérer un post dans MongoDB
    */
   async ingestPost(post: WordPressPost, siteUrl: string): Promise<void> {
@@ -512,4 +666,8 @@ export class WordPressIngestionService implements IWordPressIngestionService {
       { upsert: true }
     );
   }
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

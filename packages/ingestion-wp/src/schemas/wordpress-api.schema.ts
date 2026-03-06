@@ -53,6 +53,24 @@ export const WordPressPostSchema = z.object({
 export type WordPressPost = z.infer<typeof WordPressPostSchema>;
 
 /**
+ * Schema allégé pour la synchronisation des URLs de traduction.
+ * Utilisé avec le paramètre WP REST ?_fields=id,link,guid,wpml_translations
+ * afin d'éviter de télécharger le contenu complet des articles non-FR.
+ */
+export const WordPressPostUrlMinSchema = z.object({
+  id: z.number(),
+  link: z.string().url(),
+  guid: z.object({ rendered: z.string() }).optional(),
+  wpml_translations: z.array(z.object({
+    locale: z.string(),
+    id: z.number(),
+    href: z.string().url().optional(),
+  })).optional(),
+}).passthrough();
+
+export type WordPressPostUrlMin = z.infer<typeof WordPressPostUrlMinSchema>;
+
+/**
  * Schema pour les médias WordPress
  */
 export const WordPressMediaSchema = z.object({

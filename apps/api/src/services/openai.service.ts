@@ -45,7 +45,7 @@ export class OpenAIService {
     const useReasoning = supportsReasoning(this.model);
     // Pour les modèles avec reasoning, imposer un minimum de 8000 tokens
     // afin que le raisonnement interne ne consomme pas toute la fenêtre.
-    const effectiveMaxTokens = useReasoning ? Math.max(maxOutputTokens, 8000) : maxOutputTokens;
+    let effectiveMaxTokens = useReasoning ? Math.max(maxOutputTokens, 8000) : maxOutputTokens;
 
     let lastError: Error = new Error('Aucune tentative effectuée');
 
@@ -60,6 +60,7 @@ export class OpenAIService {
         console.log(`🤖 Appel OpenAI - Modèle: ${this.model}, Max tokens: ${effectiveMaxTokens}${useReasoning ? `, Reasoning: ${this.reasoningEffort}` : ''}${attempt > 1 ? ` (tentative ${attempt}/${maxRetries})` : ''}`);
 
         let content: string;
+        let finishReason: string | null = null;
 
         if (useReasoning) {
           // API Responses (gpt-5-mini, o3, o4-mini…)
@@ -99,13 +100,14 @@ export class OpenAIService {
           });
 
           content = response.choices[0]?.message?.content ?? '';
+          finishReason = response.choices[0]?.finish_reason ?? null;
         }
 
         if (!content) {
           throw new Error('Réponse OpenAI vide (contenu extrait vide)');
         }
 
-        console.log(`✅ Réponse OpenAI reçue (${content.length} caractères)`);
+        console.log(`✅ Réponse OpenAI reçue (${content.length} caractères, finish_reason: ${finishReason ?? 'n/a'})`);
 
         // Nettoyer le contenu (enlever markdown, espaces, etc.)
         let cleanedContent = content.trim();
@@ -116,13 +118,20 @@ export class OpenAIService {
         }
         cleanedContent = cleanedContent.trim();
 
-        console.log(`📝 Début: "${cleanedContent.substring(0, 100)}..."`);
-        console.log(`📝 Fin: "...${cleanedContent.substring(cleanedContent.length - 100)}"`);
-
         try {
           return JSON.parse(cleanedContent);
         } catch (parseError: any) {
-          console.error('❌ Erreur parsing JSON:', parseError.message);
+          console.error(`❌ Erreur parsing JSON (tentative ${attempt}/${maxRetries}):`, parseError.message);
+
+          // Réponse tronquée (finish_reason='length') : doubler les tokens et retenter
+          if (finishReason === 'length' || !cleanedContent.endsWith('}') && !cleanedContent.endsWith(']')) {
+            console.warn(`⚠️  Réponse tronquée détectée — augmentation de max_tokens : ${effectiveMaxTokens} → ${effectiveMaxTokens * 2}`);
+            effectiveMaxTokens = effectiveMaxTokens * 2;
+            lastError = new Error(`Réponse tronquée (${content.length} chars)`);
+            continue; // retenter avec plus de tokens
+          }
+
+          // JSON reçu entier mais malformé → inutile de retenter
           console.error('📄 Contenu complet reçu:', content);
           throw new Error(`Erreur parsing JSON: ${parseError.message}`);
         }
@@ -133,7 +142,7 @@ export class OpenAIService {
         if ((error as any).response) {
           console.error('Détails erreur API:', (error as any).response.data);
         }
-        // Ne pas retenter sur les erreurs de parsing JSON (le contenu est reçu mais invalide)
+        // Erreur réseau/API → retenter. Erreur JSON malformé → déjà gérée ci-dessus.
         if (lastError.message.startsWith('Erreur parsing JSON')) {
           break;
         }

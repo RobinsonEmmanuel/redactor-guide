@@ -20,6 +20,7 @@ interface POI {
   nom: string;
   type: string;
   cluster_name?: string;
+  url_source?: string;
 }
 
 interface Inspiration {
@@ -55,7 +56,20 @@ function DraggablePOI({ poi, inspirationsCount }: { poi: POI; inspirationsCount:
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-gray-900 truncate">{poi.nom}</div>
+          {poi.url_source ? (
+            <a
+              href={poi.url_source}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Ouvrir l'article source"
+              className="text-sm font-medium text-blue-700 hover:underline truncate block"
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              {poi.nom}
+            </a>
+          ) : (
+            <div className="text-sm font-medium text-gray-900 truncate">{poi.nom}</div>
+          )}
           <div className="text-xs text-gray-500">{poi.type}</div>
           {poi.cluster_name && (
             <div className="text-xs text-blue-600 mt-0.5">📍 {poi.cluster_name}</div>

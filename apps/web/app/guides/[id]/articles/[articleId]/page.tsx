@@ -67,7 +67,11 @@ export default function ArticleDetailPage() {
     );
   }
 
-  const languages = ['fr', 'en', 'de', 'es', 'it', 'pt', 'nl', 'pl', 'ru'];
+  const languages = Object.keys(article.urls_by_lang || {}).sort((a, b) => {
+    const order = ['fr', 'en', 'de', 'es', 'it', 'pt-pt', 'nl', 'da', 'sv'];
+    const ia = order.indexOf(a), ib = order.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  });
 
   return (
     <div className="flex h-screen">

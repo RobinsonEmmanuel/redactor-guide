@@ -143,6 +143,75 @@ export class PerplexityService {
   }
 
   /**
+   * Vérifie quel choix parmi des options prédéfinies est le plus correct pour un lieu donné.
+   * Utilisé pour les champs de type "picto" (Oui/Non, niveau d'accessibilité, etc.).
+   *
+   * @param renderedPrompt Prompt résolu avec les variables {{PLACE_NAME}}, {{FIELD_NAME}}, {{CURRENT_VALUE}}, {{OPTIONS_LIST}}
+   */
+  async verifyPictoChoice(renderedPrompt: string): Promise<{
+    recommended: string;
+    current_is_correct: boolean;
+    confidence: number;
+    reason: string;
+    sources: Array<{ type: string; url: string; display_name: string }>;
+    grounding_sources: Array<{ uri: string; display_name: string }>;
+  }> {
+    const response = await fetch('https://api.perplexity.ai/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: this.model,
+        messages: [{ role: 'user', content: renderedPrompt }],
+        return_citations: true,
+        temperature: 0.1,
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`Perplexity API error ${response.status}: ${err}`);
+    }
+
+    const data = (await response.json()) as any;
+    const rawContent: string = data.choices?.[0]?.message?.content || '';
+    const citations: string[] = data.citations || [];
+
+    const groundingSources = citations
+      .filter((u) => u && !u.includes('canarias-lovers.com'))
+      .map((uri) => ({ uri, display_name: perplexityDisplayName(uri) }));
+
+    let cleaned = rawContent
+      .replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error(`Pas de JSON dans la réponse Perplexity verifyPicto: ${cleaned.substring(0, 300)}`);
+
+    let parsed: { recommended: string; current_is_correct: boolean; confidence: number; reason: string; sources: any[] };
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch {
+      throw new Error(`Impossible de parser la réponse Perplexity verifyPicto: ${jsonMatch[0].substring(0, 300)}`);
+    }
+
+    const sources = (parsed.sources ?? []).map((s: any) => {
+      const rawUrl = s.url || (s.source_ref ? citations[s.source_ref - 1] : undefined) || '';
+      const url = rawUrl && !rawUrl.includes('canarias-lovers.com') ? rawUrl : '';
+      return { type: s.type || 'commercial', url, display_name: url ? perplexityDisplayName(url) : '' };
+    }).filter((s: any) => s.url);
+
+    return {
+      recommended: parsed.recommended ?? '',
+      current_is_correct: !!parsed.current_is_correct,
+      confidence: parsed.confidence ?? 0,
+      reason: parsed.reason ?? '',
+      sources,
+      grounding_sources: groundingSources,
+    };
+  }
+
+  /**
    * Vérifie une liste d'éléments candidats et les classe en VALIDATED / UNCERTAIN / REJECTED.
    * Utilisé par le mode "Contrôler" champ par champ (2 étapes : vérification puis réécriture).
    *

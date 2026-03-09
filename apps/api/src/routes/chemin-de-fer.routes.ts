@@ -1413,6 +1413,74 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * POST /guides/:guideId/chemin-de-fer/pages/:pageId/verify-picto
+   * Vérifie via Perplexity si l'option sélectionnée pour un champ picto est correcte
+   * et recommande la bonne valeur parmi les options disponibles.
+   */
+  fastify.post<{
+    Params: { guideId: string; pageId: string };
+    Body: { field_name: string; field_label?: string; current_value: string; options: string[]; place_name?: string };
+  }>(
+    '/guides/:guideId/chemin-de-fer/pages/:pageId/verify-picto',
+    async (request, reply) => {
+      const db = request.server.container.db;
+      const { guideId, pageId } = request.params;
+      const { field_name, field_label, current_value, options, place_name } = request.body;
+
+      if (!options?.length) return reply.code(400).send({ error: 'options est requis' });
+
+      try {
+        const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
+        const destination: string = guide?.destination ?? 'destination inconnue';
+        const page = await db.collection(COLLECTIONS.pages).findOne({ _id: new ObjectId(pageId) });
+        if (!page) return reply.code(404).send({ error: 'Page non trouvée' });
+
+        const perplexityApiKey = process.env.PERPLEXITY_API_KEY;
+        if (!perplexityApiKey) return reply.code(503).send({ error: 'PERPLEXITY_API_KEY non configurée' });
+
+        const { PerplexityService } = await import('../services/perplexity.service');
+        const perplexity = new PerplexityService(perplexityApiKey, 'sonar');
+
+        const name = place_name || page.titre || 'Lieu';
+        const fieldLabel = field_label || field_name;
+
+        const promptDoc = await db.collection(COLLECTIONS.prompts).findOne({ prompt_id: 'verification_picto' });
+        if (!promptDoc?.texte_prompt) {
+          return reply.code(503).send({ error: 'Prompt "verification_picto" introuvable. Lancez POST /prompts/seed-verification.' });
+        }
+
+        const PICTO_LABELS: Record<string, string> = {
+          incontournable: 'Incontournable (lieu exceptionnel)',
+          interessant:    'Intéressant (vaut le détour)',
+          a_voir:         'À voir (si on passe dans le secteur)',
+          '100':          'Accessible 100% (PMR)',
+          '50':           'Partiellement accessible (PMR)',
+          '0':            'Non accessible (PMR)',
+          oui:            'Oui',
+          non:            'Non',
+        };
+        const optionsList = options.map(o => `- "${o}": ${PICTO_LABELS[o] ?? o}`).join('\n');
+        const currentLabel = `"${current_value}": ${PICTO_LABELS[current_value] ?? current_value}`;
+
+        const renderedPrompt = promptDoc.texte_prompt
+          .replace(/\{\{PLACE_NAME\}\}/g, `${name} (${destination})`)
+          .replace(/\{\{FIELD_NAME\}\}/g, fieldLabel)
+          .replace(/\{\{CURRENT_VALUE\}\}/g, currentLabel)
+          .replace(/\{\{OPTIONS_LIST\}\}/g, optionsList);
+
+        console.log(`🎯 [VERIFY-PICTO] "${name}" / "${fieldLabel}" — valeur actuelle: ${current_value}`);
+
+        const result = await perplexity.verifyPictoChoice(renderedPrompt);
+        return reply.send({ field_name, field_label: fieldLabel, current_value, options, ...result });
+
+      } catch (error: any) {
+        console.error('❌ [VERIFY-PICTO] Erreur:', error);
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
+
+  /**
    * POST /guides/:guideId/chemin-de-fer/pages/:pageId/verify-field
    * Étape 1 du mode "Contrôler" champ par champ :
    * vérifie les éléments candidats d'un champ via Perplexity Sonar et les classe

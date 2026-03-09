@@ -272,6 +272,9 @@ export default function ContentEditorModal({
   const [selectedElements, setSelectedElements] = useState<Record<string, Set<string>>>({});
   const [fieldRewriteLoading, setFieldRewriteLoading] = useState<Set<string>>(new Set());
   const [fieldRewriteResults, setFieldRewriteResults] = useState<Record<string, string>>({});
+  // ─── État vérification picto ─────────────────────────────────────────────
+  const [pictoVerifyLoading, setPictoVerifyLoading] = useState<Set<string>>(new Set());
+  const [pictoVerifyResults, setPictoVerifyResults] = useState<Record<string, any>>({});
 
   useEffect(() => {
     setFormData(resolveContentVars(content || {}, page));
@@ -824,6 +827,148 @@ export default function ContentEditorModal({
     );
   };
 
+  // ─── Vérification picto ────────────────────────────────────────────────────
+
+  const handleVerifyPicto = async (field: TemplateField) => {
+    const currentValue = (formData[field.name] || '').toString();
+    if (!field.options?.length) return;
+    setPictoVerifyLoading(prev => new Set(prev).add(field.name));
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}/verify-picto`,
+        {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            field_name: field.name,
+            field_label: field.label,
+            current_value: currentValue,
+            options: field.options,
+            place_name: page.titre,
+          }),
+        }
+      );
+      const data = await res.json();
+      if (res.ok) {
+        setPictoVerifyResults(prev => ({ ...prev, [field.name]: data }));
+      } else {
+        setError(data.error || 'Erreur vérification picto');
+      }
+    } catch {
+      setError('Erreur réseau lors de la vérification picto');
+    } finally {
+      setPictoVerifyLoading(prev => { const n = new Set(prev); n.delete(field.name); return n; });
+    }
+  };
+
+  const FieldPictoVerifyPanel = ({ field }: { field: TemplateField }) => {
+    const isVerifying = pictoVerifyLoading.has(field.name);
+    const result = pictoVerifyResults[field.name];
+    const currentValue = (formData[field.name] || '').toString();
+
+    const PICTO_CFG: Record<string, { label: string; icon: string; color: string }> = {
+      incontournable: { label: 'Incontournable', icon: '😄', color: 'bg-green-100 border-green-400 text-green-800' },
+      interessant:    { label: 'Intéressant',    icon: '😊', color: 'bg-blue-100 border-blue-400 text-blue-800' },
+      a_voir:         { label: 'À voir',          icon: '🙂', color: 'bg-gray-100 border-gray-400 text-gray-700' },
+      '100':          { label: 'Accessible 100%', icon: '♿', color: 'bg-green-100 border-green-400 text-green-800' },
+      '50':           { label: 'Partiellement',   icon: '♿', color: 'bg-yellow-100 border-yellow-400 text-yellow-800' },
+      '0':            { label: 'Non accessible',  icon: '🚫', color: 'bg-red-100 border-red-400 text-red-800' },
+      oui:            { label: 'Oui',             icon: '✅', color: 'bg-green-100 border-green-400 text-green-800' },
+      non:            { label: 'Non',             icon: '❌', color: 'bg-red-100 border-red-400 text-red-800' },
+    };
+
+    const getOptionLabel = (key: string) => PICTO_CFG[key]?.label ?? key;
+    const getOptionIcon  = (key: string) => PICTO_CFG[key]?.icon  ?? '●';
+    const getOptionColor = (key: string) => PICTO_CFG[key]?.color ?? 'bg-gray-100 border-gray-300 text-gray-700';
+
+    const confidencePct = result ? Math.round(result.confidence * 100) : 0;
+    const confidenceColor = confidencePct >= 80 ? 'text-emerald-700' : confidencePct >= 50 ? 'text-amber-600' : 'text-red-600';
+
+    return (
+      <div className="mt-2">
+        {!result && !isVerifying && (
+          <button
+            type="button"
+            onClick={() => handleVerifyPicto(field)}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-sky-700 border border-sky-300 bg-sky-50 hover:bg-sky-100 rounded-md transition-colors"
+          >
+            <MagnifyingGlassIcon className="w-3.5 h-3.5" />
+            Vérifier via Sonar
+          </button>
+        )}
+
+        {isVerifying && (
+          <div className="flex items-center gap-1.5 text-xs text-sky-600 py-1">
+            <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+            Vérification Perplexity…
+          </div>
+        )}
+
+        {result && !isVerifying && (
+          <div className={`mt-1 border rounded-lg p-3 space-y-2 text-xs ${result.current_is_correct ? 'border-emerald-200 bg-emerald-50/50' : 'border-amber-200 bg-amber-50/50'}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 font-semibold">
+                {result.current_is_correct
+                  ? <><CheckCircleIcon className="w-4 h-4 text-emerald-600" /><span className="text-emerald-700">Choix confirmé</span></>
+                  : <><QuestionMarkCircleIcon className="w-4 h-4 text-amber-600" /><span className="text-amber-700">Perplexity recommande un autre choix</span></>
+                }
+                <span className={`ml-1 font-bold ${confidenceColor}`}>{confidencePct}%</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleVerifyPicto(field)}
+                className="text-gray-400 hover:text-sky-600 transition-colors"
+                title="Relancer la vérification"
+              >
+                <ArrowPathIcon className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Raison + sources */}
+            <p className="text-gray-600 leading-snug">{result.reason}</p>
+            {result.sources?.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {result.sources.map((s: any, i: number) => (
+                  <a key={i} href={s.url} target="_blank" rel="noopener noreferrer"
+                    className="text-[10px] text-gray-500 hover:text-blue-600 underline">
+                    {s.display_name || s.url}
+                  </a>
+                ))}
+              </div>
+            )}
+
+            {/* Si recommandation différente : bouton pour appliquer */}
+            {!result.current_is_correct && result.recommended && result.recommended !== currentValue && (
+              <div className="pt-1.5 border-t border-amber-200">
+                <p className="text-gray-500 mb-1.5">
+                  Valeur actuelle : <span className="font-medium">{getOptionIcon(currentValue)} {getOptionLabel(currentValue)}</span>
+                  {' → '}
+                  Recommandé : <span className="font-medium">{getOptionIcon(result.recommended)} {getOptionLabel(result.recommended)}</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleFieldChange(field.name, result.recommended);
+                    setPictoVerifyResults(prev => {
+                      const n = { ...prev };
+                      n[field.name] = { ...n[field.name], current_is_correct: true };
+                      return n;
+                    });
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 text-xs font-medium transition-all ${getOptionColor(result.recommended)}`}
+                >
+                  <span>{getOptionIcon(result.recommended)}</span>
+                  <span>Appliquer "{getOptionLabel(result.recommended)}"</span>
+                  <CheckCircleIcon className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderField = (field: TemplateField) => {
     const fieldValue = formData[field.name] || '';
 
@@ -1212,6 +1357,7 @@ export default function ContentEditorModal({
               <p className="mt-1 text-xs text-amber-600">⚠️ Valeur non renseignée</p>
             )}
             <FieldValidationBlock fieldName={field.name} />
+            {fieldValue && field.options?.length ? <FieldPictoVerifyPanel field={field} /> : null}
           </div>
         );
 

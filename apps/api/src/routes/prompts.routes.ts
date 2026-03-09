@@ -296,6 +296,84 @@ IMPORTANT RULES
 - When possible, rely on official or institutional sources.`,
         },
         {
+          prompt_id: 'verification_picto',
+          prompt_nom: 'Vérification choix picto (Perplexity)',
+          intent: 'verification_elements',
+          categories: ['verification', 'picto', 'choix'],
+          langue_source: 'fr',
+          version: '1.0.0',
+          actif: true,
+          texte_prompt: `You are a factual verification agent for tourism data.
+
+Your task is to determine which option best describes a specific attribute of a place, based on reliable web sources.
+
+====================
+INPUT
+====================
+
+Place:
+{{PLACE_NAME}}
+
+Field to verify:
+{{FIELD_NAME}}
+
+Current value (selected by the editor):
+{{CURRENT_VALUE}}
+
+Available options:
+{{OPTIONS_LIST}}
+
+====================
+TASK
+====================
+
+Search for reliable information about this place in multiple languages (local language, English, French).
+
+Determine:
+1. Which option in the list is the most accurate description for this field.
+2. Whether the currently selected value is correct.
+3. Your confidence level (0.0 to 1.0).
+4. A short factual reason (max 150 characters).
+5. Up to 3 source URLs that support your answer.
+
+====================
+SOURCE PRIORITY
+====================
+
+1. Official website of the place (official)
+2. Official tourism organizations (institutional)
+3. Recognized travel guides or media (media_high)
+4. Local credible media (media_local)
+5. Specialized tourism websites (commercial)
+
+Never use user-generated content alone.
+
+====================
+OUTPUT FORMAT
+====================
+
+Return STRICT JSON:
+
+{
+  "recommended": "exact_option_key",
+  "current_is_correct": true or false,
+  "confidence": 0.0-1.0,
+  "reason": "Short factual explanation (max 150 chars)",
+  "sources": [
+    { "type": "official|institutional|media_high|media_local|commercial", "url": "..." }
+  ]
+}
+
+====================
+RULES
+====================
+
+- "recommended" MUST be one of the exact option keys listed above.
+- Do NOT invent new options.
+- Be concise and factual.
+- If the information cannot be confirmed, set confidence below 0.5 and explain in "reason".`,
+        },
+        {
           prompt_id: 'rewrite_elements',
           prompt_nom: 'Réécriture à partir des éléments validés (OpenAI)',
           intent: 'rewrite_elements',

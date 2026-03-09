@@ -81,32 +81,92 @@ function stripReusableBlockImages(html: string): string {
 }
 
 /**
- * Extrait toutes les URLs d'images du HTML en filtrant les blocs réutilisables.
+ * Supprime toutes les <img> provenant de blocs site-wide non liés au contenu éditorial :
+ * - Blocs newsletter    : conteneur "newsletter-radius" ou div "newsletter-image"
+ * - Blocs auteur/équipe : conteneur "box_auteur_voyage", figure "img_auteur_voyage" / "img_provisoire"
+ * - Blocs planning      : colonne "planif-radius" (photos hôtels hors-sujet)
+ *
+ * Algorithme : pour chaque classe identifiante, trouve TOUTES les balises ouvrantes
+ * correspondantes et supprime l'ensemble des <img> dans les 6000 chars suivants.
+ */
+function stripSiteWideBlockImages(html: string): string {
+  let result = html;
+
+  // Convention de nommage des blocs site-wide : suffixe "-radius" sur le conteneur,
+  // "-image" sur le div parent immédiat de l'image (newsletter-image, ebook-image, …).
+  const EXCLUDED_CLASSES = [
+    'newsletter-radius',   // CTA newsletter
+    'newsletter-image',    // div image newsletter
+    'ebook-radius',        // CTA ebook / waitlist
+    'ebook-image',         // div image ebook
+    'box_auteur_voyage',   // conteneur bio auteur
+    'img_auteur_voyage',   // figure image auteur
+    'img_provisoire',      // figure image provisoire
+    'planif-radius',       // colonne planning / hôtels hors-sujet
+  ];
+
+  // Fenêtre de scan après la balise ouvrante.
+  // Les gros conteneurs (newsletter, auteur, ebooks) peuvent faire 4000+ chars.
+  // Les colonnes planif-radius sont courtes (~400 chars) : fenêtre réduite pour
+  // éviter de déborder sur les photos légitimes qui suivent immédiatement.
+  const WINDOW: Record<string, number> = {
+    'planif-radius': 600,
+  };
+  const DEFAULT_WINDOW = 6000;
+
+  for (const cls of EXCLUDED_CLASSES) {
+    const window = WINDOW[cls] ?? DEFAULT_WINDOW;
+    const openTagRe = new RegExp(`<[a-z]+[^>]*class="[^"]*${cls}[^"]*"[^>]*>`, 'gi');
+    let m: RegExpExecArray | null;
+    const matches: RegExpExecArray[] = [];
+    while ((m = openTagRe.exec(result)) !== null) matches.push(m);
+
+    // Parcourir à rebours pour ne pas décaler les index lors des remplacements
+    for (let i = matches.length - 1; i >= 0; i--) {
+      const start = matches[i].index + matches[i][0].length;
+      const end   = Math.min(start + window, result.length);
+      const inner = result.slice(start, end).replace(/<img[^>]*>/gi, '');
+      result = result.slice(0, start) + inner + result.slice(end);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Extrait toutes les URLs d'images du HTML en filtrant les blocs hors-sujet.
  * Cherche les balises <img> et extrait les attributs src.
  *
+ * Blocs exclus :
+ * - Blocs réutilisables Gutenberg (<!-- wp:block {"ref":X} /-->)
+ * - Blocs newsletter, auteur, planning (via classes CSS)
+ * - Blocs de navigation / structure (nav, header, footer)
+ *
  * @param html - HTML brut de l'article WordPress (content.rendered)
- * @returns URLs uniques des images (hors blocs réutilisables)
+ * @returns URLs uniques des images (hors blocs génériques)
  */
 export function extractImageUrls(html: string): string[] {
   if (!html || typeof html !== 'string') return [];
 
-  // 1. Supprimer les images provenant de blocs réutilisables Gutenberg
-  //    (<!-- wp:block {"ref":X} /--> — synced patterns, widgets site-wide)
+  // 1. Supprimer les images des blocs réutilisables Gutenberg (synced patterns)
   let cleanedHtml = stripReusableBlockImages(html);
 
-  // 2. Retirer les blocs réutilisables identifiés par classe CSS (fallback pour anciens thèmes)
+  // 2. Supprimer les images des blocs site-wide (newsletter, auteur, planning)
+  cleanedHtml = stripSiteWideBlockImages(cleanedHtml);
+
+  // 3. Retirer les blocs réutilisables identifiés par classe CSS (fallback anciens thèmes)
   cleanedHtml = cleanedHtml.replace(
     /<div[^>]*class="[^"]*(?:wp-block-reusable|wp-block-template-part|reusable-block)[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
     ''
   );
 
-  // 3. Retirer les blocs Gutenberg de navigation / structure (nav, header, footer)
+  // 4. Retirer les blocs de navigation / structure (nav, header, footer)
   cleanedHtml = cleanedHtml.replace(
     /<(?:nav|header|footer)[^>]*class="[^"]*wp-block[^"]*"[^>]*>[\s\S]*?<\/(?:nav|header|footer)>/gi,
     ''
   );
 
-  // 4. Extraire les URLs des images restantes
+  // 5. Extraire les URLs des images restantes
   const urls: string[] = [];
   const imgRegex = /<img[^>]+src=["']([^"']+)["']/gi;
   let match;
@@ -129,7 +189,7 @@ export function extractImageUrls(html: string): string[] {
     urls.push(url);
   }
 
-  // 5. Retourner URLs uniques
+  // 6. Retourner URLs uniques
   return Array.from(new Set(urls));
 }
 

@@ -397,6 +397,24 @@ export class WordPressIngestionService implements IWordPressIngestionService {
       errors.slice(0, 5).forEach(e => console.warn('  -', e));
     }
 
+    // ── Synchronisation automatique des URLs de traduction ────────────────────
+    // wpml_translations n'est pas toujours exposé par l'API WordPress.
+    // On fait un second passage léger (?_fields=id,link,guid) pour chaque langue
+    // afin de récupérer les URLs de traduction via le guid (qui pointe vers l'URL FR).
+    const translationLangs = ['it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'];
+    console.log(`🌐 Synchronisation des URLs de traduction (${translationLangs.join(', ')})...`);
+    try {
+      const syncResult = await this.syncTranslationUrls(siteId, siteUrl, jwtToken, translationLangs);
+      console.log(`🌐 URLs traductions : ${syncResult.updated} mises à jour, ${syncResult.skipped} ignorées`);
+      if (syncResult.errors.length > 0) {
+        syncResult.errors.slice(0, 3).forEach(e => console.warn('  ⚠️', e));
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`⚠️  Sync traductions échouée : ${msg}`);
+      errors.push(`Sync traductions : ${msg}`);
+    }
+
     return { count, errors };
   }
 

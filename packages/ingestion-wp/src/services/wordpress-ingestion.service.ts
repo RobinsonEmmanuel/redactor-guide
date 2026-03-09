@@ -264,10 +264,6 @@ export class WordPressIngestionService implements IWordPressIngestionService {
     );
     console.log(`Site créé/mis à jour: ${siteUrl} (ID: ${siteId})`);
 
-    // 2. Supprimer les anciens articles de ce site avant de réingérer
-    const deleteResult = await this.articlesRawCollection.deleteMany({ site_id: siteId });
-    console.log(`Supprimé ${deleteResult.deletedCount} articles existants`);
-
     const categoriesMap = await this.fetchCategoriesMap(siteUrl, jwtToken);
     const tagsMap = await this.fetchTagsMap(siteUrl, jwtToken);
 
@@ -375,16 +371,21 @@ export class WordPressIngestionService implements IWordPressIngestionService {
 
         ArticleRawSchema.parse(raw);
 
-        await this.articlesRawCollection.updateOne(
-          { site_id: siteId, slug: post.slug },
-          { $set: { ...raw, updated_at: new Date(post.modified || post.date) } },
+        // Skip si l'article existe déjà (même slug + même URL FR).
+        // $setOnInsert : écriture uniquement lors d'une création (upsert).
+        const upsertResult = await this.articlesRawCollection.updateOne(
+          { 'urls_by_lang.fr': raw.urls_by_lang.fr },
+          { $setOnInsert: { ...raw, updated_at: new Date(post.modified || post.date) } },
           { upsert: true }
         );
 
-        count++;
-        if (count <= 3) {
-          console.log(`  [${count}] "${post.title?.rendered?.substring(0, 50)}" → [${langsCovered}]`);
+        if (upsertResult.upsertedCount > 0) {
+          count++;
+          if (count <= 3) {
+            console.log(`  [+${count}] "${post.title?.rendered?.substring(0, 50)}" → [${langsCovered}]`);
+          }
         }
+        // article déjà présent → on ignore silencieusement
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         errors.push(`"${post.slug}": ${msg}`);
@@ -513,12 +514,14 @@ export class WordPressIngestionService implements IWordPressIngestionService {
               continue;
             }
 
-            // Chercher l'article FR en base (par site_id + urls_by_lang.fr)
+            // Chercher l'article FR en base uniquement par urls_by_lang.fr (indépendant du site_id).
+            // Le guid WPML pointe toujours vers l'URL FR canonique → clé suffisamment unique.
+            const frUrlNoSlash = frUrl.replace(/\/$/, '');
             const filter = {
-              site_id: siteId,
               $or: [
                 { 'urls_by_lang.fr': frUrl },
-                { 'urls_by_lang.fr': { $regex: new RegExp(escapeRegex(frUrl.replace(/\/$/, '')), 'i') } },
+                { 'urls_by_lang.fr': frUrlNoSlash },
+                { 'urls_by_lang.fr': frUrlNoSlash + '/' },
               ],
             };
 

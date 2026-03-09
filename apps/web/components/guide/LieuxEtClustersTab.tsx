@@ -1117,7 +1117,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                   <div className="absolute left-0 mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-20 py-1">
                     <button
                       onClick={() => { setShowCleanMenu(false); resetDedup(); }}
-                      disabled={!currentJobId || jobStatus === 'extraction_complete' || jobStatus === 'completed'}
+                      disabled={jobStatus === 'completed' || (!currentJobId && jobStatus === 'extraction_complete')}
                       className="w-full text-left px-3 py-2 text-xs hover:bg-amber-50 transition-colors flex items-start gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <span className="mt-0.5">🔄</span>

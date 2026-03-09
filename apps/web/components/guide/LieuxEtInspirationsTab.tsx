@@ -37,10 +37,28 @@ interface LieuxEtInspirationsTabProps {
 }
 
 // Composant POI draggable
-function DraggablePOI({ poi, inspirationsCount }: { poi: POI; inspirationsCount: number }) {
+function DraggablePOI({ poi, inspirationsCount, apiUrl, guideId }: { poi: POI; inspirationsCount: number; apiUrl: string; guideId: string }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: poi.poi_id,
   });
+  const [openingArticle, setOpeningArticle] = useState(false);
+
+  const handleOpenArticle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!poi.url_source) return;
+    if (poi.url_source.startsWith('http')) { window.open(poi.url_source, '_blank', 'noopener'); return; }
+    setOpeningArticle(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/articles?slug=${encodeURIComponent(poi.url_source)}`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        const article = Array.isArray(data) ? data[0] : data.articles?.[0] ?? data;
+        const url = article?.urls_by_lang?.fr || article?.urls_by_lang?.en;
+        if (url) window.open(url, '_blank', 'noopener');
+      }
+    } finally { setOpeningArticle(false); }
+  };
 
   const style = transform ? {
     transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
@@ -71,17 +89,16 @@ function DraggablePOI({ poi, inspirationsCount }: { poi: POI; inspirationsCount:
             </span>
           )}
           {poi.url_source && (
-            <a
-              href={poi.url_source}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Ouvrir l'article source"
+            <button
+              type="button"
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => e.stopPropagation()}
-              className="text-gray-400 hover:text-blue-600 transition-colors"
+              onClick={handleOpenArticle}
+              disabled={openingArticle}
+              title="Ouvrir l'article source"
+              className="text-gray-400 hover:text-blue-600 disabled:opacity-40 transition-colors"
             >
               <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
-            </a>
+            </button>
           )}
         </div>
       </div>
@@ -445,10 +462,12 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
               )}
 
               {!loading && filteredPois.map((poi) => (
-                <DraggablePOI 
-                  key={poi.poi_id} 
+                <DraggablePOI
+                  key={poi.poi_id}
                   poi={poi}
                   inspirationsCount={poiInspirationsCount[poi.poi_id] || 0}
+                  apiUrl={apiUrl}
+                  guideId={guideId}
                 />
               ))}
             </div>

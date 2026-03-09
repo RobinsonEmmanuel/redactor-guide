@@ -222,24 +222,23 @@ export class WordPressIngestionService implements IWordPressIngestionService {
   }
 
   /**
-   * Ingère les articles WordPress (FR + URLs WPML) dans articles_raw.
-   * Aucune transformation éditoriale.
-   * 
-   * Stratégie multi-langue :
-   * 1. Récupère tous les articles pour chaque langue (fr, en, de, es, it, pt, nl, …)
-   * 2. Groupe par URL FR :
-   *    - Priorité : `wpml_translations[locale=fr_*].href` (fiable même si le slug change)
-   *    - Fallback  : `guid` (fonctionne dans les configs WPML standard où guid = URL FR)
-   * 3. Construit `urls_by_lang` en mappant les `link` de chaque langue
-   * 4. Stocke UN SEUL article par URL FR avec toutes les URLs
-   * 5. Optionnel : analyse les images avec OpenAI Vision
+   * Ingère les articles WordPress dans articles_raw.
+   *
+   * Stratégie URL multi-langue (simplifiée) :
+   * - On ne récupère QUE les articles en français.
+   * - Chaque article FR contient `wpml_translations` qui liste les URLs de
+   *   toutes ses traductions (en, es, de, it, da, sv, pt-pt, nl).
+   * - On construit directement `urls_by_lang` depuis ce champ, sans aucun
+   *   appel supplémentaire à l'API WordPress.
+   * - Avantage : 1 seul appel API au lieu de 9, fiable même si le slug change
+   *   d'une langue à l'autre (ex : "visite-musee" → "museum-visit").
    */
   async ingestArticlesToRaw(
     siteId: string,
     destinationIds: string[],
     siteUrl: string,
     jwtToken: string,
-    languages?: string[],
+    _languages?: string[],   // conservé pour compatibilité, non utilisé
     analysisPrompt?: string,
     analyzeImages: boolean = false
   ): Promise<IngestArticlesResult> {
@@ -247,8 +246,7 @@ export class WordPressIngestionService implements IWordPressIngestionService {
     let count = 0;
 
     // 1. Créer/mettre à jour le document dans la collection sites
-    // Note : _id est dans $setOnInsert uniquement — MongoDB interdit de modifier
-    // un _id existant via $set (immutable field error).
+    // _id dans $setOnInsert uniquement — MongoDB interdit de modifier _id via $set
     await this.sitesCollection.updateOne(
       { url: siteUrl },
       {
@@ -268,229 +266,135 @@ export class WordPressIngestionService implements IWordPressIngestionService {
 
     // 2. Supprimer les anciens articles de ce site avant de réingérer
     const deleteResult = await this.articlesRawCollection.deleteMany({ site_id: siteId });
-    console.log(`Supprimé ${deleteResult.deletedCount} articles existants pour le site ${siteId}`);
+    console.log(`Supprimé ${deleteResult.deletedCount} articles existants`);
 
     const categoriesMap = await this.fetchCategoriesMap(siteUrl, jwtToken);
     const tagsMap = await this.fetchTagsMap(siteUrl, jwtToken);
 
-    // Utiliser les langues fournies ou par défaut toutes les langues
-    const targetLanguages = languages && languages.length > 0 
-      ? languages 
-      : ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'];
+    // 3. Récupérer UNIQUEMENT les articles FR (wpml_translations embarque les URLs)
+    console.log(`Récupération des articles FR depuis ${siteUrl}...`);
+    const frPosts: WordPressPost[] = [];
+    let page = 1;
+    const perPage = 50;
 
-    // Map<url_fr, Map<lang, post>> pour grouper les traductions
-    // La clé est l'URL FR (soit le link de l'article FR, soit le guid des traductions)
-    const articlesByFrUrl = new Map<string, Map<string, WordPressPost>>();
-
-    // 1. Récupérer tous les articles pour chaque langue
-    console.log(`Récupération des articles pour ${targetLanguages.length} langues: ${targetLanguages.join(', ')}`);
-    for (const lang of targetLanguages) {
-      console.log(`  -> Langue: ${lang}`);
-      let page = 1;
-      const perPage = 50;
-      let hasMore = true;
-      let langCount = 0;
-
-      while (hasMore) {
-        try {
-          const posts = await this.fetchPostsWithAuth(siteUrl, jwtToken, {
-            page,
-            perPage,
-            status: 'publish',
-            language: lang,
-          });
-
-          if (posts.length === 0) break;
-
-          for (const post of posts) {
-            const guid = post.guid?.rendered ?? '';
-
-            // Déterminer la clé de groupement (URL FR)
-            let frUrl: string;
-            if (lang === 'fr') {
-              // Pour les articles FR, la clé est leur propre link
-              frUrl = post.link;
-            } else {
-              // Stratégie 1 : wpml_translations contient l'URL FR de l'article original.
-              // Fiable même quand le slug change selon la langue (ex : visite → visita).
-              const frTranslation = post.wpml_translations?.find(
-                (t) => t.locale.startsWith('fr') && t.href
-              );
-
-              if (frTranslation?.href) {
-                frUrl = frTranslation.href;
-              } else {
-                // Stratégie 2 (fallback) : le guid pointe vers l'URL FR dans les
-                // configurations WPML standard. Skip si format ?p=ID (article orphelin).
-                if (!guid || guid.includes('?p=')) continue;
-                frUrl = guid;
-              }
-            }
-
-            // LOG DEBUG : afficher les 3 premiers articles de chaque langue pour debug
-            if (langCount < 3) {
-              console.log(`      [${lang}] Post "${post.title?.rendered?.substring(0, 40)}":`);
-              console.log(`        - GUID: ${guid}`);
-              console.log(`        - LINK: ${post.link}`);
-              console.log(`        - FR URL (clé): ${frUrl}`);
-            }
-
-            if (!articlesByFrUrl.has(frUrl)) {
-              articlesByFrUrl.set(frUrl, new Map());
-            }
-            articlesByFrUrl.get(frUrl)!.set(lang, post);
-            langCount++;
-          }
-
-          page++;
-          hasMore = posts.length === perPage;
-        } catch (err) {
-          errors.push(`Erreur récupération ${lang} page ${page}: ${err instanceof Error ? err.message : String(err)}`);
-          break;
-        }
-      }
-      console.log(`     ${langCount} articles trouvés`);
-    }
-
-    console.log(`Total: ${articlesByFrUrl.size} articles uniques (groupés par URL FR)`);
-
-    // ── Réconciliation des groupes orphelins ──────────────────────────────────
-    // Cas résiduel : le guid d'une traduction pointait vers l'URL d'une autre
-    // traduction (pas FR) qui est elle-même correctement rattachée à un groupe FR.
-    // On construit un index inverse url→clé_fr pour détecter et fusionner ces cas.
-
-    const urlToFrKey = new Map<string, string>();
-    for (const [frKey, postsByLang] of articlesByFrUrl.entries()) {
-      urlToFrKey.set(frKey, frKey);
-      for (const [, post] of postsByLang.entries()) {
-        urlToFrKey.set(post.link, frKey);
-      }
-    }
-
-    const orphans = [...articlesByFrUrl.entries()].filter(([, g]) => !g.has('fr'));
-    let reconciledCount = 0;
-
-    for (const [orphanKey, orphanGroup] of orphans) {
-      const targetFrKey = urlToFrKey.get(orphanKey);
-      if (targetFrKey && targetFrKey !== orphanKey && articlesByFrUrl.has(targetFrKey)) {
-        const targetGroup = articlesByFrUrl.get(targetFrKey)!;
-        if (targetGroup.has('fr')) {
-          for (const [lang, post] of orphanGroup.entries()) {
-            if (!targetGroup.has(lang)) targetGroup.set(lang, post);
-          }
-          articlesByFrUrl.delete(orphanKey);
-          reconciledCount++;
-          console.log(`🔗 Réconcilié (guid chaîné) : "${orphanKey.substring(0, 60)}" → "${targetFrKey.substring(0, 60)}"`);
-        }
-      }
-    }
-
-    if (reconciledCount > 0) {
-      console.log(`✅ ${reconciledCount} groupe(s) réconcilié(s). Total final : ${articlesByFrUrl.size} articles.`);
-    }
-
-    // LOG DEBUG : afficher les langues disponibles pour les 3 premiers groupes
-    let debugCount = 0;
-    for (const [frUrl, postsByLang] of articlesByFrUrl.entries()) {
-      if (debugCount < 3) {
-        const langs = Array.from(postsByLang.keys()).join(', ');
-        console.log(`  Groupe ${debugCount + 1}: ${frUrl.substring(0, 60)} => [${langs}]`);
-        debugCount++;
-      }
-    }
-
-    // 2. Pour chaque groupe d'articles (par URL FR), créer un ArticleRaw
-    for (const [frUrl, postsByLang] of articlesByFrUrl.entries()) {
+    while (true) {
       try {
-        // Utiliser la version FR comme référence
-        const frPost = postsByLang.get('fr');
-        if (!frPost) {
-          errors.push(`Pas de version FR pour URL: ${frUrl.substring(0, 60)}`);
-          continue;
+        const posts = await this.fetchPostsWithAuth(siteUrl, jwtToken, {
+          page,
+          perPage,
+          status: 'publish',
+          language: 'fr',
+        });
+        if (posts.length === 0) break;
+        frPosts.push(...posts);
+        page++;
+        if (posts.length < perPage) break;
+      } catch (err) {
+        errors.push(`Erreur récupération FR page ${page}: ${err instanceof Error ? err.message : String(err)}`);
+        break;
+      }
+    }
+
+    console.log(`${frPosts.length} articles FR récupérés`);
+
+    // Vérifier la présence de wpml_translations sur le premier article
+    const haswpml = frPosts.length > 0 && (frPosts[0].wpml_translations?.length ?? 0) > 0;
+    if (!haswpml && frPosts.length > 0) {
+      console.warn('⚠️  wpml_translations absent ou vide sur les articles FR.');
+      console.warn('    Les URLs de traduction ne seront pas disponibles.');
+      console.warn('    Vérifiez que WPML expose bien ce champ dans la REST API.');
+    } else if (frPosts.length > 0) {
+      const sample = frPosts[0].wpml_translations!;
+      console.log(`✅ wpml_translations présent — langues détectées sur le 1er article : ${sample.map(t => t.locale).join(', ')}`);
+    }
+
+    // 4. Ingérer chaque article FR
+    for (const post of frPosts) {
+      try {
+        // ── Construire urls_by_lang depuis wpml_translations ──────────────────
+        const urlsByLang: Record<string, string> = { fr: post.link };
+
+        for (const translation of post.wpml_translations ?? []) {
+          if (!translation.href) continue;
+          const lang = wpmlLocaleToLang(translation.locale);
+          if (lang && lang !== 'fr') {
+            urlsByLang[lang] = translation.href;
+          }
         }
 
-        // Construire urls_by_lang en mappant les links de chaque langue
-        const urlsByLang: Record<string, string> = {};
-        for (const [lang, post] of postsByLang.entries()) {
-          urlsByLang[lang] = post.link;
-        }
+        const langsCovered = Object.keys(urlsByLang).join(', ');
 
-        const categoryNames = (frPost.categories ?? [])
+        // ── Catégories / tags ─────────────────────────────────────────────────
+        const categoryNames = (post.categories ?? [])
           .map((id) => categoriesMap.get(id))
           .filter((n): n is string => n != null);
-        const tagNames = (frPost.tags ?? [])
+        const tagNames = (post.tags ?? [])
           .map((id) => tagsMap.get(id))
           .filter((n): n is string => n != null);
 
-        // Extraire les URLs des images du HTML (hors blocs réutilisables)
-        const htmlContent = frPost.content?.rendered ?? '';
+        // ── Images ────────────────────────────────────────────────────────────
+        const htmlContent = post.content?.rendered ?? '';
         const rawImageUrls = extractImageUrls(htmlContent);
-        
-        // Dédupliquer les images avec URLs variantes (dimensions, suffixes)
         const seenNormalized = new Map<string, string>();
         const imageUrls: string[] = [];
-        
+
         for (const url of rawImageUrls) {
           const normalized = normalizeImageUrl(url);
-          
           if (!seenNormalized.has(normalized)) {
-            // Première occurrence : garder l'URL originale
             seenNormalized.set(normalized, url);
             imageUrls.push(url);
-          } else {
-            // Doublon détecté : ignorer
-            console.log(`🔄 Doublon ignoré: ${url.substring(0, 80)}...`);
           }
         }
-        
-        if (rawImageUrls.length !== imageUrls.length) {
-          console.log(`📸 Images filtrées: ${rawImageUrls.length} → ${imageUrls.length} (${rawImageUrls.length - imageUrls.length} doublon(s) retiré(s))`);
-        }
-        
-        // Convertir le HTML en Markdown pour l'aide IA
-        const markdown = htmlToMarkdown(htmlContent);
 
-        // Analyser les images si demandé
+        // ── Analyse d'images (optionnel) ──────────────────────────────────────
         let imagesAnalysis: ImageAnalysis[] = [];
         if (analyzeImages && analysisPrompt && imageUrls.length > 0 && this.imageAnalysisCallback) {
-          console.log(`📸 Analyse de ${imageUrls.length} images pour "${frPost.title?.rendered?.substring(0, 40)}"`);
           try {
             imagesAnalysis = await this.imageAnalysisCallback(imageUrls, analysisPrompt);
-            console.log(`✅ ${imagesAnalysis.length} images analysées`);
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            console.warn(`⚠️ Erreur analyse images: ${msg}`);
-            errors.push(`Erreur analyse images pour "${frPost.title?.rendered}": ${msg}`);
+            console.warn(`⚠️ Erreur analyse images pour "${post.title?.rendered}": ${msg}`);
+            errors.push(`Erreur analyse images "${post.title?.rendered}": ${msg}`);
           }
         }
 
         const raw: Omit<ArticleRaw, '_id'> = {
           site_id: siteId,
           destination_ids: destinationIds,
-          slug: frPost.slug,
-          title: frPost.title?.rendered ?? '',
+          slug: post.slug,
+          title: post.title?.rendered ?? '',
           html_brut: htmlContent,
-          markdown: markdown,
+          markdown: htmlToMarkdown(htmlContent),
           categories: categoryNames,
           tags: tagNames,
           urls_by_lang: urlsByLang,
           images: imageUrls,
           ...(imagesAnalysis.length > 0 && { images_analysis: imagesAnalysis }),
-          updated_at: frPost.modified ?? frPost.date,
+          updated_at: post.modified ?? post.date,
         };
 
         ArticleRawSchema.parse(raw);
 
         await this.articlesRawCollection.updateOne(
-          { site_id: siteId, slug: frPost.slug },
-          { $set: { ...raw, updated_at: new Date(frPost.modified || frPost.date) } },
+          { site_id: siteId, slug: post.slug },
+          { $set: { ...raw, updated_at: new Date(post.modified || post.date) } },
           { upsert: true }
         );
+
         count++;
+        if (count <= 3) {
+          console.log(`  [${count}] "${post.title?.rendered?.substring(0, 50)}" → [${langsCovered}]`);
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`URL FR ${frUrl.substring(0, 50)}: ${msg}`);
+        errors.push(`"${post.slug}": ${msg}`);
       }
+    }
+
+    console.log(`✅ Ingestion terminée : ${count} articles enregistrés`);
+    if (errors.length > 0) {
+      console.warn(`⚠️  ${errors.length} erreur(s) :`);
+      errors.slice(0, 5).forEach(e => console.warn('  -', e));
     }
 
     return { count, errors };
@@ -672,4 +576,27 @@ export class WordPressIngestionService implements IWordPressIngestionService {
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Convertit une locale WPML (ex: "en_US", "pt_PT") vers le code de langue
+ * utilisé dans urls_by_lang (ex: "en", "pt-pt").
+ * Retourne null si la locale n'est pas reconnue.
+ */
+function wpmlLocaleToLang(locale: string): string | null {
+  // Cas spéciaux d'abord
+  const exact: Record<string, string> = {
+    'pt_PT': 'pt-pt',
+    'pt_BR': 'pt-br',
+  };
+  if (locale in exact) return exact[locale];
+
+  // Préfixe 2 caractères → code lang
+  const prefix = locale.split('_')[0].toLowerCase();
+  const known: Record<string, string> = {
+    fr: 'fr', en: 'en', it: 'it', es: 'es',
+    de: 'de', da: 'da', sv: 'sv', nl: 'nl',
+    pt: 'pt-pt', // fallback générique portugais
+  };
+  return known[prefix] ?? null;
 }

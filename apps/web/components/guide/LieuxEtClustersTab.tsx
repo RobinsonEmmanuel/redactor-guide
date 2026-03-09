@@ -11,6 +11,7 @@ import {
   ArrowPathIcon,
   SparklesIcon,
   TrashIcon,
+  ArrowTopRightOnSquareIcon,
 } from '@heroicons/react/24/outline';
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, useDraggable, useDroppable } from '@dnd-kit/core';
 import { authFetch } from '@/lib/api-client';
@@ -21,6 +22,7 @@ interface POI {
   nom: string;
   type: string;
   article_source?: string;
+  url_source?: string;
   autres_articles_mentions?: string[];
   raison_selection?: string;
   coordinates?: {
@@ -105,7 +107,22 @@ function DraggablePOI({ poi }: { poi: POI }) {
             <div className="text-xs text-blue-600 mt-0.5">📍 {poi.cluster_name}</div>
           )}
         </div>
-        {getStatusBadge()}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {getStatusBadge()}
+          {poi.url_source && (
+            <a
+              href={poi.url_source}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Ouvrir l'article source"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              className="text-gray-400 hover:text-blue-600 transition-colors"
+            >
+              <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
+            </a>
+          )}
+        </div>
       </div>
     </div>
   );

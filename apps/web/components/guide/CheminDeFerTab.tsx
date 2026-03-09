@@ -16,6 +16,7 @@ import {
   LightBulbIcon,
   PlusIcon,
   TableCellsIcon,
+  ArrowTopRightOnSquareIcon,
 } from '@heroicons/react/24/outline';
 
 interface Page {
@@ -1122,6 +1123,8 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                                       icon={MapPinIcon}
                                       color="green"
                                       templatePage={poi}
+                                      apiUrl={apiUrl}
+                                      guideId={guideId}
                                     />
                                   ))}
                                 </div>
@@ -1408,8 +1411,31 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
 
 // Composant Template MINI pour la palette (grille 2 colonnes)
 // Composant Proposition IA MINI pour la palette
-function ProposalCardMini({ id, type, title, description, icon: Icon, color, articleSlug, autresArticlesMentions, poiType, coordinates, templatePage }: any) {
+function ProposalCardMini({ id, type, title, description, icon: Icon, color, articleSlug, autresArticlesMentions, poiType, coordinates, templatePage, apiUrl, guideId }: any) {
   const [showOthers, setShowOthers] = useState(false);
+  const [openingArticle, setOpeningArticle] = useState(false);
+
+  const slug = articleSlug || templatePage?.url_source || null;
+
+  const handleOpenArticle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!slug) return;
+    // Si c'est déjà une URL complète
+    if (slug.startsWith('http')) { window.open(slug, '_blank', 'noopener'); return; }
+    setOpeningArticle(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/articles?slug=${encodeURIComponent(slug)}`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        const article = Array.isArray(data) ? data[0] : data.articles?.[0] ?? data;
+        const url = article?.urls_by_lang?.fr || article?.urls_by_lang?.en;
+        if (url) { window.open(url, '_blank', 'noopener'); }
+      }
+    } finally {
+      setOpeningArticle(false);
+    }
+  };
   
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `proposal-${type}-${id}`,
@@ -1468,6 +1494,18 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color, art
               </p>
             )}
           </div>
+          {slug && (
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={handleOpenArticle}
+              disabled={openingArticle}
+              title="Ouvrir l'article source"
+              className="flex-shrink-0 text-gray-400 hover:text-blue-600 disabled:opacity-40 transition-colors"
+            >
+              <ArrowTopRightOnSquareIcon className="w-3 h-3" />
+            </button>
+          )}
           {hasOtherArticles && (
             <button
               type="button"

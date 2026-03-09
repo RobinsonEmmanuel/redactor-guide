@@ -54,6 +54,8 @@ export const ArticleRawSchema = z.object({
   destination_ids: z.array(z.string()).default([]),
 
   slug: z.string(),
+  /** Identifiant numérique WordPress (utilisé pour la résolution des URLs de traduction via WPML) */
+  wp_id: z.number().optional(),
   title: z.string(),
   html_brut: z.string(),
   

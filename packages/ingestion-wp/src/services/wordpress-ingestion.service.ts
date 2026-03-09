@@ -358,6 +358,7 @@ export class WordPressIngestionService implements IWordPressIngestionService {
           site_id: siteId,
           destination_ids: destinationIds,
           slug: post.slug,
+          wp_id: post.id,
           title: post.title?.rendered ?? '',
           html_brut: htmlContent,
           markdown: htmlToMarkdown(htmlContent),
@@ -548,6 +549,44 @@ export class WordPressIngestionService implements IWordPressIngestionService {
 
       updated += langUpdated;
       console.log(`     ${langUpdated} URLs mises à jour pour [${lang}]`);
+
+      // ── Second passage : articles encore sans URL pour cette langue ──────────
+      // Pour les articles dont le guid WP est numérique (?p=XXXX), la première
+      // passe échoue. On utilise le redirect WPML /?p={wp_id}&lang={lang} qui
+      // résout toujours l'URL traduite (ou fallback ?lang=XX si pas de slug dédié).
+      const stillMissing = await this.articlesRawCollection.find(
+        { wp_id: { $exists: true }, [`urls_by_lang.${lang}`]: { $exists: false } },
+        { projection: { _id: 1, wp_id: 1, 'urls_by_lang.fr': 1 } }
+      ).toArray();
+
+      if (stillMissing.length > 0) {
+        console.log(`     → ${stillMissing.length} article(s) sans [${lang}], résolution via redirect WPML...`);
+        let redirectUpdated = 0;
+
+        // Traiter par lots de 10 pour éviter de saturer le serveur
+        const BATCH = 10;
+        for (let i = 0; i < stillMissing.length; i += BATCH) {
+          const batch = stillMissing.slice(i, i + BATCH);
+          await Promise.all(batch.map(async (article) => {
+            try {
+              const redirectUrl = `${siteUrl}/?p=${article.wp_id}&lang=${lang}`;
+              const resp = await fetch(redirectUrl, { redirect: 'follow' });
+              const finalUrl = resp.url;
+              // Ignorer si la réponse est une erreur ou si c'est le même que FR sans param lang
+              if (resp.status < 400 && finalUrl && !finalUrl.includes('?p=')) {
+                await this.articlesRawCollection.updateOne(
+                  { _id: article._id },
+                  { $set: { [`urls_by_lang.${lang}`]: finalUrl } }
+                );
+                redirectUpdated++;
+              }
+            } catch { /* ignore les timeouts individuels */ }
+          }));
+        }
+
+        updated += redirectUpdated;
+        console.log(`     → ${redirectUpdated} URL(s) résolues via redirect pour [${lang}]`);
+      }
     }
 
     console.log(`✅ Sync terminé — ${updated} URLs mises à jour, ${skipped} ignorées`);

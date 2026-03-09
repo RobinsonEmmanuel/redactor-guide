@@ -439,9 +439,22 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
           return reply.send({ pois: [] });
         }
 
+        // Dédupliquer par poi_id côté lecture : en cas de doublon, garder le nom le plus long
+        const rawPois: any[] = selection.pois || [];
+        const seen = new Map<string, any>();
+        for (const poi of rawPois) {
+          if (!seen.has(poi.poi_id) || poi.nom.length > seen.get(poi.poi_id).nom.length) {
+            seen.set(poi.poi_id, poi);
+          }
+        }
+        const pois = Array.from(seen.values());
+        if (pois.length < rawPois.length) {
+          console.warn(`⚠️ [POIs] ${rawPois.length - pois.length} doublon(s) poi_id détecté(s) et filtrés pour guide ${guideId}`);
+        }
+
         return reply.send({
-          pois: selection.pois || [],
-          count: selection.pois?.length || 0,
+          pois,
+          count: pois.length,
         });
       } catch (error: any) {
         console.error('❌ [POIs] Erreur récupération:', error);

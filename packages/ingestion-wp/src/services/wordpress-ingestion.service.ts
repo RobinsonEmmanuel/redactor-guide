@@ -595,9 +595,6 @@ export class WordPressIngestionService implements IWordPressIngestionService {
   }
 }
 
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 /**
  * Convertit une locale WPML (ex: "en_US", "pt_PT") vers le code de langue

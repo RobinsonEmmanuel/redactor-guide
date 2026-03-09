@@ -1412,4 +1412,144 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
     }
   );
 
+  /**
+   * POST /guides/:guideId/chemin-de-fer/pages/:pageId/verify-field
+   * Étape 1 du mode "Contrôler" champ par champ :
+   * vérifie les éléments candidats d'un champ via Perplexity Sonar et les classe
+   * en VALIDATED / UNCERTAIN / REJECTED.
+   */
+  fastify.post<{
+    Params: { guideId: string; pageId: string };
+    Body: { field_name: string; field_label?: string; field_value: string; place_name?: string };
+  }>(
+    '/guides/:guideId/chemin-de-fer/pages/:pageId/verify-field',
+    async (request, reply) => {
+      const db = request.server.container.db;
+      const { guideId, pageId } = request.params;
+      const { field_name, field_label, field_value, place_name } = request.body;
+
+      if (!field_value?.trim()) {
+        return reply.code(400).send({ error: 'field_value est requis' });
+      }
+
+      try {
+        const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
+        const destination: string = guide?.destination ?? 'destination inconnue';
+        const page = await db.collection(COLLECTIONS.pages).findOne({ _id: new ObjectId(pageId) });
+        if (!page) return reply.code(404).send({ error: 'Page non trouvée' });
+
+        const perplexityApiKey = process.env.PERPLEXITY_API_KEY;
+        if (!perplexityApiKey) return reply.code(503).send({ error: 'PERPLEXITY_API_KEY non configurée' });
+
+        const { PerplexityService } = await import('../services/perplexity.service');
+        const perplexity = new PerplexityService(perplexityApiKey, 'sonar');
+
+        const name = place_name || page.titre || 'Lieu';
+        const fieldLabel = field_label || field_name;
+
+        // Découper la valeur en éléments candidats (une phrase / info par ligne, ou . comme séparateur)
+        const rawCandidates = field_value
+          .split(/\n|(?<=\w)\.\s+/)
+          .map(s => s.trim())
+          .filter(s => s.length > 3);
+        const candidates = rawCandidates.length > 1 ? rawCandidates : [field_value.trim()];
+
+        const promptDoc = await db.collection(COLLECTIONS.prompts).findOne({ prompt_id: 'verification_elements' });
+        if (!promptDoc?.texte_prompt) {
+          return reply.code(503).send({ error: 'Prompt "verification_elements" introuvable en base. Lancez POST /prompts/seed-verification d\'abord.' });
+        }
+
+        const listOfCandidates = candidates.map((c, i) => `${i + 1}. ${c}`).join('\n');
+        const renderedPrompt = promptDoc.texte_prompt
+          .replace(/\{\{PLACE_NAME\}\}/g, `${name} (${destination})`)
+          .replace(/\{\{FIELD_NAME\}\}/g, fieldLabel)
+          .replace(/\{\{LIST_OF_CANDIDATES\}\}/g, listOfCandidates);
+
+        console.log(`🔍 [VERIFY-FIELD] "${name}" / "${fieldLabel}" — ${candidates.length} candidat(s)`);
+
+        const result = await perplexity.verifyElements(renderedPrompt);
+
+        return reply.send({
+          field_name,
+          field_label: fieldLabel,
+          place_name: name,
+          candidates,
+          ...result,
+        });
+      } catch (error: any) {
+        console.error('❌ [VERIFY-FIELD] Erreur:', error);
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
+
+  /**
+   * POST /guides/:guideId/chemin-de-fer/pages/:pageId/rewrite-field
+   * Étape 2 du mode "Contrôler" champ par champ :
+   * réécrit le contenu d'un champ à partir des éléments validés (VALIDATED seulement).
+   */
+  fastify.post<{
+    Params: { guideId: string; pageId: string };
+    Body: { field_name: string; field_label?: string; validated_elements: string[]; place_name?: string };
+  }>(
+    '/guides/:guideId/chemin-de-fer/pages/:pageId/rewrite-field',
+    async (request, reply) => {
+      const db = request.server.container.db;
+      const { guideId, pageId } = request.params;
+      const { field_name, field_label, validated_elements, place_name } = request.body;
+
+      if (!validated_elements?.length) {
+        return reply.code(400).send({ error: 'Au moins un élément validé est requis' });
+      }
+
+      try {
+        const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
+        const destination: string = guide?.destination ?? 'destination inconnue';
+        const page = await db.collection(COLLECTIONS.pages).findOne({ _id: new ObjectId(pageId) });
+        if (!page) return reply.code(404).send({ error: 'Page non trouvée' });
+
+        const openaiApiKey = process.env.OPENAI_API_KEY;
+        if (!openaiApiKey) return reply.code(503).send({ error: 'OPENAI_API_KEY non configurée' });
+
+        const { OpenAIService } = await import('../services/openai.service');
+        const openai = new OpenAIService({ apiKey: openaiApiKey, model: 'gpt-4o-mini', reasoningEffort: 'low' });
+
+        const name = place_name || page.titre || 'Lieu';
+        const fieldLabel = field_label || field_name;
+
+        const promptDoc = await db.collection(COLLECTIONS.prompts).findOne({ prompt_id: 'rewrite_elements' });
+        if (!promptDoc?.texte_prompt) {
+          return reply.code(503).send({ error: 'Prompt "rewrite_elements" introuvable en base. Lancez POST /prompts/seed-verification d\'abord.' });
+        }
+
+        const validatedText = validated_elements.map((e, i) => `${i + 1}. ${e}`).join('\n');
+        const renderedPrompt = promptDoc.texte_prompt
+          .replace(/\{\{PLACE\}\}/g, `${name} (${destination})`)
+          .replace(/\{\{FIELD\}\}/g, fieldLabel)
+          .replace(/\{\{VALIDATED_ELEMENTS\}\}/g, validatedText);
+
+        console.log(`✏️ [REWRITE-FIELD] "${name}" / "${fieldLabel}" — ${validated_elements.length} élément(s) validé(s)`);
+
+        const result = await openai.generateJSON(renderedPrompt, 2000);
+
+        // Le prompt demande une liste structurée ; on extrait aussi le texte réécrit
+        const rewritten_text: string = Array.isArray(result?.elements)
+          ? result.elements.map((e: any) => (typeof e === 'string' ? e : e.text || e.element || '')).join(' ')
+          : typeof result?.text === 'string'
+          ? result.text
+          : validated_elements.join(' ');
+
+        return reply.send({
+          field_name,
+          field_label: fieldLabel,
+          rewritten_text,
+          elements: result?.elements ?? [],
+        });
+      } catch (error: any) {
+        console.error('❌ [REWRITE-FIELD] Erreur:', error);
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
+
 }

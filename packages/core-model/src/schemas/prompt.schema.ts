@@ -19,6 +19,8 @@ export const PromptIntentEnum = z.enum([
   'regles_ecriture',
   'validation_factuelle_poi',
   'validation_coherence_article',
+  'verification_elements',
+  'rewrite_elements',
 ]);
 
 export type PromptIntent = z.infer<typeof PromptIntentEnum>;
@@ -131,6 +133,8 @@ export const PROMPT_INTENT_LABELS: Record<PromptIntent, string> = {
   regles_ecriture: 'Règles d\'écriture',
   validation_factuelle_poi: 'Validation factuelle POI',
   validation_coherence_article: 'Validation cohérence article',
+  verification_elements: 'Vérification des éléments (sources web)',
+  rewrite_elements: 'Réécriture à partir des éléments validés',
 };
 
 /**
@@ -152,4 +156,6 @@ export const PROMPT_INTENT_COLORS: Record<PromptIntent, string> = {
   regles_ecriture: 'bg-slate-100 text-slate-700',
   validation_factuelle_poi: 'bg-amber-100 text-amber-700',
   validation_coherence_article: 'bg-rose-100 text-rose-700',
+  verification_elements: 'bg-sky-100 text-sky-700',
+  rewrite_elements: 'bg-lime-100 text-lime-700',
 };

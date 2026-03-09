@@ -165,6 +165,213 @@ Important : Retourne UNIQUEMENT le JSON, sans texte avant ou après.`,
   });
 
   /**
+   * POST /prompts/seed-verification
+   * Insère les 2 prompts de vérification et de réécriture champ par champ.
+   * Idempotent : met à jour si déjà présents (upsert par prompt_id fixe).
+   */
+  fastify.post('/prompts/seed-verification', async (request, reply) => {
+    try {
+      const db = request.server.container.db;
+      const now = new Date();
+
+      const PROMPTS = [
+        {
+          prompt_id: 'verification_elements',
+          prompt_nom: 'Vérification des éléments candidats (Perplexity)',
+          intent: 'verification_elements',
+          categories: ['verification', 'factuel', 'perplexity'],
+          langue_source: 'fr',
+          version: '1.0.0',
+          actif: true,
+          texte_prompt: `You are a factual verification agent responsible for validating tourism data.
+
+Your role is NOT to generate new information.
+Your role is ONLY to evaluate candidate elements using reliable web sources.
+
+We are building a structured tourism database.
+Each element must be validated by reliable sources before being stored.
+
+====================
+INPUT
+====================
+
+Place:
+{{PLACE_NAME}}
+
+Field being validated:
+{{FIELD_NAME}}
+
+Candidate elements (generated from multiple sources):
+{{LIST_OF_CANDIDATES}}
+
+These candidates may come from:
+- Draft database values
+- Gemini model
+- Perplexity model
+
+Your task is to verify which elements are factually supported by reliable sources.
+
+====================
+SOURCING RULES
+====================
+
+Search information systematically in multiple languages:
+- the local language of the place
+- English
+- French
+
+Prioritize sources according to the following hierarchy:
+
+1. Official website of the place or institution (official)
+2. Official tourism organizations, UNESCO, public authorities (institutional)
+3. Major international media or recognized travel guides (media_high)
+4. Credible local media (media_local)
+5. Commercial tourism websites or specialized blogs (commercial)
+
+User-generated content (reviews, forums, aggregators) must never be used alone to validate information (ugc).
+
+====================
+VALIDATION RULES
+====================
+
+An element can be considered VALIDATED if:
+- it is confirmed by the official website
+OR
+- it is confirmed by at least two independent reliable sources.
+
+If sources contradict each other:
+- prioritize the most official source
+- prioritize the most recent information
+- indicate uncertainty if the contradiction cannot be resolved.
+
+If the element is not supported by credible sources, classify it as REJECTED.
+
+If evidence is weak or ambiguous, classify it as UNCERTAIN.
+
+Do NOT invent new elements.
+Do NOT modify the candidate wording.
+
+====================
+OUTPUT FORMAT
+====================
+
+Return STRICT JSON.
+
+{
+  "validated": [
+    {
+      "element": "...",
+      "confidence": 0.0-1.0,
+      "source_types": ["official", "institutional", "media_high", "media_local", "commercial"],
+      "sources": [
+        {
+          "type": "...",
+          "url": "..."
+        }
+      ],
+      "short_reason": "..."
+    }
+  ],
+  "uncertain": [
+    {
+      "element": "...",
+      "reason": "..."
+    }
+  ],
+  "rejected": [
+    {
+      "element": "...",
+      "reason": "..."
+    }
+  ]
+}
+
+====================
+IMPORTANT RULES
+====================
+
+- Do NOT add elements that are not in the candidate list.
+- Only evaluate the candidates.
+- Prefer factual descriptions rather than promotional marketing language.
+- When possible, rely on official or institutional sources.`,
+        },
+        {
+          prompt_id: 'rewrite_elements',
+          prompt_nom: 'Réécriture à partir des éléments validés (OpenAI)',
+          intent: 'rewrite_elements',
+          categories: ['rewrite', 'factuel', 'contenu'],
+          langue_source: 'fr',
+          version: '1.0.0',
+          actif: true,
+          texte_prompt: `You are a controlled rewriting agent.
+
+Your task is to rewrite validated tourism information clearly and concisely.
+
+You must ONLY use the elements provided below.
+
+Do NOT introduce any new information.
+Do NOT infer missing details.
+Do NOT add examples or interpretations.
+
+====================
+INPUT
+====================
+
+Place:
+{{PLACE}}
+
+Field:
+{{FIELD}}
+
+Validated elements:
+{{VALIDATED_ELEMENTS}}
+
+====================
+TASK
+====================
+
+Rewrite the validated elements into a clear and concise description.
+
+Rules:
+- Use only the information contained in the validated elements.
+- Do not add new activities, locations, or facts.
+- Do not infer or generalize.
+- If an element is unclear, keep its wording close to the original.
+- Prefer neutral factual wording.
+
+====================
+OUTPUT
+====================
+
+Return STRICT JSON:
+
+{
+  "text": "...",
+  "elements": ["element1 rewritten", "element2 rewritten"]
+}
+
+Do not add or remove elements.`,
+        },
+      ];
+
+      const results = [];
+      for (const p of PROMPTS) {
+        await db.collection('prompts').updateOne(
+          { prompt_id: p.prompt_id },
+          { $set: { ...p, date_mise_a_jour: now }, $setOnInsert: { created_at: now } },
+          { upsert: true }
+        );
+        results.push({ prompt_id: p.prompt_id, intent: p.intent });
+      }
+
+      return reply.send({ success: true, prompts: results });
+    } catch (error) {
+      request.log.error({ error }, 'Erreur seed-verification');
+      return reply.status(500).send({ error: 'Erreur seed', details: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /**
    * GET /prompts
    * Liste tous les prompts avec filtres optionnels
    */

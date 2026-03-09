@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { XMarkIcon, SparklesIcon, ArrowPathIcon, PhotoIcon, ShieldCheckIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, SparklesIcon, ArrowPathIcon, PhotoIcon, ShieldCheckIcon, MagnifyingGlassIcon, CheckCircleIcon, QuestionMarkCircleIcon, XCircleIcon, PencilSquareIcon } from '@heroicons/react/24/outline';
 import ImageAnalysisModal from './ImageAnalysisModal';
 import ImageSelectorModal from './ImageSelectorModal';
 
@@ -264,6 +264,14 @@ export default function ContentEditorModal({
   if (validationReport?.results) {
     for (const r of validationReport.results) validationByField[r.field] = r;
   }
+
+  // ─── État vérification champ par champ ─────────────────────────────────────
+  const [fieldVerifyLoading, setFieldVerifyLoading] = useState<Set<string>>(new Set());
+  const [fieldVerifyResults, setFieldVerifyResults] = useState<Record<string, any>>({});
+  // selectedElements[fieldName] = Set des éléments cochés comme "validés à utiliser pour la réécriture"
+  const [selectedElements, setSelectedElements] = useState<Record<string, Set<string>>>({});
+  const [fieldRewriteLoading, setFieldRewriteLoading] = useState<Set<string>>(new Set());
+  const [fieldRewriteResults, setFieldRewriteResults] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setFormData(resolveContentVars(content || {}, page));
@@ -606,6 +614,216 @@ export default function ContentEditorModal({
 
   // ────────────────────────────────────────────────────────────────────────────
 
+  // ─── Vérification / réécriture champ par champ ────────────────────────────
+
+  const handleVerifyField = async (field: TemplateField) => {
+    const value = (formData[field.name] || '').toString().trim();
+    if (!value) return;
+    setFieldVerifyLoading(prev => new Set(prev).add(field.name));
+    // Reset réécriture précédente pour ce champ
+    setFieldRewriteResults(prev => { const n = { ...prev }; delete n[field.name]; return n; });
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}/verify-field`,
+        {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ field_name: field.name, field_label: field.label, field_value: value, place_name: page.titre }),
+        }
+      );
+      const data = await res.json();
+      if (res.ok) {
+        setFieldVerifyResults(prev => ({ ...prev, [field.name]: data }));
+        // Pré-cocher uniquement les éléments VALIDATED
+        const preSelected = new Set<string>((data.validated ?? []).map((v: any) => v.element as string));
+        setSelectedElements(prev => ({ ...prev, [field.name]: preSelected }));
+      } else {
+        setError(data.error || 'Erreur vérification');
+      }
+    } catch {
+      setError('Erreur réseau lors de la vérification');
+    } finally {
+      setFieldVerifyLoading(prev => { const n = new Set(prev); n.delete(field.name); return n; });
+    }
+  };
+
+  const toggleElement = (fieldName: string, element: string) => {
+    setSelectedElements(prev => {
+      const set = new Set(prev[fieldName] ?? []);
+      set.has(element) ? set.delete(element) : set.add(element);
+      return { ...prev, [fieldName]: set };
+    });
+  };
+
+  const handleRewriteField = async (field: TemplateField) => {
+    const selected = Array.from(selectedElements[field.name] ?? []);
+    if (!selected.length) return;
+    setFieldRewriteLoading(prev => new Set(prev).add(field.name));
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}/rewrite-field`,
+        {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ field_name: field.name, field_label: field.label, validated_elements: selected, place_name: page.titre }),
+        }
+      );
+      const data = await res.json();
+      if (res.ok) {
+        setFieldRewriteResults(prev => ({ ...prev, [field.name]: data.rewritten_text }));
+      } else {
+        setError(data.error || 'Erreur réécriture');
+      }
+    } catch {
+      setError('Erreur réseau lors de la réécriture');
+    } finally {
+      setFieldRewriteLoading(prev => { const n = new Set(prev); n.delete(field.name); return n; });
+    }
+  };
+
+  const FieldVerifyPanel = ({ field }: { field: TemplateField }) => {
+    const isVerifying = fieldVerifyLoading.has(field.name);
+    const result = fieldVerifyResults[field.name];
+    const isRewriting = fieldRewriteLoading.has(field.name);
+    const rewritten = fieldRewriteResults[field.name];
+    const selected = selectedElements[field.name] ?? new Set<string>();
+    const fieldValue = (formData[field.name] || '').toString().trim();
+
+    // Agrège tous les éléments pour la Step 1
+    const allElements: Array<{ element: string; bucket: 'validated' | 'uncertain' | 'rejected'; meta?: any }> = result
+      ? [
+          ...(result.validated ?? []).map((v: any) => ({ element: v.element, bucket: 'validated' as const, meta: v })),
+          ...(result.uncertain ?? []).map((v: any) => ({ element: v.element, bucket: 'uncertain' as const, meta: v })),
+          ...(result.rejected  ?? []).map((v: any) => ({ element: v.element, bucket: 'rejected'  as const, meta: v })),
+        ]
+      : [];
+
+    const BUCKET_CFG = {
+      validated: { label: 'Validé',   color: 'text-emerald-700', bg: 'bg-emerald-50',  border: 'border-emerald-200', Icon: CheckCircleIcon },
+      uncertain: { label: 'Incertain', color: 'text-amber-700',  bg: 'bg-amber-50',    border: 'border-amber-200',  Icon: QuestionMarkCircleIcon },
+      rejected:  { label: 'Rejeté',   color: 'text-red-700',    bg: 'bg-red-50',      border: 'border-red-200',    Icon: XCircleIcon },
+    };
+
+    return (
+      <div className="mt-2">
+        {/* Bouton déclencheur */}
+        {!result && !isVerifying && fieldValue.length > 3 && (
+          <button
+            type="button"
+            onClick={() => handleVerifyField(field)}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-sky-700 border border-sky-300 bg-sky-50 hover:bg-sky-100 rounded-md transition-colors"
+          >
+            <MagnifyingGlassIcon className="w-3.5 h-3.5" />
+            Vérifier les éléments
+          </button>
+        )}
+
+        {isVerifying && (
+          <div className="flex items-center gap-1.5 text-xs text-sky-600 py-1">
+            <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+            Vérification Perplexity en cours…
+          </div>
+        )}
+
+        {/* STEP 1 — Résultats de vérification */}
+        {result && !isVerifying && (
+          <div className="mt-2 border border-sky-200 rounded-lg bg-sky-50/40 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-sky-800">Étape 1 — Éléments vérifiés</span>
+              <button
+                type="button"
+                onClick={() => handleVerifyField(field)}
+                className="text-xs text-sky-600 hover:underline flex items-center gap-0.5"
+              >
+                <ArrowPathIcon className="w-3 h-3" /> Relancer
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              {allElements.map(({ element, bucket, meta }) => {
+                const cfg = BUCKET_CFG[bucket];
+                const Icon = cfg.Icon;
+                const isChecked = selected.has(element);
+                return (
+                  <label
+                    key={element}
+                    className={`flex items-start gap-2 px-2 py-1.5 rounded border cursor-pointer transition-colors ${cfg.bg} ${cfg.border} ${isChecked ? 'ring-1 ring-sky-400' : 'opacity-75 hover:opacity-100'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => toggleElement(field.name, element)}
+                      className="mt-0.5 accent-sky-600 flex-shrink-0"
+                    />
+                    <Icon className={`w-3.5 h-3.5 flex-shrink-0 mt-0.5 ${cfg.color}`} />
+                    <span className={`text-xs leading-snug flex-1 ${cfg.color}`}>
+                      {element}
+                      {meta?.short_reason && (
+                        <span className="ml-1 text-gray-400 font-normal">— {meta.short_reason}</span>
+                      )}
+                      {meta?.reason && (
+                        <span className="ml-1 text-gray-400 font-normal">— {meta.reason}</span>
+                      )}
+                      {(meta?.sources ?? []).filter((s: any) => s.url).map((s: any, i: number) => (
+                        <a key={i} href={s.url} target="_blank" rel="noopener noreferrer"
+                          className="ml-1.5 text-gray-400 hover:text-blue-500 underline text-[10px]" onClick={e => e.stopPropagation()}>
+                          {new URL(s.url).hostname.replace(/^www\./, '')}
+                        </a>
+                      ))}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+
+            {/* Bouton réécriture */}
+            <div className="pt-1 border-t border-sky-200">
+              <button
+                type="button"
+                disabled={selected.size === 0 || isRewriting}
+                onClick={() => handleRewriteField(field)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-lime-600 hover:bg-lime-700 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isRewriting
+                  ? <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Réécriture…</>
+                  : <><PencilSquareIcon className="w-3.5 h-3.5" />Étape 2 — Réécrire avec {selected.size} élément{selected.size > 1 ? 's' : ''} sélectionné{selected.size > 1 ? 's' : ''}</>
+                }
+              </button>
+            </div>
+
+            {/* STEP 2 — Résultat de réécriture */}
+            {rewritten && (
+              <div className="border border-lime-200 rounded-md bg-lime-50 p-3 space-y-2">
+                <span className="text-xs font-semibold text-lime-800">Étape 2 — Texte réécrit</span>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <p className="font-medium text-gray-500 mb-1">Avant</p>
+                    <p className="text-gray-600 line-through leading-snug">{formData[field.name]}</p>
+                  </div>
+                  <div>
+                    <p className="font-medium text-lime-700 mb-1">Après</p>
+                    <p className="text-gray-800 leading-snug">{rewritten}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleFieldChange(field.name, rewritten);
+                    setFieldRewriteResults(prev => { const n = { ...prev }; delete n[field.name]; return n; });
+                    setFieldVerifyResults(prev => { const n = { ...prev }; delete n[field.name]; return n; });
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-lime-700 hover:bg-lime-800 text-white rounded transition-colors"
+                >
+                  <CheckCircleIcon className="w-3.5 h-3.5" /> Appliquer ce texte
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderField = (field: TemplateField) => {
     const fieldValue = formData[field.name] || '';
 
@@ -634,6 +852,7 @@ export default function ContentEditorModal({
               }`}
             />
             <FieldValidationBlock fieldName={field.name} />
+            <FieldVerifyPanel field={field} />
             {field.max_chars && (
               <div className="mt-1 text-right">
                 {getCharacterCount(field.name, field.max_chars)}
@@ -672,6 +891,7 @@ export default function ContentEditorModal({
               }`}
             />
             <FieldValidationBlock fieldName={field.name} />
+            <FieldVerifyPanel field={field} />
             {field.max_chars && (
               <div className="mt-1 text-right">
                 {getCharacterCount(field.name, field.max_chars)}

@@ -12,7 +12,9 @@ import {
   SparklesIcon,
   TrashIcon,
   ArrowTopRightOnSquareIcon,
+  CheckCircleIcon,
 } from '@heroicons/react/24/outline';
+import { CheckCircleIcon as CheckCircleSolid } from '@heroicons/react/24/solid';
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, useDraggable, useDroppable } from '@dnd-kit/core';
 import { authFetch } from '@/lib/api-client';
 
@@ -36,6 +38,7 @@ interface POI {
   matched_automatically?: boolean;
   confidence?: 'high' | 'medium' | 'low';
   score?: number;
+  validated?: boolean;
   origine?: 'wordpress' | 'manuel' | 'bibliotheque';
 }
 
@@ -52,11 +55,12 @@ interface LieuxEtClustersTabProps {
 }
 
 // Composant POI draggable
-function DraggablePOI({ poi, apiUrl, guideId }: { poi: POI; apiUrl: string; guideId: string }) {
+function DraggablePOI({ poi, apiUrl, guideId, onValidate }: { poi: POI; apiUrl: string; guideId: string; onValidate: (poiId: string) => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: poi.poi_id,
   });
   const [openingArticle, setOpeningArticle] = useState(false);
+  const [validating, setValidating] = useState(false);
 
   const handleOpenArticle = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -75,6 +79,19 @@ function DraggablePOI({ poi, apiUrl, guideId }: { poi: POI; apiUrl: string; guid
     } finally { setOpeningArticle(false); }
   };
 
+  const handleValidate = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!poi.cluster_id || validating) return;
+    setValidating(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/pois/${poi.poi_id}/validate`, {
+        method: 'PATCH', credentials: 'include',
+      });
+      if (res.ok) onValidate(poi.poi_id);
+    } finally { setValidating(false); }
+  };
+
   const style = transform ? {
     transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
     opacity: isDragging ? 0.5 : 1,
@@ -89,7 +106,14 @@ function DraggablePOI({ poi, apiUrl, guideId }: { poi: POI; apiUrl: string; guid
         </span>
       );
     }
-
+    if (poi.validated) {
+      return (
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+          <CheckCircleSolid className="w-3 h-3" />
+          100%
+        </span>
+      );
+    }
     if (poi.matched_automatically) {
       const confidenceColor = poi.confidence === 'high' ? 'bg-green-100 text-green-700' :
                               poi.confidence === 'medium' ? 'bg-yellow-100 text-yellow-700' :
@@ -101,9 +125,9 @@ function DraggablePOI({ poi, apiUrl, guideId }: { poi: POI; apiUrl: string; guid
         </span>
       );
     }
-
     return (
-      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+        <CheckCircleIcon className="w-3 h-3" />
         Manuel
       </span>
     );
@@ -127,6 +151,18 @@ function DraggablePOI({ poi, apiUrl, guideId }: { poi: POI; apiUrl: string; guid
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           {getStatusBadge()}
+          {poi.cluster_id && !poi.validated && (
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={handleValidate}
+              disabled={validating}
+              title="Valider l'affectation (→ 100%)"
+              className="text-gray-300 hover:text-green-600 disabled:opacity-40 transition-colors"
+            >
+              <CheckCircleIcon className="w-3.5 h-3.5" />
+            </button>
+          )}
           {poi.url_source && (
             <button
               type="button"
@@ -497,7 +533,14 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterMode, setFilterMode] = useState<'all' | 'unassigned' | string>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'unassigned' | 'validated' | 'high' | 'medium' | 'low' | string>('all');
+
+  const handleValidatePoi = (poiId: string) => {
+    setPois(prev => prev.map(p => p.poi_id === poiId
+      ? { ...p, validated: true, confidence: 'high', score: 1.0, matched_automatically: false }
+      : p
+    ));
+  };
   
   // États matching
   const [clustersMetadata, setClustersMetadata] = useState<ClusterMetadata[]>([]);
@@ -1093,13 +1136,27 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     }
   };
 
+  // Compteurs par couleur pour les filtres
+  const colorCounts = {
+    validated: pois.filter(p => p.cluster_id && p.validated).length,
+    high:      pois.filter(p => p.cluster_id && !p.validated && p.matched_automatically && p.confidence === 'high').length,
+    medium:    pois.filter(p => p.cluster_id && !p.validated && p.matched_automatically && p.confidence === 'medium').length,
+    low:       pois.filter(p => p.cluster_id && !p.validated && p.matched_automatically && p.confidence === 'low').length,
+    unassigned: pois.filter(p => !p.cluster_id).length,
+    manual:    pois.filter(p => p.cluster_id && !p.validated && !p.matched_automatically).length,
+  };
+
   // Filtrage pour la colonne de gauche
   const filteredPois = pois.filter(poi => {
     const matchesSearch = poi.nom.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    if (filterMode === 'all') return matchesSearch;
-    if (filterMode === 'unassigned') return matchesSearch && !poi.cluster_id;
-    return matchesSearch && poi.cluster_id === filterMode;
+    if (!matchesSearch) return false;
+    if (filterMode === 'all') return true;
+    if (filterMode === 'unassigned') return !poi.cluster_id;
+    if (filterMode === 'validated') return !!poi.cluster_id && !!poi.validated;
+    if (filterMode === 'high') return !!poi.cluster_id && !poi.validated && poi.matched_automatically && poi.confidence === 'high';
+    if (filterMode === 'medium') return !!poi.cluster_id && !poi.validated && poi.matched_automatically && poi.confidence === 'medium';
+    if (filterMode === 'low') return !!poi.cluster_id && !poi.validated && (poi.matched_automatically && poi.confidence === 'low');
+    return poi.cluster_id === filterMode;
   });
 
   // Groupement pour la colonne de droite
@@ -1339,15 +1396,33 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                 />
               </div>
 
-              {/* Filtre déroulant */}
+              {/* Filtres couleur */}
+              <div className="flex flex-wrap gap-1 mb-1">
+                {([
+                  { key: 'all',       label: 'Tous',      count: pois.length,            cls: 'bg-gray-100 text-gray-700 border-gray-300' },
+                  { key: 'validated', label: '✓ Validés', count: colorCounts.validated,   cls: 'bg-green-100 text-green-800 border-green-300' },
+                  { key: 'high',      label: '≥80%',      count: colorCounts.high,        cls: 'bg-green-50 text-green-700 border-green-200' },
+                  { key: 'medium',    label: '50–79%',    count: colorCounts.medium,      cls: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
+                  { key: 'low',       label: '<50%',      count: colorCounts.low,         cls: 'bg-orange-100 text-orange-800 border-orange-300' },
+                  { key: 'unassigned',label: '✗ Non aff.',count: colorCounts.unassigned,  cls: 'bg-red-100 text-red-700 border-red-300' },
+                ] as const).map(f => (
+                  <button
+                    key={f.key}
+                    onClick={() => setFilterMode(f.key)}
+                    className={`px-1.5 py-0.5 rounded border text-[10px] font-medium transition-all ${f.cls} ${filterMode === f.key ? 'ring-2 ring-offset-1 ring-blue-400' : 'opacity-70 hover:opacity-100'}`}
+                  >
+                    {f.label} <span className="font-bold">{f.count}</span>
+                  </button>
+                ))}
+              </div>
+              {/* Filtre par cluster */}
               <div>
                 <select
-                  value={filterMode}
+                  value={['all','validated','high','medium','low','unassigned'].includes(filterMode) ? 'all' : filterMode}
                   onChange={(e) => setFilterMode(e.target.value)}
                   className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                 >
-                  <option value="all">Tous ({pois.length})</option>
-                  <option value="unassigned">Non affectés ({unassignedPois.length})</option>
+                  <option value="all">— Filtrer par cluster —</option>
                   {displayClusters.map(cluster => (
                     <option key={cluster.cluster_id} value={cluster.cluster_id}>
                       {cluster.cluster_name} ({(poisByCluster[cluster.cluster_id] || []).length})
@@ -1375,7 +1450,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               )}
 
               {!loading && filteredPois.map((poi) => (
-                <DraggablePOI key={poi.poi_id} poi={poi} apiUrl={apiUrl} guideId={guideId} />
+                <DraggablePOI key={poi.poi_id} poi={poi} apiUrl={apiUrl} guideId={guideId} onValidate={handleValidatePoi} />
               ))}
             </div>
           </div>

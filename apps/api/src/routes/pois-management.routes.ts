@@ -802,4 +802,41 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       }
     }
   );
+
+  /**
+   * PATCH /guides/:guideId/pois/:poiId/validate
+   * Valide manuellement l'affectation d'un POI à son cluster (score → 100 %, validated → true)
+   */
+  fastify.patch<{ Params: { guideId: string; poiId: string } }>(
+    '/guides/:guideId/pois/:poiId/validate',
+    async (request, reply) => {
+      const { guideId, poiId } = request.params;
+
+      try {
+        const poisSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
+        if (!poisSelection) return reply.code(404).send({ error: 'Sélection introuvable' });
+
+        const poiIndex = poisSelection.pois.findIndex((p: any) => p.poi_id === poiId);
+        if (poiIndex === -1) return reply.code(404).send({ error: 'POI introuvable' });
+
+        poisSelection.pois[poiIndex] = {
+          ...poisSelection.pois[poiIndex],
+          validated: true,
+          confidence: 'high',
+          score: 1.0,
+          matched_automatically: false,
+          updated_at: new Date(),
+        };
+
+        await db.collection(COLLECTIONS.pois_selection).updateOne(
+          { guide_id: guideId },
+          { $set: { pois: poisSelection.pois, updated_at: new Date() } }
+        );
+
+        return reply.send({ success: true, poi: poisSelection.pois[poiIndex] });
+      } catch (error: any) {
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
 }

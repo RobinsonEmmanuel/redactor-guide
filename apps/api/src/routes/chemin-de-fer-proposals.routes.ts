@@ -66,7 +66,7 @@ export default async function cheminDeFerProposalsRoutes(fastify: FastifyInstanc
           if (block.type === 'fixed_page') {
             // Pages fixes
             proposals.fixed_pages.push({
-              page_id: `fixed_${block.template_name}_${Date.now()}`,
+              page_id: `fixed_${block.template_name}`,
               template_name: block.template_name,
               titre: getPageTitle(block.template_name),
               section_name: block.name,
@@ -95,7 +95,7 @@ export default async function cheminDeFerProposalsRoutes(fastify: FastifyInstanc
 
                 // Page intro cluster
                 proposals.cluster_pages.push({
-                  page_id: `cluster_${cluster.cluster_id}_${Date.now()}`,
+                  page_id: `cluster_${cluster.cluster_id}`,
                   template_name: 'CLUSTER',
                   titre: cluster.cluster_name,
                   cluster_id: cluster.cluster_id,
@@ -108,7 +108,7 @@ export default async function cheminDeFerProposalsRoutes(fastify: FastifyInstanc
                 // Pages POI
                 for (const poi of clusterPois) {
                   proposals.poi_pages.push({
-                    page_id: `poi_${poi.poi_id}_${Date.now()}`,
+                    page_id: `poi_${poi.poi_id}`,
                     template_name: 'POI',
                     titre: poi.nom,
                     poi_id: poi.poi_id,
@@ -136,7 +136,7 @@ export default async function cheminDeFerProposalsRoutes(fastify: FastifyInstanc
 
                 for (let pageIndex = 0; pageIndex < pagesCount; pageIndex++) {
                   proposals.inspiration_pages.push({
-                    page_id: `inspiration_${inspiration.theme_id}_${pageIndex}_${Date.now()}`,
+                    page_id: `inspiration_${inspiration.theme_id}_${pageIndex}`,
                     template_name: 'INSPIRATION',
                     titre: `${inspiration.titre} (${pageIndex + 1}/${pagesCount})`,
                     inspiration_id: inspiration.theme_id,
@@ -154,7 +154,7 @@ export default async function cheminDeFerProposalsRoutes(fastify: FastifyInstanc
               const saisons = ['Printemps', 'Été', 'Automne', 'Hiver'];
               for (let i = 0; i < block.pages_count; i++) {
                 proposals.saison_pages.push({
-                  page_id: `saison_${i}_${Date.now()}`,
+                  page_id: `saison_${i}`,
                   template_name: 'SAISON',
                   titre: saisons[i] || `Saison ${i + 1}`,
                   saison: saisons[i]?.toLowerCase(),

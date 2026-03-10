@@ -1166,6 +1166,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           : p.metadata ?? {};
 
         return {
+          page_id:          p.page_id ?? undefined,
           chemin_de_fer_id: cheminDeFerId,
           guide_id:         guideId,
           template_name:    p.template_name,

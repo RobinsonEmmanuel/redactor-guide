@@ -12,6 +12,7 @@ interface BuildContext {
 }
 
 interface PageDocument {
+  page_id: string;
   guide_id: string;
   template_name: string;
   order: number;
@@ -114,6 +115,7 @@ export class CheminDeFerBuilderService {
     }
 
     return {
+      page_id: `fixed_${templateName}`,
       guide_id: guideId,
       template_name: templateName,
       order,
@@ -235,6 +237,7 @@ export class CheminDeFerBuilderService {
         currentOrder,
         block.section_title
       );
+      clusterIntroPage.page_id = `cluster_${cluster.cluster_id}`;
       clusterIntroPage.section_id = sectionId;
       clusterIntroPage.metadata = {
         ...clusterIntroPage.metadata,
@@ -255,6 +258,7 @@ export class CheminDeFerBuilderService {
           currentOrder,
           block.section_title
         );
+        poiPage.page_id = `poi_${poi.poi_id}`;
         poiPage.section_id = sectionId;
         poiPage.metadata = {
           ...poiPage.metadata,
@@ -327,6 +331,8 @@ export class CheminDeFerBuilderService {
           currentOrder,
           block.section_title
         );
+        const inspirationId = inspiration.theme_id ?? inspiration.inspiration_id ?? `insp_${currentOrder}`;
+        inspirationPage.page_id = `inspiration_${inspirationId}_${pageIndex}`;
         inspirationPage.section_id = sectionId;
         inspirationPage.metadata = {
           ...inspirationPage.metadata,
@@ -380,6 +386,7 @@ export class CheminDeFerBuilderService {
         startOrder + i,
         block.section_title
       );
+      page.page_id = `saison_${i}`;
       page.section_id = sectionId;
       page.metadata = {
         ...page.metadata,

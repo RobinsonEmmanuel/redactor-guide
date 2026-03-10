@@ -37,7 +37,7 @@ export class PageRedactionService {
   /**
    * Générer le contenu d'une page via IA avec retry sur échec de validation
    */
-  async generatePageContent(_guideId: string, pageId: string): Promise<RedactionResult> {
+  async generatePageContent(_guideId: string, pageId: string, options?: { useLlmKnowledge?: boolean }): Promise<RedactionResult> {
     try {
       console.log(`🚀 Démarrage rédaction IA pour page ${pageId}`);
 
@@ -83,18 +83,25 @@ export class PageRedactionService {
       if (infoSource === 'article_source') {
         // Mode article spécifique : utilise l'article WordPress lié à la page
         if (!page.url_source) {
-          throw new Error("Ce template utilise 'article_source' mais aucune url_source n'est définie sur la page");
+          if (options?.useLlmKnowledge) {
+            // Pas de source WordPress : génération depuis la base de connaissance du LLM
+            articleContext = `[MODE BASE DE CONNAISSANCE]\nAucun article WordPress source n'est associé à cette page.\nGénère le contenu en te basant uniquement sur tes connaissances générales du lieu "${page.titre ?? 'inconnu'}".\nSois factuel, précis et adopte le ton éditorial habituel de Region Lovers.`;
+            console.log(`🧠 Mode base de connaissance (sans article source) pour "${page.titre}"`);
+          } else {
+            throw new Error("Ce template utilise 'article_source' mais aucune url_source n'est définie sur la page");
+          }
+        } else {
+          article = await this.loadArticleSource(page.url_source);
+          if (!article) {
+            throw new Error('Article WordPress source non trouvé');
+          }
+          await this.ensureImagesAnalyzed(article);
+          articleContext = this.formatArticle(article, page.titre);
+          if (page.titre && article.images?.length) {
+            void this.tagImagesWithPOI(this.filterImagesForPOI(article.images, page.titre), page.titre);
+          }
+          console.log(`📄 Mode article_source : ${article.title}`);
         }
-        article = await this.loadArticleSource(page.url_source);
-        if (!article) {
-          throw new Error('Article WordPress source non trouvé');
-        }
-        await this.ensureImagesAnalyzed(article);
-        articleContext = this.formatArticle(article, page.titre);
-        if (page.titre && article.images?.length) {
-          void this.tagImagesWithPOI(this.filterImagesForPOI(article.images, page.titre), page.titre);
-        }
-        console.log(`📄 Mode article_source : ${article.title}`);
 
       } else if (infoSource === 'cluster_auto_match') {
         // Mode cluster : recherche automatique de l'article "Que faire à <nom du cluster>"

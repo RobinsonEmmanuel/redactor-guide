@@ -13,7 +13,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
    */
   fastify.post('/workers/generate-page-content', async (request, reply) => {
     const db = request.server.container.db;
-    const { guideId, pageId } = request.body as { guideId: string; pageId: string };
+    const { guideId, pageId, useLlmKnowledge } = request.body as { guideId: string; pageId: string; useLlmKnowledge?: boolean };
 
     try {
       console.log(`🚀 [WORKER] Génération contenu page ${pageId}`);
@@ -25,7 +25,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
 
       // Générer le contenu via IA (avec retry automatique intégré)
       const redactionService = new PageRedactionService(db, openaiApiKey);
-      const result = await redactionService.generatePageContent(guideId, pageId);
+      const result = await redactionService.generatePageContent(guideId, pageId, { useLlmKnowledge });
 
       // Déterminer le statut éditorial selon le résultat
       let statutEditorial = 'draft';

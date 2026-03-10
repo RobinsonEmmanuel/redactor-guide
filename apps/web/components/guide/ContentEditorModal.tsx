@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { XMarkIcon, SparklesIcon, ArrowPathIcon, PhotoIcon, ShieldCheckIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, SparklesIcon, ArrowPathIcon, PhotoIcon, ShieldCheckIcon, BookOpenIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import ImageAnalysisModal from './ImageAnalysisModal';
 import ImageSelectorModal from './ImageSelectorModal';
 
@@ -248,6 +248,7 @@ export default function ContentEditorModal({
   );
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showLlmKnowledgeConfirm, setShowLlmKnowledgeConfirm] = useState(false);
   const [showImageAnalysis, setShowImageAnalysis] = useState(false);
   const [showImageSelector, setShowImageSelector] = useState(false);
   const [currentImageField, setCurrentImageField] = useState<string | null>(null);
@@ -331,9 +332,9 @@ export default function ContentEditorModal({
   const requiresUrlForGeneration = pageType === 'poi';
   const requiresPoisForGeneration = isInspirationPage;
 
-  const handleGenerateContent = async () => {
-    if (requiresUrlForGeneration && !page.url_source) {
-      setError('Aucun article WordPress source associé à cette page. Veuillez lier un article via les paramètres de la page.');
+  const handleGenerateContent = async (useLlmKnowledge = false) => {
+    if (requiresUrlForGeneration && !page.url_source && !useLlmKnowledge) {
+      setShowLlmKnowledgeConfirm(true);
       return;
     }
     if (requiresPoisForGeneration && !(page.metadata?.inspiration_pois?.length)) {
@@ -341,6 +342,7 @@ export default function ContentEditorModal({
       return;
     }
 
+    setShowLlmKnowledgeConfirm(false);
     setGenerating(true);
     setError(null);
 
@@ -352,6 +354,8 @@ export default function ContentEditorModal({
         {
           method: 'POST',
           credentials: 'include',
+          headers: useLlmKnowledge ? { 'Content-Type': 'application/json' } : undefined,
+          body: useLlmKnowledge ? JSON.stringify({ use_llm_knowledge: true }) : undefined,
         }
       );
 
@@ -1190,19 +1194,24 @@ export default function ContentEditorModal({
             <div className="flex items-center gap-2 flex-shrink-0">
               <button
                 type="button"
-                onClick={handleGenerateContent}
+                onClick={() => handleGenerateContent()}
                 disabled={generating
-                  || (requiresUrlForGeneration && !page.url_source)
                   || (requiresPoisForGeneration && !page.metadata?.inspiration_pois?.length)
                   || (isInspirationPage && template?.info_source === 'inspiration_auto_match'
                       && (page.metadata?.inspiration_pois ?? []).some((p: InspirationPoi) => !p.url_source))
                 }
-                title={generating ? 'Génération en cours…' : 'Générer le contenu automatiquement'}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                title={generating ? 'Génération en cours…' : requiresUrlForGeneration && !page.url_source ? 'Générer sans article source (base de connaissance LLM)' : 'Générer le contenu automatiquement'}
+                className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm ${
+                  requiresUrlForGeneration && !page.url_source
+                    ? 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-300/50'
+                    : 'bg-white/10 hover:bg-white/20 border-white/30'
+                }`}
               >
                 {generating
                   ? <><ArrowPathIcon className="h-4 w-4 animate-spin" /><span className="hidden sm:inline">Génération…</span></>
-                  : <><SparklesIcon className="h-4 w-4" /><span className="hidden sm:inline">Générer</span></>}
+                  : requiresUrlForGeneration && !page.url_source
+                    ? <><ExclamationTriangleIcon className="h-4 w-4" /><span className="hidden sm:inline">Générer</span></>
+                    : <><SparklesIcon className="h-4 w-4" /><span className="hidden sm:inline">Générer</span></>}
               </button>
 
               {page.url_source && (
@@ -1235,9 +1244,38 @@ export default function ContentEditorModal({
             </div>
           </div>
 
-          {/* Avertissement URL manquante */}
-          {requiresUrlForGeneration && !page.url_source && (
-            <p className="text-xs text-white/70 mt-2">⚠️ Article WordPress source requis pour ce type de page</p>
+          {/* Avertissement URL manquante + dialog de confirmation LLM */}
+          {requiresUrlForGeneration && !page.url_source && !showLlmKnowledgeConfirm && (
+            <p className="text-xs text-amber-200/80 mt-2">
+              ⚠️ Aucun article WordPress source lié — cliquez sur "Générer" pour choisir le mode de génération.
+            </p>
+          )}
+          {showLlmKnowledgeConfirm && (
+            <div className="mt-2 px-3 py-2.5 rounded bg-amber-500/20 border border-amber-300/40 text-white text-xs">
+              <div className="flex items-start gap-2">
+                <BookOpenIcon className="h-4 w-4 mt-0.5 flex-shrink-0 text-amber-300" />
+                <div className="flex-1">
+                  <p className="font-semibold mb-1">Aucun article WordPress source associé à cette page.</p>
+                  <p className="text-white/80 mb-2.5">Voulez-vous générer le contenu à partir de la <strong>base de connaissance du LLM</strong> (sans source de référence) ?</p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleGenerateContent(true)}
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-white rounded font-medium transition-colors"
+                    >
+                      Oui, générer depuis la base de connaissance
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowLlmKnowledgeConfirm(false)}
+                      className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded transition-colors"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
           {requiresPoisForGeneration && !page.metadata?.inspiration_pois?.length && (
             <p className="text-xs text-white/70 mt-2">⚠️ Lancez d'abord la construction du guide pour résoudre les POIs de cette inspiration</p>

@@ -498,10 +498,14 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
    * POST /guides/:guideId/chemin-de-fer/pages/:pageId/generate-content
    * Lancer la rédaction automatique d'une page via IA (worker)
    */
-  fastify.post<{ Params: { guideId: string; pageId: string } }>(
+  fastify.post<{
+    Params: { guideId: string; pageId: string };
+    Body: { use_llm_knowledge?: boolean };
+  }>(
     '/guides/:guideId/chemin-de-fer/pages/:pageId/generate-content',
     async (request, reply) => {
       const { guideId, pageId } = request.params;
+      const useLlmKnowledge = !!(request.body as any)?.use_llm_knowledge;
       const db = request.server.container.db;
 
       try {
@@ -515,14 +519,14 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           return reply.status(404).send({ error: 'Page non trouvée' });
         }
 
-        // Pour les pages POI, l'url_source est obligatoire (article mono-lieu).
-        // Pour les pages INSPIRATION, le contexte vient de metadata.inspiration_pois — pas d'url_source.
-        // Pour les autres types (couverture, cluster, saison…), le contexte général est utilisé.
+        // Pour les pages POI, l'url_source est obligatoire sauf si l'utilisateur a explicitement
+        // choisi la génération depuis la base de connaissance LLM (use_llm_knowledge = true).
         const pageType = (page.type_de_page ?? page.template_name ?? '').toLowerCase();
-        if (pageType === 'poi' && !page.url_source) {
+        if (pageType === 'poi' && !page.url_source && !useLlmKnowledge) {
           return reply.status(400).send({ 
             error: 'Aucun article WordPress source associé à cette page',
-            details: 'Veuillez d\'abord associer un article WordPress à cette page via ses paramètres.'
+            details: 'Veuillez d\'abord associer un article WordPress à cette page via ses paramètres.',
+            can_use_llm_knowledge: true,
           });
         }
         if (pageType === 'inspiration' && !page.metadata?.inspiration_pois?.length) {
@@ -569,7 +573,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
                 'Content-Type': 'application/json',
                 'Upstash-Retries': '3',
               },
-              body: JSON.stringify({ guideId, pageId }),
+              body: JSON.stringify({ guideId, pageId, useLlmKnowledge }),
             });
 
             if (!qstashResponse.ok) {
@@ -613,7 +617,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           }
 
           const redactionService = new PageRedactionService(db, openaiApiKey);
-          const result = await redactionService.generatePageContent(guideId, pageId);
+          const result = await redactionService.generatePageContent(guideId, pageId, { useLlmKnowledge });
 
           if (result.status === 'error') {
             return reply.status(500).send({ error: result.error });

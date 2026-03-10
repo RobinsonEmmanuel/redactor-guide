@@ -57,28 +57,50 @@ export default async function driveImagesRoutes(fastify: FastifyInstance) {
       }
 
       try {
-        const res = await drive.files.list({
-          q: `'${folderId}' in parents and (mimeType contains 'image/') and trashed = false`,
-          fields: 'files(id, name, mimeType, thumbnailLink, size, createdTime, imageMediaMetadata)',
-          pageSize: 300,
-          orderBy: 'createdTime desc',
-          supportsAllDrives: true,
-          includeItemsFromAllDrives: true,
+        const DRIVE_OPTS = { supportsAllDrives: true, includeItemsFromAllDrives: true };
+
+        // Helper : liste les images directes d'un dossier
+        const listImages = async (parentId: string, folderName?: string) => {
+          const res = await drive.files.list({
+            q: `'${parentId}' in parents and mimeType contains 'image/' and trashed = false`,
+            fields: 'files(id, name, mimeType, thumbnailLink, size, createdTime, imageMediaMetadata)',
+            pageSize: 300,
+            orderBy: 'name',
+            ...DRIVE_OPTS,
+          });
+          return (res.data.files ?? []).map((f: any) => ({
+            id: f.id,
+            name: f.name,
+            mimeType: f.mimeType,
+            thumbnailLink: f.thumbnailLink ?? null,
+            size: f.size ? parseInt(f.size, 10) : null,
+            createdTime: f.createdTime ?? null,
+            folder: folderName ?? null,
+          }));
+        };
+
+        // 1. Images directes à la racine
+        const rootImages = await listImages(folderId);
+
+        // 2. Sous-dossiers directs
+        const subRes = await drive.files.list({
+          q: `'${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+          fields: 'files(id, name)',
+          pageSize: 200,
+          orderBy: 'name',
+          ...DRIVE_OPTS,
         });
+        const subFolders: Array<{ id: string; name: string }> = subRes.data.files ?? [];
 
-        const files = (res.data.files ?? []).map((f: any) => ({
-          id: f.id,
-          name: f.name,
-          mimeType: f.mimeType,
-          thumbnailLink: f.thumbnailLink ?? null,
-          size: f.size ? parseInt(f.size, 10) : null,
-          createdTime: f.createdTime ?? null,
-          width: f.imageMediaMetadata?.width ?? null,
-          height: f.imageMediaMetadata?.height ?? null,
-        }));
+        // 3. Images dans chaque sous-dossier (1 niveau de profondeur)
+        const subImages = (
+          await Promise.all(subFolders.map((sf: any) => listImages(sf.id, sf.name)))
+        ).flat();
 
-        console.log(`📁 [Drive] ${files.length} fichier(s) trouvé(s) dans le dossier ${folderId}`);
-        return reply.send({ files, total: files.length });
+        const allFiles = [...rootImages, ...subImages];
+        console.log(`📁 [Drive] ${allFiles.length} fichier(s) trouvé(s) (${subFolders.length} sous-dossier(s)) dans ${folderId}`);
+
+        return reply.send({ files: allFiles, total: allFiles.length });
       } catch (err: any) {
         console.error('❌ [Drive] Erreur liste fichiers:', err?.message ?? err);
         return reply.code(500).send({

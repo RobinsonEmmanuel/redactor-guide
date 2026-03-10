@@ -37,6 +37,7 @@ interface DriveFile {
   thumbnailLink: string | null;
   size: number | null;
   createdTime: string | null;
+  folder: string | null;
 }
 
 interface ImageItem {
@@ -215,6 +216,7 @@ export default function ImageSelectorModal({
   const [driveLoading, setDriveLoading] = useState(false);
   const [driveError, setDriveError] = useState<string | null>(null);
   const [importingFileId, setImportingFileId] = useState<string | null>(null);
+  const [activeDriveFolder, setActiveDriveFolder] = useState<string | null>(null);
 
   // ── États HEIC ───────────────────────────────────────────────────────────
   const [heicConverting, setHeicConverting] = useState(false);
@@ -867,75 +869,105 @@ export default function ImageSelectorModal({
                 </div>
               )}
 
-              {!driveLoading && !driveError && driveFiles.length > 0 && (
-                <>
-                  <p className="text-xs text-gray-500 mb-3">
-                    {driveFiles.length} photo{driveFiles.length > 1 ? 's' : ''} — cliquez sur &laquo; Importer &raquo; pour transférer vers Cloudinary et sélectionner.
-                  </p>
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {driveFiles.map((file) => {
-                      const isSelected = selectedImage !== null && importingFileId === null &&
-                        driveFiles.find(f => f.id === file.id) !== undefined &&
-                        selectedImage.includes(file.name.replace(/\.(heic|heif)$/i, ''));
-                      const isImporting = importingFileId === file.id;
+              {!driveLoading && !driveError && driveFiles.length > 0 && (() => {
+                const driveFolders = Array.from(new Set(driveFiles.map(f => f.folder).filter(Boolean))) as string[];
+                const filteredDriveFiles = activeDriveFolder
+                  ? driveFiles.filter(f => f.folder === activeDriveFolder)
+                  : driveFiles;
 
-                      return (
-                        <div
-                          key={file.id}
-                          className={`relative rounded-lg border-2 overflow-hidden transition-all ${
-                            isSelected
-                              ? 'border-purple-600 ring-2 ring-purple-300 shadow-lg'
-                              : 'border-gray-200 hover:border-purple-400 hover:shadow-md'
+                return (
+                  <>
+                    {/* Filtre par sous-dossier */}
+                    {driveFolders.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-3">
+                        <button
+                          onClick={() => setActiveDriveFolder(null)}
+                          className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                            activeDriveFolder === null ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                           }`}
                         >
-                          {/* Miniature */}
-                          <div className="aspect-video bg-gray-100 flex items-center justify-center overflow-hidden">
-                            {file.thumbnailLink ? (
-                              <img
-                                src={file.thumbnailLink}
-                                alt={file.name}
-                                className="w-full h-full object-cover"
-                                referrerPolicy="no-referrer"
-                                loading="lazy"
-                              />
-                            ) : (
-                              <div className="flex flex-col items-center gap-1 text-gray-400 p-2">
-                                <PhotoIcon className="h-8 w-8" />
-                                <span className="text-[10px] text-center line-clamp-2">{file.name}</span>
-                              </div>
-                            )}
+                          Tous ({driveFiles.length})
+                        </button>
+                        {driveFolders.map(folder => (
+                          <button
+                            key={folder}
+                            onClick={() => setActiveDriveFolder(folder)}
+                            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                              activeDriveFolder === folder ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                          >
+                            {folder} ({driveFiles.filter(f => f.folder === folder).length})
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
-                            {/* Overlay HEIC badge */}
-                            {/\.(heic|heif)$/i.test(file.name) && (
-                              <div className="absolute top-2 left-2 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">
-                                HEIC
-                              </div>
-                            )}
-                          </div>
+                    <p className="text-xs text-gray-500 mb-3">
+                      {filteredDriveFiles.length} photo{filteredDriveFiles.length > 1 ? 's' : ''} — cliquez sur &laquo; Importer &raquo; pour transférer vers Cloudinary.
+                    </p>
 
-                          {/* Bas de carte */}
-                          <div className="px-2 py-1.5 bg-white border-t border-gray-100">
-                            <p className="text-[10px] text-gray-600 truncate mb-1.5" title={file.name}>
-                              {file.name}
-                            </p>
-                            <button
-                              onClick={() => handleImportDriveFile(file)}
-                              disabled={isImporting || importingFileId !== null}
-                              className="w-full flex items-center justify-center gap-1.5 px-2 py-1 bg-purple-600 text-white rounded text-xs hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
-                            >
-                              {isImporting ? (
-                                <><ArrowPathIcon className="h-3 w-3 animate-spin" /> Import…</>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {filteredDriveFiles.map((file) => {
+                        const isImporting = importingFileId === file.id;
+                        return (
+                          <div
+                            key={file.id}
+                            className="relative rounded-lg border-2 border-gray-200 hover:border-purple-400 hover:shadow-md overflow-hidden transition-all"
+                          >
+                            {/* Miniature */}
+                            <div className="aspect-video bg-gray-100 flex items-center justify-center overflow-hidden relative">
+                              {file.thumbnailLink ? (
+                                <img
+                                  src={file.thumbnailLink}
+                                  alt={file.name}
+                                  className="w-full h-full object-cover"
+                                  referrerPolicy="no-referrer"
+                                  loading="lazy"
+                                />
                               ) : (
-                                <><ArrowDownTrayIcon className="h-3 w-3" /> Importer</>
+                                <div className="flex flex-col items-center gap-1 text-gray-400 p-2">
+                                  <PhotoIcon className="h-8 w-8" />
+                                  <span className="text-[10px] text-center line-clamp-2">{file.name}</span>
+                                </div>
                               )}
-                            </button>
+                              {/\.(heic|heif)$/i.test(file.name) && (
+                                <div className="absolute top-2 left-2 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">
+                                  HEIC
+                                </div>
+                              )}
+                              {file.folder && (
+                                <div className="absolute bottom-1 left-1 right-1">
+                                  <span className="block text-[9px] font-medium bg-black/60 text-white px-1.5 py-0.5 rounded truncate">
+                                    {file.folder}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Bas de carte */}
+                            <div className="px-2 py-1.5 bg-white border-t border-gray-100">
+                              <p className="text-[10px] text-gray-600 truncate mb-1.5" title={file.name}>
+                                {file.name}
+                              </p>
+                              <button
+                                onClick={() => handleImportDriveFile(file)}
+                                disabled={isImporting || importingFileId !== null}
+                                className="w-full flex items-center justify-center gap-1.5 px-2 py-1 bg-purple-600 text-white rounded text-xs hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                              >
+                                {isImporting ? (
+                                  <><ArrowPathIcon className="h-3 w-3 animate-spin" /> Import…</>
+                                ) : (
+                                  <><ArrowDownTrayIcon className="h-3 w-3" /> Importer</>
+                                )}
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
 

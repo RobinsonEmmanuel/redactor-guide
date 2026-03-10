@@ -19,6 +19,7 @@ const CreateGuideSchema = z.object({
   destination: z.string().min(1),
   destination_rl_id: z.string().optional(),
   guide_template_id: z.string().optional(),
+  google_drive_folder_id: z.string().optional(),
   image_principale: z.string().optional(),
   wpConfig: z.object({
     siteUrl: z.string().url().or(z.literal('')),

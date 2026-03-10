@@ -8,6 +8,7 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   XCircleIcon,
+  XMarkIcon,
   ArrowPathIcon,
   SparklesIcon,
   TrashIcon,
@@ -188,12 +189,14 @@ function DroppableCluster({
   isExpanded, 
   onToggle,
   onDelete,
+  onUnassign,
 }: { 
   cluster: ClusterMetadata | 'unassigned'; 
   pois: POI[];
   isExpanded: boolean;
   onToggle: () => void;
   onDelete?: () => void;
+  onUnassign?: (poiId: string) => void;
 }) {
   const clusterId = cluster === 'unassigned' ? 'unassigned' : cluster.cluster_id;
   const clusterName = cluster === 'unassigned' ? 'Non affectés' : cluster.cluster_name;
@@ -264,15 +267,27 @@ function DroppableCluster({
             pois.map((poi) => (
               <div
                 key={poi.poi_id}
-                className="text-xs text-gray-700 py-1 px-2 hover:bg-gray-50 rounded"
+                className="text-xs text-gray-700 py-1 px-2 hover:bg-gray-50 rounded group"
               >
-                <div className="flex items-center justify-between">
-                  <span>• {poi.nom}</span>
-                  {poi.matched_automatically && poi.score && (
-                    <span className="text-xs text-gray-500">
-                      {Math.round(poi.score * 100)}%
-                    </span>
-                  )}
+                <div className="flex items-center justify-between gap-1">
+                  <span className="flex-1 min-w-0 truncate">• {poi.nom}</span>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {poi.matched_automatically && poi.score && (
+                      <span className="text-gray-400">
+                        {Math.round(poi.score * 100)}%
+                      </span>
+                    )}
+                    {!isUnassigned && onUnassign && (
+                      <button
+                        type="button"
+                        onClick={() => onUnassign(poi.poi_id)}
+                        title="Retirer du cluster"
+                        className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-all"
+                      >
+                        <XMarkIcon className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))
@@ -1044,6 +1059,24 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     }
   };
 
+  const handleUnassignPoi = async (poiId: string) => {
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/${poiId}/cluster`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cluster_id: null, cluster_name: null }),
+      });
+      if (res.ok) {
+        setPois(prev => prev.map(p => p.poi_id === poiId
+          ? { ...p, cluster_id: null, cluster_name: undefined, matched_automatically: false }
+          : p
+        ));
+      }
+    } catch (err) {
+      console.error('Erreur désaffectation POI:', err);
+    }
+  };
+
   const handleDragStart = (event: DragStartEvent) => {
     setActiveDragId(event.active.id as string);
   };
@@ -1487,6 +1520,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                   isExpanded={expandedClusters.has(cluster.cluster_id)}
                   onToggle={() => toggleCluster(cluster.cluster_id)}
                   onDelete={() => deleteCluster(cluster.cluster_id, cluster.cluster_name)}
+                  onUnassign={handleUnassignPoi}
                 />
               ))}
 

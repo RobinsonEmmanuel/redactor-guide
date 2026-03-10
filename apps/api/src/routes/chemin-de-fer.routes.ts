@@ -1274,8 +1274,8 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           non:            'Non',
         };
 
-        // Construire la liste des champs à valider (texte + picto, non vides)
-        const TEXT_TYPES = new Set(['titre', 'texte', 'meta']);
+        // Construire la liste des champs à valider (texte + liste + picto, non vides)
+        const TEXT_TYPES = new Set(['titre', 'texte', 'meta', 'liste']);
         const PICTO_TYPE = 'picto';
         const fieldsToValidate: Array<{ name: string; label: string; value: string; fieldType?: string }> = [];
 

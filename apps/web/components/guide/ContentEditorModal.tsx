@@ -329,7 +329,8 @@ export default function ContentEditorModal({
   const isInspirationPage = pageType === 'inspiration';
 
   // POI nécessite un article source. INSPIRATION utilise ses POIs en metadata.
-  const requiresUrlForGeneration = pageType === 'poi';
+  // On couvre 'poi', 'poi_manual', 'poi_bibliotheque', etc.
+  const requiresUrlForGeneration = pageType.startsWith('poi');
   const requiresPoisForGeneration = isInspirationPage;
 
   const handleGenerateContent = async (useLlmKnowledge = false) => {

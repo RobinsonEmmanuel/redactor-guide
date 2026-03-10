@@ -522,7 +522,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         // Pour les pages POI, l'url_source est obligatoire sauf si l'utilisateur a explicitement
         // choisi la génération depuis la base de connaissance LLM (use_llm_knowledge = true).
         const pageType = (page.type_de_page ?? page.template_name ?? '').toLowerCase();
-        if (pageType === 'poi' && !page.url_source && !useLlmKnowledge) {
+        if (pageType.startsWith('poi') && !page.url_source && !useLlmKnowledge) {
           return reply.status(400).send({ 
             error: 'Aucun article WordPress source associé à cette page',
             details: 'Veuillez d\'abord associer un article WordPress à cette page via ses paramètres.',

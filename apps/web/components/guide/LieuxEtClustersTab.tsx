@@ -935,7 +935,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
   const createManualPOI = async () => {
     try {
-      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois`, {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/add-manual`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -985,7 +985,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
   const addFromLibrary = async (libraryPoi: any) => {
     try {
-      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois`, {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/add-from-library`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -9,6 +9,8 @@ import {
   ArrowUpTrayIcon,
   InformationCircleIcon,
   MapPinIcon,
+  FolderOpenIcon,
+  ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline';
 import { StarIcon, CheckCircleIcon } from '@heroicons/react/24/solid';
 
@@ -22,8 +24,19 @@ interface ImageSelectorModalProps {
   scope?: 'page' | 'guide';
   currentImageUrl?: string;
   apiUrl: string;
+  /** ID du dossier Google Drive configuré sur le guide — active l'onglet Drive */
+  googleDriveFolderId?: string;
   onSelect: (imageUrl: string) => void;
   onClose: () => void;
+}
+
+interface DriveFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  thumbnailLink: string | null;
+  size: number | null;
+  createdTime: string | null;
 }
 
 interface ImageItem {
@@ -51,7 +64,7 @@ interface ImageItem {
 }
 
 type AnalyzedScope = 'poi' | 'page' | 'guide';
-type InputMode = 'analyzed' | 'url' | 'upload';
+type InputMode = 'analyzed' | 'url' | 'upload' | 'drive';
 type UploadStep = 'select' | 'uploading' | 'analyzing' | 'tag-poi' | 'done';
 
 interface UploadAnalysis {
@@ -164,6 +177,7 @@ export default function ImageSelectorModal({
   scope = 'page',
   currentImageUrl,
   apiUrl,
+  googleDriveFolderId,
   onSelect,
   onClose,
 }: ImageSelectorModalProps) {
@@ -195,6 +209,15 @@ export default function ImageSelectorModal({
   // Liste de tous les noms de POIs du guide pour l'autocomplétion
   const [poiSuggestions, setPoiSuggestions] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── États Google Drive ────────────────────────────────────────────────────
+  const [driveFiles, setDriveFiles] = useState<DriveFile[]>([]);
+  const [driveLoading, setDriveLoading] = useState(false);
+  const [driveError, setDriveError] = useState<string | null>(null);
+  const [importingFileId, setImportingFileId] = useState<string | null>(null);
+
+  // ── États HEIC ───────────────────────────────────────────────────────────
+  const [heicConverting, setHeicConverting] = useState(false);
 
   useEffect(() => { loadImages(); }, [activeScope, sortBy]);
 
@@ -246,6 +269,52 @@ export default function ImageSelectorModal({
     setActiveScope(newScope);
   };
 
+  // ── Google Drive ─────────────────────────────────────────────────────────────
+  const loadDriveFiles = async () => {
+    if (!googleDriveFolderId) return;
+    setDriveLoading(true);
+    setDriveError(null);
+    try {
+      const token = document.cookie.split('; ').find(r => r.startsWith('accessToken='))?.split('=')[1];
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/drive-images`, {
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? `Erreur ${res.status}`);
+      }
+      const data = await res.json();
+      setDriveFiles(data.files ?? []);
+    } catch (err: any) {
+      setDriveError(err.message ?? 'Erreur lors du chargement des photos Drive');
+    } finally {
+      setDriveLoading(false);
+    }
+  };
+
+  const handleImportDriveFile = async (file: DriveFile) => {
+    setImportingFileId(file.id);
+    try {
+      const token = document.cookie.split('; ').find(r => r.startsWith('accessToken='))?.split('=')[1];
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/drive-images/${file.id}/import`, {
+        method: 'POST',
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? `Erreur ${res.status}`);
+      }
+      const data = await res.json();
+      setSelectedImage(data.url);
+    } catch (err: any) {
+      alert(`Erreur import Drive : ${err.message}`);
+    } finally {
+      setImportingFileId(null);
+    }
+  };
+
   // ── URL externe ──────────────────────────────────────────────────────────────
   const handleUrlChange = (value: string) => {
     setUrlInput(value);
@@ -255,17 +324,38 @@ export default function ImageSelectorModal({
   };
 
   // ── Upload fichier ───────────────────────────────────────────────────────────
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] ?? null;
-    setUploadFile(file);
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawFile = e.target.files?.[0] ?? null;
+    if (uploadPreviewUrl) URL.revokeObjectURL(uploadPreviewUrl);
     setUploadError(null);
     setSelectedImage(null);
     setUploadStep('select');
     setUploadedUrl(null);
     setUploadAnalysis(null);
-    if (uploadPreviewUrl) URL.revokeObjectURL(uploadPreviewUrl);
-    if (file) setUploadPreviewUrl(URL.createObjectURL(file));
-    else setUploadPreviewUrl(null);
+    setUploadPreviewUrl(null);
+
+    if (!rawFile) { setUploadFile(null); return; }
+
+    const isHeic = /\.(heic|heif)$/i.test(rawFile.name) || rawFile.type === 'image/heic' || rawFile.type === 'image/heif';
+
+    if (isHeic) {
+      setHeicConverting(true);
+      try {
+        const heic2any = (await import('heic2any')).default;
+        const converted = await heic2any({ blob: rawFile, toType: 'image/jpeg', quality: 0.9 }) as Blob;
+        const jpegFile = new File([converted], rawFile.name.replace(/\.(heic|heif)$/i, '.jpg'), { type: 'image/jpeg' });
+        setUploadFile(jpegFile);
+        setUploadPreviewUrl(URL.createObjectURL(jpegFile));
+      } catch {
+        setUploadError('Erreur lors de la conversion HEIC → JPEG. Veuillez convertir le fichier manuellement.');
+        setUploadFile(null);
+      } finally {
+        setHeicConverting(false);
+      }
+    } else {
+      setUploadFile(rawFile);
+      setUploadPreviewUrl(URL.createObjectURL(rawFile));
+    }
   };
 
   const handleUpload = async () => {
@@ -430,6 +520,17 @@ export default function ImageSelectorModal({
               <ArrowUpTrayIcon className="h-4 w-4" />
               Mon ordinateur
             </button>
+            {googleDriveFolderId && (
+              <button
+                onClick={() => { setInputMode('drive'); setSelectedImage(null); loadDriveFiles(); }}
+                className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+                  inputMode === 'drive' ? 'bg-white text-purple-700 shadow-sm' : 'text-white/80 hover:text-white'
+                }`}
+              >
+                <FolderOpenIcon className="h-4 w-4" />
+                Google Drive
+              </button>
+            )}
           </div>
 
           {/* Filtres scope / recherche (onglet analysées uniquement) */}
@@ -560,15 +661,25 @@ export default function ImageSelectorModal({
                         : 'border-gray-200 cursor-default bg-gray-50'
                     }`}
                   >
-                    <ArrowUpTrayIcon className="h-10 w-10 text-gray-400 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-gray-700">
-                      {uploadFile ? uploadFile.name : 'Cliquer pour choisir un fichier'}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">JPG, PNG, WEBP, GIF — max 15 Mo</p>
+                    {heicConverting ? (
+                      <>
+                        <ArrowPathIcon className="h-10 w-10 text-purple-400 mx-auto mb-3 animate-spin" />
+                        <p className="text-sm font-medium text-gray-700">Conversion HEIC → JPEG…</p>
+                        <p className="text-xs text-gray-500 mt-1">Cela peut prendre quelques secondes</p>
+                      </>
+                    ) : (
+                      <>
+                        <ArrowUpTrayIcon className="h-10 w-10 text-gray-400 mx-auto mb-3" />
+                        <p className="text-sm font-medium text-gray-700">
+                          {uploadFile ? uploadFile.name : 'Cliquer pour choisir un fichier'}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">JPG, PNG, WEBP, GIF, HEIC — max 15 Mo</p>
+                      </>
+                    )}
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif"
                       className="hidden"
                       onChange={handleFileChange}
                     />
@@ -712,6 +823,118 @@ export default function ImageSelectorModal({
                     </p>
                   )}
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Google Drive ──────────────────────────────────────────────────── */}
+          {inputMode === 'drive' && (
+            <div>
+              {driveLoading && (
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-center">
+                    <ArrowPathIcon className="h-12 w-12 text-purple-600 mx-auto mb-4 animate-spin" />
+                    <p className="text-gray-600">Chargement depuis Google Drive…</p>
+                  </div>
+                </div>
+              )}
+
+              {driveError && (
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-center max-w-sm">
+                    <FolderOpenIcon className="h-12 w-12 text-red-300 mx-auto mb-4" />
+                    <p className="text-red-600 font-medium mb-1">Erreur Drive</p>
+                    <p className="text-sm text-gray-500">{driveError}</p>
+                    <button
+                      onClick={loadDriveFiles}
+                      className="mt-4 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 transition-colors"
+                    >
+                      Réessayer
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {!driveLoading && !driveError && driveFiles.length === 0 && (
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-center max-w-sm">
+                    <FolderOpenIcon className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-600">Aucune photo dans ce dossier Drive</p>
+                    <p className="text-sm text-gray-400 mt-1">
+                      Vérifiez que le dossier est partagé avec le Service Account Google.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {!driveLoading && !driveError && driveFiles.length > 0 && (
+                <>
+                  <p className="text-xs text-gray-500 mb-3">
+                    {driveFiles.length} photo{driveFiles.length > 1 ? 's' : ''} — cliquez sur &laquo; Importer &raquo; pour transférer vers Cloudinary et sélectionner.
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {driveFiles.map((file) => {
+                      const isSelected = selectedImage !== null && importingFileId === null &&
+                        driveFiles.find(f => f.id === file.id) !== undefined &&
+                        selectedImage.includes(file.name.replace(/\.(heic|heif)$/i, ''));
+                      const isImporting = importingFileId === file.id;
+
+                      return (
+                        <div
+                          key={file.id}
+                          className={`relative rounded-lg border-2 overflow-hidden transition-all ${
+                            isSelected
+                              ? 'border-purple-600 ring-2 ring-purple-300 shadow-lg'
+                              : 'border-gray-200 hover:border-purple-400 hover:shadow-md'
+                          }`}
+                        >
+                          {/* Miniature */}
+                          <div className="aspect-video bg-gray-100 flex items-center justify-center overflow-hidden">
+                            {file.thumbnailLink ? (
+                              <img
+                                src={file.thumbnailLink}
+                                alt={file.name}
+                                className="w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="flex flex-col items-center gap-1 text-gray-400 p-2">
+                                <PhotoIcon className="h-8 w-8" />
+                                <span className="text-[10px] text-center line-clamp-2">{file.name}</span>
+                              </div>
+                            )}
+
+                            {/* Overlay HEIC badge */}
+                            {/\.(heic|heif)$/i.test(file.name) && (
+                              <div className="absolute top-2 left-2 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">
+                                HEIC
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Bas de carte */}
+                          <div className="px-2 py-1.5 bg-white border-t border-gray-100">
+                            <p className="text-[10px] text-gray-600 truncate mb-1.5" title={file.name}>
+                              {file.name}
+                            </p>
+                            <button
+                              onClick={() => handleImportDriveFile(file)}
+                              disabled={isImporting || importingFileId !== null}
+                              className="w-full flex items-center justify-center gap-1.5 px-2 py-1 bg-purple-600 text-white rounded text-xs hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                            >
+                              {isImporting ? (
+                                <><ArrowPathIcon className="h-3 w-3 animate-spin" /> Import…</>
+                              ) : (
+                                <><ArrowDownTrayIcon className="h-3 w-3" /> Importer</>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
               )}
             </div>
           )}

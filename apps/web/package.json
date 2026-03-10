@@ -13,6 +13,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@heroicons/react": "^2.2.0",
+    "heic2any": "^0.0.4",
     "nanoid": "^3.3.11",
     "next": "^15.1.6",
     "react": "^19.0.0",

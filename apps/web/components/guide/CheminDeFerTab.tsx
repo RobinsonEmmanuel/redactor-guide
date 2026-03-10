@@ -37,9 +37,10 @@ interface CheminDeFerTabProps {
   guideId: string;
   cheminDeFer: any;
   apiUrl: string;
+  googleDriveFolderId?: string;
 }
 
-export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminDeFerTabProps) {
+export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDriveFolderId }: CheminDeFerTabProps) {
   const [pages, setPages] = useState<Page[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1423,6 +1424,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
           onGenerationStarted={loadPages} // ✅ Recharger les pages immédiatement après lancement génération
           guideId={guideId}
           apiUrl={apiUrl}
+          googleDriveFolderId={googleDriveFolderId}
         />
       )}
 

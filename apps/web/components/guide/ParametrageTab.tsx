@@ -21,6 +21,7 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
     destination: '',
     destination_rl_id: '',
     guide_template_id: '',
+    google_drive_folder_id: '',
     image_principale: '',
     wpConfig: { siteUrl: '', jwtToken: '' },
   });
@@ -41,6 +42,7 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
         destination: guide.destination || (guide.destinations?.[0] || ''),
         destination_rl_id: guide.destination_rl_id || '',
         guide_template_id: guide.guide_template_id || '',
+        google_drive_folder_id: guide.google_drive_folder_id || '',
         image_principale: guide.image_principale || '',
         wpConfig: {
           siteUrl: guide.wpConfig?.siteUrl || '',
@@ -342,6 +344,31 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
                 />
                 <p className="mt-1 text-xs text-gray-400">
                   Utilisé pour récupérer les POIs depuis l'API Region Lovers
+                </p>
+              </div>
+            </div>
+
+            {/* Google Drive */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h3 className="text-sm font-semibold text-gray-700 mb-4 pb-2 border-b border-gray-100">
+                Google Drive (photos)
+              </h3>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                  ID du dossier Google Drive
+                </label>
+                <input
+                  type="text"
+                  name="google_drive_folder_id"
+                  value={formData.google_drive_folder_id}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
+                  placeholder="1AbCdEfGhIjKlMnOpQrStUvWxYz"
+                />
+                <p className="mt-1 text-xs text-gray-400">
+                  ID extrait de l&apos;URL Drive :{' '}
+                  <span className="font-mono">drive.google.com/drive/folders/<strong>ID_ICI</strong></span>.
+                  Le dossier doit être partagé avec le Service Account Google configuré sur le serveur.
                 </p>
               </div>
             </div>

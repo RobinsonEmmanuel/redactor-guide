@@ -22,7 +22,7 @@ import { COLLECTIONS } from '../config/collections.js';
 export const UPLOADS_DIR =
   process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads');
 
-const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
+const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.heif']);
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024; // 15 Mo
 
 function isCloudinaryConfigured(): boolean {
@@ -50,11 +50,13 @@ async function uploadToCloudinary(
   configureCloudinary();
   return new Promise((resolve, reject) => {
     const folder = `redactor-guide/${guideId}`;
+    // HEIC/HEIF → toujours convertir en JPEG via Cloudinary
+    const isHeic = ['.heic', '.heif'].includes(ext.toLowerCase());
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder,
         resource_type: 'image',
-        format: ext.replace('.', ''),
+        format: isHeic ? 'jpg' : ext.replace('.', ''),
         use_filename: false,
         unique_filename: true,
       },

@@ -309,7 +309,7 @@ export default function GuideDetailPage() {
           )}
 
           {activeTab === 'chemin-de-fer' && canAccessCheminDeFer && (
-            <CheminDeFerTab guideId={guideId} cheminDeFer={guide.chemin_de_fer} apiUrl={apiUrl} />
+            <CheminDeFerTab guideId={guideId} cheminDeFer={guide.chemin_de_fer} apiUrl={apiUrl} googleDriveFolderId={guide.google_drive_folder_id} />
           )}
           {activeTab === 'chemin-de-fer' && !canAccessCheminDeFer && (
             <div className="h-full flex items-center justify-center p-6">

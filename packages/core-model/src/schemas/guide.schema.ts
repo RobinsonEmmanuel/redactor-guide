@@ -62,6 +62,9 @@ export const GuideSchema = z.object({
   
   // ID du template de guide à utiliser
   guide_template_id: z.string().optional(),
+
+  // ID du dossier Google Drive contenant les photos de la destination
+  google_drive_folder_id: z.string().optional(),
   
   // Image principale du guide (pour la couverture)
   image_principale: z.string().url().optional(),

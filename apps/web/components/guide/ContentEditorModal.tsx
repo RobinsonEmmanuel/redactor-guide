@@ -196,6 +196,7 @@ interface ContentEditorModalProps {
   onGenerationStarted?: () => void; // ✅ Callback pour recharger les pages après lancement génération
   guideId: string;
   apiUrl: string;
+  googleDriveFolderId?: string;
 }
 
 /** Remplace les placeholders {{VAR}} dans une valeur avec les données de la page. */
@@ -242,6 +243,7 @@ export default function ContentEditorModal({
   onGenerationStarted,
   guideId,
   apiUrl,
+  googleDriveFolderId,
 }: ContentEditorModalProps) {
   const [formData, setFormData] = useState<Record<string, any>>(
     () => resolveContentVars(content || {}, page)
@@ -1550,6 +1552,7 @@ export default function ContentEditorModal({
               : (currentImageField ? formData[currentImageField] : '')
           }
           apiUrl={apiUrl}
+          googleDriveFolderId={googleDriveFolderId}
           onSelect={(imageUrl) => {
             if (currentRepetitifImageRef) {
               handleRepetitifImageSelected(imageUrl);

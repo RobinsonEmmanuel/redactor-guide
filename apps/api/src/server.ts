@@ -136,6 +136,9 @@ export async function createServer(db: Db, _port: number) {
       await fastify.register(
         (await import('./routes/image-upload.routes')).imageUploadRoutes
       );
+      await fastify.register(
+        (await import('./routes/drive-images.routes')).default
+      );
 
       // Routes génériques avec :id en dernier
       fastify.get('/destinations', async () => {

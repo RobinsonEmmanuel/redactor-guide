@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { XMarkIcon, SparklesIcon, ArrowPathIcon, PhotoIcon, ShieldCheckIcon, BookOpenIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, SparklesIcon, ArrowPathIcon, PhotoIcon, ShieldCheckIcon, BookOpenIcon, ExclamationTriangleIcon, ArrowTopRightOnSquareIcon } from '@heroicons/react/24/outline';
 import ImageAnalysisModal from './ImageAnalysisModal';
 import ImageSelectorModal from './ImageSelectorModal';
 
@@ -1239,15 +1239,26 @@ export default function ContentEditorModal({
               </button>
 
               {page.url_source && (
-                <button
-                  type="button"
-                  onClick={() => setShowImageAnalysis(true)}
-                  title="Voir les analyses d'images"
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors text-sm"
-                >
-                  <PhotoIcon className="h-4 w-4" />
-                  <span className="hidden sm:inline">Images</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => window.open(page.url_source!, '_blank', 'noopener,noreferrer')}
+                    title={`Ouvrir l'article source : ${page.url_source}`}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors text-sm"
+                  >
+                    <ArrowTopRightOnSquareIcon className="h-4 w-4" />
+                    <span className="hidden sm:inline">URL</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowImageAnalysis(true)}
+                    title="Voir les analyses d'images"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors text-sm"
+                  >
+                    <PhotoIcon className="h-4 w-4" />
+                    <span className="hidden sm:inline">Images</span>
+                  </button>
+                </>
               )}
 
               <button

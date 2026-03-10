@@ -1053,7 +1053,11 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                 </div>
               )}
 
-              {templateProposals && (
+              {templateProposals && (() => {
+                // Ensemble des page_id déjà placés dans le chemin de fer
+                const usedPageIds = new Set(pages.map((p) => p.page_id));
+
+                return (
                 <>
                   {/* Pages fixes */}
                   {templateProposals.proposals?.fixed_pages && templateProposals.proposals.fixed_pages.length > 0 && (
@@ -1075,6 +1079,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                             icon={DocumentTextIcon}
                             color="blue"
                             templatePage={page}
+                            isPlaced={usedPageIds.has(page.page_id)}
                           />
                         ))}
                       </div>
@@ -1108,6 +1113,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                                 icon={RectangleStackIcon}
                                 color="green"
                                 templatePage={clusterPage}
+                                isPlaced={usedPageIds.has(clusterPage.page_id)}
                               />
                               
                               {/* POIs du cluster */}
@@ -1125,6 +1131,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                                       templatePage={poi}
                                       apiUrl={apiUrl}
                                       guideId={guideId}
+                                      isPlaced={usedPageIds.has(poi.page_id)}
                                     />
                                   ))}
                                 </div>
@@ -1156,6 +1163,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                             icon={LightBulbIcon}
                             color="orange"
                             templatePage={page}
+                            isPlaced={usedPageIds.has(page.page_id)}
                           />
                         ))}
                       </div>
@@ -1182,13 +1190,15 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
                             icon={SparklesIcon}
                             color="purple"
                             templatePage={page}
+                            isPlaced={usedPageIds.has(page.page_id)}
                           />
                         ))}
                       </div>
                     </div>
                   )}
                 </>
-              )}
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1411,7 +1421,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
 
 // Composant Template MINI pour la palette (grille 2 colonnes)
 // Composant Proposition IA MINI pour la palette
-function ProposalCardMini({ id, type, title, description, icon: Icon, color, articleSlug, autresArticlesMentions, poiType, coordinates, templatePage, apiUrl, guideId }: any) {
+function ProposalCardMini({ id, type, title, description, icon: Icon, color, articleSlug, autresArticlesMentions, poiType, coordinates, templatePage, apiUrl, guideId, isPlaced }: any) {
   const [showOthers, setShowOthers] = useState(false);
   const [openingArticle, setOpeningArticle] = useState(false);
 
@@ -1467,6 +1477,10 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color, art
     purple: 'bg-purple-100 text-purple-600',
   };
 
+  const placedClass = isPlaced
+    ? 'border-emerald-300 bg-emerald-50/60 opacity-70'
+    : '';
+
   const hasOtherArticles = autresArticlesMentions && autresArticlesMentions.length > 0;
 
   return (
@@ -1475,18 +1489,23 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color, art
         ref={setNodeRef}
         {...listeners}
         {...attributes}
-        className={`p-1.5 bg-white border rounded cursor-grab active:cursor-grabbing transition-all ${
+        className={`p-1.5 border rounded cursor-grab active:cursor-grabbing transition-all ${
           isDragging ? 'opacity-50 scale-95' : ''
-        } ${colorClasses[color as keyof typeof colorClasses]}`}
+        } ${isPlaced ? placedClass : `bg-white ${colorClasses[color as keyof typeof colorClasses]}`}`}
       >
         <div className="flex items-center gap-1.5">
-          <div className={`p-0.5 rounded flex-shrink-0 ${iconColorClasses[color as keyof typeof iconColorClasses]}`}>
+          <div className={`p-0.5 rounded flex-shrink-0 ${isPlaced ? 'bg-emerald-100 text-emerald-600' : iconColorClasses[color as keyof typeof iconColorClasses]}`}>
             <Icon className="w-3 h-3" />
           </div>
           <div className="flex-1 min-w-0">
-            <h4 className="font-medium text-gray-900 text-xs line-clamp-1">{title}</h4>
+            <div className="flex items-center gap-1">
+              <h4 className={`font-medium text-xs line-clamp-1 ${isPlaced ? 'text-emerald-700' : 'text-gray-900'}`}>{title}</h4>
+              {isPlaced && (
+                <span className="flex-shrink-0 text-[9px] font-semibold text-emerald-600 bg-emerald-100 px-1 py-0.5 rounded-full leading-none">✓</span>
+              )}
+            </div>
             {description && (
-              <p className="text-xs text-gray-500 line-clamp-1">{description}</p>
+              <p className={`text-xs line-clamp-1 ${isPlaced ? 'text-emerald-600/70' : 'text-gray-500'}`}>{description}</p>
             )}
             {coordinates && (
               <p className="text-[10px] text-gray-400 font-mono">

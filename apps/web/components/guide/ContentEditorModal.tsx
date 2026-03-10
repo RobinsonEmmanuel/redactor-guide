@@ -326,11 +326,14 @@ export default function ContentEditorModal({
   };
 
   const pageType = (page.type_de_page ?? page.template_name ?? '').toLowerCase();
-  const isInspirationPage = pageType === 'inspiration';
+  const isInspirationPage = pageType === 'inspiration' || pageType.startsWith('inspiration') || template?.info_source === 'inspiration_auto_match';
 
-  // POI nécessite un article source. INSPIRATION utilise ses POIs en metadata.
-  // On couvre 'poi', 'poi_manual', 'poi_bibliotheque', etc.
-  const requiresUrlForGeneration = pageType.startsWith('poi');
+  // Un article source est requis si :
+  //  - le template a info_source === 'article_source' (source de vérité fiable)
+  //  - OU le type de page commence par 'poi' (fallback)
+  const requiresUrlForGeneration =
+    template?.info_source === 'article_source' ||
+    pageType.startsWith('poi');
   const requiresPoisForGeneration = isInspirationPage;
 
   const handleGenerateContent = async (useLlmKnowledge = false) => {

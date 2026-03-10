@@ -804,6 +804,52 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * PATCH /guides/:guideId/pois/:poiId
+   * Modifier les champs éditables d'un POI (nom, type, coordinates, article_source)
+   */
+  fastify.patch<{
+    Params: { guideId: string; poiId: string };
+    Body: {
+      nom?: string;
+      type?: string;
+      coordinates?: { lat: number; lon: number } | null;
+      article_source?: string;
+    };
+  }>(
+    '/guides/:guideId/pois/:poiId',
+    async (request, reply) => {
+      const { guideId, poiId } = request.params;
+      const { nom, type, coordinates, article_source } = request.body;
+
+      try {
+        const poisSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
+        if (!poisSelection) return reply.code(404).send({ error: 'Sélection introuvable' });
+
+        const poiIndex = poisSelection.pois.findIndex((p: any) => p.poi_id === poiId);
+        if (poiIndex === -1) return reply.code(404).send({ error: 'POI introuvable' });
+
+        const patch: Record<string, any> = { updated_at: new Date() };
+        if (nom !== undefined) patch.nom = nom.trim();
+        if (type !== undefined) patch.type = type;
+        if (coordinates !== undefined) patch.coordinates = coordinates;
+        if (article_source !== undefined) patch.article_source = article_source;
+
+        poisSelection.pois[poiIndex] = { ...poisSelection.pois[poiIndex], ...patch };
+
+        await db.collection(COLLECTIONS.pois_selection).updateOne(
+          { guide_id: guideId },
+          { $set: { pois: poisSelection.pois, updated_at: new Date() } }
+        );
+
+        console.log(`✏️ [POI] Mise à jour ${poiId}: ${JSON.stringify(patch)}`);
+        return reply.send({ success: true, poi: poisSelection.pois[poiIndex] });
+      } catch (error: any) {
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
+
+  /**
    * PATCH /guides/:guideId/pois/:poiId/validate
    * Valide manuellement l'affectation d'un POI à son cluster (score → 100 %, validated → true)
    */

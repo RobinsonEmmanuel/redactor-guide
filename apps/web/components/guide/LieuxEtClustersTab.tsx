@@ -193,6 +193,7 @@ function DroppableCluster({
   onDelete,
   onUnassign,
   onRename,
+  onEdit,
 }: { 
   cluster: ClusterMetadata | 'unassigned'; 
   pois: POI[];
@@ -201,6 +202,7 @@ function DroppableCluster({
   onDelete?: () => void;
   onUnassign?: (poiId: string) => void;
   onRename?: (clusterId: string, newName: string) => Promise<void>;
+  onEdit?: (poi: POI) => void;
 }) {
   const clusterId = cluster === 'unassigned' ? 'unassigned' : cluster.cluster_id;
   const clusterName = cluster === 'unassigned' ? 'Non affectés' : cluster.cluster_name;
@@ -354,6 +356,16 @@ function DroppableCluster({
                       <span className="text-gray-400">
                         {Math.round(poi.score * 100)}%
                       </span>
+                    )}
+                    {onEdit && (
+                      <button
+                        type="button"
+                        onClick={() => onEdit(poi)}
+                        title="Modifier le lieu"
+                        className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-blue-500 transition-all"
+                      >
+                        <PencilIcon className="w-3.5 h-3.5" />
+                      </button>
                     )}
                     {!isUnassigned && onUnassign && (
                       <button
@@ -685,6 +697,9 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     lon: '',
     article_source: '',
   });
+
+  // Mode édition d'un POI existant (null = mode création)
+  const [editingPoi, setEditingPoi] = useState<POI | null>(null);
 
   const [clusterForm, setClusterForm] = useState({
     cluster_name: '',
@@ -1055,6 +1070,49 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     } catch (err) {
       console.error('Erreur création POI:', err);
       alert('❌ Erreur lors de la création');
+    }
+  };
+
+  const openEditPoi = (poi: POI) => {
+    setEditingPoi(poi);
+    setManualForm({
+      nom: poi.nom || '',
+      type: poi.type || 'autre',
+      lat: poi.coordinates?.lat?.toString() || '',
+      lon: poi.coordinates?.lon?.toString() || '',
+      article_source: poi.article_source || '',
+    });
+    setShowManualModal(true);
+  };
+
+  const updatePoi = async () => {
+    if (!editingPoi) return;
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/${editingPoi.poi_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nom: manualForm.nom,
+          type: manualForm.type,
+          coordinates: manualForm.lat && manualForm.lon
+            ? { lat: parseFloat(manualForm.lat), lon: parseFloat(manualForm.lon) }
+            : null,
+          article_source: manualForm.article_source || '',
+        }),
+      });
+      if (res.ok) {
+        const { poi: updated } = await res.json();
+        setPois(prev => prev.map(p => p.poi_id === editingPoi.poi_id ? { ...p, ...updated } : p));
+        setShowManualModal(false);
+        setEditingPoi(null);
+        setManualForm({ nom: '', type: 'autre', lat: '', lon: '', article_source: '' });
+      } else {
+        const err = await res.json();
+        alert(`❌ Erreur: ${err.error}`);
+      }
+    } catch (err) {
+      console.error('Erreur mise à jour POI:', err);
+      alert('❌ Erreur lors de la mise à jour');
     }
   };
 
@@ -1607,6 +1665,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                 pois={unassignedPois}
                 isExpanded={expandedClusters.has('unassigned')}
                 onToggle={() => toggleCluster('unassigned')}
+                onEdit={openEditPoi}
               />
 
               {/* Clusters Region Lovers */}
@@ -1620,6 +1679,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                   onDelete={() => deleteCluster(cluster.cluster_id, cluster.cluster_name)}
                   onUnassign={handleUnassignPoi}
                   onRename={handleRenameCluster}
+                  onEdit={openEditPoi}
                 />
               ))}
 
@@ -1648,7 +1708,9 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
       {showManualModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-4 w-full max-w-md">
-            <h3 className="text-base font-semibold mb-3">Ajouter un lieu manuellement</h3>
+            <h3 className="text-base font-semibold mb-3">
+              {editingPoi ? `Modifier "${editingPoi.nom}"` : 'Ajouter un lieu manuellement'}
+            </h3>
             
             <div className="space-y-2">
               <div>
@@ -1715,17 +1777,21 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
             <div className="flex gap-2 mt-4">
               <button
-                onClick={() => setShowManualModal(false)}
+                onClick={() => {
+                  setShowManualModal(false);
+                  setEditingPoi(null);
+                  setManualForm({ nom: '', type: 'autre', lat: '', lon: '', article_source: '' });
+                }}
                 className="flex-1 px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
               >
                 Annuler
               </button>
               <button
-                onClick={createManualPOI}
+                onClick={editingPoi ? updatePoi : createManualPOI}
                 disabled={!manualForm.nom}
                 className="flex-1 px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
               >
-                Créer
+                {editingPoi ? 'Enregistrer' : 'Créer'}
               </button>
             </div>
           </div>

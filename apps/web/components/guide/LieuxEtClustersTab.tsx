@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   MagnifyingGlassIcon, 
   PlusIcon,
@@ -14,6 +14,8 @@ import {
   TrashIcon,
   ArrowTopRightOnSquareIcon,
   CheckCircleIcon,
+  PencilIcon,
+  CheckIcon,
 } from '@heroicons/react/24/outline';
 import { CheckCircleIcon as CheckCircleSolid } from '@heroicons/react/24/solid';
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, useDraggable, useDroppable } from '@dnd-kit/core';
@@ -190,6 +192,7 @@ function DroppableCluster({
   onToggle,
   onDelete,
   onUnassign,
+  onRename,
 }: { 
   cluster: ClusterMetadata | 'unassigned'; 
   pois: POI[];
@@ -197,10 +200,39 @@ function DroppableCluster({
   onToggle: () => void;
   onDelete?: () => void;
   onUnassign?: (poiId: string) => void;
+  onRename?: (clusterId: string, newName: string) => Promise<void>;
 }) {
   const clusterId = cluster === 'unassigned' ? 'unassigned' : cluster.cluster_id;
   const clusterName = cluster === 'unassigned' ? 'Non affectés' : cluster.cluster_name;
   const isUnassigned = cluster === 'unassigned';
+
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(clusterName);
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const startEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditValue(clusterName);
+    setEditing(true);
+    setTimeout(() => inputRef.current?.select(), 0);
+  };
+
+  const confirmEdit = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const trimmed = editValue.trim();
+    if (!trimmed || trimmed === clusterName) { setEditing(false); return; }
+    if (!onRename) { setEditing(false); return; }
+    setSaving(true);
+    await onRename(clusterId, trimmed);
+    setSaving(false);
+    setEditing(false);
+  };
+
+  const cancelEdit = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setEditing(false);
+  };
 
   const { setNodeRef, isOver } = useDroppable({
     id: clusterId,
@@ -216,34 +248,80 @@ function DroppableCluster({
       }`}
     >
       <div className="flex items-center">
-        <button
-          onClick={onToggle}
-          className={`flex-1 px-3 py-2 flex items-center justify-between transition-colors ${
-            isUnassigned ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            {isUnassigned ? (
-              <XCircleIcon className="w-4 h-4 text-red-600" />
-            ) : (
-              <MapPinIcon className="w-4 h-4 text-blue-600" />
-            )}
-            <span className="text-sm font-semibold text-gray-900">{clusterName}</span>
-            <span className={`px-1.5 py-0.5 text-xs rounded-full ${
-              isUnassigned ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-700'
-            }`}>
-              {pois.length}
-            </span>
+        {editing ? (
+          <div className="flex-1 flex items-center gap-1 px-3 py-1.5">
+            <input
+              ref={inputRef}
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') confirmEdit();
+                if (e.key === 'Escape') cancelEdit();
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="flex-1 text-sm font-semibold border border-blue-400 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              disabled={saving}
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={confirmEdit}
+              disabled={saving}
+              className="text-green-600 hover:text-green-700 disabled:opacity-50"
+              title="Valider"
+            >
+              <CheckIcon className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="text-gray-400 hover:text-gray-600"
+              title="Annuler"
+            >
+              <XMarkIcon className="w-4 h-4" />
+            </button>
           </div>
-          {isExpanded ? (
-            <ChevronUpIcon className="w-4 h-4 text-gray-500" />
-          ) : (
-            <ChevronDownIcon className="w-4 h-4 text-gray-500" />
-          )}
-        </button>
+        ) : (
+          <button
+            onClick={onToggle}
+            className={`flex-1 px-3 py-2 flex items-center justify-between transition-colors ${
+              isUnassigned ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {isUnassigned ? (
+                <XCircleIcon className="w-4 h-4 text-red-600" />
+              ) : (
+                <MapPinIcon className="w-4 h-4 text-blue-600" />
+              )}
+              <span className="text-sm font-semibold text-gray-900">{clusterName}</span>
+              <span className={`px-1.5 py-0.5 text-xs rounded-full ${
+                isUnassigned ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-700'
+              }`}>
+                {pois.length}
+              </span>
+            </div>
+            {isExpanded ? (
+              <ChevronUpIcon className="w-4 h-4 text-gray-500" />
+            ) : (
+              <ChevronDownIcon className="w-4 h-4 text-gray-500" />
+            )}
+          </button>
+        )}
+
+        {/* Bouton renommer (uniquement pour les clusters non "unassigned") */}
+        {!isUnassigned && onRename && !editing && (
+          <button
+            onClick={startEdit}
+            className="px-2 py-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors border-l border-gray-200"
+            title="Renommer le cluster"
+          >
+            <PencilIcon className="w-4 h-4" />
+          </button>
+        )}
         
         {/* Bouton supprimer (uniquement pour les clusters non "unassigned") */}
-        {!isUnassigned && onDelete && (
+        {!isUnassigned && onDelete && !editing && (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -1077,6 +1155,26 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     }
   };
 
+  const handleRenameCluster = async (clusterId: string, newName: string) => {
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/clusters/${clusterId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cluster_name: newName }),
+      });
+      if (res.ok) {
+        setClustersMetadata(prev => prev.map(c =>
+          c.cluster_id === clusterId ? { ...c, cluster_name: newName } : c
+        ));
+        setPois(prev => prev.map(p =>
+          p.cluster_id === clusterId ? { ...p, cluster_name: newName } : p
+        ));
+      }
+    } catch (err) {
+      console.error('Erreur renommage cluster:', err);
+    }
+  };
+
   const handleDragStart = (event: DragStartEvent) => {
     setActiveDragId(event.active.id as string);
   };
@@ -1521,6 +1619,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                   onToggle={() => toggleCluster(cluster.cluster_id)}
                   onDelete={() => deleteCluster(cluster.cluster_id, cluster.cluster_name)}
                   onUnassign={handleUnassignPoi}
+                  onRename={handleRenameCluster}
                 />
               ))}
 

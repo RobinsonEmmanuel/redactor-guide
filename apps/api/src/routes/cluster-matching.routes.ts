@@ -676,4 +676,50 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
       }
     }
   );
+
+  /**
+   * PATCH /guides/:guideId/clusters/:clusterId
+   * Renommer un cluster et mettre à jour cluster_name sur tous ses POIs
+   */
+  fastify.patch<{
+    Params: { guideId: string; clusterId: string };
+    Body: { cluster_name: string };
+  }>(
+    '/guides/:guideId/clusters/:clusterId',
+    async (request, reply) => {
+      const { guideId, clusterId } = request.params;
+      const { cluster_name } = request.body;
+
+      if (!cluster_name?.trim()) {
+        return reply.code(400).send({ error: 'Le nom du cluster est requis' });
+      }
+
+      const newName = cluster_name.trim();
+
+      try {
+        // 1. Renommer dans les métadonnées
+        await db.collection(COLLECTIONS.cluster_assignments).updateOne(
+          { guide_id: guideId, 'clusters_metadata.cluster_id': clusterId },
+          { $set: { 'clusters_metadata.$.cluster_name': newName, updated_at: new Date() } }
+        );
+
+        // 2. Mettre à jour cluster_name sur tous les POIs affectés
+        const poisSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
+        if (poisSelection) {
+          const updatedPois = poisSelection.pois.map((p: any) =>
+            p.cluster_id === clusterId ? { ...p, cluster_name: newName } : p
+          );
+          await db.collection(COLLECTIONS.pois_selection).updateOne(
+            { guide_id: guideId },
+            { $set: { pois: updatedPois, updated_at: new Date() } }
+          );
+        }
+
+        console.log(`✏️ [Cluster] Renommage ${clusterId} → "${newName}"`);
+        return reply.send({ success: true, cluster_id: clusterId, cluster_name: newName });
+      } catch (error: any) {
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
 }

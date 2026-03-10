@@ -101,7 +101,13 @@ export async function guidesRoutes(fastify: FastifyInstance) {
     const db = request.server.container.db;
     
     try {
-      const data = CreateGuideSchema.partial().parse(request.body);
+      // Convertir les chaînes vides en undefined pour les champs optionnels
+      // (évite l'échec du validateur .url() sur image_principale etc.)
+      const body = request.body as Record<string, any>;
+      const sanitized = Object.fromEntries(
+        Object.entries(body).map(([k, v]) => [k, v === '' ? undefined : v])
+      );
+      const data = CreateGuideSchema.partial().parse(sanitized);
       
       const result = await db.collection(COLLECTIONS.guides).updateOne(
         { _id: new ObjectId(id) },

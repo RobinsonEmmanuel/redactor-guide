@@ -53,6 +53,28 @@ const STATUS_LABELS: Record<string, string> = {
   non_conforme: 'Non conforme',
 };
 
+// ── Couleur par type de page ─────────────────────────────────────────────────
+const tplUpper = (tpl: string) => tpl.toUpperCase();
+
+function getPageTypeMeta(page: Page): { label: string; leftBorder: string; badgeClass: string; thumbBg: string } {
+  const tpl = tplUpper(page.template_name || '');
+  const type = (page.type_de_page || '').toLowerCase();
+
+  if (type.startsWith('poi') || tpl.startsWith('POI') || tpl.match(/^[A-Z]-POI/)) {
+    return { label: 'POI', leftBorder: 'border-l-4 border-l-blue-400', badgeClass: 'bg-blue-100 text-blue-700', thumbBg: 'bg-blue-50' };
+  }
+  if (type === 'cluster' || tpl.includes('CLUSTER')) {
+    return { label: 'Cluster', leftBorder: 'border-l-4 border-l-green-400', badgeClass: 'bg-green-100 text-green-700', thumbBg: 'bg-green-50' };
+  }
+  if (type === 'inspiration' || tpl.startsWith('INSPIRATION') || tpl.match(/^[A-Z]-INSPIRATION/)) {
+    return { label: 'Inspiration', leftBorder: 'border-l-4 border-l-orange-400', badgeClass: 'bg-orange-100 text-orange-700', thumbBg: 'bg-orange-50' };
+  }
+  if (tpl.startsWith('SAISON') || tpl.match(/^[A-Z]-SAISON/) || tpl.match(/^I-SAISON/)) {
+    return { label: 'Saison', leftBorder: 'border-l-4 border-l-purple-400', badgeClass: 'bg-purple-100 text-purple-700', thumbBg: 'bg-purple-50' };
+  }
+  return { label: '', leftBorder: 'border-l-4 border-l-gray-300', badgeClass: 'bg-gray-100 text-gray-600', thumbBg: 'bg-gray-100' };
+}
+
 export default function PageCard({ page, onEdit, onDelete, onOpenContent, onReset }: PageCardProps) {
   const {
     attributes,
@@ -72,6 +94,8 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
   const statusColor = STATUS_COLORS[page.statut_editorial || 'draft'];
   const statusLabel = STATUS_LABELS[page.statut_editorial || 'draft'];
   
+  const { label: typeLabel, leftBorder, badgeClass, thumbBg } = getPageTypeMeta(page);
+
   // Déterminer la bordure et l'effet selon le statut
   const isGenerating = page.statut_editorial === 'en_attente';
   const isGenerated = page.statut_editorial === 'generee_ia';
@@ -98,16 +122,15 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
     <div
       ref={setNodeRef}
       style={style}
-      className={`bg-white rounded-lg border overflow-hidden hover:shadow-lg transition-all group ${cardBorderClass} ${cardExtraClass}`}
+      className={`bg-white rounded-lg border overflow-hidden hover:shadow-lg transition-all group ${cardBorderClass} ${cardExtraClass} ${leftBorder}`}
     >
       {/* Miniature avec image de fond si disponible - TOUTE LA ZONE EST DRAGGABLE */}
       <div 
-        className="h-32 relative flex items-center justify-center cursor-grab active:cursor-grabbing"
+        className={`h-32 relative flex items-center justify-center cursor-grab active:cursor-grabbing ${!page.image_url ? thumbBg : ''}`}
         style={{
           backgroundImage: page.image_url ? `url(${page.image_url})` : undefined,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
-          backgroundColor: page.image_url ? undefined : '#f3f4f6',
         }}
         {...attributes}
         {...listeners}
@@ -153,19 +176,17 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
           {page.titre}
         </h3>
 
-        {/* Statut */}
-        <div className="mb-3">
-          <span className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${statusColor}`}>
+        {/* Type de page + Statut sur la même ligne */}
+        <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+          {typeLabel && (
+            <span className={`inline-block px-2 py-0.5 text-[10px] font-semibold rounded-full uppercase tracking-wide ${badgeClass}`}>
+              {typeLabel}
+            </span>
+          )}
+          <span className={`inline-block px-2 py-0.5 text-[10px] font-medium rounded-full ${statusColor}`}>
             {statusLabel}
           </span>
         </div>
-
-        {/* Type */}
-        {page.type_de_page && (
-          <div className="text-xs text-gray-500 mb-3 capitalize">
-            {page.type_de_page.replace('_', ' ')}
-          </div>
-        )}
 
         {/* Coordonnées GPS */}
         {page.coordinates && (

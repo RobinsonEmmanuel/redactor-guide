@@ -403,6 +403,26 @@ export default function ContentEditorModal({
     onSave(formData);
   };
 
+  const handleValidatePage = async () => {
+    // 1. Sauvegarder le contenu
+    onSave(formData);
+    // 2. Mettre le statut à "validée"
+    try {
+      await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}`,
+        {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ statut_editorial: 'validee' }),
+        }
+      );
+    } catch (err) {
+      console.error('Erreur validation page:', err);
+    }
+    onClose();
+  };
+
   const handleFieldChange = (fieldName: string, value: any) => {
     setFormData((prev) => ({ ...prev, [fieldName]: value }));
   };
@@ -1452,7 +1472,7 @@ export default function ContentEditorModal({
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors"
+            className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors"
           >
             Annuler
           </button>
@@ -1461,6 +1481,14 @@ export default function ContentEditorModal({
             className="flex-1 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
             Enregistrer le contenu
+          </button>
+          <button
+            type="button"
+            onClick={handleValidatePage}
+            className="flex-1 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+            title="Enregistrer le contenu et marquer la page comme validée"
+          >
+            ✓ Valider la page
           </button>
         </div>
       </div>

@@ -660,7 +660,24 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl }: CheminD
         (page.template_name || '').toUpperCase().startsWith(t)
       );
       if (requiresUrl && !(page as any).url_source) {
-        alert('Aucun article WordPress source associé à cette page. Veuillez d\'abord lier un article via le bouton crayon.');
+        // Pas d'URL source : ouvrir le modal pour proposer la génération via base de connaissance LLM
+        // (ne plus bloquer avec une alert, laisser le ContentEditorModal gérer le choix)
+        setEditingContent(page);
+        try {
+          const res = await fetch(
+            `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}/content`,
+            { credentials: 'include' }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            setCurrentPageContent(data.content || {});
+          } else {
+            setCurrentPageContent({});
+          }
+        } catch {
+          setCurrentPageContent({});
+        }
+        setShowContentModal(true);
         return;
       }
       // Pour les pages inspiration : vérifier la présence des POIs associés

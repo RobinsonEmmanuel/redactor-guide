@@ -49,16 +49,15 @@ export async function settingsRoutes(fastify: FastifyInstance) {
   fastify.get('/settings', async (_request, reply) => {
     try {
       const db = _request.server.container.db;
-      let doc = await db.collection(COLLECTIONS.settings).findOne({ _id: 'global' as any });
+      let doc = await db.collection(COLLECTIONS.settings).findOne({ _id: 'global' } as any);
 
       if (!doc) {
         // Initialisation au premier appel
         await db.collection(COLLECTIONS.settings).insertOne({
-          _id: 'global' as any,
           ...DEFAULT_SETTINGS,
           created_at: new Date(),
           updated_at: new Date(),
-        });
+        } as any);
         doc = { _id: 'global', ...DEFAULT_SETTINGS };
       }
 
@@ -79,15 +78,15 @@ export async function settingsRoutes(fastify: FastifyInstance) {
       const body = UpdateSettingsSchema.parse(request.body);
 
       await db.collection(COLLECTIONS.settings).updateOne(
-        { _id: 'global' as any },
+        { _id: 'global' } as any,
         {
           $set: { ...body, updated_at: new Date() },
-          $setOnInsert: { _id: 'global' as any, ...DEFAULT_SETTINGS, created_at: new Date() },
-        },
+          $setOnInsert: { ...DEFAULT_SETTINGS, created_at: new Date() },
+        } as any,
         { upsert: true }
       );
 
-      const doc = await db.collection(COLLECTIONS.settings).findOne({ _id: 'global' as any });
+      const doc = await db.collection(COLLECTIONS.settings).findOne({ _id: 'global' } as any);
       const { _id, created_at, updated_at, ...settings } = doc as any;
       return reply.send(settings);
     } catch (err: any) {

@@ -42,8 +42,8 @@ export class PageRedactionService {
       console.log(`🚀 Démarrage rédaction IA pour page ${pageId}`);
 
       // 0. Charger les paramètres globaux (ratio budget génération)
-      const settingsDoc = await this.db.collection(COLLECTIONS.settings).findOne({ _id: 'global' as any });
-      const budgetRatio: number = (settingsDoc as any)?.generation_budget_ratio ?? 0.75;
+      const settingsDoc = await this.db.collection(COLLECTIONS.settings).findOne({ _id: 'global' } as any);
+      const _budgetRatio: number = (settingsDoc as any)?.generation_budget_ratio ?? 0.75;
 
       // 1. Charger la page
       const page = await this.db.collection(COLLECTIONS.pages).findOne({ _id: new ObjectId(pageId) });
@@ -417,7 +417,8 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
         promptRegles,
         article,    // passé pour la substitution de variables dans les ai_instructions
         extraVars,  // variables supplémentaires selon le mode (ex: SAISON, MOIS_REFERENCE)
-        estimatedOutputTokens
+        estimatedOutputTokens,
+        _budgetRatio
       );
 
       // 7b. Dédoublonner les champs image : si l'IA a sélectionné la même URL pour
@@ -529,7 +530,8 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
     promptRegles: string,
     articleSource?: any,                   // article résolu (pour substitution {{URL_ARTICLE_SOURCE}}, etc.)
     extraVars: Record<string, string> = {}, // variables supplémentaires (SAISON, MOIS_REFERENCE, etc.)
-    maxOutputTokens: number = 12000
+    maxOutputTokens: number = 12000,
+    budgetRatio: number = 0.75
   ): Promise<RedactionResult> {
     let generatedContent: Record<string, any> = {};
     let retryCount = 0;

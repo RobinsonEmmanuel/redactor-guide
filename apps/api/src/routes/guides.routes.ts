@@ -366,7 +366,6 @@ export async function guidesRoutes(fastify: FastifyInstance) {
       error: job.error || null,
     });
   });
-}
 
   /**
    * GET /guides/:guideId/translation-overflows
@@ -403,6 +402,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
 
     return reply.send({ warnings: allWarnings });
   });
+}
 
 function normalizeArticle(a: any, targetLang: string) {
   return {

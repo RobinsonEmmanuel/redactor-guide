@@ -251,6 +251,9 @@ export class GuideTranslationService {
     for (const [key, value] of Object.entries(content)) {
       if (value === null || value === undefined || value === '') continue;
 
+      // Exclure les champs pictos (valeurs sémantiques de calques InDesign, pas du texte)
+      if (/_picto_/i.test(key)) continue;
+
       // ── Champ lien {label, url} — objet MongoDB natif ou string JSON ──────────
       const link = parseLinkField(value);
       if (link !== null) {
@@ -390,12 +393,18 @@ ${condensationInstruction}${limitBlock}`;
             { role: 'user', content: userPrompt },
           ],
           temperature: pass === 3 ? 0.1 : 0.2,
-          max_tokens: 4000,
+          max_tokens: 8000,
           response_format: { type: 'json_object' },
         });
 
-        const content = response.choices[0]?.message?.content;
+        const choice = response.choices[0];
+        const content = choice?.message?.content;
         if (!content) throw new Error('Pas de réponse OpenAI');
+
+        // Si la réponse a été tronquée par la limite de tokens, on force un retry
+        if (choice.finish_reason === 'length') {
+          throw new Error(`Réponse tronquée (finish_reason=length) — retry`);
+        }
 
         const parsed = JSON.parse(content);
 
@@ -403,7 +412,7 @@ ${condensationInstruction}${limitBlock}`;
         const outputKeys = Object.keys(parsed);
         const missingKeys = inputKeys.filter(k => !outputKeys.includes(k));
         if (missingKeys.length > 0) {
-          console.warn(`⚠️ [TRANSLATE] Clés manquantes: ${missingKeys.join(', ')} — utilisation du texte original`);
+          console.warn(`⚠️ [TRANSLATE] Clés manquantes (pass ${pass}): ${missingKeys.join(', ')} — utilisation du texte original`);
           for (const k of missingKeys) parsed[k] = fields[k];
         }
 

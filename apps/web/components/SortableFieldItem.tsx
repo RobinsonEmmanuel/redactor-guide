@@ -30,6 +30,7 @@ interface SubField {
   ai_instructions?: string;
   default_value?: string;
   skip_ai?: boolean;
+  max_chars?: number;
   source?: 'destination_pool';
   link_label?: LinkPartConfig;
   link_url?: LinkPartConfig;
@@ -964,10 +965,11 @@ export default function SortableFieldItem({
 
                       const setSfMode = (m: 'auto' | 'ai' | 'default' | 'manual') => {
                         const next = [...(field.sub_fields ?? [])];
-                        if (m === 'auto')    next[idx] = { name: sf.name, type: sf.type, label: sf.label };
-                        if (m === 'ai')      next[idx] = { name: sf.name, type: sf.type, label: sf.label, ai_instructions: sf.ai_instructions ?? '' };
-                        if (m === 'default') next[idx] = { name: sf.name, type: sf.type, label: sf.label, default_value: sf.default_value ?? '' };
-                        if (m === 'manual')  next[idx] = { name: sf.name, type: sf.type, label: sf.label, skip_ai: true };
+                        const base = { name: sf.name, type: sf.type, label: sf.label, max_chars: sf.max_chars };
+                        if (m === 'auto')    next[idx] = { ...base };
+                        if (m === 'ai')      next[idx] = { ...base, ai_instructions: sf.ai_instructions ?? '' };
+                        if (m === 'default') next[idx] = { ...base, default_value: sf.default_value ?? '' };
+                        if (m === 'manual')  next[idx] = { ...base, skip_ai: true };
                         onChange({ sub_fields: next });
                       };
 
@@ -1109,6 +1111,23 @@ export default function SortableFieldItem({
                                 <p className="text-xs text-amber-800">
                                   Ce champ sera <strong>laissé vide</strong> après la génération — tu le rempliras manuellement dans la modale de rédaction, page par page.
                                 </p>
+                              </div>
+                            )}
+
+                            {/* Calibre — disponible pour les sous-champs textuels en mode IA ou valeur par défaut */}
+                            {(sfMode === 'ai' || sfMode === 'default') && (sf.type === 'titre' || sf.type === 'texte' || sf.type === 'meta') && (
+                              <div className="flex items-center gap-2 mt-1">
+                                <label className="text-xs text-gray-500 whitespace-nowrap">
+                                  Calibre (car. max)
+                                </label>
+                                <input
+                                  type="number"
+                                  value={sf.max_chars ?? ''}
+                                  onChange={(e) => updateSf({ max_chars: e.target.value ? parseInt(e.target.value) : undefined })}
+                                  placeholder="Ex: 60"
+                                  min="1"
+                                  className="w-24 px-2 py-1 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                />
                               </div>
                             )}
                           </div>

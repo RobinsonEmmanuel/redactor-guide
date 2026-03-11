@@ -154,6 +154,8 @@ export const TemplateFieldSchema = z.object({
     name:            z.string().min(1),
     type:            z.enum(['titre', 'texte', 'image', 'lien', 'meta']),
     label:           z.string().optional(),
+    /** Calibre du sous-champ : nombre max de caractères (pour titre, texte, meta) */
+    max_chars:       z.number().int().positive().optional(),
     /** Instructions pour l'IA — mode "Généré par IA" */
     ai_instructions: z.string().optional(),
     /** Valeur fixe identique pour toutes les entrées — mode "Valeur par défaut" */

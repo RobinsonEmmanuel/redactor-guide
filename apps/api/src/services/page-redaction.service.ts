@@ -1054,7 +1054,13 @@ INSTRUCTIONS STRICTES :
             const sfInstr = sf.ai_instructions
               ? ` — ${this.openaiService.replaceVariables(sf.ai_instructions, fieldVars)}`
               : '';
-            parts.push(`  • "${sf.name}" (${sf.type}${sf.label ? ` — ${sf.label}` : ''})${sfInstr}`);
+            let sfCalibrage = '';
+            if (sf.max_chars) {
+              const ratio  = field.generation_budget ?? budgetRatio;
+              const budget = Math.floor(sf.max_chars * ratio);
+              sfCalibrage = ` [MAX ${budget} car. (calibre ${sf.max_chars} × ${ratio})]`;
+            }
+            parts.push(`  • "${sf.name}" (${sf.type}${sf.label ? ` — ${sf.label}` : ''})${sfInstr}${sfCalibrage}`);
           }
 
           // Exemple de format attendu

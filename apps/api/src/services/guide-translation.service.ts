@@ -182,6 +182,14 @@ export class GuideTranslationService {
       if (field.type === 'lien' && field.link_label?.max_chars) {
         limits[field.name] = field.link_label.max_chars;
       }
+      // Pour les répétitifs : calibre par sous-champ stocké sur sub_fields[i].max_chars
+      if (field.type === 'repetitif' && Array.isArray(field.sub_fields)) {
+        for (const sf of field.sub_fields) {
+          if (sf.max_chars && sf.name) {
+            limits[`${field.name}__${sf.name}`] = sf.max_chars;
+          }
+        }
+      }
     }
     return limits;
   }

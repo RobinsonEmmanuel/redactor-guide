@@ -80,101 +80,114 @@ type FieldServiceHandler = (ctx: FieldServiceContext) => Promise<FieldServiceRes
 /**
  * Générateur de table des matières (Sommaire).
  *
- * Parcourt toutes les pages exportées dans l'ordre du chemin de fer,
- * reconstruit les sections et, pour la section "Clusters et lieux",
- * liste tous les clusters avec leur numéro de page.
+ * Produit un tableau plat de 16 entrées max (ou fieldDef.max_repetitions) :
+ *   [{ titre, page, sous_titres }, ...]
  *
- * Structure de sortie (JSON sérialisé) :
- * {
- *   "sections": [
- *     { "titre": "Introduction",       "page": 2,  "clusters": [] },
- *     { "titre": "Clusters et lieux",  "page": 5,  "clusters": [
- *         { "nom": "Puerto de la Cruz", "page": 5  },
- *         { "nom": "Santa Cruz",        "page": 12 }
- *     ]},
- *     { "titre": "Inspirations",        "page": 20, "clusters": [] }
- *   ]
- * }
+ * Règles de regroupement :
+ *   - Pages INSPIRATION → une seule entrée "Inspirations" (page = 1ère inspiration)
+ *     avec tous les titres en sous_titres (séparés par \n)
+ *   - Pages SAISON      → une seule entrée "Saisons" (page = 1ère saison)
+ *     avec tous les titres en sous_titres
+ *   - Pages POI, COUVERTURE, SOMMAIRE → exclues
+ *   - Tout le reste (sections, clusters, ALLER_PLUS_LOIN, A_PROPOS…) → entrée individuelle
+ *
+ * Les slots vides sont remplis avec { titre:'', page:'', sous_titres:'' }
+ * pour que le script InDesign puisse masquer les cadres correspondants.
  */
 async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldServiceResult> {
-  const { allExportedPages } = ctx;
+  const { allExportedPages, fieldDef } = ctx;
+  const MAX_SLOTS = fieldDef?.max_repetitions ?? 16;
 
-  interface SommaireSection {
-    titre: string;
-    page: number;
-    clusters: Array<{ nom: string; page: number }>;
-  }
+  type SommaireEntry = { titre: string; page: string; sous_titres: string };
 
-  const sections: SommaireSection[] = [];
-  let currentSection: SommaireSection | null = null;
-
-  // Templates considérés comme des en-têtes de section
-  const SECTION_TEMPLATES = new Set([
-    'SECTION',
-    'INTRODUCTION',
-    'COUVERTURE',
-    'EDITO',
-    'PRATIQUE',
-    'INSPIRATIONS_HEADER',
-  ]);
-
-  // Templates ou types de page considérés comme des pages cluster
-  const CLUSTER_TEMPLATES = new Set(['CLUSTER', 'CLUSTER_LIEUX']);
+  // ── Pré-collecte des groupes Inspirations et Saisons ──────────────────────
+  const inspirationItems: string[] = [];
+  let inspirationFirstPage: number | null = null;
+  const saisonItems: string[] = [];
+  let saisonFirstPage: number | null = null;
 
   for (const page of allExportedPages) {
-    const templateName = (page.template || '').toUpperCase();
-    const pageType = (page.entity_meta?.page_type || '').toLowerCase();
+    const tpl = (page.template || '').toUpperCase();
+    const pt  = (page.entity_meta?.page_type || '').toLowerCase();
 
-    const isSection =
-      SECTION_TEMPLATES.has(templateName) ||
-      templateName.includes('SECTION') ||
-      pageType === 'section_header';
-
-    const isCluster =
-      CLUSTER_TEMPLATES.has(templateName) ||
-      pageType === 'cluster' ||
-      pageType === 'cluster_header';
-
-    if (isSection) {
-      // Démarrer une nouvelle section
-      const sectionTitre =
-        page.content?.text?.['SECTION_titre_1'] ||
-        page.content?.text?.['INTRODUCTION_titre_1'] ||
-        page.titre ||
-        `Section page ${page.page_number}`;
-
-      currentSection = {
-        titre: sectionTitre,
-        page: page.page_number,
-        clusters: [],
-      };
-      sections.push(currentSection);
-    } else if (isCluster) {
-      // Ajouter le cluster à la section courante
-      const clusterNom =
-        page.entity_meta?.cluster_name ||
-        page.content?.text?.['CLUSTER_titre_1'] ||
-        page.titre ||
-        `Cluster page ${page.page_number}`;
-
-      const clusterEntry = { nom: clusterNom, page: page.page_number };
-
-      if (currentSection) {
-        currentSection.clusters.push(clusterEntry);
-      } else {
-        // Cluster sans section parente — créer une section implicite
-        currentSection = {
-          titre: 'Clusters et lieux',
-          page: page.page_number,
-          clusters: [clusterEntry],
-        };
-        sections.push(currentSection);
-      }
+    if (tpl.includes('INSPIRATION') || pt === 'inspiration') {
+      if (inspirationFirstPage === null) inspirationFirstPage = page.page_number;
+      const t = page.titre || page.entity_meta?.inspiration_title || '';
+      if (t) inspirationItems.push(t);
+    }
+    if (tpl.includes('SAISON') || pt === 'saison') {
+      if (saisonFirstPage === null) saisonFirstPage = page.page_number;
+      const t = page.titre || '';
+      if (t) saisonItems.push(t);
     }
   }
 
-  const result = { sections };
-  return { value: JSON.stringify(result, null, 2) };
+  // ── Construction de la liste ordonnée ─────────────────────────────────────
+  const entries: SommaireEntry[] = [];
+  let inspirationInserted = false;
+  let saisonInserted = false;
+
+  const fmt = (n: number) => String(n).padStart(2, '0');
+
+  for (const page of allExportedPages) {
+    const tpl = (page.template || '').toUpperCase();
+    const pt  = (page.entity_meta?.page_type || '').toLowerCase();
+
+    // Pages exclues du sommaire
+    const skip =
+      pt === 'poi' ||
+      tpl.startsWith('POI') ||
+      tpl.startsWith('COUVERTURE') ||
+      tpl.startsWith('SOMMAIRE');
+
+    if (skip) continue;
+
+    const isInspiration = tpl.includes('INSPIRATION') || pt === 'inspiration';
+    const isSaison      = tpl.includes('SAISON')      || pt === 'saison';
+
+    if (isInspiration) {
+      if (!inspirationInserted && inspirationFirstPage !== null) {
+        inspirationInserted = true;
+        entries.push({
+          titre:       'Inspirations',
+          page:        fmt(inspirationFirstPage),
+          sous_titres: inspirationItems.join('\n'),
+        });
+      }
+      continue;
+    }
+
+    if (isSaison) {
+      if (!saisonInserted && saisonFirstPage !== null) {
+        saisonInserted = true;
+        entries.push({
+          titre:       'Saisons',
+          page:        fmt(saisonFirstPage),
+          sous_titres: saisonItems.join('\n'),
+        });
+      }
+      continue;
+    }
+
+    // Entrée individuelle : résoudre le titre depuis le contenu ou le titre de la page
+    const titre =
+      page.content?.text?.['CLUSTER_titre_1'] ||
+      page.content?.text?.['SECTION_INTRO_titre_section'] ||
+      page.content?.text?.['PRESENTATION_GUIDE_titre_1'] ||
+      page.content?.text?.['PRESENTATION_DESTINATION_titre_1'] ||
+      page.titre ||
+      `Page ${page.page_number}`;
+
+    entries.push({ titre, page: fmt(page.page_number), sous_titres: '' });
+  }
+
+  // ── Remplissage des slots vides jusqu'à MAX_SLOTS ─────────────────────────
+  while (entries.length < MAX_SLOTS) {
+    entries.push({ titre: '', page: '', sous_titres: '' });
+  }
+
+  console.log(`[sommaire_generator] ${entries.filter(e => e.titre).length} entrée(s) / ${MAX_SLOTS} slots`);
+  return { value: JSON.stringify(entries.slice(0, MAX_SLOTS)) };
 }
 
 // Singleton partagé entre les handlers (pas d'état, safe)

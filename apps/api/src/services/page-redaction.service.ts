@@ -1102,6 +1102,11 @@ INSTRUCTIONS STRICTES :
         // --- Intitulé ---
         if (ll.default_value !== undefined) {
           parts.push(`Intitulé (fixe, ne pas modifier): "${ll.default_value}"`);
+          if (ll.max_chars) {
+            const ratio  = field.generation_budget ?? budgetRatio;
+            const budget = Math.floor(ll.max_chars * ratio);
+            parts.push(`⚠️ CALIBRAGE INTITULÉ: ${budget} caractères MAXIMUM (calibre InDesign: ${ll.max_chars} car. × ratio ${ratio})`);
+          }
         } else if (ll.skip_ai) {
           parts.push(`Intitulé: VIDE — sera saisi manuellement (mettre null ou chaîne vide)`);
         } else {

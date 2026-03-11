@@ -735,8 +735,8 @@ export default function SortableFieldItem({
                           L'intitulé sera saisi manuellement dans l'éditeur de contenu, page par page.
                         </p>
                       )}
-                      {/* Calibre de l'intitulé — disponible en mode IA uniquement */}
-                      {getLinkPartMode(field.link_label) === 'ai' && (
+                      {/* Calibre de l'intitulé — disponible en mode IA et valeur par défaut */}
+                      {(getLinkPartMode(field.link_label) === 'ai' || getLinkPartMode(field.link_label) === 'default') && (
                         <div className="flex items-center gap-2 mt-1">
                           <label className="text-xs text-gray-500 whitespace-nowrap">
                             Calibre intitulé (car. max)

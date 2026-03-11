@@ -72,12 +72,14 @@ export class GuideTranslationService {
     const cdf = await db.collection('chemins_de_fer').findOne({ guide_id: guideId });
     if (!cdf) throw new Error('Chemin de fer non trouvé');
 
-    // 2. Récupérer toutes les pages + leurs templates pour connaître les max_chars
-    const pages = await db
+    // 2. Récupérer uniquement les pages exportables (même filtre que l'export JSON)
+    const EXPORTED_STATUSES = ['generee_ia', 'relue', 'validee', 'texte_coule', 'visuels_montes'];
+    const allPages = await db
       .collection('pages')
       .find({ chemin_de_fer_id: cdf._id.toString() })
       .sort({ ordre: 1 })
       .toArray();
+    const pages = allPages.filter((p: any) => EXPORTED_STATUSES.includes(p.statut_editorial));
 
     // Charger tous les templates distincts référencés par les pages (cache)
     const templateCache: Record<string, any> = {};

@@ -1114,8 +1114,8 @@ export default function SortableFieldItem({
                               </div>
                             )}
 
-                            {/* Calibre — disponible pour les sous-champs textuels en mode IA ou valeur par défaut */}
-                            {(sfMode === 'ai' || sfMode === 'default') && (sf.type === 'titre' || sf.type === 'texte' || sf.type === 'meta') && (
+                            {/* Calibre — disponible pour les sous-champs textuels (tous modes sauf saisie manuelle) */}
+                            {sfMode !== 'manual' && (sf.type === 'titre' || sf.type === 'texte' || sf.type === 'meta') && (
                               <div className="flex items-center gap-2 mt-1">
                                 <label className="text-xs text-gray-500 whitespace-nowrap">
                                   Calibre (car. max)

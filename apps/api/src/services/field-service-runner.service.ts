@@ -343,6 +343,8 @@ interface SubFieldResolved {
   instructions?: string;
   /** Valeur fixe (mode 'default' uniquement) */
   defaultValue?: string;
+  /** Calibre InDesign : nombre max de caractères pour ce sous-champ */
+  max_chars?: number;
 }
 
 /**
@@ -372,14 +374,16 @@ function resolveSubField(
   const sub = (str: string) =>
     str.replace(/\{\{(\w+)\}\}/g, (_: string, k: string) => vars[k] ?? `{{${k}}}`);
 
+  const max_chars: number | undefined = sf?.max_chars ?? undefined;
+
   if (sf?.skip_ai) {
-    return { mode: 'skip' };
+    return { mode: 'skip', max_chars };
   }
   if (sf?.default_value !== undefined && sf.default_value !== null) {
-    return { mode: 'default', defaultValue: sub(String(sf.default_value)) };
+    return { mode: 'default', defaultValue: sub(String(sf.default_value)), max_chars };
   }
   const raw = sf?.ai_instructions?.trim() || fallbackInstructions;
-  return { mode: 'ai', instructions: sub(raw) };
+  return { mode: 'ai', instructions: sub(raw), max_chars };
 }
 
 
@@ -568,7 +572,10 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
       nom = nomResolved.defaultValue ?? poi.nom;
     } else if (nomResolved.mode === 'ai' && nomResolved.instructions) {
       try {
-        const aiNom = await miniAI(`${nomResolved.instructions}\nLieu : "${poi.nom}"`);
+        const calibreNom = nomResolved.max_chars
+          ? `\n⚠️ CALIBRE OBLIGATOIRE : ${nomResolved.max_chars} caractères MAXIMUM (ne pas dépasser).`
+          : '';
+        const aiNom = await miniAI(`${nomResolved.instructions}\nLieu : "${poi.nom}"${calibreNom}`);
         if (aiNom) nom = aiNom;
       } catch { /* fallback : nom brut */ }
     }
@@ -584,7 +591,12 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     if (hashResolved.mode === 'default') {
       hashtag = hashResolved.defaultValue ?? '';
     } else if (hashResolved.mode === 'ai' && hashResolved.instructions) {
-      try { hashtag = await miniAI(`${hashResolved.instructions}\nLieu : "${poi.nom}"`); } catch { hashtag = ''; }
+      try {
+        const calibreHash = hashResolved.max_chars
+          ? `\n⚠️ CALIBRE OBLIGATOIRE : ${hashResolved.max_chars} caractères MAXIMUM (ne pas dépasser).`
+          : '';
+        hashtag = await miniAI(`${hashResolved.instructions}\nLieu : "${poi.nom}"${calibreHash}`);
+      } catch { hashtag = ''; }
     }
     // mode 'skip' → hashtag vide (géré ailleurs)
 

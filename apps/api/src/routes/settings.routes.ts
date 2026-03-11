@@ -49,7 +49,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
   fastify.get('/settings', async (_request, reply) => {
     try {
       const db = _request.server.container.db;
-      let doc = await db.collection(COLLECTIONS.settings).findOne({ _id: 'global' } as any);
+      let doc: any = await db.collection(COLLECTIONS.settings).findOne({ _id: 'global' } as any);
 
       if (!doc) {
         // Initialisation au premier appel

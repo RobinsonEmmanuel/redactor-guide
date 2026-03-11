@@ -805,8 +805,8 @@ export default function SortableFieldItem({
 
           {/* Options spécifiques selon le type */}
           <div className="flex gap-4 flex-wrap">
-            {/* Calibre (pour titre, texte et liste) */}
-            {(field.type === 'titre' || field.type === 'texte' || field.type === 'liste') && (
+            {/* Calibre (pour titre, texte, liste et meta) */}
+            {(field.type === 'titre' || field.type === 'texte' || field.type === 'liste' || field.type === 'meta') && (
               <div className="flex-1 min-w-[120px]">
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Calibre total (car. max)

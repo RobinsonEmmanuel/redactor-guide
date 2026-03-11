@@ -80,6 +80,10 @@ interface ImageItem {
 
 type AnalyzedScope = 'poi' | 'page' | 'guide';
 type InputMode = 'analyzed' | 'url' | 'upload' | 'drive';
+
+// Cache module-level : mémorise le chemin de navigation Drive par pageId
+// Réinitialisé uniquement quand on change de page
+const driveNavCache: Record<string, { breadcrumb: Array<{ id: string; name: string }> }> = {};
 type UploadStep = 'select' | 'uploading' | 'analyzing' | 'tag-poi' | 'done';
 
 interface UploadAnalysis {
@@ -312,13 +316,16 @@ export default function ImageSelectorModal({
   };
 
   const handleOpenDriveFolder = (folder: DriveFolder) => {
-    setDriveBreadcrumb(prev => [...prev, { id: folder.id, name: folder.name }]);
+    const newBreadcrumb = [...driveBreadcrumb, { id: folder.id, name: folder.name }];
+    setDriveBreadcrumb(newBreadcrumb);
+    driveNavCache[pageId] = { breadcrumb: newBreadcrumb };
     loadDriveFolder(folder.id);
   };
 
   const handleDriveBack = () => {
     const newCrumb = driveBreadcrumb.slice(0, -1);
     setDriveBreadcrumb(newCrumb);
+    driveNavCache[pageId] = { breadcrumb: newCrumb };
     const parentId = newCrumb.length > 0 ? newCrumb[newCrumb.length - 1].id : undefined;
     loadDriveFolder(parentId);
   };
@@ -552,7 +559,21 @@ export default function ImageSelectorModal({
             </button>
             {googleDriveFolderId && (
               <button
-                onClick={() => { setInputMode('drive'); setSelectedImage(null); setDriveBreadcrumb([]); loadDriveFolder(); }}
+                onClick={() => {
+                  setInputMode('drive');
+                  setSelectedImage(null);
+                  const cached = driveNavCache[pageId];
+                  if (cached) {
+                    setDriveBreadcrumb(cached.breadcrumb);
+                    const folderId = cached.breadcrumb.length > 0
+                      ? cached.breadcrumb[cached.breadcrumb.length - 1].id
+                      : undefined;
+                    loadDriveFolder(folderId);
+                  } else {
+                    setDriveBreadcrumb([]);
+                    loadDriveFolder();
+                  }
+                }}
                 className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
                   inputMode === 'drive' ? 'bg-white text-purple-700 shadow-sm' : 'text-white/80 hover:text-white'
                 }`}

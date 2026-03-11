@@ -20,6 +20,7 @@ interface LinkPartConfig {
   ai_instructions?: string;
   default_value?: string;
   skip_ai?: boolean;
+  max_chars?: number;
 }
 
 interface SubField {
@@ -733,6 +734,29 @@ export default function SortableFieldItem({
                         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                           L'intitulé sera saisi manuellement dans l'éditeur de contenu, page par page.
                         </p>
+                      )}
+                      {/* Calibre de l'intitulé — disponible en mode IA uniquement */}
+                      {getLinkPartMode(field.link_label) === 'ai' && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <label className="text-xs text-gray-500 whitespace-nowrap">
+                            Calibre intitulé (car. max)
+                          </label>
+                          <input
+                            type="number"
+                            value={field.link_label?.max_chars ?? ''}
+                            onChange={(e) =>
+                              onChange({
+                                link_label: {
+                                  ...field.link_label,
+                                  max_chars: e.target.value ? parseInt(e.target.value) : undefined,
+                                },
+                              })
+                            }
+                            placeholder="Ex: 40"
+                            min="1"
+                            className="w-24 px-2 py-1 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                        </div>
                       )}
                     </div>
 

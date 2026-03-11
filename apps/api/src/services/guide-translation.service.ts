@@ -170,12 +170,17 @@ export class GuideTranslationService {
     if (!template?.fields) return {};
     const limits: Record<string, number> = {};
     for (const field of template.fields) {
-      if (field.max_chars && field.name) {
+      if (!field.name) continue;
+      if (field.max_chars) {
         limits[field.name] = field.max_chars;
         // Pour les listes : contrainte par puce si définie
         if (field.type === 'liste' && field.max_chars_per_item) {
           limits[`${field.name}__per_item`] = field.max_chars_per_item;
         }
+      }
+      // Pour les liens : le calibre de l'intitulé est sur link_label.max_chars
+      if (field.type === 'lien' && field.link_label?.max_chars) {
+        limits[field.name] = field.link_label.max_chars;
       }
     }
     return limits;

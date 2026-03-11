@@ -167,6 +167,7 @@ export const TemplateFieldSchema = z.object({
       ai_instructions: z.string().optional(),
       default_value:   z.string().optional(),
       skip_ai:         z.boolean().optional(),
+      max_chars:       z.number().int().positive().optional(),
     }).optional(),
     /** Pour type=lien : config indépendante de l'URL */
     link_url: z.object({
@@ -214,6 +215,8 @@ export const TemplateFieldSchema = z.object({
     default_value: z.string().optional(),
     /** L'IA ignore ce champ — saisie manuelle page par page (mode manuel) */
     skip_ai: z.boolean().optional(),
+    /** Calibre de l'intitulé : nombre max de caractères généré par l'IA */
+    max_chars: z.number().int().positive().optional(),
   }).optional(),
 
   /**

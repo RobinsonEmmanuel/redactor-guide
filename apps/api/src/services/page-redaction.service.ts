@@ -1109,6 +1109,11 @@ INSTRUCTIONS STRICTES :
             ? this.openaiService.replaceVariables(ll.ai_instructions, fieldVars)
             : `Rédiger un intitulé court et incitatif pour ce lien`;
           parts.push(`Instructions intitulé: ${instr}`);
+          if (ll.max_chars) {
+            const ratio  = field.generation_budget ?? budgetRatio;
+            const budget = Math.floor(ll.max_chars * ratio);
+            parts.push(`⚠️ CALIBRAGE INTITULÉ: ${budget} caractères MAXIMUM (calibre InDesign: ${ll.max_chars} car. × ratio ${ratio})`);
+          }
         }
 
         // --- URL ---

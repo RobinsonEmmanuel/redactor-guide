@@ -89,12 +89,10 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
   useEffect(() => {
     loadTemplates();
     loadTemplateProposals();
-    if (cheminDeFer) {
-      loadPages();
-    } else {
-      setLoading(false);
-    }
-  }, [cheminDeFer]);
+    // Charger les pages même si guide.chemin_de_fer n'est pas défini :
+    // l'API gère elle-même le cas "CdF non créé" (404 → pages = [])
+    loadPages();
+  }, [guideId]);
 
   // ─── Helpers polling (refs → pas de closure stale) ──────────────────────
   const stopPolling = useCallback(() => {

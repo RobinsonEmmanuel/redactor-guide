@@ -27,6 +27,7 @@ export default function GuideDetailPage() {
   const [matchingGenerated, setMatchingGenerated] = useState(false); // Étape 3: Matching fait
   const [inspirationsGenerated, setInspirationsGenerated] = useState(false); // Étape 4: Inspirations générées
   const [sommaireGenerated, setSommaireGenerated] = useState(false);
+  const [cheminDeFerHasPages, setCheminDeFerHasPages] = useState(false);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
@@ -37,6 +38,7 @@ export default function GuideDetailPage() {
     checkMatchingStatus();
     checkInspirationsStatus();
     checkSommaireStatus();
+    checkCheminDeFerPages();
   }, [guideId]);
 
   const loadGuide = async () => {
@@ -127,6 +129,20 @@ export default function GuideDetailPage() {
     }
   };
 
+  const checkCheminDeFerPages = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer`, {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCheminDeFerHasPages(Array.isArray(data.pages) ? data.pages.length > 0 : false);
+      }
+    } catch (err) {
+      setCheminDeFerHasPages(false);
+    }
+  };
+
   // Calculer les étapes complétées
   const getCompletedSteps = (): Set<number> => {
     const completed = new Set<number>();
@@ -143,9 +159,8 @@ export default function GuideDetailPage() {
     // Étape 4: Lieux et Inspirations (inspirations générées)
     if (inspirationsGenerated) completed.add(4);
     
-    // Étape 5: Chemin de fer (si pages créées ou sommaire généré ou au moins une page avec contenu)
-    const hasGeneratedContent = guide?.chemin_de_fer?.pages?.some((p: any) => p.statut_editorial === 'generee_ia');
-    if (sommaireGenerated || guide?.chemin_de_fer?.pages?.length > 0 || hasGeneratedContent) {
+    // Étape 5: Chemin de fer (pages enregistrées en base ou sommaire proposal existant)
+    if (cheminDeFerHasPages || sommaireGenerated) {
       completed.add(5);
     }
     

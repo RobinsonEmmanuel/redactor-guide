@@ -118,9 +118,29 @@ export const TemplateFieldSchema = z.object({
   
   /** Calibre recommandé (nombre de caractères max) - optionnel */
   max_chars: z.number().int().positive().optional(),
-  
+
+  /**
+   * Ratio de budget appliqué lors de la génération française.
+   * Surcharge le ratio global du module Paramètres pour ce champ spécifique.
+   * Ex: 0.75 signifie que le LLM reçoit max_chars × 0.75 comme limite.
+   * Si absent, le ratio global est utilisé.
+   */
+  generation_budget: z.number().min(0.1).max(1).optional(),
+
   /** Si type=liste, nombre d'éléments fixes dans la liste */
   list_size: z.number().int().positive().optional(),
+
+  /**
+   * Si type=liste, nombre maximum de puces autorisées.
+   * Utilisé dans le prompt de génération pour contraindre le nombre d'items.
+   */
+  max_items: z.number().int().positive().optional(),
+
+  /**
+   * Si type=liste, nombre maximum de caractères par puce (label inclus).
+   * À renseigner manuellement selon le rendu InDesign souhaité (1 ligne, 2 lignes…).
+   */
+  max_chars_per_item: z.number().int().positive().optional(),
 
   /** Si type=picto, liste des valeurs autorisées (ex: ['oui', 'non'] ou ['incontournable', 'interessant', 'a_voir']) */
   options: z.array(z.string()).optional(),

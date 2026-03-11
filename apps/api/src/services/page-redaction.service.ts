@@ -41,6 +41,10 @@ export class PageRedactionService {
     try {
       console.log(`🚀 Démarrage rédaction IA pour page ${pageId}`);
 
+      // 0. Charger les paramètres globaux (ratio budget génération)
+      const settingsDoc = await this.db.collection(COLLECTIONS.settings).findOne({ _id: 'global' as any });
+      const budgetRatio: number = (settingsDoc as any)?.generation_budget_ratio ?? 0.75;
+
       // 1. Charger la page
       const page = await this.db.collection(COLLECTIONS.pages).findOne({ _id: new ObjectId(pageId) });
       if (!page) {
@@ -539,7 +543,8 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
         template,
         previousErrors,
         articleSource,
-        extraVars
+        extraVars,
+        budgetRatio
       );
 
       // Troncature de sécurité : promptRegles ne devrait pas dépasser ~60k chars (~15k tokens)
@@ -1001,7 +1006,8 @@ INSTRUCTIONS STRICTES :
     template: any,
     failedFields?: ValidationError[],
     articleSource?: any,
-    extraVars: Record<string, string> = {}
+    extraVars: Record<string, string> = {},
+    budgetRatio: number = 0.75
   ): string {
     const failedFieldNames = failedFields
       ? this.validatorService.getFailedFields(failedFields)
@@ -1122,7 +1128,21 @@ INSTRUCTIONS STRICTES :
 
       // ── Champs classiques ────────────────────────────────────────────────────
       if (field.max_chars) {
-        parts.push(`⚠️ CALIBRAGE OBLIGATOIRE: ${field.max_chars} caractères MAXIMUM (ne JAMAIS dépasser, viser 95% du calibre)`);
+        // Appliquer le ratio de budget (field override > ratio global)
+        const ratio  = field.generation_budget ?? budgetRatio;
+        const budget = Math.floor(field.max_chars * ratio);
+        parts.push(`⚠️ CALIBRAGE OBLIGATOIRE: ${budget} caractères MAXIMUM (calibre InDesign: ${field.max_chars} car. × ratio ${ratio} — ne JAMAIS dépasser, viser 95% du budget)`);
+      }
+
+      if (field.type === 'liste') {
+        if (field.max_items) {
+          parts.push(`⚠️ LISTE: maximum ${field.max_items} puces (générer entre 1 et ${field.max_items} items selon le contenu disponible)`);
+        }
+        if (field.max_chars_per_item) {
+          const ratio  = field.generation_budget ?? budgetRatio;
+          const budgetPerItem = Math.floor(field.max_chars_per_item * ratio);
+          parts.push(`⚠️ LONGUEUR PAR PUCE: maximum ${budgetPerItem} caractères par puce (label gras inclus — calibre InDesign: ${field.max_chars_per_item} car.)`);
+        }
       }
       
       if (field.min_chars) {

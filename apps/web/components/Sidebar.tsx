@@ -30,7 +30,7 @@ const menuItems = [
   { name: 'Destinations', icon: DocumentTextIcon, href: '#' },
   { name: 'Exports', icon: CloudArrowUpIcon, href: '#' },
   { name: 'Statistiques', icon: ChartBarIcon, href: '#' },
-  { name: 'Paramètres', icon: Cog6ToothIcon, href: '#' },
+  { name: 'Paramètres', icon: Cog6ToothIcon, href: '/settings' },
 ];
 
 export default function Sidebar() {

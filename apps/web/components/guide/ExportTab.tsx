@@ -423,6 +423,9 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
           </div>
         </div>
 
+        {/* Alertes de dépassement de calibre */}
+        <OverflowAlertsPanel guideId={guideId} apiUrl={apiUrl} />
+
         {/* Structure du JSON */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h3 className="text-sm font-semibold text-gray-700 mb-4 pb-2 border-b border-gray-100">
@@ -505,6 +508,86 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
         )}
 
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Panneau d'alertes de dépassement de calibre post-traduction
+// ---------------------------------------------------------------------------
+interface OverflowWarning {
+  page_id:        string;
+  page_titre:     string;
+  field_key:      string;
+  lang:           string;
+  current_length: number;
+  max_chars:      number;
+}
+
+function OverflowAlertsPanel({ guideId, apiUrl }: { guideId: string; apiUrl: string }) {
+  const [warnings, setWarnings]   = useState<OverflowWarning[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    fetch(`${apiUrl}/api/v1/guides/${guideId}/translation-overflows`, { credentials: 'include' })
+      .then(r => r.ok ? r.json() : { warnings: [] })
+      .then(d => { setWarnings(d.warnings ?? []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [guideId, apiUrl]);
+
+  if (loading || warnings.length === 0) return null;
+
+  const byLang = warnings.reduce<Record<string, OverflowWarning[]>>((acc, w) => {
+    (acc[w.lang] = acc[w.lang] ?? []).push(w);
+    return acc;
+  }, {});
+
+  return (
+    <div className="bg-white rounded-xl border border-amber-300 p-5">
+      <button
+        onClick={() => setCollapsed(c => !c)}
+        className="w-full flex items-center justify-between gap-3"
+      >
+        <div className="flex items-center gap-2">
+          <ExclamationTriangleIcon className="w-5 h-5 text-amber-500 flex-shrink-0" />
+          <h3 className="text-sm font-semibold text-amber-700">
+            {warnings.length} dépassement{warnings.length > 1 ? 's' : ''} de calibre — correction manuelle requise
+          </h3>
+        </div>
+        <span className="text-xs text-amber-500">{collapsed ? '▼ Afficher' : '▲ Réduire'}</span>
+      </button>
+
+      {!collapsed && (
+        <div className="mt-4 space-y-4">
+          <p className="text-xs text-gray-500">
+            Ces champs dépassent le calibre InDesign après toutes les passes de condensation IA.
+            Ouvrir la page concernée et corriger le texte manuellement dans l'éditeur de contenu.
+          </p>
+          {Object.entries(byLang).map(([lang, ws]) => (
+            <div key={lang}>
+              <div className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">
+                {LANGUAGES.find(l => l.code === lang)?.flag} {LANGUAGES.find(l => l.code === lang)?.label ?? lang}
+              </div>
+              <div className="space-y-2">
+                {ws.map((w, i) => (
+                  <div key={i} className="flex items-start gap-3 p-3 bg-amber-50 rounded-lg border border-amber-100 text-sm">
+                    <ExclamationTriangleIcon className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <span className="font-medium text-gray-800 truncate block">{w.page_titre}</span>
+                      <span className="text-gray-500">
+                        <code className="bg-gray-100 px-1 rounded text-xs">{w.field_key}</code>
+                        {' '}— {w.current_length} car. pour un max de {w.max_chars} car.
+                        {' '}(<span className="text-amber-600 font-medium">+{w.current_length - w.max_chars}</span>)
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

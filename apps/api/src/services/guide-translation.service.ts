@@ -13,6 +13,8 @@
 import OpenAI from 'openai';
 import { Db, ObjectId } from 'mongodb';
 import { parseLinkField } from '../utils/link-field.js';
+import { COLLECTIONS } from '../config/collections.js';
+import { DEFAULT_SETTINGS } from '../routes/settings.routes.js';
 
 const LANGUAGE_NAMES: Record<string, string> = {
   en:     'English (British)',
@@ -32,6 +34,15 @@ export interface TranslationProgress {
   total: number;
 }
 
+export interface OverflowWarning {
+  page_id:        string;
+  page_titre:     string;
+  field_key:      string;
+  lang:           string;
+  current_length: number;
+  max_chars:      number;
+}
+
 export class GuideTranslationService {
   private client: OpenAI;
 
@@ -48,22 +59,39 @@ export class GuideTranslationService {
     targetLang: string,
     db: Db,
     onProgress?: (p: TranslationProgress) => Promise<void>
-  ): Promise<{ translated: number; skipped: number; errors: number }> {
+  ): Promise<{ translated: number; skipped: number; errors: number; overflow_warnings: OverflowWarning[] }> {
     const langName = LANGUAGE_NAMES[targetLang];
     if (!langName) throw new Error(`Langue inconnue : ${targetLang}`);
+
+    // Charger les paramètres globaux (retry max)
+    const settingsDoc = await db.collection(COLLECTIONS.settings).findOne({ _id: 'global' as any });
+    const retryMax: number   = (settingsDoc as any)?.translation_retry_max ?? DEFAULT_SETTINGS.translation_retry_max;
+    const alertEnabled: boolean = (settingsDoc as any)?.translation_overflow_alert ?? DEFAULT_SETTINGS.translation_overflow_alert;
 
     // 1. Récupérer le chemin de fer
     const cdf = await db.collection('chemins_de_fer').findOne({ guide_id: guideId });
     if (!cdf) throw new Error('Chemin de fer non trouvé');
 
-    // 2. Récupérer toutes les pages exportables
+    // 2. Récupérer toutes les pages + leurs templates pour connaître les max_chars
     const pages = await db
       .collection('pages')
       .find({ chemin_de_fer_id: cdf._id.toString() })
       .sort({ ordre: 1 })
       .toArray();
 
-    const stats = { translated: 0, skipped: 0, errors: 0 };
+    // Charger tous les templates distincts référencés par les pages (cache)
+    const templateCache: Record<string, any> = {};
+    for (const page of pages) {
+      const tid = page.template_id?.toString();
+      if (tid && !templateCache[tid]) {
+        try {
+          const t = await db.collection(COLLECTIONS.templates).findOne({ _id: new ObjectId(tid) });
+          if (t) templateCache[tid] = t;
+        } catch { /* ignore */ }
+      }
+    }
+
+    const stats = { translated: 0, skipped: 0, errors: 0, overflow_warnings: [] as OverflowWarning[] };
     const total = pages.length;
 
     for (let i = 0; i < pages.length; i++) {
@@ -77,14 +105,45 @@ export class GuideTranslationService {
         stats.skipped++;
       } else {
         try {
-          const translated = await this.translateFields(toTranslate, targetLang, langName);
+          // Récupérer les contraintes max_chars depuis le template
+          const template = templateCache[page.template_id?.toString()] ?? null;
+          const fieldLimits = this.buildFieldLimits(template);
+
+          const translated = await this.translateFieldsWithRetry(
+            toTranslate,
+            targetLang,
+            langName,
+            fieldLimits,
+            retryMax
+          );
+
+          // Détecter les dépassements résiduels après tous les retries
+          const pageOverflows: OverflowWarning[] = [];
+          if (alertEnabled) {
+            for (const [key, value] of Object.entries(translated)) {
+              const limit = fieldLimits[key];
+              if (limit && typeof value === 'string' && value.length > limit) {
+                pageOverflows.push({
+                  page_id:        page._id.toString(),
+                  page_titre:     page.titre ?? page.template_name ?? page._id.toString(),
+                  field_key:      key,
+                  lang:           targetLang,
+                  current_length: value.length,
+                  max_chars:      limit,
+                });
+              }
+            }
+            stats.overflow_warnings.push(...pageOverflows);
+          }
+
           // Sauvegarder sur la page
           await db.collection('pages').updateOne(
             { _id: new ObjectId(page._id) },
             {
               $set: {
-                [`content_translations.${targetLang}.text`]: translated,
-                [`content_translations.${targetLang}.translated_at`]: new Date(),
+                [`content_translations.${targetLang}.text`]:              translated,
+                [`content_translations.${targetLang}.translated_at`]:     new Date(),
+                [`content_translations.${targetLang}.overflow_warnings`]: pageOverflows,
               },
             }
           );
@@ -101,6 +160,60 @@ export class GuideTranslationService {
     }
 
     return stats;
+  }
+
+  /**
+   * Construit un dictionnaire fieldKey → max_chars depuis le template.
+   * Utilisé pour détecter les dépassements post-traduction.
+   */
+  private buildFieldLimits(template: any | null): Record<string, number> {
+    if (!template?.fields) return {};
+    const limits: Record<string, number> = {};
+    for (const field of template.fields) {
+      if (field.max_chars && field.name) {
+        limits[field.name] = field.max_chars;
+        // Pour les listes : contrainte par puce si définie
+        if (field.type === 'liste' && field.max_chars_per_item) {
+          limits[`${field.name}__per_item`] = field.max_chars_per_item;
+        }
+      }
+    }
+    return limits;
+  }
+
+  /**
+   * Traduit un ensemble de champs avec boucle de retry en cas de dépassement.
+   * Passe 1 : traduction standard avec consigne de condensation
+   * Passe 2 : traduction avec pression explicite + longueur actuelle
+   * Passe 3 : traduction minimaliste ultra-condensée
+   * Si dépassement résiduel : retourne quand même (marqué OVERFLOW_MANUEL par translateGuide)
+   */
+  private async translateFieldsWithRetry(
+    fields: Record<string, string>,
+    targetLang: string,
+    langName: string,
+    fieldLimits: Record<string, number>,
+    retryMax: number
+  ): Promise<Record<string, string>> {
+    let result = await this.translateFields(fields, targetLang, langName, 1, null, fieldLimits);
+
+    for (let pass = 2; pass <= retryMax; pass++) {
+      // Identifier les champs qui dépassent encore
+      const overflowing: Record<string, string> = {};
+      for (const [key, value] of Object.entries(result)) {
+        const limit = fieldLimits[key];
+        if (limit && typeof value === 'string' && value.length > limit) {
+          overflowing[key] = value;
+        }
+      }
+      if (Object.keys(overflowing).length === 0) break; // tout est OK
+
+      console.warn(`⚠️ [TRANSLATE] Pass ${pass} — ${Object.keys(overflowing).length} champs dépassent le calibre`);
+      const corrected = await this.translateFields(fields, targetLang, langName, pass, overflowing, fieldLimits);
+      Object.assign(result, corrected);
+    }
+
+    return result;
   }
 
   /**
@@ -168,20 +281,27 @@ export class GuideTranslationService {
   private async translateFields(
     fields: Record<string, string>,
     targetLang: string,
-    langName: string
+    langName: string,
+    pass: number = 1,
+    overflowingFields: Record<string, string> | null = null,
+    fieldLimits: Record<string, number> = {}
   ): Promise<Record<string, string>> {
-    const keys = Object.keys(fields);
+    // En passe 2+, ne retraduire QUE les champs qui débordent
+    const toProcess = (pass > 1 && overflowingFields)
+      ? overflowingFields
+      : fields;
+
+    const keys = Object.keys(toProcess);
     if (keys.length === 0) return {};
 
-    const result: Record<string, string> = {};
+    const result: Record<string, string> = pass > 1 ? { ...fields } : {};
 
-    // Traiter par chunks si trop de champs
     for (let i = 0; i < keys.length; i += MAX_FIELDS_PER_CALL) {
       const batchKeys = keys.slice(i, i + MAX_FIELDS_PER_CALL);
       const batchInput: Record<string, string> = {};
-      for (const k of batchKeys) batchInput[k] = fields[k];
+      for (const k of batchKeys) batchInput[k] = toProcess[k];
 
-      const batchResult = await this.translateBatch(batchInput, targetLang, langName);
+      const batchResult = await this.translateBatch(batchInput, targetLang, langName, pass, fieldLimits);
       Object.assign(result, batchResult);
     }
 
@@ -190,16 +310,39 @@ export class GuideTranslationService {
 
   /**
    * Appel OpenAI pour traduire un batch de champs.
-   * Format : JSON in → JSON out (mêmes clés, valeurs traduites).
+   * Le prompt varie selon la passe :
+   *   Passe 1 : traduction standard avec consigne de condensation
+   *   Passe 2 : pression explicite + longueurs actuelles communiquées
+   *   Passe 3 : mode minimaliste ultra-condensé
    */
   private async translateBatch(
     fields: Record<string, string>,
     _targetLang: string,
-    langName: string
+    langName: string,
+    pass: number = 1,
+    fieldLimits: Record<string, number> = {}
   ): Promise<Record<string, string>> {
     const inputJson = JSON.stringify(fields, null, 2);
 
-    const systemPrompt = `You are a professional travel guide translator. 
+    // Construire les contraintes de longueur pour les champs qui ont un max_chars
+    const limitLines: string[] = [];
+    for (const [key, value] of Object.entries(fields)) {
+      const limit = fieldLimits[key];
+      if (limit) {
+        const current = typeof value === 'string' ? value.length : 0;
+        limitLines.push(`  "${key}": max ${limit} chars (currently ${current} chars in source/previous attempt)`);
+      }
+    }
+    const limitBlock = limitLines.length > 0
+      ? `\nCharacter limits per field (MUST respect — InDesign frame calibration):\n${limitLines.join('\n')}`
+      : '';
+
+    const condensationInstruction =
+      pass === 1 ? '- If a field has a character limit, condense the translation to stay within it without losing essential meaning' :
+      pass === 2 ? '- CRITICAL: The fields below EXCEED their character limits. Rewrite them more concisely. Remove secondary details while keeping the core meaning. You MUST stay under the limit.' :
+                   '- ULTRA-CONDENSED MODE: Each field must be as short as possible while remaining meaningful. Cut all non-essential words. Strict compliance with character limits is mandatory.';
+
+    const systemPrompt = `You are a professional travel guide translator.
 Translate the JSON values from French to ${langName}.
 
 Rules:
@@ -209,9 +352,10 @@ Rules:
 - Preserve line breaks (\\n) in their exact positions
 - Do NOT translate or modify URLs (starting with http)
 - Keep proper nouns, brand names, and place names as appropriate for the target language
-- Be natural and idiomatic, not literal`;
+- Be natural and idiomatic, not literal
+${condensationInstruction}${limitBlock}`;
 
-    const userPrompt = `Translate to ${langName}:\n${inputJson}`;
+    const userPrompt = `Translate to ${langName} (pass ${pass}):\n${inputJson}`;
 
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
@@ -221,7 +365,7 @@ Rules:
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
-          temperature: 0.2,
+          temperature: pass === 3 ? 0.1 : 0.2,
           max_tokens: 4000,
           response_format: { type: 'json_object' },
         });
@@ -231,7 +375,6 @@ Rules:
 
         const parsed = JSON.parse(content);
 
-        // Vérifier que les clés correspondent
         const inputKeys = Object.keys(fields);
         const outputKeys = Object.keys(parsed);
         const missingKeys = inputKeys.filter(k => !outputKeys.includes(k));
@@ -247,6 +390,6 @@ Rules:
       }
     }
 
-    return fields; // fallback : retourner l'original si tout échoue
+    return fields;
   }
 }

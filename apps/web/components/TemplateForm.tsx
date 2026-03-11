@@ -38,6 +38,9 @@ interface TemplateField {
   order: number;
   max_chars?: number;
   list_size?: number;
+  max_items?: number;
+  max_chars_per_item?: number;
+  generation_budget?: number;
   source?: 'destination_pool';
   pool_tags?: string[];
   pool_instructions?: string;

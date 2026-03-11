@@ -67,6 +67,9 @@ interface TemplateField {
   order: number;
   max_chars?: number;
   list_size?: number;
+  max_items?: number;
+  max_chars_per_item?: number;
+  generation_budget?: number;
 }
 
 export interface AvailableService {
@@ -776,12 +779,12 @@ export default function SortableFieldItem({
           })()}
 
           {/* Options spécifiques selon le type */}
-          <div className="flex gap-4">
-            {/* Calibre (pour titre et texte) */}
-            {(field.type === 'titre' || field.type === 'texte') && (
-              <div className="flex-1">
+          <div className="flex gap-4 flex-wrap">
+            {/* Calibre (pour titre, texte et liste) */}
+            {(field.type === 'titre' || field.type === 'texte' || field.type === 'liste') && (
+              <div className="flex-1 min-w-[120px]">
                 <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Calibre (caractères max)
+                  Calibre total (car. max)
                 </label>
                 <input
                   type="number"
@@ -789,7 +792,7 @@ export default function SortableFieldItem({
                   onChange={(e) =>
                     onChange({ max_chars: e.target.value ? parseInt(e.target.value) : undefined })
                   }
-                  placeholder="Ex: 150"
+                  placeholder="Ex: 420"
                   min="1"
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
@@ -798,7 +801,7 @@ export default function SortableFieldItem({
 
             {/* Taille de liste */}
             {field.type === 'liste' && (
-              <div className="flex-1">
+              <div className="flex-1 min-w-[120px]">
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Nombre d'éléments *
                 </label>
@@ -814,6 +817,43 @@ export default function SortableFieldItem({
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
+            )}
+
+            {/* Puces max et calibre par puce (liste uniquement) */}
+            {field.type === 'liste' && (
+              <>
+                <div className="flex-1 min-w-[120px]">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Puces max
+                  </label>
+                  <input
+                    type="number"
+                    value={(field as any).max_items || ''}
+                    onChange={(e) =>
+                      onChange({ max_items: e.target.value ? parseInt(e.target.value) : undefined } as any)
+                    }
+                    placeholder="Ex: 4"
+                    min="1"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <div className="flex-1 min-w-[140px]">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Car. max / puce
+                    <span className="ml-1 text-gray-400 font-normal">(label inclus)</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={(field as any).max_chars_per_item || ''}
+                    onChange={(e) =>
+                      onChange({ max_chars_per_item: e.target.value ? parseInt(e.target.value) : undefined } as any)
+                    }
+                    placeholder="Ex: 75"
+                    min="1"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </>
             )}
           </div>
 

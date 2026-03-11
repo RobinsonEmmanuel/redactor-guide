@@ -23,6 +23,7 @@ export const COLLECTIONS = {
   sommaire_proposals:     'sommaire_proposals',
   templates:              'templates',
   translation_jobs:       'translation_jobs',
+  settings:               'settings',
 } as const;
 
 export type CollectionName = (typeof COLLECTIONS)[keyof typeof COLLECTIONS];

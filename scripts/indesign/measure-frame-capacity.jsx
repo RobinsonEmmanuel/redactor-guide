@@ -1,27 +1,57 @@
 /**
  * measure-frame-capacity.jsx
- * Script InDesign ExtendScript - Mesure la capacite en caracteres de chaque
- * bloc texte labelise du document, page par page.
+ * Script InDesign ExtendScript - Mesure la capacite REELLE en caracteres de
+ * chaque bloc texte labelise du document, page par page.
  *
- * Principe :
- *   Pour chaque TextFrame avec un label non vide, un cadre temporaire identique
- *   est cree (memes dimensions, meme style de paragraphe), rempli avec des 'x'
- *   jusqu'a debordement, puis supprime.
- *   tf.characters.length renvoie les caracteres VISIBLES dans le cadre, ce qui
- *   correspond exactement a la capacite maximale.
+ * Strategie :
+ *   On modifie directement chaque bloc avec un texte de test (3 000 'x' ou un
+ *   texte personnalise), on mesure le nombre de caracteres VISIBLES, puis on
+ *   appelle app.undo() pour annuler TOUTES les modifications en une seule
+ *   operation. Cela garantit que la typographie reelle du bloc (police, corps,
+ *   surcharges locales) est respectee — la duplication d'un cadre, elle, perd
+ *   les surcharges locales et donne des resultats faux.
  *
  * Usage :
  *   Fichier > Scripts > Parcourir... -> selectionner ce fichier.
- *   A la fin, une boite de dialogue demande ou sauvegarder le rapport TXT.
  *
- * Le document InDesign doit etre ouvert. Aucune modification n'est apportee
- * au document (les cadres temporaires sont supprimes avant la fin du script).
+ * IMPORTANT : le script appelle app.undo() a la fin. Ne pas sauvegarder le
+ * document pendant l'execution (les blocs sont temporairement modifies).
+ * En cas de crash, les blocs affichent le texte de test — faire Ctrl+Z.
  */
 
 #target indesign
 
 // ---------------------------------------------------------------------------
-// Utilitaire : repeter un caractere N fois (polyfill String.repeat)
+// CONFIGURATION
+// ---------------------------------------------------------------------------
+
+// Texte de test utilise pour remplir chaque bloc.
+// Utiliser une chaine de 'x' (valeur neutre, largeur moyenne) ou remplacer
+// par un texte reel pour mesurer combien de caracteres de CE texte tiennent.
+// Le script n'insere QUE les premiers TEST_MAX_CHARS caracteres.
+var TEST_MAX_CHARS = 3000;
+var TEST_CHAR      = "x"; // remplacer par null pour utiliser TEST_TEXT_CUSTOM
+
+// Texte personnalise (utilise si TEST_CHAR === null)
+var TEST_TEXT_CUSTOM =
+    "Sie haben beschlossen, ein Wochenende in Le Havre, unserer Geburts- und " +
+    "Heimatstadt, zu verbringen? Wir konnen Sie dazu nur begluckwunschen, denn " +
+    "diese Stadt, die auf den ersten Blick manchmal schwierig erscheint, ist so " +
+    "reich und zutiefst liebenswert. " +
+    "Damit Sie die Seele unserer Stadt entdecken konnen, stellen wir Ihnen in " +
+    "diesem Artikel unser bevorzugtes Programm fur ein Wochenende vor. Wir fuhren " +
+    "Sie von einem Appartement, das zum UNESCO-Weltkulturerbe gehort, zu einem " +
+    "begrünten Fort. Wir werden Ihnen einige Varianten vorschlagen, wenn Sie die " +
+    "Stadt mit Kindern besuchen. " +
+    "In einem ersten Teil geben wir Ihnen einige praktische Ratschlage, um Ihre " +
+    "Anreise optimal vorzubereiten und Ihr Wochenende in vollen Zugen zu geniessen.";
+
+// Etiquettes a exclure (blocs image, lien, meta, picto — pas de texte redactionnel)
+// Les labels contenant l'un de ces motifs (casse insensible) sont ignores.
+var EXCLUDE_LABEL_PATTERNS = ["_image", "_picto", "_lien", "_meta"];
+
+// ---------------------------------------------------------------------------
+// Utilitaires
 // ---------------------------------------------------------------------------
 function repeatChar(ch, n) {
     var s = "";
@@ -29,57 +59,12 @@ function repeatChar(ch, n) {
     return s;
 }
 
-// ---------------------------------------------------------------------------
-// Mesure la capacite d'un TextFrame en caracteres.
-// Strategie : duplicate() copie le cadre avec TOUTE sa typographie reelle
-// (police, corps, interligne, insets, colonnes, styles de caracteres...).
-// On vide ensuite le contenu, on reapplique le style de paragraphe, on remplit
-// avec des 'x', puis on lit tf.characters.length (= caracteres visibles = capacite).
-// Le cadre temporaire est systematiquement supprime. Retourne -1 en cas d'erreur.
-// ---------------------------------------------------------------------------
-function measureCapacity(tf) {
-    var tempTF = null;
-    try {
-        // --- Sauvegarder le style de paragraphe avant duplication
-        var ps = null;
-        if (tf.paragraphs.length > 0) {
-            try { ps = tf.paragraphs[0].appliedParagraphStyle; } catch(e2) {}
-        }
-
-        // --- Dupliquer le cadre : copie EXACTE (dimensions, insets, colonnes,
-        //     options de cadre, objet style, etc.)
-        tempTF = tf.duplicate();
-        tempTF.label = "__TEMP_CAP__";
-
-        // --- Remplir d'abord avec les caracteres de test, PUIS reappliquer le
-        //     style de paragraphe : l'assignation de .contents reinitialise le
-        //     style au defaut du document, donc l'ordre est critique.
-        var testStr = repeatChar("x", 3000);
-        tempTF.contents = testStr;
-
-        if (ps && ps.isValid) {
-            tempTF.paragraphs.everyItem().appliedParagraphStyle = ps;
-        }
-
-        // --- Lire la capacite : characters.length sur le cadre = visibles seuls
-        var cap = tempTF.characters.length;
-
-        // --- Cas ou 3 000 'x' tiennent tous (petit corps ou grand cadre)
-        //     -> indiquer "> 3000" plutot que retourner une valeur fausse
-        if (!tempTF.overflows) {
-            cap = -2; // sentinelle "> 3000" traitee a l'affichage
-        }
-
-        tempTF.remove();
-        tempTF = null;
-        return cap;
-
-    } catch(e) {
-        if (tempTF !== null) {
-            try { tempTF.remove(); } catch(e3) {}
-        }
-        return -1;
+function isExcluded(label) {
+    var lbl = label.toLowerCase();
+    for (var k = 0; k < EXCLUDE_LABEL_PATTERNS.length; k++) {
+        if (lbl.indexOf(EXCLUDE_LABEL_PATTERNS[k]) !== -1) return true;
     }
+    return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,108 +72,187 @@ function measureCapacity(tf) {
 // ---------------------------------------------------------------------------
 var doc = app.activeDocument;
 
-var reportLines = [];
-var totalFrames = 0;
-var totalPages  = 0;
+// --- Construire le texte de test ---
+var testText;
+if (TEST_CHAR !== null) {
+    testText = repeatChar(TEST_CHAR, TEST_MAX_CHARS);
+} else {
+    testText = TEST_TEXT_CUSTOM;
+}
 
-// En-tete
-reportLines.push("RAPPORT DE CAPACITE DES BLOCS TEXTE INDESIGN");
-reportLines.push("Document  : " + doc.name);
-reportLines.push("Date      : " + new Date().toString());
-reportLines.push("Pages     : " + doc.pages.length);
-reportLines.push("========================================================");
-reportLines.push("");
+// --- Collecter tous les blocs labelises a mesurer ---
+var frameData = []; // [{pageIdx, pageNum, masterName, label, tf, currentLen, overflow}]
 
-// Parcourir toutes les pages
 for (var p = 0; p < doc.pages.length; p++) {
-    var page        = doc.pages[p];
-    var pageNum     = page.name;          // numero affiche dans InDesign
-    var masterName  = "";
-
-    if (page.appliedMaster && page.appliedMaster.isValid) {
-        masterName = page.appliedMaster.name;
-    }
-
-    // Collecter tous les TextFrames labelises sur cette page
-    var allItems   = page.allPageItems;
-    var pageFrames = [];
+    var page = doc.pages[p];
+    var masterName = (page.appliedMaster && page.appliedMaster.isValid)
+        ? page.appliedMaster.name : "";
+    var allItems = page.allPageItems;
 
     for (var i = 0; i < allItems.length; i++) {
         var item = allItems[i];
         if (!(item instanceof TextFrame)) continue;
-
         var lbl = item.label;
-        if (!lbl || lbl === "" || lbl === "__TEMP_CAP__") continue;
+        if (!lbl || lbl === "") continue;
+        if (isExcluded(lbl)) continue;
 
-        // Ignorer les cadres qui font partie d'un thread de texte filonne
-        // mais ne sont pas le cadre principal (on ne mesure que le 1er cadre)
-        // -- on les inclut tous : chaque cadre a sa propre capacite
-        var cap         = measureCapacity(item);
-        var currentLen  = item.characters.length;
-        var isOverflow  = item.overflows;
-
-        pageFrames.push({
-            label:    lbl,
-            capacity: cap,
-            current:  currentLen,
-            overflow: isOverflow
+        frameData.push({
+            pageIdx:    p,
+            pageNum:    page.name,
+            masterName: masterName,
+            label:      lbl,
+            tf:         item,
+            currentLen: item.characters.length,
+            overflow:   item.overflows
         });
-        totalFrames++;
     }
-
-    if (pageFrames.length === 0) continue;
-
-    totalPages++;
-
-    // Trier par label pour faciliter la lecture
-    pageFrames.sort(function(a, b) {
-        return a.label < b.label ? -1 : a.label > b.label ? 1 : 0;
-    });
-
-    var header = "--- Page " + pageNum;
-    if (masterName) header += "  [" + masterName + "]";
-    header += " ---";
-    reportLines.push(header);
-
-    for (var j = 0; j < pageFrames.length; j++) {
-        var fr = pageFrames[j];
-
-        // fr.capacity :
-        //   >= 0  : nombre de caracteres 'x' mesure (police reelle)
-        //   -1    : erreur
-        //   -2    : > 3000 (grand cadre ou tres petit corps)
-        var capStr, fillStr;
-        if (fr.capacity === -1) {
-            capStr  = "? (erreur)";
-            fillStr = "";
-        } else if (fr.capacity === -2) {
-            capStr  = "> 3000";
-            fillStr = "";
-        } else {
-            capStr  = String(fr.capacity);
-            var fill = fr.capacity > 0 ? Math.round(fr.current / fr.capacity * 100) : 0;
-            fillStr  = (fr.capacity > 0 && fr.current > 0) ? "  (" + fill + "% rempli)" : "";
-        }
-
-        var ovfStr = fr.overflow ? "  /!\\ OVERFLOW" : "";
-
-        reportLines.push(
-            "  " + fr.label +
-            " : max " + capStr + " car." +
-            "  |  actuel " + String(fr.current) + " car." +
-            fillStr + ovfStr
-        );
-    }
-
-    reportLines.push("");
 }
 
-// Pied de rapport
-reportLines.push("========================================================");
-reportLines.push("Pages avec blocs labels : " + totalPages);
-reportLines.push("Total blocs analyses    : " + totalFrames);
+if (frameData.length === 0) {
+    alert("Aucun bloc texte labelise trouve dans ce document.");
+    exit();
+}
 
-// Sauvegarder le fichier
+// --- Desactiver Smart Text Reflow et rafraichissement ecran ------------------
+// Smart Text Reflow : si actif, injecter 3000 chars dans un cadre filionne
+// provoque l'ajout automatique de pages par InDesign — effet "boucle infinie".
+// On le desactive le temps de la mesure et on le restaure ensuite.
+var origSmartReflow = doc.textPreferences.smartTextReflow;
+var origRedraw      = app.scriptPreferences.enableRedraw;
+doc.textPreferences.smartTextReflow = false;
+app.scriptPreferences.enableRedraw  = false;
+
+// Mesurer en modifiant directement les blocs (preserve la typo reelle).
+// Toutes les modifications sont regroupees en UN SEUL undo via doScript.
+// Les mesures sont stockees en memoire JS et survivent au undo.
+var measurements = {}; // key: pageIdx+"_"+label, value: chars visibles (-1=erreur, -2=>test tient tout)
+
+try {
+    app.doScript(
+        function() {
+            for (var f = 0; f < frameData.length; f++) {
+                var tf  = frameData[f].tf;
+                var key = frameData[f].pageIdx + "_" + frameData[f].label;
+                try {
+                    // Pour les stories filonnees (cadres lies) : ne modifier QUE
+                    // si ce cadre est le premier de la chaine, pour eviter de
+                    // polluer les cadres suivants avec le texte de test.
+                    var story      = tf.parentStory;
+                    var containers = story.textContainers;
+                    var isFirst    = (containers.length === 0 || containers[0] === tf);
+
+                    if (!isFirst) {
+                        // Cadre filionne non-premier : mesure depuis le cadre principal
+                        measurements[key] = -3; // sentinelle "cadre lie, voir cadre principal"
+                        continue;
+                    }
+
+                    // Remplacer le contenu — la typo (style + surcharges locales) est
+                    // preservee car on modifie le bloc original, pas un duplicata.
+                    tf.contents = testText;
+
+                    // characters.length = chars VISIBLES dans CE cadre (avant debordement)
+                    measurements[key] = tf.overflows ? tf.characters.length : -2;
+
+                } catch(e) {
+                    measurements[key] = -1;
+                }
+            }
+        },
+        undefined,
+        undefined,
+        UndoModes.ENTIRE_SCRIPT,
+        "MesureCapaciteBlocs"
+    );
+} catch(err) {
+    // Restaurer avant de quitter
+    doc.textPreferences.smartTextReflow = origSmartReflow;
+    app.scriptPreferences.enableRedraw  = origRedraw;
+    alert("Erreur pendant la mesure : " + err.message + "\nAppuyez sur Ctrl+Z pour restaurer le document.");
+    exit();
+}
+
+// --- Restaurer le document (annule le doScript en une operation) ---
+app.undo();
+
+// --- Reactiver Smart Text Reflow et redraw ---
+doc.textPreferences.smartTextReflow = origSmartReflow;
+app.scriptPreferences.enableRedraw  = origRedraw;
+
+// --- Construire le rapport ---
+var reportLines = [];
+var totalFrames = 0;
+var totalPages  = 0;
+
+reportLines.push("RAPPORT DE CAPACITE DES BLOCS TEXTE INDESIGN");
+reportLines.push("Document  : " + doc.name);
+reportLines.push("Date      : " + new Date().toString());
+reportLines.push("Pages     : " + doc.pages.length);
+if (TEST_CHAR !== null) {
+    reportLines.push("Texte test : " + TEST_MAX_CHARS + " x '" + TEST_CHAR + "'");
+} else {
+    reportLines.push("Texte test : texte personnalise (" + testText.length + " car.)");
+}
+reportLines.push("=".repeat ? "=".repeat(60) : "============================================================");
+reportLines.push("");
+
+var prevPageIdx = -1;
+
+for (var f = 0; f < frameData.length; f++) {
+    var fd  = frameData[f];
+    var key = fd.pageIdx + "_" + fd.label;
+    var cap = measurements.hasOwnProperty(key) ? measurements[key] : -1;
+
+    // En-tete de page (a chaque changement de page)
+    if (fd.pageIdx !== prevPageIdx) {
+        if (prevPageIdx !== -1) reportLines.push(""); // ligne vide entre pages
+        var hdr = "--- Page " + fd.pageNum;
+        if (fd.masterName) hdr += "  [" + fd.masterName + "]";
+        hdr += " ---";
+        reportLines.push(hdr);
+        prevPageIdx = fd.pageIdx;
+        totalPages++;
+    }
+
+    // Formater la ligne de resultat
+    var capStr, fillStr;
+    if (cap === -1) {
+        capStr  = "? (erreur)";
+        fillStr = "";
+    } else if (cap === -2) {
+        var testLen = testText.length;
+        capStr  = "> " + testLen;
+        fillStr = "";
+    } else if (cap === -3) {
+        capStr  = "(cadre filionne — voir cadre principal)";
+        fillStr = "";
+    } else {
+        capStr = String(cap);
+        if (cap > 0 && fd.currentLen > 0) {
+            var pct = Math.round(fd.currentLen / cap * 100);
+            fillStr = "  (" + pct + "% rempli)";
+        } else {
+            fillStr = "";
+        }
+    }
+
+    var ovfStr = fd.overflow ? "  /!\\ OVERFLOW actuel" : "";
+
+    reportLines.push(
+        "  " + fd.label +
+        " : max " + capStr + " car." +
+        "  |  actuel " + fd.currentLen + " car." +
+        fillStr + ovfStr
+    );
+    totalFrames++;
+}
+
+reportLines.push("");
+reportLines.push("============================================================");
+reportLines.push("Pages analysees : " + totalPages);
+reportLines.push("Blocs analyses  : " + totalFrames);
+
+// --- Sauvegarder ---
 var outFile = File.saveDialog(
     "Enregistrer le rapport de capacite",
     "Fichiers texte:*.txt"
@@ -207,8 +271,9 @@ if (outFile) {
         outFile.fsName
     );
 } else {
-    // Si l'utilisateur annule, afficher dans une boite de dialogue
-    var preview = reportLines.slice(0, 30).join("\n");
-    if (reportLines.length > 30) preview += "\n... (" + (reportLines.length - 30) + " lignes supplementaires)";
+    var preview = "";
+    var limit = Math.min(reportLines.length, 35);
+    for (var ll = 0; ll < limit; ll++) preview += reportLines[ll] + "\n";
+    if (reportLines.length > 35) preview += "... (" + (reportLines.length - 35) + " lignes suppl.)";
     alert(preview);
 }

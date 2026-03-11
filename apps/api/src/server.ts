@@ -134,6 +134,9 @@ export async function createServer(db: Db, _port: number) {
         (await import('./routes/field-services.routes')).fieldServicesRoutes
       );
       await fastify.register(
+        (await import('./routes/settings.routes')).settingsRoutes
+      );
+      await fastify.register(
         (await import('./routes/image-upload.routes')).imageUploadRoutes
       );
       await fastify.register(

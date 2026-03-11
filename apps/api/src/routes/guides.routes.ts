@@ -368,6 +368,42 @@ export async function guidesRoutes(fastify: FastifyInstance) {
   });
 }
 
+  /**
+   * GET /guides/:guideId/translation-overflows
+   * Retourne tous les dépassements de calibre résiduels après traduction,
+   * agrégés depuis content_translations.{lang}.overflow_warnings de toutes les pages.
+   */
+  fastify.get('/guides/:guideId/translation-overflows', async (request, reply) => {
+    const db = request.server.container.db;
+    const { guideId } = request.params as { guideId: string };
+
+    const cdf = await db.collection(COLLECTIONS.chemins_de_fer).findOne({ guide_id: guideId });
+    if (!cdf) return reply.send({ warnings: [] });
+
+    const pages = await db.collection(COLLECTIONS.pages)
+      .find({ chemin_de_fer_id: cdf._id.toString() })
+      .project({ _id: 1, titre: 1, template_name: 1, content_translations: 1 })
+      .toArray();
+
+    const allWarnings: any[] = [];
+    for (const page of pages) {
+      const translations = page.content_translations ?? {};
+      for (const [lang, trans] of Object.entries(translations) as [string, any][]) {
+        const ws = trans?.overflow_warnings ?? [];
+        for (const w of ws) {
+          allWarnings.push({
+            ...w,
+            page_id:    page._id.toString(),
+            page_titre: page.titre ?? page.template_name ?? page._id.toString(),
+            lang,
+          });
+        }
+      }
+    }
+
+    return reply.send({ warnings: allWarnings });
+  });
+
 function normalizeArticle(a: any, targetLang: string) {
   return {
     _id:          a._id.toString(),

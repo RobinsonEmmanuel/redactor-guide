@@ -184,11 +184,16 @@ export class GuideTranslationService {
       if (field.type === 'lien' && field.link_label?.max_chars) {
         limits[field.name] = field.link_label.max_chars;
       }
-      // Pour les répétitifs : calibre par sous-champ stocké sur sub_fields[i].max_chars
+      // Pour les répétitifs : calibre par sous-champ, indexé sur toutes les clés plates
+      // Convention de extractTranslatableFields : "INSPIRATION_repetitif_1" → "INSPIRATION_1_nom_1"
       if (field.type === 'repetitif' && Array.isArray(field.sub_fields)) {
+        const flatPrefix = (field.name as string).replace(/_repetitif_/g, '_');
+        const maxSlots   = field.max_repetitions ?? 16;
         for (const sf of field.sub_fields) {
           if (sf.max_chars && sf.name) {
-            limits[`${field.name}__${sf.name}`] = sf.max_chars;
+            for (let i = 1; i <= maxSlots; i++) {
+              limits[`${flatPrefix}_${sf.name}_${i}`] = sf.max_chars;
+            }
           }
         }
       }
@@ -264,18 +269,22 @@ export class GuideTranslationService {
       // Exclure les strings JSON qui ne sont pas des liens (objets autres)
       if (str.startsWith('{')) continue;
 
-      // ── Champ répétitif (array JSON) → extraire les noms par card ───────────
-      // ex: "INSPIRATION_repetitif_1" → clés plates "INSPIRATION_1_nom_1", …
+      // ── Champ répétitif (array JSON) → extraire tous les sous-champs textuels ──
+      // ex: "INSPIRATION_repetitif_1" → "INSPIRATION_1_nom_1", "INSPIRATION_1_hashtag_1", …
       if (str.startsWith('[')) {
         try {
           const cards = JSON.parse(str);
           if (Array.isArray(cards)) {
-            // "INSPIRATION_repetitif_1" → "INSPIRATION_1"
             const flatPrefix = key.replace(/_repetitif_/g, '_');
             cards.forEach((card: any, idx: number) => {
+              if (!card || typeof card !== 'object') return;
               const n = idx + 1;
-              if (typeof card.nom === 'string' && card.nom.trim()) {
-                result[`${flatPrefix}_nom_${n}`] = card.nom.trim();
+              for (const [subKey, subVal] of Object.entries(card)) {
+                if (typeof subVal !== 'string' || !subVal.trim()) continue;
+                // Exclure les URLs, les sentinelles numériques ('1'/''), les champs image/url
+                if (/^https?:\/\//i.test(subVal)) continue;
+                if (subKey === 'card' || subKey === 'image' || subKey === 'url_article' || subKey === 'url_maps') continue;
+                result[`${flatPrefix}_${subKey}_${n}`] = subVal.trim();
               }
             });
           }

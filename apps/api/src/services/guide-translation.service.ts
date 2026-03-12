@@ -102,6 +102,7 @@ export class GuideTranslationService {
 
       // Extraire les champs texte traduisibles
       const toTranslate = this.extractTranslatableFields(rawContent);
+      console.log(`📋 [TRANSLATE] Page ${page.template_name} (${page._id}) — ${Object.keys(toTranslate).length} champs extraits: ${Object.keys(toTranslate).join(', ')}`);
 
       if (Object.keys(toTranslate).length === 0) {
         stats.skipped++;
@@ -251,8 +252,8 @@ export class GuideTranslationService {
     for (const [key, value] of Object.entries(content)) {
       if (value === null || value === undefined || value === '') continue;
 
-      // Exclure les champs pictos (valeurs sémantiques de calques InDesign, pas du texte)
-      if (/_picto_/i.test(key)) continue;
+      // Exclure les champs non-texte : pictos (calques InDesign) et card (sentinelle numérique)
+      if (/_picto_/i.test(key) || /_card_/i.test(key)) continue;
 
       // ── Champ lien {label, url} — objet MongoDB natif ou string JSON ──────────
       const link = parseLinkField(value);
@@ -398,22 +399,24 @@ ${condensationInstruction}${limitBlock}`;
         });
 
         const choice = response.choices[0];
-        const content = choice?.message?.content;
-        if (!content) throw new Error('Pas de réponse OpenAI');
+        const rawContent = choice?.message?.content;
+        if (!rawContent) throw new Error('Pas de réponse OpenAI');
 
-        // Si la réponse a été tronquée par la limite de tokens, on force un retry
-        if (choice.finish_reason === 'length') {
-          throw new Error(`Réponse tronquée (finish_reason=length) — retry`);
-        }
+        // Log de debug : finish_reason + nombre de tokens
+        console.log(`🤖 [TRANSLATE] Batch finish_reason=${choice.finish_reason} tokens=${response.usage?.total_tokens} input_keys=${Object.keys(fields).length}`);
 
-        const parsed = JSON.parse(content);
+        // Si la réponse a été tronquée, le JSON sera invalide → JSON.parse lèvera une exception
+        // ce qui déclenchera un retry automatiquement. Pas besoin de vérification explicite ici.
+        const parsed = JSON.parse(rawContent);
 
         const inputKeys = Object.keys(fields);
         const outputKeys = Object.keys(parsed);
         const missingKeys = inputKeys.filter(k => !outputKeys.includes(k));
         if (missingKeys.length > 0) {
-          console.warn(`⚠️ [TRANSLATE] Clés manquantes (pass ${pass}): ${missingKeys.join(', ')} — utilisation du texte original`);
+          console.warn(`⚠️ [TRANSLATE] Clés manquantes (pass ${pass}): ${missingKeys.join(', ')}`);
           for (const k of missingKeys) parsed[k] = fields[k];
+        } else {
+          console.log(`✅ [TRANSLATE] Batch OK: toutes les ${outputKeys.length} clés présentes`);
         }
 
         return parsed as Record<string, string>;

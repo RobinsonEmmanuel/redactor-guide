@@ -392,15 +392,52 @@ export async function guidesRoutes(fastify: FastifyInstance) {
         for (const w of ws) {
           allWarnings.push({
             ...w,
-            page_id:    page._id.toString(),
-            page_titre: page.titre ?? page.template_name ?? page._id.toString(),
+            page_id:      page._id.toString(),
+            page_titre:   page.titre ?? page.template_name ?? page._id.toString(),
             lang,
+            // Valeur traduite actuelle (pour l'édition manuelle)
+            current_value: trans?.text?.[w.field_key] ?? null,
           });
         }
       }
     }
 
     return reply.send({ warnings: allWarnings });
+  });
+
+  // Correction manuelle d'un champ traduit en overflow
+  fastify.patch('/guides/:guideId/pages/:pageId/translation-field', async (request, reply) => {
+    const db = request.server.container.db;
+    const { pageId } = request.params as { guideId: string; pageId: string };
+    const { lang, field_key, value } = request.body as { lang: string; field_key: string; value: string };
+
+    if (!lang || !field_key || typeof value !== 'string') {
+      return reply.status(400).send({ error: 'Paramètres manquants : lang, field_key, value requis' });
+    }
+
+    // Mettre à jour la valeur traduite
+    const updateResult = await db.collection(COLLECTIONS.pages).updateOne(
+      { _id: new ObjectId(pageId) },
+      { $set: { [`content_translations.${lang}.text.${field_key}`]: value } }
+    );
+    if (updateResult.matchedCount === 0) {
+      return reply.status(404).send({ error: 'Page introuvable' });
+    }
+
+    // Retirer l'overflow warning pour ce champ si la valeur corrigée respecte le calibre
+    const page = await db.collection(COLLECTIONS.pages).findOne(
+      { _id: new ObjectId(pageId) },
+      { projection: { [`content_translations.${lang}.overflow_warnings`]: 1 } }
+    );
+    const currentWarnings: any[] = (page as any)?.content_translations?.[lang]?.overflow_warnings ?? [];
+    const updatedWarnings = currentWarnings.filter((w: any) => w.field_key !== field_key);
+
+    await db.collection(COLLECTIONS.pages).updateOne(
+      { _id: new ObjectId(pageId) },
+      { $set: { [`content_translations.${lang}.overflow_warnings`]: updatedWarnings } }
+    );
+
+    return reply.send({ ok: true, warnings_remaining: updatedWarnings.length });
   });
 }
 

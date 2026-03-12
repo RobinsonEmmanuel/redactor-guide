@@ -11,6 +11,8 @@ import {
   LanguageIcon,
   ExclamationTriangleIcon,
   ClockIcon,
+  PencilSquareIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 
 interface ExportTabProps {
@@ -63,6 +65,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
   const [downloadedFiles, setDownloadedFiles] = useState<string[]>([]);
   const [translationStates, setTranslationStates] = useState<Record<string, TranslationState>>({});
   const [translating, setTranslating] = useState<Record<string, boolean>>({});
+  const [overflowModal, setOverflowModal] = useState<{ lang: string; warnings: OverflowWarning[] } | null>(null);
   const pollingRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
   useEffect(() => {
@@ -104,6 +107,20 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     }
   }, [apiUrl, guideId]);
 
+  const fetchOverflowsForLang = useCallback(async (lang: string): Promise<OverflowWarning[]> => {
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/translation-overflows`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) return [];
+      const data = await res.json();
+      return (data.warnings ?? []).filter((w: OverflowWarning) => w.lang === lang);
+    } catch {
+      return [];
+    }
+  }, [apiUrl, guideId]);
+
   const startPolling = useCallback((lang: string) => {
     if (pollingRefs.current[lang]) clearInterval(pollingRefs.current[lang]);
     pollingRefs.current[lang] = setInterval(async () => {
@@ -112,9 +129,16 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
         clearInterval(pollingRefs.current[lang]);
         delete pollingRefs.current[lang];
         setTranslating(prev => ({ ...prev, [lang]: false }));
+        // Si traduction terminée avec succès, ouvrir la modale si overflows
+        if (data?.status === 'completed') {
+          const overflows = await fetchOverflowsForLang(lang);
+          if (overflows.length > 0) {
+            setOverflowModal({ lang, warnings: overflows });
+          }
+        }
       }
     }, 3000);
-  }, [loadTranslationStatus]);
+  }, [loadTranslationStatus, fetchOverflowsForLang]);
 
   const translateLanguage = async (lang: string) => {
     setTranslating(prev => ({ ...prev, [lang]: true }));
@@ -424,7 +448,22 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
         </div>
 
         {/* Alertes de dépassement de calibre */}
-        <OverflowAlertsPanel guideId={guideId} apiUrl={apiUrl} />
+        <OverflowAlertsPanel
+          guideId={guideId}
+          apiUrl={apiUrl}
+          onOpenCorrection={(lang, warnings) => setOverflowModal({ lang, warnings })}
+        />
+
+        {/* Modale de correction manuelle des overflows */}
+        {overflowModal && (
+          <OverflowCorrectionModal
+            guideId={guideId}
+            apiUrl={apiUrl}
+            lang={overflowModal.lang}
+            initialWarnings={overflowModal.warnings}
+            onClose={() => setOverflowModal(null)}
+          />
+        )}
 
         {/* Structure du JSON */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -513,7 +552,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Panneau d'alertes de dépassement de calibre post-traduction
+// Types communs
 // ---------------------------------------------------------------------------
 interface OverflowWarning {
   page_id:        string;
@@ -522,9 +561,21 @@ interface OverflowWarning {
   lang:           string;
   current_length: number;
   max_chars:      number;
+  current_value?: string | null;
 }
 
-function OverflowAlertsPanel({ guideId, apiUrl }: { guideId: string; apiUrl: string }) {
+// ---------------------------------------------------------------------------
+// Panneau d'alertes de dépassement de calibre post-traduction
+// ---------------------------------------------------------------------------
+function OverflowAlertsPanel({
+  guideId,
+  apiUrl,
+  onOpenCorrection,
+}: {
+  guideId: string;
+  apiUrl: string;
+  onOpenCorrection: (lang: string, warnings: OverflowWarning[]) => void;
+}) {
   const [warnings, setWarnings]   = useState<OverflowWarning[]>([]);
   const [loading, setLoading]     = useState(true);
   const [collapsed, setCollapsed] = useState(false);
@@ -562,12 +613,21 @@ function OverflowAlertsPanel({ guideId, apiUrl }: { guideId: string; apiUrl: str
         <div className="mt-4 space-y-4">
           <p className="text-xs text-gray-500">
             Ces champs dépassent le calibre InDesign après toutes les passes de condensation IA.
-            Ouvrir la page concernée et corriger le texte manuellement dans l'éditeur de contenu.
           </p>
           {Object.entries(byLang).map(([lang, ws]) => (
             <div key={lang}>
-              <div className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">
-                {LANGUAGES.find(l => l.code === lang)?.flag} {LANGUAGES.find(l => l.code === lang)?.label ?? lang}
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                  {LANGUAGES.find(l => l.code === lang)?.flag} {LANGUAGES.find(l => l.code === lang)?.label ?? lang}
+                  <span className="ml-2 text-amber-600">({ws.length} champ{ws.length > 1 ? 's' : ''})</span>
+                </div>
+                <button
+                  onClick={() => onOpenCorrection(lang, ws)}
+                  className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-300 rounded-lg hover:bg-amber-100 transition-colors"
+                >
+                  <PencilSquareIcon className="w-3.5 h-3.5" />
+                  Corriger manuellement
+                </button>
               </div>
               <div className="space-y-2">
                 {ws.map((w, i) => (
@@ -588,6 +648,185 @@ function OverflowAlertsPanel({ guideId, apiUrl }: { guideId: string; apiUrl: str
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Modale de correction manuelle des overflows
+// ---------------------------------------------------------------------------
+function OverflowCorrectionModal({
+  guideId,
+  apiUrl,
+  lang,
+  initialWarnings,
+  onClose,
+}: {
+  guideId: string;
+  apiUrl: string;
+  lang: string;
+  initialWarnings: OverflowWarning[];
+  onClose: () => void;
+}) {
+  const langMeta = LANGUAGES.find(l => l.code === lang);
+  const [warnings, setWarnings]   = useState<OverflowWarning[]>(initialWarnings);
+  const [values, setValues]       = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const w of initialWarnings) {
+      init[`${w.page_id}__${w.field_key}`] = w.current_value ?? '';
+    }
+    return init;
+  });
+  const [saving, setSaving]       = useState<Record<string, boolean>>({});
+  const [saved, setSaved]         = useState<Record<string, boolean>>({});
+  const [errors, setErrors]       = useState<Record<string, string>>({});
+
+  const fieldKey = (w: OverflowWarning) => `${w.page_id}__${w.field_key}`;
+
+  const saveField = async (w: OverflowWarning) => {
+    const k = fieldKey(w);
+    const value = values[k] ?? '';
+    setSaving(prev => ({ ...prev, [k]: true }));
+    setErrors(prev => ({ ...prev, [k]: '' }));
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/pages/${w.page_id}/translation-field`,
+        {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lang, field_key: w.field_key, value }),
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? 'Erreur serveur');
+      }
+      setSaved(prev => ({ ...prev, [k]: true }));
+      // Retirer l'overflow de la liste locale
+      setWarnings(prev => prev.filter(x => fieldKey(x) !== k));
+    } catch (err: any) {
+      setErrors(prev => ({ ...prev, [k]: err.message }));
+    } finally {
+      setSaving(prev => ({ ...prev, [k]: false }));
+    }
+  };
+
+  const allDone = warnings.length === 0;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <ExclamationTriangleIcon className="w-5 h-5 text-amber-500" />
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">
+                Correction des dépassements de calibre
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {langMeta?.flag} {langMeta?.label ?? lang}
+                {!allDone && (
+                  <> — <span className="text-amber-600 font-medium">{warnings.length} champ{warnings.length > 1 ? 's' : ''} à corriger</span></>
+                )}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+          >
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Corps */}
+        <div className="overflow-y-auto flex-1 px-6 py-4 space-y-5">
+          {allDone ? (
+            <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
+              <CheckCircleIcon className="w-10 h-10 text-green-500" />
+              <p className="text-sm font-medium text-gray-700">Tous les champs ont été corrigés.</p>
+              <p className="text-xs text-gray-500">Les valeurs ont été enregistrées en base.</p>
+            </div>
+          ) : (
+            warnings.map((w) => {
+              const k     = fieldKey(w);
+              const val   = values[k] ?? '';
+              const len   = val.length;
+              const over  = len > w.max_chars;
+              const pct   = Math.min(100, Math.round((len / w.max_chars) * 100));
+
+              return (
+                <div key={k} className="border border-gray-200 rounded-xl p-4 space-y-3">
+                  {/* Page + champ */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-700">{w.page_titre}</p>
+                      <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">{w.field_key}</code>
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${over ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                      {len} / {w.max_chars} car.
+                    </span>
+                  </div>
+
+                  {/* Textarea */}
+                  <textarea
+                    value={val}
+                    onChange={e => {
+                      setValues(prev => ({ ...prev, [k]: e.target.value }));
+                      setSaved(prev => ({ ...prev, [k]: false }));
+                    }}
+                    rows={3}
+                    className={`w-full text-sm rounded-lg border px-3 py-2 resize-y focus:outline-none focus:ring-2 transition-colors ${
+                      over
+                        ? 'border-red-300 focus:ring-red-300 bg-red-50'
+                        : 'border-gray-300 focus:ring-blue-300'
+                    }`}
+                  />
+
+                  {/* Barre de progression */}
+                  <div className="w-full bg-gray-100 rounded-full h-1.5">
+                    <div
+                      className={`h-1.5 rounded-full transition-all ${over ? 'bg-red-500' : 'bg-green-500'}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+
+                  {/* Erreur + bouton */}
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs text-red-500">{errors[k] ?? ''}</p>
+                    <button
+                      onClick={() => saveField(w)}
+                      disabled={saving[k] || (over)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 bg-blue-600 hover:bg-blue-700 text-white disabled:cursor-not-allowed"
+                    >
+                      {saving[k] ? (
+                        <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+                      ) : saved[k] ? (
+                        <CheckCircleIcon className="w-3.5 h-3.5" />
+                      ) : (
+                        <ArrowDownTrayIcon className="w-3.5 h-3.5" />
+                      )}
+                      {saved[k] ? 'Enregistré' : over ? `Réduire de ${len - w.max_chars} car.` : 'Enregistrer'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+          >
+            {allDone ? 'Fermer' : 'Fermer sans tout corriger'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -322,7 +322,9 @@ export class GuideTranslationService {
     const keys = Object.keys(toProcess);
     if (keys.length === 0) return {};
 
-    const result: Record<string, string> = pass > 1 ? { ...fields } : {};
+    // Pour pass > 1 on ne retourne QUE les champs retraduits (les overflows).
+    // NE PAS initialiser avec { ...fields } (FR) qui écraserait les traductions DE du pass 1.
+    const result: Record<string, string> = {};
 
     for (let i = 0; i < keys.length; i += MAX_FIELDS_PER_CALL) {
       const batchKeys = keys.slice(i, i + MAX_FIELDS_PER_CALL);

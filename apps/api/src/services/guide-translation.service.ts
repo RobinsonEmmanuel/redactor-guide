@@ -252,8 +252,8 @@ export class GuideTranslationService {
     for (const [key, value] of Object.entries(content)) {
       if (value === null || value === undefined || value === '') continue;
 
-      // Exclure les champs non-texte : pictos (calques InDesign) et card (sentinelle numérique)
-      if (/_picto_/i.test(key) || /_card_/i.test(key)) continue;
+      // Exclure les champs non-texte : pictos (calques InDesign), card (sentinelle) et images
+      if (/_picto_/i.test(key) || /_card_/i.test(key) || /_image_/i.test(key)) continue;
 
       // ── Champ lien {label, url} — objet MongoDB natif ou string JSON ──────────
       const link = parseLinkField(value);

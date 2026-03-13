@@ -80,69 +80,47 @@ type FieldServiceHandler = (ctx: FieldServiceContext) => Promise<FieldServiceRes
 /**
  * Générateur de table des matières (Sommaire).
  *
- * Produit le tableau d'entrées correspondant à UNE page du sommaire.
- * Le numéro de page (page_index) et le nombre d'entrées par page (entries_per_page)
- * proviennent de currentPage.metadata (posés par CheminDeFerBuilderService).
+ * Produit un bloc de texte unique formaté avec des tabulations InDesign :
  *
- * Structure du sommaire générée :
- *   - Pages fixes non-exclues → 1 entrée individuelle
- *   - Section clusters → 1 entrée groupée (section_title ou "Lieux par zones")
- *       sous_titres = noms des clusters séparés par \n
- *   - Section inspirations → 1 entrée groupée (section_title ou "Inspirations")
- *       sous_titres = titres des inspirations séparés par \n
- *   - Section saisons → 1 entrée groupée (section_title ou "Saisons")
- *       sous_titres = noms des saisons séparés par \n
- *   - Pages POI, COUVERTURE, SOMMAIRE → exclues
+ *   Titre principal        \t  04          ← entrée de niveau 1
+ *   Section groupée        \t  10          ← en-tête de groupe
+ *   \t  Cluster / Inspiration \t  10       ← sous-entrée (tab en début de ligne)
+ *   \t  Cluster 2           \t  22
  *
- * Les numéros de page sont calculés à l'export à partir de allExportedPages
- * (source de vérité : page_number réel de chaque page dans le guide final).
+ * Le \t entre le titre et le numéro sert de point de conduite InDesign
+ * (tab stop aligné à droite dans le style de paragraphe).
+ * Le \t en début de ligne marque une sous-entrée (style indenté).
  *
- * Les slots vides sont remplis avec { titre:'', page:'', sous_titres:'' }
- * pour que le script InDesign masque les cadres correspondants.
+ * Ce texte est destiné à être placé dans UN cadre texte sur la page SOMMAIRE_1
+ * (ou threadé vers SOMMAIRE_2). La mise en page est assurée manuellement.
+ *
+ * Numéros de page calculés à l'export via allExportedPages (source de vérité).
  */
 async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldServiceResult> {
-  const { allExportedPages, fieldDef, currentPage } = ctx;
+  const { allExportedPages } = ctx;
 
-  // Paramètres de pagination (issus des métadonnées posées par le builder)
-  const entriesPerPage: number = (currentPage as any).metadata?.entries_per_page
-    ?? fieldDef?.entries_per_page
-    ?? fieldDef?.max_repetitions
-    ?? 12;
-  const pageIndex: number = (currentPage as any).metadata?.page_index ?? 1;
-
-  type SommaireEntry = { titre: string; page: string; sous_titres: string };
   const fmt = (n: number) => String(n).padStart(2, '0');
-
-  // ── Pré-collecte des groupes (clusters, inspirations, saisons) ────────────
-  // Chaque sous-entrée conserve son nom ET son numéro de page individuel.
-  // Format final dans sous_titres : "Nom\tPage\nNom2\tPage2\n..."
-  // (tabulation = convention InDesign pour aligner le numéro de page à droite
-  //  via un point de conduite défini dans le style de paragraphe)
 
   type SubEntry = { name: string; page: number };
 
-  const clusterEntries: SubEntry[]     = [];
-  let   clusterFirstPage: number | null = null;
-  const clusterSeen = new Set<string>();
-
+  // ── Pré-collecte des groupes ───────────────────────────────────────────────
+  const clusterEntries:     SubEntry[] = [];
   const inspirationEntries: SubEntry[] = [];
-  let   inspirationFirstPage: number | null = null;
+  const saisonEntries:      SubEntry[] = [];
+  let clusterFirstPage:     number | null = null;
+  let inspirationFirstPage: number | null = null;
+  let saisonFirstPage:      number | null = null;
+  const clusterSeen     = new Set<string>();
   const inspirationSeen = new Set<string>();
-
-  const saisonEntries: SubEntry[]      = [];
-  let   saisonFirstPage: number | null = null;
-  const saisonSeen = new Set<string>();
-
-  // Section titles (resolved from page.section field at runtime)
-  let clusterSectionTitle      = 'Lieux par zones';
-  let inspirationSectionTitle  = 'Inspirations';
-  let saisonSectionTitle       = 'Saisons';
+  const saisonSeen      = new Set<string>();
+  let clusterSectionTitle     = 'Lieux par zones';
+  let inspirationSectionTitle = 'Inspirations';
+  let saisonSectionTitle      = 'Saisons';
 
   for (const page of allExportedPages) {
     const tpl = (page.template || '').toUpperCase();
     const pt  = (page.entity_meta?.page_type || '').toLowerCase();
 
-    // Clusters : on ne collecte que les pages intro cluster (pas les pages POI)
     if (pt === 'cluster_intro' || tpl.startsWith('CLUSTER')) {
       if (clusterFirstPage === null) {
         clusterFirstPage = page.page_number;
@@ -154,7 +132,6 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
         clusterEntries.push({ name, page: page.page_number });
       }
     }
-
     if (tpl.includes('INSPIRATION') || pt === 'inspiration') {
       if (inspirationFirstPage === null) {
         inspirationFirstPage = page.page_number;
@@ -166,7 +143,6 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
         inspirationEntries.push({ name: t, page: page.page_number });
       }
     }
-
     if (tpl.includes('SAISON') || pt === 'saison') {
       if (saisonFirstPage === null) {
         saisonFirstPage = page.page_number;
@@ -180,13 +156,8 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
     }
   }
 
-  // Formateur : "Nom\tNuméroPage" par sous-entrée, séparés par \n
-  // Le \t est interprété par InDesign comme un point de conduite droit
-  const fmtSubEntries = (entries: SubEntry[]) =>
-    entries.map(e => `${e.name}\t${fmt(e.page)}`).join('\n');
-
-  // ── Construction de la liste ordonnée (toutes entrées, toutes pages) ───────
-  const allEntries: SommaireEntry[] = [];
+  // ── Construction du texte formaté ─────────────────────────────────────────
+  const lines: string[] = [];
   let clusterInserted     = false;
   let inspirationInserted = false;
   let saisonInserted      = false;
@@ -207,48 +178,38 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
     const isInspiration = tpl.includes('INSPIRATION') || pt === 'inspiration';
     const isSaison      = tpl.includes('SAISON')      || pt === 'saison';
 
-    // ── Entrée groupée : clusters ──────────────────────────────────────────
     if (isCluster) {
       if (!clusterInserted && clusterFirstPage !== null) {
         clusterInserted = true;
-        allEntries.push({
-          titre:       clusterSectionTitle,
-          page:        fmt(clusterFirstPage),
-          // Chaque cluster sur sa propre ligne avec son numéro de page : "Nom\tPage"
-          sous_titres: fmtSubEntries(clusterEntries),
-        });
+        lines.push(`${clusterSectionTitle}\t${fmt(clusterFirstPage)}`);
+        for (const c of clusterEntries) {
+          lines.push(`\t${c.name}\t${fmt(c.page)}`);
+        }
       }
       continue;
     }
-
-    // ── Entrée groupée : inspirations ──────────────────────────────────────
     if (isInspiration) {
       if (!inspirationInserted && inspirationFirstPage !== null) {
         inspirationInserted = true;
-        allEntries.push({
-          titre:       inspirationSectionTitle,
-          page:        fmt(inspirationFirstPage),
-          sous_titres: fmtSubEntries(inspirationEntries),
-        });
+        lines.push(`${inspirationSectionTitle}\t${fmt(inspirationFirstPage)}`);
+        for (const i of inspirationEntries) {
+          lines.push(`\t${i.name}\t${fmt(i.page)}`);
+        }
       }
       continue;
     }
-
-    // ── Entrée groupée : saisons ───────────────────────────────────────────
     if (isSaison) {
       if (!saisonInserted && saisonFirstPage !== null) {
         saisonInserted = true;
-        allEntries.push({
-          titre:       saisonSectionTitle,
-          page:        fmt(saisonFirstPage),
-          sous_titres: fmtSubEntries(saisonEntries),
-        });
+        lines.push(`${saisonSectionTitle}\t${fmt(saisonFirstPage)}`);
+        for (const s of saisonEntries) {
+          lines.push(`\t${s.name}\t${fmt(s.page)}`);
+        }
       }
       continue;
     }
 
-    // ── Entrée individuelle (page fixe non groupée) ────────────────────────
-    // Priorité : contenu du champ titre > titre de la page > fallback
+    // Entrée individuelle
     const titre =
       page.content?.text?.['PRESENTATION_GUIDE_titre_1']       ||
       page.content?.text?.['PRESENTATION_DESTINATION_titre_1'] ||
@@ -258,25 +219,12 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
       page.titre                                                ||
       `Page ${page.page_number}`;
 
-    allEntries.push({ titre, page: fmt(page.page_number), sous_titres: '' });
+    lines.push(`${titre}\t${fmt(page.page_number)}`);
   }
 
-  // ── Découpe de la tranche correspondant à cette page du sommaire ──────────
-  const startIdx   = (pageIndex - 1) * entriesPerPage;
-  const pageSlice  = allEntries.slice(startIdx, startIdx + entriesPerPage);
-
-  // Remplir les slots vides jusqu'à entriesPerPage
-  while (pageSlice.length < entriesPerPage) {
-    pageSlice.push({ titre: '', page: '', sous_titres: '' });
-  }
-
-  console.log(
-    `[sommaire_generator] Page ${pageIndex}: ` +
-    `${pageSlice.filter(e => e.titre).length}/${entriesPerPage} entrées ` +
-    `(total ${allEntries.length} sur toutes pages)`
-  );
-
-  return { value: JSON.stringify(pageSlice) };
+  const text = lines.join('\n');
+  console.log(`[sommaire_generator] ${lines.length} lignes générées`);
+  return { value: text };
 }
 
 // Singleton partagé entre les handlers (pas d'état, safe)

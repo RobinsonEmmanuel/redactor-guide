@@ -17,7 +17,6 @@ export const SectionSourceEnum = z.enum([
   'clusters',      // Données des clusters (étape 3)
   'inspirations',  // Données des inspirations (étape 4)
   'none',          // Pas de source (pages fixes répétées, ex: saisons)
-  'sommaire',      // Sommaire dynamique : nombre de pages calculé selon le contenu réel du guide
 ]);
 
 export type SectionSource = z.infer<typeof SectionSourceEnum>;
@@ -44,9 +43,6 @@ export const GuideTemplateBlockSchema = z.object({
   /** Nombre de POIs par page (pour inspirations) */
   pois_per_page: z.number().int().positive().optional(),
 
-  /** Nombre d'entrées par page (pour sommaire dynamique) */
-  entries_per_page: z.number().int().positive().optional(),
-  
   /** Nombre de pages à créer (pour sections fixes répétées comme les saisons) */
   pages_count: z.number().int().positive().optional(),
   

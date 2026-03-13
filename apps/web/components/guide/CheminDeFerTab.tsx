@@ -51,9 +51,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
   const [currentPageContent, setCurrentPageContent] = useState<Record<string, any>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
   
-  // États pour l'insertion de page
-  const [insertModal, setInsertModal] = useState<{ afterOrdre: number } | null>(null);
-
   // États pour les propositions IA
   const [loadingProposal, setLoadingProposal] = useState(false);
   const [proposal, setProposal] = useState<any>(null);
@@ -326,26 +323,23 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
       return;
     }
 
-    // Réorganisation des pages existantes (drag d'une page vers n'importe quel slot)
+    // Réorganisation des pages existantes : insertion entre deux pages
+    // On glisse une page et on la dépose sur une autre → arrayMove décale tout
     const activePage = pages.find((p) => p._id === active.id);
     if (activePage && over && active.id !== over.id) {
-      let targetOrdre: number | null = null;
-      
-      // Cas 1 : Drop sur une autre page existante (échange)
-      const targetPage = pages.find((p) => p._id === over.id);
-      if (targetPage) {
-        targetOrdre = targetPage.ordre;
-        
-        // Échanger les ordres
-        const updatedPages = pages.map((p) => {
-          if (p._id === activePage._id) return { ...p, ordre: targetOrdre! };
-          if (p._id === targetPage._id) return { ...p, ordre: activePage.ordre };
-          return p;
-        });
+      const overPage = pages.find((p) => p._id === over.id);
 
+      if (overPage) {
+        // Trier les pages par ordre courant, appliquer arrayMove, réécrire les ordres séquentiellement
+        const sortedPages = [...pages].sort((a, b) => a.ordre - b.ordre);
+        const activeIndex = sortedPages.findIndex((p) => p._id === activePage._id);
+        const overIndex   = sortedPages.findIndex((p) => p._id === overPage._id);
+        const reordered   = arrayMove(sortedPages, activeIndex, overIndex);
+
+        // Ordres séquentiels : 1, 2, 3… (toutes les pages sont compactées)
+        const updatedPages = reordered.map((p, idx) => ({ ...p, ordre: idx + 1 }));
         setPages(updatedPages);
 
-        // Sauvegarder
         try {
           await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/reorder`, {
             method: 'PUT',
@@ -356,25 +350,19 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
             }),
           });
         } catch (err) {
-          console.error('❌ Erreur échange:', err);
+          console.error('❌ Erreur réorganisation:', err);
           loadPages();
         }
         return;
       }
-      
-      // Cas 2 : Drop sur un emplacement vide (déplacement libre)
+
+      // Drop sur un emplacement vide : déplacement simple sans décalage
       if (typeof over.id === 'string' && over.id.startsWith('empty-slot-')) {
-        targetOrdre = parseInt(over.id.replace('empty-slot-', ''), 10);
-        
-        // Simplement changer l'ordre de cette page
-        const updatedPages = pages.map((p) => {
-          if (p._id === activePage._id) return { ...p, ordre: targetOrdre! };
-          return p;
-        });
-
+        const targetOrdre = parseInt(over.id.replace('empty-slot-', ''), 10);
+        const updatedPages = pages.map((p) =>
+          p._id === activePage._id ? { ...p, ordre: targetOrdre } : p
+        );
         setPages(updatedPages);
-
-        // Sauvegarder
         try {
           await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${activePage._id}`, {
             method: 'PUT',
@@ -382,7 +370,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
             credentials: 'include',
             body: JSON.stringify({ ordre: targetOrdre }),
           });
-          console.log(`✅ Page déplacée vers position ${targetOrdre}`);
         } catch (err) {
           console.error('❌ Erreur déplacement:', err);
           loadPages();
@@ -910,28 +897,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
     }
   };
 
-  const handleInsertPageAfter = async (afterOrdre: number, templateId: string, titre?: string) => {
-    try {
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/insert-at`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ after_ordre: afterOrdre, template_id: templateId, titre }),
-      });
-
-      if (res.ok) {
-        setInsertModal(null);
-        loadPages();
-      } else {
-        const err = await res.json();
-        alert(`Erreur : ${err.error || 'Impossible d\'insérer la page'}`);
-      }
-    } catch (err) {
-      console.error('Erreur insertion page:', err);
-      alert('Erreur lors de l\'insertion');
-    }
-  };
-
   const rebuildInspirations = async () => {
     const ok = confirm(
       '⚠️ Cette action va recalculer le nombre de pages inspiration et redistribuer les POIs selon l\'étape 4.\n\nLes pages POI, saison et fixes ne sont pas touchées.\n\nContinuer ?'
@@ -1411,7 +1376,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                 isEmpty={pages.length === 0}
                 onAddPages={() => setShowAddPagesModal(true)}
                 additionalSlots={additionalSlots}
-                onInsertAfter={(ordre) => setInsertModal({ afterOrdre: ordre })}
               />
             )}
           </div>
@@ -1459,14 +1423,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
         />
       )}
 
-      {insertModal && (
-        <InsertPageModal
-          afterOrdre={insertModal.afterOrdre}
-          templates={templates}
-          onClose={() => setInsertModal(null)}
-          onConfirm={handleInsertPageAfter}
-        />
-      )}
     </div>
   );
 }
@@ -1673,7 +1629,6 @@ function CheminDeFerGrid({
   isEmpty,
   onAddPages,
   additionalSlots,
-  onInsertAfter,
 }: {
   pages: Page[];
   onEdit: (page: Page) => void;
@@ -1683,7 +1638,6 @@ function CheminDeFerGrid({
   isEmpty: boolean;
   onAddPages: () => void;
   additionalSlots: number;
-  onInsertAfter: (ordre: number) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: 'chemin-de-fer-grid',
@@ -1703,10 +1657,10 @@ function CheminDeFerGrid({
       className="rounded-lg border-2 border-gray-200 bg-white transition-all min-h-full"
     >
       <div className="p-3">
-        <SortableContext
-          items={pages.map((p) => p._id)}
-          strategy={rectSortingStrategy}
-        >
+          <SortableContext
+            items={[...pages].sort((a, b) => a.ordre - b.ordre).map((p) => p._id)}
+            strategy={rectSortingStrategy}
+          >
           <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3">
             {slots.map((slot: any, idx: number) => {
               const isFilledSlot = !slot.isEmpty;
@@ -1723,28 +1677,14 @@ function CheminDeFerGrid({
                 );
               } else {
                 return (
-                  <div key={slot._id} className="relative group/cell">
-                    <PageCard
-                      page={slot}
-                      onEdit={() => onEdit(slot)}
-                      onDelete={() => onDelete(slot._id)}
-                      onOpenContent={() => onOpenContent(slot)}
-                      onReset={() => onReset(slot._id)}
-                    />
-                    {/* Bouton d'insertion — visible au survol, positionné sur le bord droit */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onInsertAfter(slot.ordre); }}
-                      title={`Insérer une page après la position ${slot.ordre}`}
-                      className="absolute -right-3 top-1/2 -translate-y-1/2 z-10
-                                 w-6 h-6 rounded-full bg-blue-600 text-white shadow-md
-                                 flex items-center justify-center
-                                 opacity-0 group-hover/cell:opacity-100
-                                 hover:bg-blue-700 hover:scale-110
-                                 transition-all duration-150"
-                    >
-                      <PlusIcon className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                  <PageCard
+                    key={slot._id}
+                    page={slot}
+                    onEdit={() => onEdit(slot)}
+                    onDelete={() => onDelete(slot._id)}
+                    onOpenContent={() => onOpenContent(slot)}
+                    onReset={() => onReset(slot._id)}
+                  />
                 );
               }
             })}
@@ -1822,92 +1762,6 @@ function AddPagesCard({ onClick }: { onClick: () => void }) {
         </div>
       </div>
     </button>
-  );
-}
-
-// Modale pour insérer une page entre deux pages existantes
-function InsertPageModal({
-  afterOrdre,
-  templates,
-  onClose,
-  onConfirm,
-}: {
-  afterOrdre: number;
-  templates: any[];
-  onClose: () => void;
-  onConfirm: (afterOrdre: number, templateId: string, titre?: string) => void;
-}) {
-  const [selectedTemplateId, setSelectedTemplateId] = useState(templates[0]?._id || '');
-  const [titre, setTitre] = useState('');
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedTemplateId) return;
-    const selectedTemplate = templates.find(t => t._id === selectedTemplateId);
-    onConfirm(afterOrdre, selectedTemplateId, titre || `Nouvelle page ${selectedTemplate?.name || ''}`);
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">Insérer une page</h2>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Après la position {afterOrdre} — toutes les pages suivantes seront décalées de +1
-            </p>
-          </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Template</label>
-            <select
-              value={selectedTemplateId}
-              onChange={(e) => setSelectedTemplateId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-              required
-            >
-              {templates.map((t) => (
-                <option key={t._id} value={t._id}>{t.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Titre <span className="text-gray-400 font-normal">(optionnel)</span>
-            </label>
-            <input
-              type="text"
-              value={titre}
-              onChange={(e) => setTitre(e.target.value)}
-              placeholder="Laissez vide pour le titre par défaut"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-            />
-          </div>
-
-          <div className="flex gap-3 pt-2 border-t border-gray-200">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors text-sm"
-            >
-              Annuler
-            </button>
-            <button
-              type="submit"
-              disabled={!selectedTemplateId}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm flex items-center justify-center gap-2"
-            >
-              <PlusIcon className="w-4 h-4" />
-              Insérer ici
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
   );
 }
 

@@ -91,9 +91,10 @@ var FRAME_LINK_FIELDS  = {
 var GABARIT_NAMES = {
     "COUVERTURE":              "A-COUVERTURE",
     "PRESENTATION_GUIDE":      "B-PRESENTATION_GUIDE",
-    "PRESENTATION_DESTINATION":"C-PRESENTATION_DESTINATION",
+    "SOMMAIRE":                "C-SOMMAIRE",        // <-- adapter au nom reel de votre gabarit
+    "PRESENTATION_DESTINATION":"D-PRESENTATION_DESTINATION",
     "CARTE_DESTINATION":       "E-CARTE_DESTINATION",
-    "CLUSTER":                 "D-CLUSTER",
+    "CLUSTER":                 "F-CLUSTER",
     "POI":                     "G-POI",
     "INSPIRATION":             "H-INSPIRATION",
     "SAISON":                  "I-SAISON",
@@ -830,6 +831,71 @@ function injectPictoBar(page, contentData, durationValue) {
     }
 }
 
+// --- 10b. Injection du texte de sommaire -------------------------------------
+//
+// Le champ SOMMAIRE_texte_1 contient le texte brut genere par le backend :
+//   - Lignes separees par \n  → converties en \r (retour chariot InDesign)
+//   - \t entre le titre et le numero de page → tabulation InDesign (tab stop)
+//   - Lignes commencant par \t = sous-entrees (cluster, inspiration, saison)
+//
+// Le script injecte le texte dans le cadre SOMMAIRE_texte_1 de la page 1.
+// Si le cadre est threade vers la page 2 (flux lie), InDesign gere le debordement
+// automatiquement : aucune action supplementaire n'est necessaire.
+//
+// Styles de paragraphe optionnels :
+//   "Sommaire_niveau1" → applique aux lignes principales (ne commencant pas par \t)
+//   "Sommaire_niveau2" → applique aux sous-entrees (commencant par \t)
+// Si ces styles sont absents du document, le texte conserve le style du cadre.
+//
+var SOMMAIRE_STYLE_N1 = "Sommaire_niveau1"; // style paragraphe entrees principales
+var SOMMAIRE_STYLE_N2 = "Sommaire_niveau2"; // style paragraphe sous-entrees
+
+function injectSommaireText(page, pageData) {
+    var textContent = pageData.content.text || {};
+    var rawValue    = textContent["SOMMAIRE_texte_1"];
+
+    if (!rawValue || String(rawValue).replace(/^\s+|\s+$/, "") === "") return;
+
+    var blocks = findByLabelOnPage(page, "SOMMAIRE_texte_1");
+    if (blocks.length === 0) return;
+
+    var tf = null;
+    for (var b = 0; b < blocks.length; b++) {
+        if (blocks[b] instanceof TextFrame) { tf = blocks[b]; break; }
+    }
+    if (!tf) return;
+
+    // Convertir \n en \r (separateur de paragraphe InDesign)
+    // Conserver \t tel quel (point de conduite InDesign)
+    var indesignText = String(rawValue).replace(/\r\n/g, "\r").replace(/\n/g, "\r");
+    tf.contents = indesignText;
+
+    // Appliquer les styles de paragraphe ligne par ligne
+    try {
+        var styleN1 = doc.paragraphStyles.itemByName(SOMMAIRE_STYLE_N1);
+        var styleN2 = doc.paragraphStyles.itemByName(SOMMAIRE_STYLE_N2);
+        var n1Valid = styleN1.isValid;
+        var n2Valid = styleN2.isValid;
+
+        if (n1Valid || n2Valid) {
+            var paras = tf.paragraphs;
+            for (var p = 0; p < paras.length; p++) {
+                try {
+                    var paraText = paras[p].contents;
+                    // Sous-entree : commence par une tabulation
+                    if (paraText.charAt(0) === "\t" && n2Valid) {
+                        paras[p].appliedParagraphStyle = styleN2;
+                    } else if (n1Valid) {
+                        paras[p].appliedParagraphStyle = styleN1;
+                    }
+                } catch(e) {}
+            }
+        }
+    } catch(e) {}
+
+    truncateOverflow(tf);
+}
+
 // --- 11. Injection generique textes + images (templates sans pictos) ---------
 //
 // Utilisee par COUVERTURE, PRESENTATION_GUIDE et tout futur template standard.
@@ -1008,6 +1074,29 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var presPage = addPageWithMaster(msPresGuide, "PRESENTATION_GUIDE");
         injectPageContent(presPage, pageData);
+        pagesGenerated++;
+        continue;
+    }
+
+    // -- SOMMAIRE -------------------------------------------------------------
+    // Le sommaire est genere sur 2 pages consecutives dans le JSON.
+    // Seule la 1re page (SOMMAIRE_texte_1 non vide) declenche l'injection.
+    // La 2e page est vide dans le JSON (le texte deborde depuis la page 1
+    // via le threading InDesign) → on cree quand meme la page pour respecter
+    // la pagination du document, mais on n'y injecte rien.
+    if (pageData.template === "SOMMAIRE") {
+        var msSommaire = loadGabarit("SOMMAIRE", false);
+        if (!msSommaire) continue;
+
+        var sommairePage = addPageWithMaster(msSommaire, "SOMMAIRE");
+        var somTextContent = pageData.content.text || {};
+        var somTextValue   = somTextContent["SOMMAIRE_texte_1"];
+        var hasContent = somTextValue && String(somTextValue).replace(/^\s+|\s+$/, "") !== "";
+        if (hasContent) {
+            injectSommaireText(sommairePage, pageData);
+        }
+        // Pas d'injectPageContent pour eviter que les masquages generiques
+        // ne cachent le cadre SOMMAIRE_texte_1 deja rempli.
         pagesGenerated++;
         continue;
     }

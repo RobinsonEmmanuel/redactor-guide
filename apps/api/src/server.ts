@@ -142,6 +142,9 @@ export async function createServer(db: Db, _port: number) {
       await fastify.register(
         (await import('./routes/drive-images.routes')).default
       );
+      await fastify.register(
+        (await import('./routes/workflow.routes')).workflowRoutes
+      );
 
       // Routes génériques avec :id en dernier
       fastify.get('/destinations', async () => {

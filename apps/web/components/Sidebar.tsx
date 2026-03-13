@@ -12,6 +12,7 @@ import {
   SparklesIcon,
   ChevronRightIcon,
   ChevronDownIcon,
+  BeakerIcon,
 } from '@heroicons/react/24/outline';
 
 const menuItems = [
@@ -30,6 +31,7 @@ const menuItems = [
   { name: 'Destinations', icon: DocumentTextIcon, href: '#' },
   { name: 'Exports', icon: CloudArrowUpIcon, href: '#' },
   { name: 'Statistiques', icon: ChartBarIcon, href: '#' },
+  { name: 'Workflow Test', icon: BeakerIcon, href: '/workflow-test' },
   { name: 'Paramètres', icon: Cog6ToothIcon, href: '/settings' },
 ];
 

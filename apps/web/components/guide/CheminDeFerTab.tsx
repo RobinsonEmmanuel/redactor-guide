@@ -324,21 +324,39 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
     }
 
     // Réorganisation des pages existantes : insertion entre deux pages
-    // On glisse une page et on la dépose sur une autre → arrayMove décale tout
+    // Décalage local uniquement — seules les pages entre la source et la cible
+    // sont affectées. Les pages hors de cette plage (ex : pages inspiration à
+    // des ordres élevés) conservent leur ordre et ne deviennent pas visibles.
     const activePage = pages.find((p) => p._id === active.id);
     if (activePage && over && active.id !== over.id) {
       const overPage = pages.find((p) => p._id === over.id);
 
       if (overPage) {
-        // Trier les pages par ordre courant, appliquer arrayMove, réécrire les ordres séquentiellement
-        const sortedPages = [...pages].sort((a, b) => a.ordre - b.ordre);
-        const activeIndex = sortedPages.findIndex((p) => p._id === activePage._id);
-        const overIndex   = sortedPages.findIndex((p) => p._id === overPage._id);
-        const reordered   = arrayMove(sortedPages, activeIndex, overIndex);
+        const fromOrdre = activePage.ordre;
+        const toOrdre   = overPage.ordre;
 
-        // Ordres séquentiels : 1, 2, 3… (toutes les pages sont compactées)
-        const updatedPages = reordered.map((p, idx) => ({ ...p, ordre: idx + 1 }));
+        const updatedPages = pages.map((p) => {
+          if (p._id === activePage._id) {
+            // La page glissée prend l'ordre de la cible
+            return { ...p, ordre: toOrdre };
+          }
+          if (fromOrdre < toOrdre) {
+            // Déplacement vers l'avant : les pages entre from+1 et to reculent d'une case
+            if (p.ordre > fromOrdre && p.ordre <= toOrdre) return { ...p, ordre: p.ordre - 1 };
+          } else {
+            // Déplacement vers l'arrière : les pages entre to et from-1 avancent d'une case
+            if (p.ordre >= toOrdre && p.ordre < fromOrdre) return { ...p, ordre: p.ordre + 1 };
+          }
+          return p;
+        });
+
         setPages(updatedPages);
+
+        // N'envoyer que les pages dont l'ordre a réellement changé
+        const changedPages = updatedPages.filter((p) => {
+          const original = pages.find((o) => o._id === p._id);
+          return original && original.ordre !== p.ordre;
+        });
 
         try {
           await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/reorder`, {
@@ -346,7 +364,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify({
-              pages: updatedPages.map((p) => ({ _id: p._id, ordre: p.ordre })),
+              pages: changedPages.map((p) => ({ _id: p._id, ordre: p.ordre })),
             }),
           });
         } catch (err) {

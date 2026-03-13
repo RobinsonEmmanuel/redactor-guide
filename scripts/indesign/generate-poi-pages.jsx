@@ -1080,23 +1080,22 @@ for (var i = 0; i < data.pages.length; i++) {
 
     // -- SOMMAIRE -------------------------------------------------------------
     // Le sommaire est genere sur 2 pages consecutives dans le JSON.
-    // Seule la 1re page (SOMMAIRE_texte_1 non vide) declenche l'injection.
+    // Seule la 1re page (SOMMAIRE_texte_1 non vide) declenche l'injection du texte.
     // La 2e page est vide dans le JSON (le texte deborde depuis la page 1
     // via le threading InDesign) → on cree quand meme la page pour respecter
-    // la pagination du document, mais on n'y injecte rien.
+    // la pagination du document, injectPageContent masque simplement les blocs vides.
+    //
+    // Ordre d'injection :
+    //   1. injectPageContent  → titre (SOMMAIRE_titre_1), image (SOMMAIRE_image_1),
+    //                           et premiere passe basique sur SOMMAIRE_texte_1
+    //   2. injectSommaireText → reecrit SOMMAIRE_texte_1 avec \n→\r et styles para
     if (pageData.template === "SOMMAIRE") {
         var msSommaire = loadGabarit("SOMMAIRE", false);
         if (!msSommaire) continue;
 
         var sommairePage = addPageWithMaster(msSommaire, "SOMMAIRE");
-        var somTextContent = pageData.content.text || {};
-        var somTextValue   = somTextContent["SOMMAIRE_texte_1"];
-        var hasContent = somTextValue && String(somTextValue).replace(/^\s+|\s+$/, "") !== "";
-        if (hasContent) {
-            injectSommaireText(sommairePage, pageData);
-        }
-        // Pas d'injectPageContent pour eviter que les masquages generiques
-        // ne cachent le cadre SOMMAIRE_texte_1 deja rempli.
+        injectPageContent(sommairePage, pageData);   // titre + image (+ texte brut)
+        injectSommaireText(sommairePage, pageData);  // reecrit le texte avec mise en forme
         pagesGenerated++;
         continue;
     }

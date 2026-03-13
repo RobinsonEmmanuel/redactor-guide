@@ -341,6 +341,81 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * POST /guides/:guideId/chemin-de-fer/pages/insert-at
+   * Insère une nouvelle page à une position donnée et décale toutes les pages suivantes de +1
+   */
+  fastify.post<{
+    Params: { guideId: string };
+    Body: { after_ordre: number; template_id: string; titre?: string };
+  }>('/guides/:guideId/chemin-de-fer/pages/insert-at', async (request, reply) => {
+    try {
+      const db = request.server.container.db;
+      const { guideId } = request.params;
+      const { after_ordre, template_id, titre } = request.body;
+
+      if (!ObjectId.isValid(guideId)) {
+        return reply.status(400).send({ error: 'Guide ID invalide' });
+      }
+      if (typeof after_ordre !== 'number' || after_ordre < 0) {
+        return reply.status(400).send({ error: 'after_ordre invalide' });
+      }
+      if (!ObjectId.isValid(template_id)) {
+        return reply.status(400).send({ error: 'template_id invalide' });
+      }
+
+      const cheminDeFer = await db.collection(COLLECTIONS.chemins_de_fer).findOne({ guide_id: guideId });
+      if (!cheminDeFer) {
+        return reply.status(404).send({ error: 'Chemin de fer non trouvé' });
+      }
+      const cheminDeFerId = cheminDeFer._id.toString();
+
+      const template = await db.collection(COLLECTIONS.templates).findOne({ _id: new ObjectId(template_id) });
+      if (!template) {
+        return reply.status(404).send({ error: 'Template non trouvé' });
+      }
+
+      const now = new Date().toISOString();
+      const newOrdre = after_ordre + 1;
+
+      // Décaler toutes les pages dont l'ordre est >= newOrdre
+      await db.collection(COLLECTIONS.pages).updateMany(
+        { chemin_de_fer_id: cheminDeFerId, ordre: { $gte: newOrdre } },
+        { $inc: { ordre: 1 }, $set: { updated_at: now } }
+      );
+
+      // Insérer la nouvelle page à la position newOrdre
+      const newPage = {
+        page_id:          `page_${Date.now()}`,
+        chemin_de_fer_id: cheminDeFerId,
+        guide_id:         guideId,
+        template_name:    template.name,
+        template_id:      template_id,
+        titre:            titre || `Nouvelle page ${template.name}`,
+        ordre:            newOrdre,
+        statut_editorial: 'draft',
+        content:          {},
+        metadata:         {},
+        created_at:       now,
+        updated_at:       now,
+      };
+
+      const result = await db.collection(COLLECTIONS.pages).insertOne(newPage);
+
+      // Mettre à jour le compteur
+      await db.collection(COLLECTIONS.chemins_de_fer).updateOne(
+        { _id: cheminDeFer._id },
+        { $inc: { nombre_pages: 1 }, $set: { updated_at: now } }
+      );
+
+      const created = await db.collection(COLLECTIONS.pages).findOne({ _id: result.insertedId });
+      return reply.status(201).send(created);
+    } catch (error) {
+      request.log.error(error);
+      return reply.status(500).send({ error: 'Erreur lors de l\'insertion de la page' });
+    }
+  });
+
+  /**
    * PUT /guides/:guideId/chemin-de-fer/pages/reorder
    * Réorganise les pages (drag-and-drop)
    */

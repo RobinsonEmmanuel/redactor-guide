@@ -33,6 +33,7 @@ interface PageDocument {
     page_type?: string;
     page_index?: number;
     total_pages?: number;
+    entries_per_page?: number;
   };
   fields: any[];
   created_at: string;

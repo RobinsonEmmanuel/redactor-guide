@@ -114,18 +114,22 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
   const fmt = (n: number) => String(n).padStart(2, '0');
 
   // ── Pré-collecte des groupes (clusters, inspirations, saisons) ────────────
-  // On collecte les sous-lignes et la première page de chaque groupe en un seul
-  // parcours AVANT de construire la liste ordonnée.
+  // Chaque sous-entrée conserve son nom ET son numéro de page individuel.
+  // Format final dans sous_titres : "Nom\tPage\nNom2\tPage2\n..."
+  // (tabulation = convention InDesign pour aligner le numéro de page à droite
+  //  via un point de conduite défini dans le style de paragraphe)
 
-  const clusterItems: string[]      = [];
+  type SubEntry = { name: string; page: number };
+
+  const clusterEntries: SubEntry[]     = [];
   let   clusterFirstPage: number | null = null;
   const clusterSeen = new Set<string>();
 
-  const inspirationItems: string[]  = [];
+  const inspirationEntries: SubEntry[] = [];
   let   inspirationFirstPage: number | null = null;
   const inspirationSeen = new Set<string>();
 
-  const saisonItems: string[]       = [];
+  const saisonEntries: SubEntry[]      = [];
   let   saisonFirstPage: number | null = null;
   const saisonSeen = new Set<string>();
 
@@ -147,7 +151,7 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
       const name = page.entity_meta?.cluster_name || page.titre || '';
       if (name && !clusterSeen.has(name)) {
         clusterSeen.add(name);
-        clusterItems.push(name);
+        clusterEntries.push({ name, page: page.page_number });
       }
     }
 
@@ -159,7 +163,7 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
       const t = page.entity_meta?.inspiration_title || page.titre || '';
       if (t && !inspirationSeen.has(t)) {
         inspirationSeen.add(t);
-        inspirationItems.push(t);
+        inspirationEntries.push({ name: t, page: page.page_number });
       }
     }
 
@@ -171,10 +175,15 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
       const t = page.entity_meta?.season || page.titre || '';
       if (t && !saisonSeen.has(t)) {
         saisonSeen.add(t);
-        saisonItems.push(t);
+        saisonEntries.push({ name: t, page: page.page_number });
       }
     }
   }
+
+  // Formateur : "Nom\tNuméroPage" par sous-entrée, séparés par \n
+  // Le \t est interprété par InDesign comme un point de conduite droit
+  const fmtSubEntries = (entries: SubEntry[]) =>
+    entries.map(e => `${e.name}\t${fmt(e.page)}`).join('\n');
 
   // ── Construction de la liste ordonnée (toutes entrées, toutes pages) ───────
   const allEntries: SommaireEntry[] = [];
@@ -205,7 +214,8 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
         allEntries.push({
           titre:       clusterSectionTitle,
           page:        fmt(clusterFirstPage),
-          sous_titres: clusterItems.join('\n'),
+          // Chaque cluster sur sa propre ligne avec son numéro de page : "Nom\tPage"
+          sous_titres: fmtSubEntries(clusterEntries),
         });
       }
       continue;
@@ -218,7 +228,7 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
         allEntries.push({
           titre:       inspirationSectionTitle,
           page:        fmt(inspirationFirstPage),
-          sous_titres: inspirationItems.join('\n'),
+          sous_titres: fmtSubEntries(inspirationEntries),
         });
       }
       continue;
@@ -231,7 +241,7 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
         allEntries.push({
           titre:       saisonSectionTitle,
           page:        fmt(saisonFirstPage),
-          sous_titres: saisonItems.join('\n'),
+          sous_titres: fmtSubEntries(saisonEntries),
         });
       }
       continue;

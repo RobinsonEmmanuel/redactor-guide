@@ -319,18 +319,35 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           return reply.status(400).send({ error: 'Page ID invalide' });
         }
 
+        // Récupérer l'ordre de la page avant suppression pour décaler les suivantes
+        const pageToDelete = await db.collection(COLLECTIONS.pages).findOne({ _id: new ObjectId(pageId) });
+        if (!pageToDelete) {
+          return reply.status(404).send({ error: 'Page non trouvée' });
+        }
+        const deletedOrdre: number = pageToDelete.ordre;
+
         const result = await db.collection(COLLECTIONS.pages).deleteOne({ _id: new ObjectId(pageId) });
 
         if (result.deletedCount === 0) {
           return reply.status(404).send({ error: 'Page non trouvée' });
         }
 
-        // Mettre à jour le compteur
         const now = new Date().toISOString();
-        await db.collection(COLLECTIONS.chemins_de_fer).updateOne(
-          { guide_id: guideId },
-          { $inc: { nombre_pages: -1 }, $set: { updated_at: now } }
-        );
+
+        // Décaler d'une case vers le bas toutes les pages dont l'ordre est supérieur
+        const cheminDeFer = await db.collection(COLLECTIONS.chemins_de_fer).findOne({ guide_id: guideId });
+        if (cheminDeFer) {
+          await db.collection(COLLECTIONS.pages).updateMany(
+            { chemin_de_fer_id: cheminDeFer._id.toString(), ordre: { $gt: deletedOrdre } },
+            { $inc: { ordre: -1 }, $set: { updated_at: now } }
+          );
+
+          // Mettre à jour le compteur
+          await db.collection(COLLECTIONS.chemins_de_fer).updateOne(
+            { _id: cheminDeFer._id },
+            { $inc: { nombre_pages: -1 }, $set: { updated_at: now } }
+          );
+        }
 
         return reply.status(204).send();
       } catch (error) {

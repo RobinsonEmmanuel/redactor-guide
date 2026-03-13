@@ -781,6 +781,16 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
   const handleDeletePage = async (pageId: string) => {
     if (!confirm('Supprimer cette page ?')) return;
 
+    // Mise à jour optimiste : supprimer la page et décaler les suivantes de -1
+    const deletedPage = pages.find((p) => p._id === pageId);
+    if (deletedPage) {
+      setPages((prev) =>
+        prev
+          .filter((p) => p._id !== pageId)
+          .map((p) => p.ordre > deletedPage.ordre ? { ...p, ordre: p.ordre - 1 } : p)
+      );
+    }
+
     try {
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${pageId}`, {
         method: 'DELETE',
@@ -788,10 +798,13 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
       });
 
       if (res.ok) {
-        loadPages();
+        loadPages(); // Synchronisation finale avec le serveur
+      } else {
+        loadPages(); // Rollback en cas d'erreur
       }
     } catch (err) {
       console.error('Erreur suppression:', err);
+      loadPages();
     }
   };
 

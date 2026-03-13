@@ -1,106 +1,180 @@
 /**
- * collapse-sommaire-whitespace.jsx
+ * collapse-sommaire-whitespace.jsx  — version multi-pages
  *
- * À exécuter APRÈS le data-merge du sommaire.
+ * Fonctionnement :
+ *   1. Détecte automatiquement TOUTES les pages sommaire du document
+ *      (une page sommaire = une page qui possède un cadre nommé PREFIX+'titre_1')
+ *   2. Pour chaque page sommaire, indépendamment :
+ *        a. Masque les groupes de slots dont le titre est vide
+ *        b. Réduit les cadres sous_titres à la hauteur exacte de leur contenu
+ *        c. Remonte les cadres suivants pour combler les espaces libérés
  *
- * Pour chaque slot sommaire (1 à MAX_SLOTS), le script :
- *   1. Masque le groupe entier si le titre est vide (slot non rempli)
- *   2. Pour les slots visibles, redimensionne le cadre "sous_titres" à la
- *      hauteur exacte de son contenu (supprime le blanc inférieur)
- *   3. Remonte tous les cadres suivants pour fermer les espaces vides
+ * Toutes les pages sommaire du document sont traitées en un seul passage.
+ * Chaque page est traitée indépendamment (le décalage (yOffset) se remet à 0
+ * entre deux pages).
  *
- * Convention de nommage des cadres (même que le template) :
- *   SOMMAIRE_1_titre_N        — cadre titre principal
- *   SOMMAIRE_1_page_N         — cadre numéro de page (niveau titre)
- *   SOMMAIRE_1_sous_titres_N  — cadre sous-lignes (clusters / inspirations / saisons)
+ * Convention de nommage des cadres (identique au template InDesign) :
+ *   SOMMAIRE_1_titre_N        — titre de l'entrée
+ *   SOMMAIRE_1_page_N         — numéro de page (aligné à droite)
+ *   SOMMAIRE_1_sous_titres_N  — sous-lignes "Nom\tPage" (clusters, inspirations…)
  *
- * Chaque "groupe" N est supposé avoir une hauteur de référence stockée dans
- * la variable SLOT_HEIGHT_MM (hauteur quand sous_titres est vide).
- * Si le sous_titres déborde, la hauteur effective est calculée via fitContent.
- *
- * Utilisation :
- *   1. Ouvrir le document InDesign après data-merge
- *   2. Sélectionner la ou les pages sommaire
- *   3. Exécuter ce script via Fichier > Scripts > Exécuter un script
+ * Paramètres :
+ *   PREFIX        — préfixe commun à tous les cadres sommaire
+ *   MAX_SLOTS     — nombre de slots par page (= entries_per_page du template)
+ *   GAP_BETWEEN_MM— espacement vertical entre deux slots (mm)
  */
 
-// ── Paramètres à adapter selon ton gabarit ───────────────────────────────────
+// ── Paramètres ───────────────────────────────────────────────────────────────
 
-var PREFIX          = 'SOMMAIRE_1_';   // préfixe des noms de cadre
-var MAX_SLOTS       = 12;              // entrées par page (= entries_per_page du template)
-var SLOT_HEIGHT_MM  = 12;              // hauteur d'un slot sans sous_titres (en mm)
-var GAP_BETWEEN_MM  = 2;               // espacement vertical entre deux slots (en mm)
-var MM_TO_PT        = 2.834645669;     // 1 mm = 2.834645669 pt (unité interne InDesign)
+var PREFIX         = 'SOMMAIRE_1_';
+var MAX_SLOTS      = 12;
+var GAP_BETWEEN_MM = 2;
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+var MM_TO_PT = 2.834645669;
 function mmToPt(mm) { return mm * MM_TO_PT; }
 
 var doc = app.activeDocument;
 
-// Traiter toutes les pages du document (si plusieurs pages sommaire)
+// ── 1. Détecter toutes les pages sommaire ─────────────────────────────────────
+// Une page est une page sommaire si elle contient un cadre PREFIX+'titre_1'
+
+var sommairePagesIndexes = [];
 for (var pi = 0; pi < doc.pages.length; pi++) {
-  var page = doc.pages[pi];
-  processPage(page);
+  if (findFrameOnPage(doc.pages[pi], PREFIX + 'titre_1') !== null) {
+    sommairePagesIndexes.push(pi);
+  }
 }
 
+if (sommairePagesIndexes.length === 0) {
+  alert('Aucune page sommaire détectée.\n' +
+        'Vérifiez que les cadres sont nommés avec le préfixe "' + PREFIX + '".');
+} else {
+  $.writeln('[sommaire] ' + sommairePagesIndexes.length +
+            ' page(s) sommaire détectée(s) : pages ' +
+            sommairePagesIndexes.map(function(i){ return i + 1; }).join(', '));
+
+  // ── 2. Traiter chaque page sommaire indépendamment ────────────────────────
+  for (var s = 0; s < sommairePagesIndexes.length; s++) {
+    var pageIdx = sommairePagesIndexes[s];
+    var page    = doc.pages[pageIdx];
+    $.writeln('\n--- Page ' + (pageIdx + 1) + ' (sommaire ' + (s + 1) + '/' +
+              sommairePagesIndexes.length + ') ---');
+    processPage(page);
+  }
+
+  $.writeln('\n[sommaire] Traitement terminé.');
+  if (sommairePagesIndexes.length > 1) {
+    alert('Collapse terminé sur ' + sommairePagesIndexes.length + ' pages sommaire.\n' +
+          'Consultez la console (ESTK) pour le détail des gains.');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Traiter une page sommaire : masquer les slots vides, réduire sous_titres,
+// remonter les cadres suivants.
+// ─────────────────────────────────────────────────────────────────────────────
 function processPage(page) {
-  var yOffset = 0; // décalage cumulé vers le haut (en pt) dû aux slots masqués / réduits
+  var yOffset  = 0;   // décalage cumulatif vers le haut (pts) — remis à 0 par page
+  var visible  = 0;
+  var hidden   = 0;
 
   for (var n = 1; n <= MAX_SLOTS; n++) {
-    var frameTitre     = findFrame(page, PREFIX + 'titre_'     + n);
-    var framePage      = findFrame(page, PREFIX + 'page_'      + n);
-    var frameSousTitres = findFrame(page, PREFIX + 'sous_titres_' + n);
+    var fTitre  = findFrameOnPage(page, PREFIX + 'titre_'      + n);
+    var fPage   = findFrameOnPage(page, PREFIX + 'page_'       + n);
+    var fSous   = findFrameOnPage(page, PREFIX + 'sous_titres_' + n);
 
-    if (!frameTitre) continue; // cadre introuvable → passer
+    if (!fTitre) {
+      $.writeln('  slot ' + n + ' : cadre titre introuvable, ignoré');
+      continue;
+    }
 
-    // ── 1. Slot vide → masquer tous les cadres du groupe ─────────────────
-    var titreText = getFrameText(frameTitre);
+    var titreText = getContent(fTitre);
+
+    // ── Slot vide → masquer tous les cadres, pas de déplacement ──────────
     if (!titreText) {
-      setVisible(frameTitre,      false);
-      setVisible(framePage,       false);
-      setVisible(frameSousTitres, false);
-      continue; // pas de décalage à appliquer (cadres masqués, pas de hauteur)
+      setVisible(fTitre, false);
+      setVisible(fPage,  false);
+      setVisible(fSous,  false);
+      hidden++;
+      $.writeln('  slot ' + n + ' : vide → masqué');
+      continue;
     }
 
-    // ── 2. Slot visible → appliquer le décalage cumulé ───────────────────
+    visible++;
+
+    // ── Appliquer le décalage cumulé (remonter ce slot) ──────────────────
     if (yOffset > 0) {
-      moveFrameUp(frameTitre,      yOffset);
-      moveFrameUp(framePage,       yOffset);
-      moveFrameUp(frameSousTitres, yOffset);
+      moveUp(fTitre, yOffset);
+      moveUp(fPage,  yOffset);
+      moveUp(fSous,  yOffset);
     }
 
-    // ── 3. Redimensionner le cadre sous_titres à la hauteur du contenu ───
-    if (frameSousTitres) {
-      var sousTitresText = getFrameText(frameSousTitres);
-      if (!sousTitresText) {
-        // Aucune sous-ligne → réduire la hauteur à 0 et accumuler le gain
-        var originalHeight = getFrameHeight(frameSousTitres);
-        setFrameHeight(frameSousTitres, 0);
-        setVisible(frameSousTitres, false);
-        yOffset += originalHeight + mmToPt(GAP_BETWEEN_MM / 2);
+    // ── Ajuster la hauteur du cadre sous_titres ───────────────────────────
+    if (fSous) {
+      var sousTxt = getContent(fSous);
+      if (!sousTxt) {
+        // Pas de sous-lignes → réduire à 0 et accumuler le gain
+        var h = frameHeight(fSous);
+        setFrameHeight(fSous, 0);
+        setVisible(fSous, false);
+        yOffset += h + mmToPt(GAP_BETWEEN_MM * 0.4);
+        $.writeln('  slot ' + n + ' : sous_titres vide → gain ' +
+                  Math.round(h / MM_TO_PT * 10) / 10 + ' mm');
       } else {
-        // Ajuster à la hauteur exacte du contenu
-        var before = getFrameHeight(frameSousTitres);
-        fitFrameToContent(frameSousTitres);
-        var after  = getFrameHeight(frameSousTitres);
-        var saved  = before - after;
-        if (saved > 0) yOffset += saved;
+        // Sous-lignes présentes → fit exact
+        var hBefore = frameHeight(fSous);
+        fitToContent(fSous);
+        var hAfter  = frameHeight(fSous);
+        var gained  = hBefore - hAfter;
+        if (gained > 0.5) { // ignorer les micro-différences < 0.5 pt
+          yOffset += gained;
+          $.writeln('  slot ' + n + ' : sous_titres réduit de ' +
+                    Math.round(gained / MM_TO_PT * 10) / 10 + ' mm');
+        }
       }
     }
   }
 
-  if (yOffset > 0) {
-    $.writeln('[sommaire] Page "' + page.name + '" : ' +
-      Math.round(yOffset / MM_TO_PT * 10) / 10 + ' mm récupérés');
-  }
+  var totalGainMm = Math.round(yOffset / MM_TO_PT * 10) / 10;
+  $.writeln('  → ' + visible + ' slot(s) visible(s), ' + hidden + ' masqué(s), ' +
+            totalGainMm + ' mm récupérés');
 }
 
-// ── Utilitaires ──────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Utilitaires
+// ─────────────────────────────────────────────────────────────────────────────
 
-function findFrame(page, name) {
+/**
+ * Cherche un cadre par son nom UNIQUEMENT dans les items de la page donnée.
+ * Ignore les cadres d'autres pages ou du gabarit (master page).
+ */
+function findFrameOnPage(page, name) {
   try {
-    var items = page.allPageItems;
+    var items = page.pageItems;          // items directs sur cette page (hors gabarit)
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].name === name) return items[i];
+      // Chercher aussi dans les groupes éventuels
+      if (items[i].constructor.name === 'Group' || items[i].hasOwnProperty('pageItems')) {
+        var found = findInGroup(items[i], name);
+        if (found) return found;
+      }
+    }
+    // Fallback : inclure les items du gabarit si non trouvé
+    var allItems = page.allPageItems;
+    for (var j = 0; j < allItems.length; j++) {
+      if (allItems[j].name === name) return allItems[j];
+    }
+  } catch(e) {
+    $.writeln('  findFrameOnPage error: ' + e.message);
+  }
+  return null;
+}
+
+function findInGroup(group, name) {
+  try {
+    var items = group.pageItems || group.allPageItems;
     for (var i = 0; i < items.length; i++) {
       if (items[i].name === name) return items[i];
     }
@@ -108,12 +182,12 @@ function findFrame(page, name) {
   return null;
 }
 
-function getFrameText(frame) {
+function getContent(frame) {
   if (!frame) return '';
-  try { return frame.contents || ''; } catch(e) { return ''; }
+  try { return (frame.contents || '').toString().replace(/\s/g, ''); } catch(e) { return ''; }
 }
 
-function getFrameHeight(frame) {
+function frameHeight(frame) {
   if (!frame) return 0;
   try {
     var b = frame.geometricBounds; // [y1, x1, y2, x2]
@@ -121,29 +195,29 @@ function getFrameHeight(frame) {
   } catch(e) { return 0; }
 }
 
-function setFrameHeight(frame, heightPt) {
+function setFrameHeight(frame, hPt) {
   if (!frame) return;
   try {
     var b = frame.geometricBounds;
-    frame.geometricBounds = [b[0], b[1], b[0] + heightPt, b[3]];
+    frame.geometricBounds = [b[0], b[1], b[0] + hPt, b[3]];
   } catch(e) {}
 }
 
-function fitFrameToContent(frame) {
+function fitToContent(frame) {
   if (!frame) return;
   try {
-    // Forcer l'auto-size du cadre texte si disponible (CS6+)
-    if (frame.textFramePreferences) {
+    // CS6+ : auto-size en hauteur uniquement
+    if (frame.textFramePreferences &&
+        typeof AutoSizingTypeEnum !== 'undefined') {
       frame.textFramePreferences.autoSizingType = AutoSizingTypeEnum.HEIGHT_ONLY;
     }
     frame.fit(FitOptions.FRAME_TO_CONTENT);
   } catch(e) {
-    // Fallback : ajuster manuellement à partir du nombre de lignes
     try { frame.fit(FitOptions.FRAME_TO_CONTENT); } catch(e2) {}
   }
 }
 
-function moveFrameUp(frame, deltaPt) {
+function moveUp(frame, deltaPt) {
   if (!frame) return;
   try {
     var b = frame.geometricBounds;
@@ -151,7 +225,7 @@ function moveFrameUp(frame, deltaPt) {
   } catch(e) {}
 }
 
-function setVisible(frame, visible) {
+function setVisible(frame, v) {
   if (!frame) return;
-  try { frame.visible = visible; } catch(e) {}
+  try { frame.visible = v; } catch(e) {}
 }

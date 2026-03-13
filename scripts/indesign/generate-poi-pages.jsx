@@ -91,10 +91,10 @@ var FRAME_LINK_FIELDS  = {
 var GABARIT_NAMES = {
     "COUVERTURE":              "A-COUVERTURE",
     "PRESENTATION_GUIDE":      "B-PRESENTATION_GUIDE",
-    "SOMMAIRE":                "C-SOMMAIRE",        // <-- adapter au nom reel de votre gabarit
-    "PRESENTATION_DESTINATION":"D-PRESENTATION_DESTINATION",
+    "SOMMAIRE":                "F-SOMMAIRE",
+    "PRESENTATION_DESTINATION":"C-PRESENTATION_DESTINATION",
     "CARTE_DESTINATION":       "E-CARTE_DESTINATION",
-    "CLUSTER":                 "F-CLUSTER",
+    "CLUSTER":                 "D-CLUSTER",
     "POI":                     "G-POI",
     "INSPIRATION":             "H-INSPIRATION",
     "SAISON":                  "I-SAISON",

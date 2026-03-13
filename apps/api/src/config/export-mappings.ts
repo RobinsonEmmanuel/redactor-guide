@@ -79,6 +79,15 @@ export const PICTO_VALUE_MAPPINGS: Record<string, PictoMapping> = {
   'POI_picto_famille:non': { picto_key: null,             label: ''                           },
   'POI_picto_6:oui':       { picto_key: 'PICTO_FAMILLE', label: 'Activités enfants/familles' },
   'POI_picto_6:non':       { picto_key: null,             label: ''                           },
+
+  // ── Réservation obligatoire ──────────────────────────────────────────────
+  // Valeurs acceptées : 'oui' (minuscules) ou 'Oui' (capitalisation IA)
+  'POI_picto_reservation:oui': { picto_key: 'PICTO_RESERVATION', label: 'Réservation obligatoire' },
+  'POI_picto_reservation:non': { picto_key: null,                 label: ''                        },
+  'POI_picto_7:oui':           { picto_key: 'PICTO_RESERVATION', label: 'Réservation obligatoire' },
+  'POI_picto_7:non':           { picto_key: null,                 label: ''                        },
+  'POI_picto_7:Oui':           { picto_key: 'PICTO_RESERVATION', label: 'Réservation obligatoire' },
+  'POI_picto_7:Non':           { picto_key: null,                 label: ''                        },
 };
 
 /** Retourne le mapping picto pour un champ et sa valeur */
@@ -121,6 +130,14 @@ const VARIANT_LAYER_FALLBACK: Record<string, string | null> = {
   'POI_picto_famille:non':      null,
   'POI_picto_6:oui':            'picto_famille',
   'POI_picto_6:non':            null,
+
+  // ── Réservation obligatoire ──────────────────────────────────────────────
+  'POI_picto_reservation:oui': 'picto_reservation',
+  'POI_picto_reservation:non': null,
+  'POI_picto_7:oui':           'picto_reservation',
+  'POI_picto_7:non':           null,
+  'POI_picto_7:Oui':           'picto_reservation',
+  'POI_picto_7:Non':           null,
 };
 
 /** Résout variant_layer depuis le mapping de fallback (quand option_layers absent du template) */

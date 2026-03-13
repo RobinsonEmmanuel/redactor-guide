@@ -80,76 +80,143 @@ type FieldServiceHandler = (ctx: FieldServiceContext) => Promise<FieldServiceRes
 /**
  * Générateur de table des matières (Sommaire).
  *
- * Produit un tableau plat de 16 entrées max (ou fieldDef.max_repetitions) :
- *   [{ titre, page, sous_titres }, ...]
+ * Produit le tableau d'entrées correspondant à UNE page du sommaire.
+ * Le numéro de page (page_index) et le nombre d'entrées par page (entries_per_page)
+ * proviennent de currentPage.metadata (posés par CheminDeFerBuilderService).
  *
- * Règles de regroupement :
- *   - Pages INSPIRATION → une seule entrée "Inspirations" (page = 1ère inspiration)
- *     avec tous les titres en sous_titres (séparés par \n)
- *   - Pages SAISON      → une seule entrée "Saisons" (page = 1ère saison)
- *     avec tous les titres en sous_titres
+ * Structure du sommaire générée :
+ *   - Pages fixes non-exclues → 1 entrée individuelle
+ *   - Section clusters → 1 entrée groupée (section_title ou "Lieux par zones")
+ *       sous_titres = noms des clusters séparés par \n
+ *   - Section inspirations → 1 entrée groupée (section_title ou "Inspirations")
+ *       sous_titres = titres des inspirations séparés par \n
+ *   - Section saisons → 1 entrée groupée (section_title ou "Saisons")
+ *       sous_titres = noms des saisons séparés par \n
  *   - Pages POI, COUVERTURE, SOMMAIRE → exclues
- *   - Tout le reste (sections, clusters, ALLER_PLUS_LOIN, A_PROPOS…) → entrée individuelle
+ *
+ * Les numéros de page sont calculés à l'export à partir de allExportedPages
+ * (source de vérité : page_number réel de chaque page dans le guide final).
  *
  * Les slots vides sont remplis avec { titre:'', page:'', sous_titres:'' }
- * pour que le script InDesign puisse masquer les cadres correspondants.
+ * pour que le script InDesign masque les cadres correspondants.
  */
 async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldServiceResult> {
-  const { allExportedPages, fieldDef } = ctx;
-  const MAX_SLOTS = fieldDef?.max_repetitions ?? 16;
+  const { allExportedPages, fieldDef, currentPage } = ctx;
+
+  // Paramètres de pagination (issus des métadonnées posées par le builder)
+  const entriesPerPage: number = (currentPage as any).metadata?.entries_per_page
+    ?? fieldDef?.entries_per_page
+    ?? fieldDef?.max_repetitions
+    ?? 12;
+  const pageIndex: number = (currentPage as any).metadata?.page_index ?? 1;
 
   type SommaireEntry = { titre: string; page: string; sous_titres: string };
+  const fmt = (n: number) => String(n).padStart(2, '0');
 
-  // ── Pré-collecte des groupes Inspirations et Saisons ──────────────────────
-  const inspirationItems: string[] = [];
-  let inspirationFirstPage: number | null = null;
-  const saisonItems: string[] = [];
-  let saisonFirstPage: number | null = null;
+  // ── Pré-collecte des groupes (clusters, inspirations, saisons) ────────────
+  // On collecte les sous-lignes et la première page de chaque groupe en un seul
+  // parcours AVANT de construire la liste ordonnée.
+
+  const clusterItems: string[]      = [];
+  let   clusterFirstPage: number | null = null;
+  const clusterSeen = new Set<string>();
+
+  const inspirationItems: string[]  = [];
+  let   inspirationFirstPage: number | null = null;
+  const inspirationSeen = new Set<string>();
+
+  const saisonItems: string[]       = [];
+  let   saisonFirstPage: number | null = null;
+  const saisonSeen = new Set<string>();
+
+  // Section titles (resolved from page.section field at runtime)
+  let clusterSectionTitle      = 'Lieux par zones';
+  let inspirationSectionTitle  = 'Inspirations';
+  let saisonSectionTitle       = 'Saisons';
 
   for (const page of allExportedPages) {
     const tpl = (page.template || '').toUpperCase();
     const pt  = (page.entity_meta?.page_type || '').toLowerCase();
 
-    if (tpl.includes('INSPIRATION') || pt === 'inspiration') {
-      if (inspirationFirstPage === null) inspirationFirstPage = page.page_number;
-      const t = page.titre || page.entity_meta?.inspiration_title || '';
-      if (t) inspirationItems.push(t);
+    // Clusters : on ne collecte que les pages intro cluster (pas les pages POI)
+    if (pt === 'cluster_intro' || tpl.startsWith('CLUSTER')) {
+      if (clusterFirstPage === null) {
+        clusterFirstPage = page.page_number;
+        if (page.section) clusterSectionTitle = page.section;
+      }
+      const name = page.entity_meta?.cluster_name || page.titre || '';
+      if (name && !clusterSeen.has(name)) {
+        clusterSeen.add(name);
+        clusterItems.push(name);
+      }
     }
+
+    if (tpl.includes('INSPIRATION') || pt === 'inspiration') {
+      if (inspirationFirstPage === null) {
+        inspirationFirstPage = page.page_number;
+        if (page.section) inspirationSectionTitle = page.section;
+      }
+      const t = page.entity_meta?.inspiration_title || page.titre || '';
+      if (t && !inspirationSeen.has(t)) {
+        inspirationSeen.add(t);
+        inspirationItems.push(t);
+      }
+    }
+
     if (tpl.includes('SAISON') || pt === 'saison') {
-      if (saisonFirstPage === null) saisonFirstPage = page.page_number;
-      const t = page.titre || '';
-      if (t) saisonItems.push(t);
+      if (saisonFirstPage === null) {
+        saisonFirstPage = page.page_number;
+        if (page.section) saisonSectionTitle = page.section;
+      }
+      const t = page.entity_meta?.season || page.titre || '';
+      if (t && !saisonSeen.has(t)) {
+        saisonSeen.add(t);
+        saisonItems.push(t);
+      }
     }
   }
 
-  // ── Construction de la liste ordonnée ─────────────────────────────────────
-  const entries: SommaireEntry[] = [];
+  // ── Construction de la liste ordonnée (toutes entrées, toutes pages) ───────
+  const allEntries: SommaireEntry[] = [];
+  let clusterInserted     = false;
   let inspirationInserted = false;
-  let saisonInserted = false;
-
-  const fmt = (n: number) => String(n).padStart(2, '0');
+  let saisonInserted      = false;
 
   for (const page of allExportedPages) {
     const tpl = (page.template || '').toUpperCase();
     const pt  = (page.entity_meta?.page_type || '').toLowerCase();
 
     // Pages exclues du sommaire
-    const skip =
-      pt === 'poi' ||
-      tpl.startsWith('POI') ||
-      tpl.startsWith('COUVERTURE') ||
-      tpl.startsWith('SOMMAIRE');
+    if (
+      pt === 'poi'       || tpl.startsWith('POI')       ||
+      tpl.startsWith('COUVERTURE')                       ||
+      tpl.startsWith('SOMMAIRE')                         ||
+      pt === 'sommaire'
+    ) continue;
 
-    if (skip) continue;
-
+    const isCluster     = pt === 'cluster_intro' || tpl.startsWith('CLUSTER');
     const isInspiration = tpl.includes('INSPIRATION') || pt === 'inspiration';
     const isSaison      = tpl.includes('SAISON')      || pt === 'saison';
 
+    // ── Entrée groupée : clusters ──────────────────────────────────────────
+    if (isCluster) {
+      if (!clusterInserted && clusterFirstPage !== null) {
+        clusterInserted = true;
+        allEntries.push({
+          titre:       clusterSectionTitle,
+          page:        fmt(clusterFirstPage),
+          sous_titres: clusterItems.join('\n'),
+        });
+      }
+      continue;
+    }
+
+    // ── Entrée groupée : inspirations ──────────────────────────────────────
     if (isInspiration) {
       if (!inspirationInserted && inspirationFirstPage !== null) {
         inspirationInserted = true;
-        entries.push({
-          titre:       'Inspirations',
+        allEntries.push({
+          titre:       inspirationSectionTitle,
           page:        fmt(inspirationFirstPage),
           sous_titres: inspirationItems.join('\n'),
         });
@@ -157,11 +224,12 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
       continue;
     }
 
+    // ── Entrée groupée : saisons ───────────────────────────────────────────
     if (isSaison) {
       if (!saisonInserted && saisonFirstPage !== null) {
         saisonInserted = true;
-        entries.push({
-          titre:       'Saisons',
+        allEntries.push({
+          titre:       saisonSectionTitle,
           page:        fmt(saisonFirstPage),
           sous_titres: saisonItems.join('\n'),
         });
@@ -169,25 +237,36 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
       continue;
     }
 
-    // Entrée individuelle : résoudre le titre depuis le contenu ou le titre de la page
+    // ── Entrée individuelle (page fixe non groupée) ────────────────────────
+    // Priorité : contenu du champ titre > titre de la page > fallback
     const titre =
-      page.content?.text?.['CLUSTER_titre_1'] ||
-      page.content?.text?.['SECTION_INTRO_titre_section'] ||
-      page.content?.text?.['PRESENTATION_GUIDE_titre_1'] ||
+      page.content?.text?.['PRESENTATION_GUIDE_titre_1']       ||
       page.content?.text?.['PRESENTATION_DESTINATION_titre_1'] ||
-      page.titre ||
+      page.content?.text?.['SECTION_INTRO_titre_section']      ||
+      page.content?.text?.['ALLER_PLUS_LOIN_titre_1']          ||
+      page.content?.text?.['A_PROPOS_RL_titre_1']              ||
+      page.titre                                                ||
       `Page ${page.page_number}`;
 
-    entries.push({ titre, page: fmt(page.page_number), sous_titres: '' });
+    allEntries.push({ titre, page: fmt(page.page_number), sous_titres: '' });
   }
 
-  // ── Remplissage des slots vides jusqu'à MAX_SLOTS ─────────────────────────
-  while (entries.length < MAX_SLOTS) {
-    entries.push({ titre: '', page: '', sous_titres: '' });
+  // ── Découpe de la tranche correspondant à cette page du sommaire ──────────
+  const startIdx   = (pageIndex - 1) * entriesPerPage;
+  const pageSlice  = allEntries.slice(startIdx, startIdx + entriesPerPage);
+
+  // Remplir les slots vides jusqu'à entriesPerPage
+  while (pageSlice.length < entriesPerPage) {
+    pageSlice.push({ titre: '', page: '', sous_titres: '' });
   }
 
-  console.log(`[sommaire_generator] ${entries.filter(e => e.titre).length} entrée(s) / ${MAX_SLOTS} slots`);
-  return { value: JSON.stringify(entries.slice(0, MAX_SLOTS)) };
+  console.log(
+    `[sommaire_generator] Page ${pageIndex}: ` +
+    `${pageSlice.filter(e => e.titre).length}/${entriesPerPage} entrées ` +
+    `(total ${allEntries.length} sur toutes pages)`
+  );
+
+  return { value: JSON.stringify(pageSlice) };
 }
 
 // Singleton partagé entre les handlers (pas d'état, safe)

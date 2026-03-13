@@ -84,6 +84,7 @@ export class CheminDeFerBuilderService {
           guideId,
           block,
           context,
+          guideTemplate,
           currentOrder
         );
         pages.push(...sectionPages);
@@ -140,48 +141,45 @@ export class CheminDeFerBuilderService {
     guideId: string,
     block: any,
     context: BuildContext,
+    guideTemplate: GuideTemplate,
     startOrder: number
   ): Promise<PageDocument[]> {
     const pages: PageDocument[] = [];
     const sectionId = `section_${block.name}_${Date.now()}`;
 
     switch (block.source) {
-      case 'clusters':
-        // Section lieux par zones
+      case 'clusters': {
         const clusterPages = await this.createClusterPages(
-          guideId,
-          block,
-          context,
-          sectionId,
-          startOrder
+          guideId, block, context, sectionId, startOrder
         );
         pages.push(...clusterPages);
         break;
-
-      case 'inspirations':
-        // Section inspirations
+      }
+      case 'inspirations': {
         const inspirationPages = await this.createInspirationPages(
-          guideId,
-          block,
-          context,
-          sectionId,
-          startOrder
+          guideId, block, context, sectionId, startOrder
         );
         pages.push(...inspirationPages);
         break;
-
-      case 'none':
+      }
+      case 'sommaire': {
+        // Nombre de pages calculé dynamiquement selon le contenu réel du guide
+        const sommairePages = await this.createSommairePages(
+          guideId, block, context, guideTemplate, sectionId, startOrder
+        );
+        pages.push(...sommairePages);
+        break;
+      }
+      case 'none': {
         // Section fixe répétée (ex: saisons)
         if (block.pages_count && block.template_name) {
           const fixedPages = await this.createRepeatedFixedPages(
-            guideId,
-            block,
-            sectionId,
-            startOrder
+            guideId, block, sectionId, startOrder
           );
           pages.push(...fixedPages);
         }
         break;
+      }
     }
 
     return pages;
@@ -368,7 +366,6 @@ export class CheminDeFerBuilderService {
 
     console.log(`  📄 ${pagesCount} pages répétées avec template "${templateName}"`);
 
-    // Métadonnées spécifiques selon le type de section
     const specificMetadata: any[] = [];
     if (block.name === 'saisons') {
       specificMetadata.push(
@@ -386,7 +383,7 @@ export class CheminDeFerBuilderService {
         startOrder + i,
         block.section_title
       );
-      page.page_id = `saison_${i}`;
+      page.page_id = `${block.name ?? 'repeated'}_${i}`;
       page.section_id = sectionId;
       page.metadata = {
         ...page.metadata,
@@ -398,5 +395,85 @@ export class CheminDeFerBuilderService {
     }
 
     return pages;
+  }
+
+  /**
+   * Crée N pages de sommaire dynamiques.
+   * Le nombre de pages est calculé automatiquement à partir du contenu réel du guide :
+   * - On compte les entrées de premier niveau (pages fixes + 1 par section groupée)
+   * - On divise par entries_per_page (défaut 12) pour obtenir le nombre de pages
+   *
+   * Les numéros de page définitifs sont calculés à l'export (via allExportedPages),
+   * pas ici. Le builder positionne uniquement les pages dans le chemin de fer.
+   */
+  private async createSommairePages(
+    guideId: string,
+    block: any,
+    context: BuildContext,
+    guideTemplate: GuideTemplate,
+    sectionId: string,
+    startOrder: number
+  ): Promise<PageDocument[]> {
+    const pages: PageDocument[] = [];
+    const entriesPerPage: number = block.entries_per_page ?? 12;
+    const templateName: string  = block.template_name ?? 'SOMMAIRE';
+
+    // Compter les entrées attendues pour déterminer le nombre de pages
+    const nbEntries  = this.countExpectedSommaireEntries(guideTemplate, context);
+    const pagesCount = Math.max(1, Math.ceil(nbEntries / entriesPerPage));
+
+    console.log(`  📑 Sommaire dynamique: ~${nbEntries} entrées → ${pagesCount} page(s) à ${entriesPerPage} entrées/page`);
+
+    for (let i = 0; i < pagesCount; i++) {
+      const page = await this.createFixedPage(guideId, templateName, startOrder + i, block.section_title);
+      page.page_id    = `sommaire_${i + 1}`;
+      page.section_id = sectionId;
+      page.metadata   = {
+        ...page.metadata,
+        page_type:       'sommaire',
+        page_index:      i + 1,
+        total_pages:     pagesCount,
+        entries_per_page: entriesPerPage,
+      };
+      pages.push(page);
+    }
+
+    return pages;
+  }
+
+  /**
+   * Estime le nombre d'entrées de premier niveau dans le sommaire pour ce guide.
+   *
+   * Règles identiques au générateur (field-service-runner) :
+   *   - Pages fixes non-exclues → 1 entrée chacune
+   *   - Section clusters (si des clusters existent) → 1 entrée groupée
+   *   - Section inspirations (si des inspirations existent) → 1 entrée groupée
+   *   - Section saisons (source:'none', name:'saisons') → 1 entrée groupée
+   *   - Section sommaire → non comptée
+   *   - POI, COUVERTURE, SOMMAIRE → exclus
+   */
+  private countExpectedSommaireEntries(guideTemplate: GuideTemplate, context: BuildContext): number {
+    let count = 0;
+
+    for (const block of guideTemplate.structure) {
+      if (block.type === 'fixed_page') {
+        const name = (block.template_name ?? '').toUpperCase();
+        if (name.startsWith('POI') || name.startsWith('COUVERTURE') || name.startsWith('SOMMAIRE')) continue;
+        count++;
+      } else if (block.type === 'section') {
+        if (block.source === 'sommaire') continue; // la page sommaire elle-même n'y figure pas
+
+        if (block.source === 'clusters') {
+          if ((context.clusters?.clusters_metadata?.length ?? 0) > 0) count++;
+        } else if (block.source === 'inspirations') {
+          if ((context.inspirations?.inspirations?.length ?? 0) > 0) count++;
+        } else if (block.source === 'none') {
+          // Saisons et autres sections fixes répétées → 1 entrée groupée
+          if ((block.pages_count ?? 0) > 0) count++;
+        }
+      }
+    }
+
+    return Math.max(count, 1);
   }
 }

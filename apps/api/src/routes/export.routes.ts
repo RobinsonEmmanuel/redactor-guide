@@ -228,15 +228,17 @@ export async function exportRoutes(fastify: FastifyInstance) {
         // JSON enrichi (avec champs "local" remplis)
         archive.append(JSON.stringify(enriched, null, 2), { name: jsonName });
 
-        // CSV de redirections (URL normalisée → URL destination)
+        // CSV de redirections au format WP Engine bulk import :
+        // source (chemin seul),destination (URL complète) — sans en-tête, une règle par ligne
         if (rawExport.redirectPairs && rawExport.redirectPairs.length > 0) {
-          const csvLines = ['url_normalisee,url_destination'];
+          const csvLines: string[] = [];
           for (const pair of rawExport.redirectPairs) {
-            csvLines.push(`"${pair.normalized}","${pair.destination}"`);
+            const srcPath = (() => { try { return new URL(pair.normalized).pathname; } catch { return pair.normalized; } })();
+            csvLines.push(`${srcPath},${pair.destination}`);
           }
           const csvName = `redirections_${dest}_${rawExport.meta.year}_${lang}.csv`;
           archive.append(csvLines.join('\n'), { name: csvName });
-          fastify.log.info(`📋 Redirections : ${rawExport.redirectPairs.length} paire(s) → ${csvName}`);
+          fastify.log.info(`📋 Redirections WPEngine : ${rawExport.redirectPairs.length} règle(s) → ${csvName}`);
         }
 
         // Dossier images (preserve la structure images/poi/, images/cluster/…)
@@ -291,9 +293,11 @@ export async function exportRoutes(fastify: FastifyInstance) {
         const dest    = rawExport.meta.destination.toLowerCase().replace(/\s+/g, '_');
         const csvName = `redirections_${dest}_${rawExport.meta.year}_${lang}.csv`;
 
-        const csvLines = ['url_normalisee,url_destination'];
+        // Format WP Engine bulk import : chemin source,URL destination — sans en-tête
+        const csvLines: string[] = [];
         for (const pair of rawExport.redirectPairs) {
-          csvLines.push(`"${pair.normalized}","${pair.destination}"`);
+          const srcPath = (() => { try { return new URL(pair.normalized).pathname; } catch { return pair.normalized; } })();
+          csvLines.push(`${srcPath},${pair.destination}`);
         }
         const csvContent = csvLines.join('\n');
 

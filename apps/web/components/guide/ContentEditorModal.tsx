@@ -258,6 +258,7 @@ export default function ContentEditorModal({
     fieldName: string; idx: number; sfName: string; poiName: string;
   } | null>(null);
   const [recalculatingFields, setRecalculatingFields] = useState<Set<string>>(new Set());
+  const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
   const [refreshingPois, setRefreshingPois]           = useState(false);
   const [validating, setValidating] = useState(false);
   const [validationReport, setValidationReport] = useState<any | null>(null);
@@ -437,6 +438,8 @@ export default function ContentEditorModal({
   const handleImageSelected = (imageUrl: string) => {
     if (currentImageField) {
       handleFieldChange(currentImageField, imageUrl);
+      // Réinitialiser l'état d'erreur pour ce champ (nouvelle image fraîche)
+      setImageErrors(prev => { const s = new Set(prev); s.delete(currentImageField); return s; });
     }
   };
 
@@ -450,7 +453,8 @@ export default function ContentEditorModal({
     } catch { items = []; }
     const next = [...items];
     next[idx] = { ...next[idx], [sfName]: imageUrl };
-    handleFieldChange(fieldName, next);
+    // Sérialiser en JSON string pour rester cohérent avec le format lu via JSON.parse ailleurs
+    handleFieldChange(fieldName, JSON.stringify(next));
     setCurrentRepetitifImageRef(null);
   };
 
@@ -748,40 +752,38 @@ export default function ContentEditorModal({
             </div>
 
             {fieldValue && (
+              // key forcé : force le remontage React lors du passage null → image
               <div
-                className="mt-3 relative group cursor-pointer inline-block"
-                onClick={() => handleOpenImageSelector(field.name)}
+                key={`${field.name}-preview-${fieldValue}`}
+                className="mt-3 cursor-pointer"
+                onClick={() => { setImageErrors(prev => { const s = new Set(prev); s.delete(field.name); return s; }); handleOpenImageSelector(field.name); }}
               >
-                <img
-                  src={fieldValue}
-                  alt={field.label}
-                  className="max-h-48 rounded-lg border border-gray-200 shadow-sm group-hover:opacity-80 transition-opacity block"
-                  referrerPolicy="no-referrer"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.style.display = 'none';
-                    const container = target.parentElement;
-                    if (container) {
-                      const placeholder = document.createElement('div');
-                      placeholder.className = 'flex items-center gap-3 px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors';
-                      placeholder.innerHTML = `
-                        <svg class="w-8 h-8 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                        <div>
-                          <p class="text-xs font-medium text-gray-700">Image non prévisualisable</p>
-                          <p class="text-[11px] text-gray-400 mt-0.5 break-all line-clamp-1">${fieldValue}</p>
-                          <p class="text-[11px] text-purple-600 mt-1">Cliquer pour changer →</p>
-                        </div>
-                      `;
-                      container.appendChild(placeholder);
-                    }
-                  }}
-                />
-                <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition-all rounded-lg pointer-events-none">
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5">
-                    <PhotoIcon className="h-4 w-4" />
-                    Changer l'image
+                {imageErrors.has(field.name) ? (
+                  <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors">
+                    <PhotoIcon className="w-8 h-8 text-gray-400 flex-shrink-0" />
+                    <div>
+                      <p className="text-xs font-medium text-gray-700">Image non prévisualisable</p>
+                      <p className="text-[11px] text-gray-400 mt-0.5 break-all line-clamp-1">{fieldValue}</p>
+                      <p className="text-[11px] text-purple-600 mt-1">Cliquer pour changer →</p>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="relative group inline-block">
+                    <img
+                      src={fieldValue}
+                      alt={field.label}
+                      className="max-h-48 rounded-lg border border-gray-200 shadow-sm group-hover:opacity-80 transition-opacity block"
+                      referrerPolicy="no-referrer"
+                      onError={() => setImageErrors(prev => new Set([...prev, field.name]))}
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition-all rounded-lg pointer-events-none">
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                        <PhotoIcon className="h-4 w-4" />
+                        Changer l'image
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -159,18 +159,6 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
   useEffect(() => {
     loadTemplates();
     loadArticles();
-    // Pré-remplir url_source avec l'URL du site du guide si le champ est vide
-    if (!formData.url_source) {
-      fetch(`${apiUrl}/api/v1/guides/${guideId}`, { credentials: 'include' })
-        .then(r => r.ok ? r.json() : null)
-        .then(data => {
-          const siteUrl = data?.wpConfig?.siteUrl;
-          if (siteUrl) {
-            setFormData(prev => ({ ...prev, url_source: prev.url_source || siteUrl }));
-          }
-        })
-        .catch(() => {});
-    }
   }, [guideId]);
 
   const loadTemplates = async () => {

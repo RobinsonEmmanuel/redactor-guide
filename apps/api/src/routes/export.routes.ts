@@ -228,6 +228,17 @@ export async function exportRoutes(fastify: FastifyInstance) {
         // JSON enrichi (avec champs "local" remplis)
         archive.append(JSON.stringify(enriched, null, 2), { name: jsonName });
 
+        // CSV de redirections (URL normalisée → URL destination)
+        if (rawExport.redirectPairs && rawExport.redirectPairs.length > 0) {
+          const csvLines = ['url_normalisee,url_destination'];
+          for (const pair of rawExport.redirectPairs) {
+            csvLines.push(`"${pair.normalized}","${pair.destination}"`);
+          }
+          const csvName = `redirections_${dest}_${rawExport.meta.year}_${lang}.csv`;
+          archive.append(csvLines.join('\n'), { name: csvName });
+          fastify.log.info(`📋 Redirections : ${rawExport.redirectPairs.length} paire(s) → ${csvName}`);
+        }
+
         // Dossier images (preserve la structure images/poi/, images/cluster/…)
         const imagesDir = path.join(tempDir, 'images');
         if (fs.existsSync(imagesDir)) {
@@ -248,6 +259,53 @@ export async function exportRoutes(fastify: FastifyInstance) {
         }
         fastify.log.error(error);
         return reply.status(500).send({ error: 'Erreur lors de la génération du ZIP' });
+      }
+    }
+  );
+
+  /**
+   * GET /guides/:guideId/export/redirections.csv
+   * Génère et télécharge uniquement le CSV de redirections (URL normalisée → URL destination).
+   * Utile pour configurer les règles de redirection côté hébergeur sans télécharger le ZIP complet.
+   *
+   * Query params:
+   *   - lang : code langue (défaut: fr)
+   */
+  fastify.get<{
+    Params: { guideId: string };
+    Querystring: { lang?: string };
+  }>(
+    '/guides/:guideId/export/redirections.csv',
+    async (request, reply) => {
+      const { guideId } = request.params;
+      const { lang = 'fr' } = request.query;
+      const db = request.server.container.db;
+
+      if (!ObjectId.isValid(guideId)) {
+        return reply.status(400).send({ error: 'Guide ID invalide' });
+      }
+
+      try {
+        const rawExport = await exportService.buildGuideExport(guideId, db, { language: lang });
+
+        const dest    = rawExport.meta.destination.toLowerCase().replace(/\s+/g, '_');
+        const csvName = `redirections_${dest}_${rawExport.meta.year}_${lang}.csv`;
+
+        const csvLines = ['url_normalisee,url_destination'];
+        for (const pair of rawExport.redirectPairs) {
+          csvLines.push(`"${pair.normalized}","${pair.destination}"`);
+        }
+        const csvContent = csvLines.join('\n');
+
+        reply.header('Content-Type', 'text/csv; charset=utf-8');
+        reply.header('Content-Disposition', `attachment; filename="${csvName}"`);
+        return reply.send(csvContent);
+      } catch (error: any) {
+        if (error.message === 'Guide non trouvé') {
+          return reply.status(404).send({ error: 'Guide non trouvé' });
+        }
+        fastify.log.error(error);
+        return reply.status(500).send({ error: 'Erreur lors de la génération du CSV de redirections' });
       }
     }
   );

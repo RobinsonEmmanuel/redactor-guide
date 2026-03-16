@@ -66,3 +66,32 @@ export function buildLinkField(label: string, url: string): string {
 export function isLinkField(value: unknown): boolean {
   return parseLinkField(value) !== null;
 }
+
+/**
+ * Transforme une URL d'article en URL normalisée stable pour les hyperliens InDesign.
+ * Forme : https://{host}/guide/{lang}/{slug}/
+ * Le slug est le dernier segment non vide du chemin de l'URL source.
+ *
+ * Exemple :
+ *   normalizeArticleUrl('https://loirelovers.fr/elephant-machines-ile-nantes-visite/', 'fr')
+ *   → 'https://loirelovers.fr/guide/fr/elephant-machines-ile-nantes-visite/'
+ *
+ * Retourne l'URL d'origine inchangée si elle ne peut pas être parsée ou si le slug est vide.
+ */
+export function normalizeArticleUrl(rawUrl: string, lang: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const slug = parsed.pathname.split('/').filter(Boolean).pop();
+    if (!slug) return rawUrl;
+    return `${parsed.protocol}//${parsed.host}/guide/${lang}/${slug}/`;
+  } catch {
+    return rawUrl;
+  }
+}
+
+/**
+ * Retourne true si l'URL pointe vers Google Maps (ne doit pas être normalisée).
+ */
+export function isGoogleMapsUrl(url: string): boolean {
+  return /maps\.google|goo\.gl|google\.com\/maps/i.test(url);
+}

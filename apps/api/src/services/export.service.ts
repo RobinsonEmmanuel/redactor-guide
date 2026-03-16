@@ -15,12 +15,19 @@ import {
   type ExportedPageSnapshot,
 } from './field-service-runner.service.js';
 import { COLLECTIONS } from '../config/collections.js';
-import { parseLinkField, buildLinkField } from '../utils/link-field.js';
+import { parseLinkField, buildLinkField, normalizeArticleUrl, isGoogleMapsUrl } from '../utils/link-field.js';
 
 const EXPORTED_STATUSES = ['generee_ia', 'relue', 'validee', 'texte_coule', 'visuels_montes'];
 
 export interface ExportOptions {
   language?: string;
+}
+
+export interface RedirectPair {
+  /** URL normalisée stable : https://{host}/guide/{lang}/{slug}/ */
+  normalized: string;
+  /** URL destination réelle (vers laquelle pointer la redirection côté hébergeur) */
+  destination: string;
 }
 
 export class ExportService {
@@ -294,6 +301,70 @@ export class ExportService {
       console.log(`🌐 [EXPORT][${lang}] URLs résolues : ${resolvedCount} ✅  |  fallback FR : ${fallbackCount} ⚠️`);
     }
 
+    // ── 5e. Passe 5 : normalisation des URLs d'articles ───────────────────────
+    // Toutes les URLs d'articles (url_source, champs texte bruts, liens JSON {label,url}
+    // et champs _url_article_N) sont remplacées par leur forme normalisée :
+    //   https://{host}/guide/{lang}/{slug}/
+    // Les URLs Google Maps (champs _url_maps_N) sont exclues.
+    // Cette passe s'applique à TOUTES les langues (y compris FR).
+    //
+    // Les paires (normalisée → destination) sont collectées ici pour
+    // générer le CSV de redirections à l'export ZIP.
+    const redirectMap = new Map<string, string>();
+
+    const trackNormalize = (rawUrl: string): string => {
+      if (!rawUrl || isGoogleMapsUrl(rawUrl)) return rawUrl;
+      const normalized = normalizeArticleUrl(rawUrl, lang);
+      if (normalized !== rawUrl) redirectMap.set(normalized, rawUrl);
+      return normalized;
+    };
+
+    let normalizedCount = 0;
+    for (const page of pages) {
+      // url_source de la page
+      if (page.url_source && /^https?:\/\//i.test(page.url_source)) {
+        const prev = page.url_source;
+        (page as any).url_source = trackNormalize(page.url_source);
+        if ((page as any).url_source !== prev) normalizedCount++;
+      }
+
+      // Champs texte
+      for (const k of Object.keys(page.content.text)) {
+        // Exclure les champs cartes Google Maps
+        if (k.includes('_url_maps_')) continue;
+
+        const v = page.content.text[k];
+        if (!v || typeof v !== 'string') continue;
+
+        if (/^https?:\/\//i.test(v) && !isGoogleMapsUrl(v)) {
+          const prev = v;
+          page.content.text[k] = trackNormalize(v);
+          if (page.content.text[k] !== prev) normalizedCount++;
+        } else if (v.startsWith('{')) {
+          try {
+            const parsed = JSON.parse(v);
+            if (
+              parsed &&
+              typeof parsed.url === 'string' &&
+              /^https?:\/\//i.test(parsed.url) &&
+              !isGoogleMapsUrl(parsed.url)
+            ) {
+              const prev = parsed.url;
+              parsed.url = trackNormalize(parsed.url);
+              if (parsed.url !== prev) normalizedCount++;
+              page.content.text[k] = JSON.stringify(parsed);
+            }
+          } catch { /* JSON invalide → laisser tel quel */ }
+        }
+      }
+    }
+
+    console.log(`🔗 [EXPORT][${lang}] URLs normalisées : ${normalizedCount} | redirections uniques : ${redirectMap.size}`);
+
+    const redirectPairs: RedirectPair[] = Array.from(redirectMap.entries()).map(
+      ([normalized, destination]) => ({ normalized, destination })
+    );
+
     // ── 6. Construire le mapping field→calque depuis les templates réels ──────
     // Priorité : field.indesign_layer > FIELD_LAYER_MAPPINGS > PICTO_LAYER_MAPPINGS > deriveLayerName()
     const dynamicFieldLayers: Record<string, string> = {};
@@ -343,6 +414,9 @@ export class ExportService {
       },
 
       pages,
+
+      /** Paires URL normalisée → URL destination pour générer le CSV de redirections */
+      redirectPairs,
     };
   }
 }

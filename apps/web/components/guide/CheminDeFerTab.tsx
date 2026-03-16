@@ -430,6 +430,15 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
   };
 
   const handleCreatePageFromTemplatePage = async (templatePageData: any, targetOrder: number | null = null) => {
+    // Cas groupe : créer toutes les pages en séquence (ex : 2 pages SOMMAIRE)
+    if (templatePageData.isGroup && Array.isArray(templatePageData.pages)) {
+      const baseOrder = targetOrder !== null ? targetOrder : pages.length + 1;
+      for (let i = 0; i < templatePageData.pages.length; i++) {
+        await handleCreatePageFromTemplatePage(templatePageData.pages[i], baseOrder + i);
+      }
+      return;
+    }
+
     try {
       if (process.env.NODE_ENV === 'development') console.log('🎯 [handleCreatePageFromTemplatePage] Données reçues:', {
         titre: templatePageData.titre,
@@ -1097,31 +1106,69 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                 return (
                 <>
                   {/* Pages fixes */}
-                  {templateProposals.proposals?.fixed_pages && templateProposals.proposals.fixed_pages.length > 0 && (
-                    <div>
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <DocumentTextIcon className="w-3 h-3 text-blue-600" />
-                        <h4 className="font-semibold text-gray-700 text-xs">
-                          Pages fixes ({templateProposals.proposals.fixed_pages.length})
-                        </h4>
+                  {templateProposals.proposals?.fixed_pages && templateProposals.proposals.fixed_pages.length > 0 && (() => {
+                    // Regrouper les pages ayant le même template_name (ex : 2 × SOMMAIRE)
+                    const byName: Record<string, any[]> = {};
+                    for (const p of templateProposals.proposals.fixed_pages) {
+                      if (!byName[p.template_name]) byName[p.template_name] = [];
+                      byName[p.template_name].push(p);
+                    }
+                    const seen = new Set<string>();
+                    const grouped: any[] = [];
+                    for (const p of templateProposals.proposals.fixed_pages) {
+                      if (seen.has(p.template_name)) continue;
+                      seen.add(p.template_name);
+                      const group = byName[p.template_name];
+                      if (group.length > 1) {
+                        grouped.push({ isGroup: true, template_name: p.template_name, titre: p.titre, pages: group });
+                      } else {
+                        grouped.push(p);
+                      }
+                    }
+                    return (
+                      <div>
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <DocumentTextIcon className="w-3 h-3 text-blue-600" />
+                          <h4 className="font-semibold text-gray-700 text-xs">
+                            Pages fixes ({templateProposals.proposals.fixed_pages.length})
+                          </h4>
+                        </div>
+                        <div className="space-y-1">
+                          {grouped.map((item: any) => {
+                            if (item.isGroup) {
+                              const allPlaced = item.pages.every((p: any) => usedPageIds.has(p.page_id));
+                              return (
+                                <ProposalCardMini
+                                  key={`group-${item.template_name}`}
+                                  id={`group-${item.template_name}`}
+                                  type="template_page"
+                                  title={item.titre}
+                                  description={`${item.template_name} · ${item.pages.length} pages`}
+                                  icon={DocumentTextIcon}
+                                  color="blue"
+                                  templatePage={item}
+                                  isPlaced={allPlaced}
+                                />
+                              );
+                            }
+                            return (
+                              <ProposalCardMini
+                                key={item.page_id}
+                                id={item.page_id}
+                                type="template_page"
+                                title={item.titre}
+                                description={item.template_name}
+                                icon={DocumentTextIcon}
+                                color="blue"
+                                templatePage={item}
+                                isPlaced={usedPageIds.has(item.page_id)}
+                              />
+                            );
+                          })}
+                        </div>
                       </div>
-                      <div className="space-y-1">
-                        {templateProposals.proposals.fixed_pages.map((page: any) => (
-                          <ProposalCardMini
-                            key={page.page_id}
-                            id={page.page_id}
-                            type="template_page"
-                            title={page.titre}
-                            description={page.template_name}
-                            icon={DocumentTextIcon}
-                            color="blue"
-                            templatePage={page}
-                            isPlaced={usedPageIds.has(page.page_id)}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Clusters et POIs groupés */}
                   {templateProposals.proposals?.cluster_pages && templateProposals.proposals.cluster_pages.length > 0 && (

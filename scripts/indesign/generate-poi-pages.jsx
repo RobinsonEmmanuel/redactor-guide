@@ -685,6 +685,7 @@ var ALL_PICTO_LABELS = [
     "picto_toilettes",
     "picto_restauration",
     "picto_famille",
+    "picto_reservation",
     // Variants interet (3 cadres superposes, un par valeur)
     "picto_interet_1",   // Incontournable
     "picto_interet_2",   // Interessant

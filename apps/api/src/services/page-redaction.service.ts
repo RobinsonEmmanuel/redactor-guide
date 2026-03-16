@@ -84,9 +84,16 @@ export class PageRedactionService {
 
       const infoSource: string = template.info_source ?? 'article_source';
 
+      // Une URL racine (ex: https://monsite.fr/) n'est pas un article valide
+      const hasValidArticleUrl = (() => {
+        if (!page.url_source) return false;
+        try { return new URL(page.url_source).pathname.replace(/\//g, '').length > 0; }
+        catch { return false; }
+      })();
+
       if (infoSource === 'article_source') {
         // Mode article spécifique : utilise l'article WordPress lié à la page
-        if (!page.url_source) {
+        if (!hasValidArticleUrl) {
           if (options?.useLlmKnowledge) {
             // Pas de source WordPress : génération depuis la base de connaissance du LLM
             articleContext = `[MODE BASE DE CONNAISSANCE]\nAucun article WordPress source n'est associé à cette page.\nGénère le contenu en te basant uniquement sur tes connaissances générales du lieu "${page.titre ?? 'inconnu'}".\nSois factuel, précis et adopte le ton éditorial habituel de Region Lovers.`;

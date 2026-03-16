@@ -648,7 +648,15 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           template?.info_source === 'article_source' ||
           pageType.startsWith('poi');
 
-        if (needsUrlSource && !page.url_source && !useLlmKnowledge) {
+        // Vérifier que l'URL source pointe vers un article réel (chemin non vide)
+        // Une URL racine (ex: https://monsite.fr/) n'est pas un article valide.
+        const hasValidArticleUrl = (() => {
+          if (!page.url_source) return false;
+          try { return new URL(page.url_source).pathname.replace(/\//g, '').length > 0; }
+          catch { return false; }
+        })();
+
+        if (needsUrlSource && !hasValidArticleUrl && !useLlmKnowledge) {
           return reply.status(400).send({ 
             error: 'Aucun article WordPress source associé à cette page',
             details: 'Veuillez d\'abord associer un article WordPress à cette page via ses paramètres.',

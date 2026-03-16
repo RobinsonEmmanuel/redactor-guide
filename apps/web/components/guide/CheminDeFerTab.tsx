@@ -679,6 +679,21 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
   // pas d'url_source globale — ne pas bloquer la génération pour ce type.
   const TEMPLATES_REQUIRING_URL = ['POI'];
 
+  /**
+   * Une url_source est "valide" (pointe vers un article spécifique) si son
+   * chemin URL contient au moins un segment non vide autre que "/".
+   * Cela évite les faux positifs comme "https://monsite.fr/" (URL racine).
+   */
+  const isValidArticleUrl = (url: string | undefined): boolean => {
+    if (!url) return false;
+    try {
+      const pathname = new URL(url).pathname;
+      return pathname.replace(/\//g, '').length > 0;
+    } catch {
+      return false;
+    }
+  };
+
   const handleOpenContent = async (page: Page) => {
     // Pour les pages sans contenu (draft) : toujours lancer la génération directement
     const hasContent = page.statut_editorial && !['draft'].includes(page.statut_editorial);
@@ -686,10 +701,11 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
       const requiresUrl = TEMPLATES_REQUIRING_URL.some(t =>
         (page.template_name || '').toUpperCase().startsWith(t)
       );
-      if (requiresUrl && !(page as any).url_source) {
-        // Pas d'URL source : afficher la modale de choix du mode de génération
+      if (requiresUrl && !isValidArticleUrl((page as any).url_source)) {
+        // Pas d'URL article valide : afficher la modale de choix du mode de génération
+        // (couvre aussi le cas url_source = URL racine sans chemin d'article)
         setNoUrlModalPage(page);
-        setNoUrlInput('');
+        setNoUrlInput((page as any).url_source || '');
         setShowNoUrlModal(true);
         return;
       }

@@ -344,10 +344,11 @@ export default function ImageSelectorModal({
         throw new Error(err.error ?? `Erreur ${res.status}`);
       }
       const data = await res.json();
-      setSelectedImage(data.url);
+      // Confirmer et fermer directement — l'import implique la sélection
+      onSelect(data.url);
+      onClose();
     } catch (err: any) {
       alert(`Erreur import Drive : ${err.message}`);
-    } finally {
       setImportingFileId(null);
     }
   };
@@ -966,13 +967,10 @@ export default function ImageSelectorModal({
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                         {driveContents.files.map((file) => {
                           const isImporting = importingFileId === file.id;
-                          const isSelected = selectedImage !== null && selectedImage === (importingFileId === null ? selectedImage : '');
                           return (
                             <div
                               key={file.id}
-                              className={`relative rounded-lg border-2 overflow-hidden transition-all ${
-                                isSelected ? 'border-purple-600 ring-2 ring-purple-300' : 'border-gray-200 hover:border-purple-400 hover:shadow-md'
-                              }`}
+                              className="relative rounded-lg border-2 overflow-hidden transition-all border-gray-200 hover:border-purple-400 hover:shadow-md"
                             >
                               <div className="aspect-video bg-gray-100 flex items-center justify-center overflow-hidden">
                                 {file.thumbnailLink ? (

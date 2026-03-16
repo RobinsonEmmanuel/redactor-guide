@@ -610,12 +610,13 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
    */
   fastify.post<{
     Params: { guideId: string; pageId: string };
-    Body: { use_llm_knowledge?: boolean };
+    Body: { use_llm_knowledge?: boolean; link_default_url?: string };
   }>(
     '/guides/:guideId/chemin-de-fer/pages/:pageId/generate-content',
     async (request, reply) => {
       const { guideId, pageId } = request.params;
       const useLlmKnowledge = !!(request.body as any)?.use_llm_knowledge;
+      const linkDefaultUrl: string | undefined = (request.body as any)?.link_default_url || undefined;
       const db = request.server.container.db;
 
       try {
@@ -698,7 +699,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
                 'Content-Type': 'application/json',
                 'Upstash-Retries': '3',
               },
-              body: JSON.stringify({ guideId, pageId, useLlmKnowledge }),
+              body: JSON.stringify({ guideId, pageId, useLlmKnowledge, linkDefaultUrl }),
             });
 
             if (!qstashResponse.ok) {
@@ -742,7 +743,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           }
 
           const redactionService = new PageRedactionService(db, openaiApiKey);
-          const result = await redactionService.generatePageContent(guideId, pageId, { useLlmKnowledge });
+          const result = await redactionService.generatePageContent(guideId, pageId, { useLlmKnowledge, linkDefaultUrl });
 
           if (result.status === 'error') {
             return reply.status(500).send({ error: result.error });

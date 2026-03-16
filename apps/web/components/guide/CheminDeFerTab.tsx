@@ -64,6 +64,14 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
   // Mode grille vide : affiche la grille avec N slots même sans pages en base
   const [emptyGridMode, setEmptyGridMode] = useState(false);
 
+  // Modale de choix du mode de génération (quand aucun article WordPress n'est lié)
+  const [showNoUrlModal, setShowNoUrlModal] = useState(false);
+  const [noUrlModalPage, setNoUrlModalPage] = useState<Page | null>(null);
+  const [noUrlInput, setNoUrlInput] = useState('');
+  const [noUrlSaving, setNoUrlSaving] = useState(false);
+  // URL racine du site (wpConfig.siteUrl) pour le mode LLM
+  const [guideSiteUrl, setGuideSiteUrl] = useState('');
+
   // Polling — useRef pour éviter les closures stale
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -89,9 +97,12 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
   useEffect(() => {
     loadTemplates();
     loadTemplateProposals();
-    // Charger les pages même si guide.chemin_de_fer n'est pas défini :
-    // l'API gère elle-même le cas "CdF non créé" (404 → pages = [])
     loadPages();
+    // Récupérer l'URL racine du site pour le mode LLM
+    fetch(`${apiUrl}/api/v1/guides/${guideId}`, { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.wpConfig?.siteUrl) setGuideSiteUrl(data.wpConfig.siteUrl); })
+      .catch(() => {});
   }, [guideId]);
 
   // ─── Helpers polling (refs → pas de closure stale) ──────────────────────
@@ -676,24 +687,10 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
         (page.template_name || '').toUpperCase().startsWith(t)
       );
       if (requiresUrl && !(page as any).url_source) {
-        // Pas d'URL source : ouvrir le modal pour proposer la génération via base de connaissance LLM
-        // (ne plus bloquer avec une alert, laisser le ContentEditorModal gérer le choix)
-        setEditingContent(page);
-        try {
-          const res = await fetch(
-            `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}/content`,
-            { credentials: 'include' }
-          );
-          if (res.ok) {
-            const data = await res.json();
-            setCurrentPageContent(data.content || {});
-          } else {
-            setCurrentPageContent({});
-          }
-        } catch {
-          setCurrentPageContent({});
-        }
-        setShowContentModal(true);
+        // Pas d'URL source : afficher la modale de choix du mode de génération
+        setNoUrlModalPage(page);
+        setNoUrlInput('');
+        setShowNoUrlModal(true);
         return;
       }
       // Pour les pages inspiration : vérifier la présence des POIs associés
@@ -729,6 +726,64 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
     }
     
     setShowContentModal(true);
+  };
+
+  // Cas n°2a : l'utilisateur saisit une URL et souhaite générer depuis cet article
+  const handleGenerateWithUrl = async () => {
+    if (!noUrlModalPage || !noUrlInput.trim()) return;
+    setNoUrlSaving(true);
+    try {
+      // 1. Sauvegarder l'URL source sur la page
+      const token = document.cookie.split('; ').find(r => r.startsWith('accessToken='))?.split('=')[1];
+      const patchRes = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${noUrlModalPage._id}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          credentials: 'include',
+          body: JSON.stringify({ url_source: noUrlInput.trim() }),
+        }
+      );
+      if (!patchRes.ok) throw new Error('Impossible de sauvegarder l\'URL');
+      // 2. Mettre à jour localement la page et lancer la génération
+      const updatedPage = { ...noUrlModalPage, url_source: noUrlInput.trim() } as Page;
+      setShowNoUrlModal(false);
+      setNoUrlModalPage(null);
+      await handleGeneratePageContent(updatedPage);
+    } catch (err: any) {
+      alert(`Erreur : ${err.message}`);
+    } finally {
+      setNoUrlSaving(false);
+    }
+  };
+
+  // Cas n°2b : génération depuis la base de connaissance LLM
+  // L'URL racine du site est injectée dans les champs lien (HORAIRES, PRIX, PHOTOS…)
+  const handleGenerateWithLlm = async () => {
+    if (!noUrlModalPage) return;
+    setShowNoUrlModal(false);
+    const page = noUrlModalPage;
+    setNoUrlModalPage(null);
+    try {
+      const token = document.cookie.split('; ').find(r => r.startsWith('accessToken='))?.split('=')[1];
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}/generate-content`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          credentials: 'include',
+          body: JSON.stringify({ use_llm_knowledge: true, link_default_url: guideSiteUrl || undefined }),
+        }
+      );
+      const data = await res.json();
+      if (res.ok) {
+        loadPages();
+      } else {
+        alert(`Erreur : ${data.error || 'Impossible de lancer la génération'}`);
+      }
+    } catch {
+      alert('Erreur lors du lancement de la génération');
+    }
   };
 
   const handleGeneratePageContent = async (page: Page) => {
@@ -1499,6 +1554,71 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
           onClose={() => setShowAddPagesModal(false)}
           onConfirm={handleAddMultipleSlots}
         />
+      )}
+
+      {/* Modale de choix du mode de génération (cas sans article WordPress) */}
+      {showNoUrlModal && noUrlModalPage && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">
+              Aucun article source lié
+            </h2>
+            <p className="text-sm text-gray-500 mb-6">
+              La page <span className="font-medium text-gray-700">{noUrlModalPage.titre}</span> n'a pas d'article WordPress associé.
+              Choisissez comment générer son contenu.
+            </p>
+
+            {/* Option A : saisir une URL */}
+            <div className="border border-gray-200 rounded-lg p-4 mb-3">
+              <p className="text-sm font-medium text-gray-800 mb-2">Renseigner une URL d'article</p>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={noUrlInput}
+                  onChange={e => setNoUrlInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && noUrlInput.trim() && handleGenerateWithUrl()}
+                  placeholder="https://monsite.fr/mon-article/"
+                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  autoFocus
+                />
+                <button
+                  onClick={handleGenerateWithUrl}
+                  disabled={!noUrlInput.trim() || noUrlSaving}
+                  className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed whitespace-nowrap"
+                >
+                  {noUrlSaving ? 'Enregistrement…' : 'Générer'}
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 mt-1.5">
+                L'URL sera sauvegardée comme source de la page avant la génération.
+              </p>
+            </div>
+
+            {/* Option B : base de connaissance LLM */}
+            <div className="border border-gray-200 rounded-lg p-4">
+              <p className="text-sm font-medium text-gray-800 mb-1">Générer depuis la base de connaissance du LLM</p>
+              <p className="text-xs text-gray-500 mb-3">
+                Génération sans article source.
+                {guideSiteUrl
+                  ? <> Les liens (HORAIRES, PRIX, PHOTOS…) pointeront vers <span className="font-mono text-gray-700">{guideSiteUrl}</span>.</>
+                  : ' Configurez l\'URL du site dans les paramètres du guide pour renseigner les liens automatiquement.'}
+              </p>
+              <button
+                onClick={handleGenerateWithLlm}
+                className="w-full px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                Générer depuis la base de connaissance
+              </button>
+            </div>
+
+            <button
+              onClick={() => { setShowNoUrlModal(false); setNoUrlModalPage(null); }}
+              className="mt-4 w-full px-4 py-2 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Annuler
+            </button>
+          </div>
+        </div>
       )}
 
     </div>

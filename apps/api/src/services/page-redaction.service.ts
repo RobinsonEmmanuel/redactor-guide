@@ -37,7 +37,7 @@ export class PageRedactionService {
   /**
    * Générer le contenu d'une page via IA avec retry sur échec de validation
    */
-  async generatePageContent(_guideId: string, pageId: string, options?: { useLlmKnowledge?: boolean }): Promise<RedactionResult> {
+  async generatePageContent(_guideId: string, pageId: string, options?: { useLlmKnowledge?: boolean; linkDefaultUrl?: string }): Promise<RedactionResult> {
     try {
       console.log(`🚀 Démarrage rédaction IA pour page ${pageId}`);
 
@@ -304,8 +304,15 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
 
       // 5. Extraire les champs avec valeur par défaut (pas d'appel IA pour ceux-ci)
       // Mapping de variables pour résoudre les placeholders {{...}} dans les valeurs par défaut
+      // En mode LLM sans article source, utiliser linkDefaultUrl (racine du site) comme fallback
+      // pour {{URL_ARTICLE_SOURCE}} dans les champs lien (HORAIRES, PRIX, PHOTOS, etc.)
+      const resolvedArticleUrl =
+        article?.urls_by_lang?.fr || article?.url || article?.urls_by_lang?.en ||
+        (options?.useLlmKnowledge && options?.linkDefaultUrl ? options.linkDefaultUrl : '') ||
+        '';
+
       const earlyFieldVars: Record<string, string> = {
-        URL_ARTICLE_SOURCE:   article?.urls_by_lang?.fr || article?.url || article?.urls_by_lang?.en || '',
+        URL_ARTICLE_SOURCE: resolvedArticleUrl,
         TITRE_ARTICLE_SOURCE: article?.title || '',
         ...extraVars,
       };

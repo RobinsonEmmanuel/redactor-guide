@@ -37,7 +37,7 @@ export class PageRedactionService {
   /**
    * Générer le contenu d'une page via IA avec retry sur échec de validation
    */
-  async generatePageContent(_guideId: string, pageId: string, options?: { useLlmKnowledge?: boolean; linkDefaultUrl?: string }): Promise<RedactionResult> {
+  async generatePageContent(_guideId: string, pageId: string, options?: { useLlmKnowledge?: boolean; linkDefaultUrl?: string; onlyFields?: string[] }): Promise<RedactionResult> {
     try {
       console.log(`🚀 Démarrage rédaction IA pour page ${pageId}`);
 
@@ -404,10 +404,16 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
           .join('\n---\n') || '(aucune image disponible)';
       }
 
-      const templateForAI = { ...template, fields: fieldsForAI };
+      // Si onlyFields est défini, restreindre la génération aux seuls champs ciblés.
+      // Utilisé pour les régénérations partielles (ex: ajout d'un nouveau champ picto).
+      const finalFieldsForAI = options?.onlyFields?.length
+        ? fieldsForAI.filter((f: any) => options.onlyFields!.includes(f.name))
+        : fieldsForAI;
+
+      const templateForAI = { ...template, fields: finalFieldsForAI };
 
       // Si tous les champs ont une valeur par défaut, pas besoin d'appeler l'IA
-      if (fieldsForAI.length === 0) {
+      if (finalFieldsForAI.length === 0) {
         console.log('✅ Tous les champs ont une valeur par défaut — pas d\'appel IA nécessaire');
         return { content: defaultContent, status: 'success', retryCount: 0 };
       }
@@ -421,8 +427,8 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
       // max_output_tokens couvre la réponse visible ; le reasoning interne s'y ajoute.
       // → on alloue au minimum 16k pour laisser de la marge au raisonnement interne,
       //   et on monte selon le nombre de champs (textes longs = plus d'output nécessaire).
-      const estimatedOutputTokens = Math.min(32000, Math.max(16000, fieldsForAI.length * 500 + 2000));
-      console.log(`🎯 Output tokens alloués : ${estimatedOutputTokens} (${fieldsForAI.length} champ(s) à générer)`);
+      const estimatedOutputTokens = Math.min(32000, Math.max(16000, finalFieldsForAI.length * 500 + 2000));
+      console.log(`🎯 Output tokens alloués : ${estimatedOutputTokens} (${finalFieldsForAI.length} champ(s) à générer)`);
 
       const result = await this.generateWithRetry(
         templateForAI,

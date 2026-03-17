@@ -95,3 +95,35 @@ export function normalizeArticleUrl(rawUrl: string, lang: string): string {
 export function isGoogleMapsUrl(url: string): boolean {
   return /maps\.google|goo\.gl|google\.com\/maps/i.test(url);
 }
+
+/**
+ * Retourne true si l'URL est une URL racine (chemin vide ou simple "/").
+ * Permet de distinguer une URL d'article valide d'un simple domaine racine.
+ * Exemple : isRootUrl('https://canarias-lovers.com/') → true
+ *           isRootUrl('https://canarias-lovers.com/mon-article/') → false
+ */
+export function isRootUrl(url: string): boolean {
+  try {
+    return new URL(url).pathname.replace(/\//g, '').length === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Convertit un texte en slug URL :
+ * minuscules, sans accents, tirets à la place des espaces,
+ * uniquement caractères alphanumériques et tirets.
+ * Exemple : slugify('Observatoire Téide') → 'observatoire-teide'
+ */
+export function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')  // supprimer les diacritiques
+    .replace(/[^a-z0-9\s-]/g, '')     // garder alphanum, espaces, tirets
+    .trim()
+    .replace(/[\s_]+/g, '-')           // remplacer espaces/underscores par tirets
+    .replace(/-+/g, '-')               // fusionner tirets consécutifs
+    .replace(/^-|-$/g, '');            // supprimer tirets en début/fin
+}

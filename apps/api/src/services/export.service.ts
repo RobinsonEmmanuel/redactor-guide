@@ -15,7 +15,7 @@ import {
   type ExportedPageSnapshot,
 } from './field-service-runner.service.js';
 import { COLLECTIONS } from '../config/collections.js';
-import { parseLinkField, buildLinkField, normalizeArticleUrl, isGoogleMapsUrl } from '../utils/link-field.js';
+import { parseLinkField, buildLinkField, normalizeArticleUrl, isGoogleMapsUrl, isRootUrl, slugify } from '../utils/link-field.js';
 
 const EXPORTED_STATUSES = ['generee_ia', 'relue', 'validee', 'texte_coule', 'visuels_montes'];
 
@@ -308,10 +308,35 @@ export class ExportService {
     // Les URLs Google Maps (champs _url_maps_N) sont exclues.
     // Cette passe s'applique à TOUTES les langues (y compris FR).
     //
+    // Cas particulier — pages POI sans article lié (url_source = racine du site) :
+    //   Un slug-placeholder est généré depuis le nom du POI + destination du guide :
+    //   https://{host}/guide/{lang}/{slug-poi}-{slug-destination}/
+    //   La paire (URL normalisée → URL racine) est ajoutée au CSV de redirections.
+    //   L'exploitant pourra modifier la destination vers l'URL réelle de l'article
+    //   une fois celui-ci rédigé.
+    //
     // Les paires (normalisée → destination) sont collectées ici pour
     // générer le CSV de redirections à l'export ZIP.
     const redirectMap = new Map<string, string>();
 
+    const guideDestination: string = guide.destinations?.[0] ?? guide.destination ?? '';
+
+    // Pour une page POI dont l'url_source est le domaine racine, construit
+    // une URL normalisée placeholder à partir du nom du POI et de la destination.
+    const buildPoiPlaceholderUrl = (rootUrl: string, poiTitle: string): string => {
+      try {
+        const parsed = new URL(rootUrl);
+        const poiSlug  = slugify(poiTitle || '');
+        const destSlug = slugify(guideDestination);
+        const slug = [poiSlug, destSlug].filter(Boolean).join('-');
+        if (!slug) return rootUrl;
+        return `${parsed.protocol}//${parsed.host}/guide/${lang}/${slug}/`;
+      } catch {
+        return rootUrl;
+      }
+    };
+
+    // Normalisation standard (pour les URLs avec un vrai slug d'article).
     const trackNormalize = (rawUrl: string): string => {
       if (!rawUrl || isGoogleMapsUrl(rawUrl)) return rawUrl;
       const normalized = normalizeArticleUrl(rawUrl, lang);
@@ -319,12 +344,30 @@ export class ExportService {
       return normalized;
     };
 
+    // Normalisation tenant compte du contexte de la page :
+    // • Pour les pages POI dont l'URL est une URL racine → slug depuis le titre.
+    // • Pour toutes les autres URLs avec un slug d'article → normalisation standard.
+    const trackNormalizePage = (
+      rawUrl: string,
+      page: { template: string; titre: string; entity_meta: { poi_name: string | null } }
+    ): string => {
+      if (!rawUrl || isGoogleMapsUrl(rawUrl)) return rawUrl;
+      if (page.template.toUpperCase().startsWith('POI') && isRootUrl(rawUrl)) {
+        // Préférer entity_meta.poi_name si disponible (plus précis que le titre de la page)
+        const name = page.entity_meta.poi_name || page.titre || '';
+        const normalized = buildPoiPlaceholderUrl(rawUrl, name);
+        if (normalized !== rawUrl) redirectMap.set(normalized, rawUrl);
+        return normalized;
+      }
+      return trackNormalize(rawUrl);
+    };
+
     let normalizedCount = 0;
     for (const page of pages) {
       // url_source de la page
       if (page.url_source && /^https?:\/\//i.test(page.url_source)) {
         const prev = page.url_source;
-        (page as any).url_source = trackNormalize(page.url_source);
+        (page as any).url_source = trackNormalizePage(page.url_source, page);
         if ((page as any).url_source !== prev) normalizedCount++;
       }
 
@@ -338,7 +381,7 @@ export class ExportService {
 
         if (/^https?:\/\//i.test(v) && !isGoogleMapsUrl(v)) {
           const prev = v;
-          page.content.text[k] = trackNormalize(v);
+          page.content.text[k] = trackNormalizePage(v, page);
           if (page.content.text[k] !== prev) normalizedCount++;
         } else if (v.startsWith('{')) {
           try {
@@ -350,7 +393,7 @@ export class ExportService {
               !isGoogleMapsUrl(parsed.url)
             ) {
               const prev = parsed.url;
-              parsed.url = trackNormalize(parsed.url);
+              parsed.url = trackNormalizePage(parsed.url, page);
               if (parsed.url !== prev) normalizedCount++;
               page.content.text[k] = JSON.stringify(parsed);
             }

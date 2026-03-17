@@ -185,9 +185,13 @@ export async function exportRoutes(fastify: FastifyInstance) {
         );
 
         // ── 4. Construire le nom des fichiers ─────────────────────────────
-        const dest     = rawExport.meta.destination.toLowerCase().replace(/\s+/g, '_');
-        const jsonName = `guide_${dest}_${rawExport.meta.year}_${lang}.json`;
-        const zipName  = `guide_${dest}_${rawExport.meta.year}_${lang}.zip`;
+        const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+        const dest     = slugify(rawExport.meta.destination || rawExport.meta.guide_name || 'guide');
+        const now      = new Date();
+        const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');          // YYYYMMDD
+        const timePart = now.toISOString().slice(11, 16).replace(':', '');          // HHmm
+        const jsonName = `guide_${dest}_${lang}_${datePart}_${timePart}.json`;
+        const zipName  = `guide_${dest}_${lang}_${datePart}_${timePart}.zip`;
 
         // ── 5. Streamer le ZIP directement vers le client ─────────────────
         // reply.raw bypasse @fastify/cors → on injecte les headers CORS manuellement.

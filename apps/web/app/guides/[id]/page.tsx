@@ -156,8 +156,9 @@ export default function GuideDetailPage() {
     // Étape 3: Lieux et Clusters (POIs identifiés + matching généré)
     if (poisSelected && matchingGenerated) completed.add(3);
     
-    // Étape 4: Lieux et Inspirations (inspirations générées)
-    if (inspirationsGenerated) completed.add(4);
+    // Étape 4: Lieux et Inspirations (complétée dès que l'étape 3 est faite,
+    // les inspirations peuvent être générées/mises à jour à tout moment)
+    if (poisSelected && matchingGenerated) completed.add(4);
     
     // Étape 5: Chemin de fer (pages enregistrées en base ou sommaire proposal existant)
     if (cheminDeFerHasPages || sommaireGenerated) {

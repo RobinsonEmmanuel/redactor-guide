@@ -46,9 +46,7 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
   const [showManualModal, setShowManualModal] = useState(false);
   const [manualForm, setManualForm] = useState({
     nom: '',
-    type: 'autre',
-    lat: '',
-    lon: '',
+    url_source: '',
   });
 
   // Bibliothèque RL
@@ -187,14 +185,10 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
     try {
       const payload: any = {
         nom: manualForm.nom.trim(),
-        type: manualForm.type,
       };
 
-      if (manualForm.lat && manualForm.lon) {
-        payload.coordinates = {
-          lat: parseFloat(manualForm.lat),
-          lon: parseFloat(manualForm.lon),
-        };
+      if (manualForm.url_source.trim()) {
+        payload.url_source = manualForm.url_source.trim();
       }
 
       const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/add-manual`, {
@@ -212,7 +206,7 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
       const data = await res.json();
       setPois([...pois, data.poi]);
       setShowManualModal(false);
-      setManualForm({ nom: '', type: 'autre', lat: '', lon: '' });
+      setManualForm({ nom: '', url_source: '' });
       
     } catch (error: any) {
       console.error('Erreur ajout manuel:', error);
@@ -584,13 +578,28 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  URL article source
+                </label>
+                <input
+                  type="text"
+                  value={manualForm.url_source}
+                  onChange={(e) => setManualForm({ ...manualForm, url_source: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  placeholder="Ex: /que-faire-paris/ ou https://..."
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Slug ou URL complète de l'article WordPress associé (optionnel)
+                </p>
+              </div>
             </div>
 
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => {
                   setShowManualModal(false);
-                  setManualForm({ nom: '', type: 'autre', lat: '', lon: '' });
+                  setManualForm({ nom: '', url_source: '' });
                 }}
                 className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
               >

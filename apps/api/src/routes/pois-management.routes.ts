@@ -6,11 +6,7 @@ import { COLLECTIONS } from '../config/collections.js';
 
 const ManualPOISchema = z.object({
   nom: z.string().min(1),
-  type: z.string(),
-  coordinates: z.object({
-    lat: z.number(),
-    lon: z.number(),
-  }).optional(),
+  url_source: z.string().optional(),
 });
 
 export default async function poisManagementRoutes(fastify: FastifyInstance) {
@@ -478,13 +474,15 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
         // Générer un ID unique
         const poi_id = `manual_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-        const newPOI = {
+        const newPOI: Record<string, any> = {
           poi_id,
           nom: data.nom,
-          type: data.type,
           source: 'manual' as const,
-          coordinates: data.coordinates,
         };
+
+        if (data.url_source) {
+          newPOI.url_source = data.url_source;
+        }
 
         // Ajouter à la collection
         const now = new Date();

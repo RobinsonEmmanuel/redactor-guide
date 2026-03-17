@@ -179,25 +179,21 @@ function overrideAllFromMaster(masterSpread, targetPage) {
 }
 
 // --- 2c. Ajouter une page, appliquer un gabarit et purger les pages supplementaires -
-// IMPORTANT : la purge est basee sur le COMPTAGE avant/apres (beforeCount).
-// Elle ne supprime QUE les pages ajoutees automatiquement par InDesign (gabarits
-// multi-pages, ex : H-INSPIRATION sur 2 pages) et ne touche JAMAIS aux pages
-// precedemment generees — contrairement a une purge par spread qui supprimerait
-// la page voisine dans les cahiers recto-verso.
+// IMPORTANT : la purge compare par REFERENCE (pas par index) pour couvrir les deux cas :
+//   - pages supplementaires ajoutees APRES targetPage (gabarit standard multi-pages)
+//   - pages supplementaires ajoutees AVANT targetPage (gabarit multi-pages dont InDesign
+//     reordonne les pages pour respecter la pagination recto/verso)
+// Parcours inverse pour eviter les decalages d'index lors des suppressions successives.
 function addPageWithMaster(masterSpread, templateName) {
     var beforeCount = doc.pages.length;
     var targetPage  = doc.pages.add();
     targetPage.appliedMaster = masterSpread;
     overrideAllFromMaster(masterSpread, targetPage);
 
-    // Supprimer uniquement les pages SUPPLEMENTAIRES creees par InDesign
-    // (au-dela de la page cible qu'on vient d'ajouter).
-    while (doc.pages.length > beforeCount + 1) {
-        var extraPage = doc.pages.lastItem();
-        if (extraPage !== targetPage) {
-            try { extraPage.remove(); } catch(e) { break; }
-        } else {
-            break;
+    // Supprimer toutes les pages ajoutees par InDesign sauf targetPage
+    for (var pi = doc.pages.length - 1; pi >= beforeCount; pi--) {
+        if (doc.pages[pi] !== targetPage) {
+            try { doc.pages[pi].remove(); } catch(e) {}
         }
     }
 

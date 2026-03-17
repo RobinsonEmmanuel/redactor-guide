@@ -179,23 +179,25 @@ function overrideAllFromMaster(masterSpread, targetPage) {
 }
 
 // --- 2c. Ajouter une page, appliquer un gabarit et purger les pages supplementaires -
-// IMPORTANT : la purge compare par REFERENCE (pas par index) pour couvrir les deux cas :
-//   - pages supplementaires ajoutees APRES targetPage (gabarit standard multi-pages)
-//   - pages supplementaires ajoutees AVANT targetPage (gabarit multi-pages dont InDesign
-//     reordonne les pages pour respecter la pagination recto/verso)
-// Parcours inverse pour eviter les decalages d'index lors des suppressions successives.
+// Quand un gabarit est une planche multi-pages (ex : B-PRESENTATION_GUIDE sur 4 pages),
+// InDesign ajoute automatiquement des pages compagnes dans le meme Spread.
+// doc.pages[i].remove() echoue silencieusement sur ces pages liees a une planche.
+// Solution : travailler au niveau du Spread (targetPage.parent) et non de doc.pages.
 function addPageWithMaster(masterSpread, templateName) {
-    var beforeCount = doc.pages.length;
-    var targetPage  = doc.pages.add();
+    var targetPage = doc.pages.add();
     targetPage.appliedMaster = masterSpread;
     overrideAllFromMaster(masterSpread, targetPage);
 
-    // Supprimer toutes les pages ajoutees par InDesign sauf targetPage
-    for (var pi = doc.pages.length - 1; pi >= beforeCount; pi--) {
-        if (doc.pages[pi] !== targetPage) {
-            try { doc.pages[pi].remove(); } catch(e) {}
+    // Supprimer les pages compagnes au niveau du Spread contenant targetPage
+    try {
+        var theSpread = targetPage.parent; // objet Spread InDesign
+        for (var sp = theSpread.pages.length - 1; sp >= 0; sp--) {
+            var pg = theSpread.pages[sp];
+            if (pg !== targetPage) {
+                try { pg.remove(); } catch(e) {}
+            }
         }
-    }
+    } catch(e) {}
 
     return targetPage;
 }

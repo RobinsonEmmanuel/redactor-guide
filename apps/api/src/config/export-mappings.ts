@@ -88,6 +88,15 @@ export const PICTO_VALUE_MAPPINGS: Record<string, PictoMapping> = {
   'POI_picto_7:non':           { picto_key: null,                 label: ''                        },
   'POI_picto_7:Oui':           { picto_key: 'PICTO_RESERVATION', label: 'Réservation obligatoire' },
   'POI_picto_7:Non':           { picto_key: null,                 label: ''                        },
+
+  // ── Payant ────────────────────────────────────────────────────────────────
+  // Valeurs acceptées : 'oui' (minuscules) ou 'Oui' (capitalisation IA)
+  'POI_picto_payant:oui': { picto_key: 'PICTO_PAYANT', label: 'Payant' },
+  'POI_picto_payant:non': { picto_key: null,            label: ''       },
+  'POI_picto_8:oui':      { picto_key: 'PICTO_PAYANT', label: 'Payant' },
+  'POI_picto_8:non':      { picto_key: null,            label: ''       },
+  'POI_picto_8:Oui':      { picto_key: 'PICTO_PAYANT', label: 'Payant' },
+  'POI_picto_8:Non':      { picto_key: null,            label: ''       },
 };
 
 /** Retourne le mapping picto pour un champ et sa valeur */
@@ -138,6 +147,14 @@ const VARIANT_LAYER_FALLBACK: Record<string, string | null> = {
   'POI_picto_7:non':           null,
   'POI_picto_7:Oui':           'picto_reservation',
   'POI_picto_7:Non':           null,
+
+  // ── Payant ────────────────────────────────────────────────────────────────
+  'POI_picto_payant:oui': 'picto_payant',
+  'POI_picto_payant:non': null,
+  'POI_picto_8:oui':      'picto_payant',
+  'POI_picto_8:non':      null,
+  'POI_picto_8:Oui':      'picto_payant',
+  'POI_picto_8:Non':      null,
 };
 
 /** Résout variant_layer depuis le mapping de fallback (quand option_layers absent du template) */

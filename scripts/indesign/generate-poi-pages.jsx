@@ -696,14 +696,7 @@ var ALL_PICTO_LABELS = [
     "picto_pmr_half",    // Partiellement accessible
     "picto_pmr_none",    // Non accessible
     // Picto duree (cadre horloge)
-    "picto_duree",
-    // Anciens noms numerotes (compatibilite) et alias POI_ (si renommes un jour)
-    "POI_picto_1", "POI_picto_2", "POI_picto_3",
-    "POI_picto_4", "POI_picto_5", "POI_picto_6",
-    "POI_picto_7", "POI_picto_8",
-    "POI_picto_interet", "POI_picto_pmr",
-    "POI_picto_escaliers", "POI_picto_toilettes",
-    "POI_picto_restauration", "POI_picto_famille"
+    "picto_duree"
 ];
 
 

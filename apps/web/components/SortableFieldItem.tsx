@@ -47,6 +47,7 @@ interface TemplateField {
   skip_ai?: boolean;
   service_id?: string;
   options?: string[];
+  option_layers?: Record<string, string | null>;
   sub_fields?: SubField[];
   max_repetitions?: number;
   source?: 'destination_pool';
@@ -1209,30 +1210,57 @@ export default function SortableFieldItem({
 
           {/* Valeurs autorisées (picto) */}
           {field.type === 'picto' && (
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Valeurs autorisées *
-              </label>
-              <p className="text-xs text-gray-500 mb-2">
-                L'IA choisira <strong>exactement une</strong> valeur dans cette liste. Une valeur par ligne.
-              </p>
-              <textarea
-                value={(field.options ?? []).join('\n')}
-                onChange={(e) => {
-                  const vals = e.target.value.split('\n').map((v) => v.trim()).filter(Boolean);
-                  onChange({ options: vals.length ? vals : undefined });
-                }}
-                placeholder={'ex-soleil\nex-pluie\nex-nuage\nex-neige'}
-                rows={4}
-                className="w-full px-3 py-2 text-sm font-mono border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-teal-50/30"
-              />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Valeurs autorisées *
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  L'IA choisira <strong>exactement une</strong> valeur dans cette liste. Une valeur par ligne.
+                </p>
+                <textarea
+                  value={(field.options ?? []).join('\n')}
+                  onChange={(e) => {
+                    const vals = e.target.value.split('\n').map((v) => v.trim()).filter(Boolean);
+                    onChange({ options: vals.length ? vals : undefined });
+                  }}
+                  placeholder={'ex-soleil\nex-pluie\nex-nuage\nex-neige'}
+                  rows={4}
+                  className="w-full px-3 py-2 text-sm font-mono border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-teal-50/30"
+                />
+              </div>
+
+              {/* Calques InDesign (option_layers) */}
               {field.options && field.options.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {field.options.map((opt) => (
-                    <span key={opt} className="px-2 py-0.5 text-xs font-mono bg-teal-100 text-teal-700 rounded-full border border-teal-200">
-                      {opt}
-                    </span>
-                  ))}
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Calques InDesign
+                  </label>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Nom exact du calque/frame dans le gabarit InDesign pour chaque valeur.
+                    Laissez vide si le picto doit être <strong>masqué</strong> pour cette valeur.
+                  </p>
+                  <div className="space-y-1.5">
+                    {field.options.map((opt) => (
+                      <div key={opt} className="flex items-center gap-2">
+                        <span className="w-36 shrink-0 text-xs font-mono px-2 py-1.5 bg-teal-50 border border-teal-200 rounded text-teal-700 truncate">
+                          {opt}
+                        </span>
+                        <span className="text-gray-400 text-xs shrink-0">→</span>
+                        <input
+                          type="text"
+                          value={field.option_layers?.[opt] ?? ''}
+                          placeholder="vide = masqué"
+                          onChange={(e) => {
+                            const newLayers: Record<string, string | null> = { ...(field.option_layers ?? {}) };
+                            newLayers[opt] = e.target.value.trim() || null;
+                            onChange({ option_layers: newLayers });
+                          }}
+                          className="flex-1 px-2 py-1.5 text-sm font-mono border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

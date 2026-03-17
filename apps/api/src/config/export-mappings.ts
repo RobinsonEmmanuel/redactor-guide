@@ -25,142 +25,27 @@ export const FIELD_LAYER_MAPPINGS: Record<string, string> = {};
  */
 export const PICTO_LAYER_MAPPINGS: Record<string, string> = {};
 
-// ─── Picto value → abstract key mapping ─────────────────────────────────────
-
-export interface PictoMapping {
-  /** Clé abstraite à utiliser côté InDesign (null = picto non affiché) */
-  picto_key: string | null;
-  /** Label lisible pour debug/contrôle */
-  label: string;
-}
-
 /**
- * Mapping composite : "nomDuChampPicto:valeur" → clé InDesign abstraite
- * Les valeurs "non" ou "0" pour les booléens retournent picto_key: null
- * (le script InDesign masque le calque).
+ * Résout le variant_layer d'un picto depuis field.option_layers.
+ *
+ * Normalise la casse pour accepter "oui"/"Oui"/"OUI" de façon uniforme.
+ * Retourne null si la valeur correspond à un état inactif (ex: "non": null dans option_layers).
+ *
+ * Pré-requis : chaque champ picto du template doit définir option_layers.
+ * Ex : { "oui": "picto_escaliers", "non": null }
  */
-export const PICTO_VALUE_MAPPINGS: Record<string, PictoMapping> = {
-  // ── Intérêt (noms sémantiques ET numérotés) ──────────────────────────────
-  'POI_picto_interet:incontournable': { picto_key: 'PICTO_SMILEY_INCONTOURNABLE', label: 'Incontournable' },
-  'POI_picto_interet:interessant':    { picto_key: 'PICTO_SMILEY_INTERESSANT',    label: 'Intéressant'    },
-  'POI_picto_interet:a_voir':         { picto_key: 'PICTO_SMILEY_A_VOIR',         label: 'À voir'         },
-  'POI_picto_1:incontournable':       { picto_key: 'PICTO_SMILEY_INCONTOURNABLE', label: 'Incontournable' },
-  'POI_picto_1:interessant':          { picto_key: 'PICTO_SMILEY_INTERESSANT',    label: 'Intéressant'    },
-  'POI_picto_1:a_voir':               { picto_key: 'PICTO_SMILEY_A_VOIR',         label: 'À voir'         },
-
-  // ── PMR ─────────────────────────────────────────────────────────────────
-  'POI_picto_pmr:100': { picto_key: 'PICTO_PMR_FULL', label: 'Accessible 100%'        },
-  'POI_picto_pmr:50':  { picto_key: 'PICTO_PMR_HALF', label: 'Partiellement accessible'},
-  'POI_picto_pmr:0':   { picto_key: 'PICTO_PMR_NONE', label: 'Non accessible'          },
-  'POI_picto_2:100':   { picto_key: 'PICTO_PMR_FULL', label: 'Accessible 100%'        },
-  'POI_picto_2:50':    { picto_key: 'PICTO_PMR_HALF', label: 'Partiellement accessible'},
-  'POI_picto_2:0':     { picto_key: 'PICTO_PMR_NONE', label: 'Non accessible'          },
-
-  // ── Escaliers ───────────────────────────────────────────────────────────
-  'POI_picto_escaliers:oui': { picto_key: 'PICTO_ESCALIERS', label: 'Escaliers' },
-  'POI_picto_escaliers:non': { picto_key: null,               label: ''          },
-  'POI_picto_3:oui':         { picto_key: 'PICTO_ESCALIERS', label: 'Escaliers' },
-  'POI_picto_3:non':         { picto_key: null,               label: ''          },
-
-  // ── Toilettes ───────────────────────────────────────────────────────────
-  'POI_picto_toilettes:oui': { picto_key: 'PICTO_TOILETTES', label: 'Toilettes disponibles' },
-  'POI_picto_toilettes:non': { picto_key: null,               label: ''                      },
-  'POI_picto_4:oui':         { picto_key: 'PICTO_TOILETTES', label: 'Toilettes disponibles' },
-  'POI_picto_4:non':         { picto_key: null,               label: ''                      },
-
-  // ── Restauration ────────────────────────────────────────────────────────
-  'POI_picto_restauration:oui': { picto_key: 'PICTO_RESTAURATION', label: 'Restauration sur place' },
-  'POI_picto_restauration:non': { picto_key: null,                  label: ''                       },
-  'POI_picto_5:oui':            { picto_key: 'PICTO_RESTAURATION', label: 'Restauration sur place' },
-  'POI_picto_5:non':            { picto_key: null,                  label: ''                       },
-
-  // ── Famille ─────────────────────────────────────────────────────────────
-  'POI_picto_famille:oui': { picto_key: 'PICTO_FAMILLE', label: 'Activités enfants/familles' },
-  'POI_picto_famille:non': { picto_key: null,             label: ''                           },
-  'POI_picto_6:oui':       { picto_key: 'PICTO_FAMILLE', label: 'Activités enfants/familles' },
-  'POI_picto_6:non':       { picto_key: null,             label: ''                           },
-
-  // ── Réservation obligatoire ──────────────────────────────────────────────
-  // Valeurs acceptées : 'oui' (minuscules) ou 'Oui' (capitalisation IA)
-  'POI_picto_reservation:oui': { picto_key: 'PICTO_RESERVATION', label: 'Réservation obligatoire' },
-  'POI_picto_reservation:non': { picto_key: null,                 label: ''                        },
-  'POI_picto_7:oui':           { picto_key: 'PICTO_RESERVATION', label: 'Réservation obligatoire' },
-  'POI_picto_7:non':           { picto_key: null,                 label: ''                        },
-  'POI_picto_7:Oui':           { picto_key: 'PICTO_RESERVATION', label: 'Réservation obligatoire' },
-  'POI_picto_7:Non':           { picto_key: null,                 label: ''                        },
-
-  // ── Payant ────────────────────────────────────────────────────────────────
-  // Valeurs acceptées : 'oui' (minuscules) ou 'Oui' (capitalisation IA)
-  'POI_picto_payant:oui': { picto_key: 'PICTO_PAYANT', label: 'Payant' },
-  'POI_picto_payant:non': { picto_key: null,            label: ''       },
-  'POI_picto_8:oui':      { picto_key: 'PICTO_PAYANT', label: 'Payant' },
-  'POI_picto_8:non':      { picto_key: null,            label: ''       },
-  'POI_picto_8:Oui':      { picto_key: 'PICTO_PAYANT', label: 'Payant' },
-  'POI_picto_8:Non':      { picto_key: null,            label: ''       },
-};
-
-/** Retourne le mapping picto pour un champ et sa valeur */
-export function resolvePictoMapping(fieldName: string, value: string): PictoMapping {
-  const key = `${fieldName}:${value}`;
-  return PICTO_VALUE_MAPPINGS[key] ?? { picto_key: null, label: value };
-}
-
-/**
- * Table de fallback : résout le variant_layer depuis le nom de champ + valeur.
- * Utilisé uniquement quand le template ne définit pas option_layers.
- * Les templates récents ont option_layers → cette table n'est plus le chemin principal.
- */
-const VARIANT_LAYER_FALLBACK: Record<string, string | null> = {
-  'POI_picto_interet:incontournable': 'picto_interet_1',
-  'POI_picto_interet:interessant':    'picto_interet_2',
-  'POI_picto_interet:a_voir':         'picto_interet_3',
-  'POI_picto_1:incontournable':       'picto_interet_1',
-  'POI_picto_1:interessant':          'picto_interet_2',
-  'POI_picto_1:a_voir':               'picto_interet_3',
-  'POI_picto_pmr:100': 'picto_pmr_full',
-  'POI_picto_pmr:50':  'picto_pmr_half',
-  'POI_picto_pmr:0':   'picto_pmr_none',
-  'POI_picto_2:100':   'picto_pmr_full',
-  'POI_picto_2:50':    'picto_pmr_half',
-  'POI_picto_2:0':     'picto_pmr_none',
-  'POI_picto_escaliers:oui':    'picto_escaliers',
-  'POI_picto_escaliers:non':    null,
-  'POI_picto_3:oui':            'picto_escaliers',
-  'POI_picto_3:non':            null,
-  'POI_picto_toilettes:oui':    'picto_toilettes',
-  'POI_picto_toilettes:non':    null,
-  'POI_picto_4:oui':            'picto_toilettes',
-  'POI_picto_4:non':            null,
-  'POI_picto_restauration:oui': 'picto_restauration',
-  'POI_picto_restauration:non': null,
-  'POI_picto_5:oui':            'picto_restauration',
-  'POI_picto_5:non':            null,
-  'POI_picto_famille:oui':      'picto_famille',
-  'POI_picto_famille:non':      null,
-  'POI_picto_6:oui':            'picto_famille',
-  'POI_picto_6:non':            null,
-
-  // ── Réservation obligatoire ──────────────────────────────────────────────
-  'POI_picto_reservation:oui': 'picto_reservation',
-  'POI_picto_reservation:non': null,
-  'POI_picto_7:oui':           'picto_reservation',
-  'POI_picto_7:non':           null,
-  'POI_picto_7:Oui':           'picto_reservation',
-  'POI_picto_7:Non':           null,
-
-  // ── Payant ────────────────────────────────────────────────────────────────
-  'POI_picto_payant:oui': 'picto_payant',
-  'POI_picto_payant:non': null,
-  'POI_picto_8:oui':      'picto_payant',
-  'POI_picto_8:non':      null,
-  'POI_picto_8:Oui':      'picto_payant',
-  'POI_picto_8:Non':      null,
-};
-
-/** Résout variant_layer depuis le mapping de fallback (quand option_layers absent du template) */
-export function resolveVariantLayerFromMappings(fieldName: string, value: string): string | null {
-  const key = `${fieldName}:${value}`;
-  return VARIANT_LAYER_FALLBACK[key] ?? null;
+export function resolveVariantLayer(
+  optionLayers: Record<string, string | null> | undefined,
+  value: string
+): string | null {
+  if (!optionLayers) return null;
+  // Essai exact, puis minuscules, puis première lettre majuscule
+  return (
+    optionLayers[value] ??
+    optionLayers[value.toLowerCase()] ??
+    optionLayers[value.charAt(0).toUpperCase() + value.slice(1).toLowerCase()] ??
+    null
+  );
 }
 
 /** Retourne vrai si un champ est de type picto */

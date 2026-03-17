@@ -1,13 +1,9 @@
 // v2.2.0 — field services (2ème passe) + variant_layer résolu depuis field.option_layers
 import { Db, ObjectId } from 'mongodb';
 import {
-  FIELD_LAYER_MAPPINGS,
-  PICTO_LAYER_MAPPINGS,
-  PICTO_VALUE_MAPPINGS,
   isPictoField,
-  resolvePictoMapping,
   resolveFieldLayer,
-  resolveVariantLayerFromMappings,
+  resolveVariantLayer,
 } from '../config/export-mappings.js';
 import {
   FieldServiceRunner,
@@ -111,19 +107,14 @@ export class ExportService {
         if (value === undefined || value === null || value === '') continue;
 
         if (isPictoField(field.name)) {
-          const strValue  = String(value);
-          const mapping   = resolvePictoMapping(field.name, strValue);
-          // variant_layer : source de vérité = field.option_layers (défini dans le template)
-          // Fallback : PICTO_VARIANT_TABLE (rétrocompat templates sans option_layers)
-          const variantLayer: string | null =
-            field.option_layers?.[strValue] ??
-            resolveVariantLayerFromMappings(field.name, strValue);
+          const strValue     = String(value);
+          const variantLayer = resolveVariantLayer(field.option_layers, strValue);
           pictoFields[field.name] = {
-            value: strValue,
-            picto_key: mapping.picto_key,
+            value:          strValue,
+            picto_key:      variantLayer,   // non-null = actif (filtre normalize-export)
             indesign_layer: resolveFieldLayer(field.name, field.indesign_layer),
-            variant_layer: variantLayer,
-            label: mapping.label,
+            variant_layer:  variantLayer,
+            label:          field.label || '',
           };
         } else if (field.type === 'image') {
           const pageNum   = String(page.ordre || idx + 1).padStart(3, '0');
@@ -409,7 +400,6 @@ export class ExportService {
     );
 
     // ── 6. Construire le mapping field→calque depuis les templates réels ──────
-    // Priorité : field.indesign_layer > FIELD_LAYER_MAPPINGS > PICTO_LAYER_MAPPINGS > deriveLayerName()
     const dynamicFieldLayers: Record<string, string> = {};
     const bulletListFields: string[] = [];
 
@@ -421,11 +411,6 @@ export class ExportService {
         }
       }
     }
-    // Compléter avec les champs du mapping statique non couverts (rétrocompat)
-    for (const [k, v] of Object.entries(FIELD_LAYER_MAPPINGS)) {
-      if (!dynamicFieldLayers[k]) dynamicFieldLayers[k] = v;
-    }
-
     // ── 7. Construire le JSON final ────────────────────────────────────────
     return {
       meta: {
@@ -436,7 +421,7 @@ export class ExportService {
         language:     lang,
         version:      guide.version || '1.0.0',
         exported_at:  new Date().toISOString(),
-        api_build:    'v2.2.0-field_services',
+        api_build:    'v2.3.0-simplified_pictos',
         stats: {
           total_pages:     allPages.length,
           exported:        exportablePages.length,
@@ -450,10 +435,6 @@ export class ExportService {
         fields: dynamicFieldLayers,
         // Noms de tous les champs de type 'liste' — le script InDesign les traite en puces
         bullet_fields: bulletListFields,
-        picto_layers: PICTO_LAYER_MAPPINGS,
-        picto_values: Object.fromEntries(
-          Object.entries(PICTO_VALUE_MAPPINGS).map(([k, v]) => [k, v])
-        ),
       },
 
       pages,

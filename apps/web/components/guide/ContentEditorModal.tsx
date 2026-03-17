@@ -330,6 +330,7 @@ export default function ContentEditorModal({
 
   const pageType = (page.type_de_page ?? page.template_name ?? '').toLowerCase();
   const isInspirationPage = pageType === 'inspiration' || pageType.startsWith('inspiration') || template?.info_source === 'inspiration_auto_match';
+  const isClusterPage = pageType === 'cluster' || pageType.includes('cluster') || (template?.name ?? '').toUpperCase().includes('CLUSTER');
 
   // Un article source est requis si :
   //  - le template a info_source === 'article_source' (source de vérité fiable)
@@ -337,6 +338,9 @@ export default function ContentEditorModal({
   const requiresUrlForGeneration =
     template?.info_source === 'article_source' ||
     pageType.startsWith('poi');
+
+  // Afficher le bouton "Images analysées" pour les pages POI et Cluster
+  const showImageAnalysisButton = !!(page.url_source) || isClusterPage || requiresUrlForGeneration;
   const requiresPoisForGeneration = isInspirationPage;
 
   const handleGenerateContent = async (useLlmKnowledge = false) => {
@@ -1247,26 +1251,27 @@ export default function ContentEditorModal({
               </button>
 
               {page.url_source && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => window.open(page.url_source!, '_blank', 'noopener,noreferrer')}
-                    title={`Ouvrir l'article source : ${page.url_source}`}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors text-sm"
-                  >
-                    <ArrowTopRightOnSquareIcon className="h-4 w-4" />
-                    <span className="hidden sm:inline">URL</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowImageAnalysis(true)}
-                    title="Voir les analyses d'images"
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors text-sm"
-                  >
-                    <PhotoIcon className="h-4 w-4" />
-                    <span className="hidden sm:inline">Images</span>
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={() => window.open(page.url_source!, '_blank', 'noopener,noreferrer')}
+                  title={`Ouvrir l'article source : ${page.url_source}`}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors text-sm"
+                >
+                  <ArrowTopRightOnSquareIcon className="h-4 w-4" />
+                  <span className="hidden sm:inline">URL</span>
+                </button>
+              )}
+
+              {showImageAnalysisButton && (
+                <button
+                  type="button"
+                  onClick={() => setShowImageAnalysis(true)}
+                  title="Voir les analyses d'images"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors text-sm"
+                >
+                  <PhotoIcon className="h-4 w-4" />
+                  <span className="hidden sm:inline">Images</span>
+                </button>
               )}
 
               <button

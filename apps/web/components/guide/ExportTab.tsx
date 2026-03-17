@@ -180,9 +180,12 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
       );
       if (!res.ok) throw new Error('Erreur export');
       const data = await res.json();
-      const destination = data.meta?.destination?.toLowerCase().replace(/\s+/g, '_') || 'guide';
-      const year = data.meta?.year || new Date().getFullYear();
-      const filename = `guide_${destination}_${year}_${lang}.json`;
+      const slugifyLocal = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+      const now = new Date();
+      const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
+      const timePart = now.toISOString().slice(11, 16).replace(':', '');
+      const destination = slugifyLocal(data.meta?.destination || data.meta?.guide_name || 'guide');
+      const filename = `guide_${destination}_${lang}_${datePart}_${timePart}.json`;
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -205,9 +208,18 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
       );
       if (!res.ok) throw new Error(`Erreur ${res.status}`);
       const blob = await res.blob();
-      const dest = preview?.meta?.destination?.toLowerCase().replace(/\s+/g, '_') || 'guide';
-      const year = preview?.meta?.year || new Date().getFullYear();
-      const filename = `guide_${dest}_${year}_${lang}.zip`;
+
+      // Lire le nom depuis Content-Disposition du serveur (inclut date+heure)
+      const cd = res.headers.get('content-disposition') || '';
+      const cdMatch = cd.match(/filename="([^"]+)"/);
+      const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+      const now = new Date();
+      const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
+      const timePart = now.toISOString().slice(11, 16).replace(':', '');
+      const dest = slugify(preview?.meta?.destination || preview?.meta?.guide_name || 'guide');
+      const fallbackName = `guide_${dest}_${lang}_${datePart}_${timePart}.zip`;
+      const filename = cdMatch ? cdMatch[1] : fallbackName;
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = filename; a.click();

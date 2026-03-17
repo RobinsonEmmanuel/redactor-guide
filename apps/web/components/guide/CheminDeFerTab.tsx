@@ -1268,6 +1268,8 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                                 icon={RectangleStackIcon}
                                 color="green"
                                 templatePage={clusterPage}
+                                apiUrl={apiUrl}
+                                guideId={guideId}
                                 isPlaced={usedPageIds.has(clusterPage.page_id)}
                               />
                               

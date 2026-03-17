@@ -325,9 +325,16 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
       };
 
       const defaultContent: Record<string, string> = {};
+      // Champs explicitement ciblés par onlyFields → toujours envoyés à l'IA,
+      // même s'ils ont default_value ou skip_ai (régénération forcée).
+      const forcedFields = new Set(options?.onlyFields ?? []);
+
       const fieldsForAI = template.fields.filter((f: any) => {
         // ── Lien avec sous-configurations label/url ──────────────────────────
         if (f.type === 'lien' && (f.link_label || f.link_url)) {
+          // Si le champ est explicitement forcé, l'envoyer à l'IA directement
+          if (forcedFields.has(f.name)) return true;
+
           const ll = f.link_label ?? {};
           const lu = f.link_url  ?? {};
           const labelDefault = ll.default_value;
@@ -351,6 +358,9 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
         }
 
         // ── Comportement standard ────────────────────────────────────────────
+        // Si le champ est explicitement forcé via onlyFields, bypass skip_ai/default_value
+        if (forcedFields.has(f.name)) return true;
+
         if (f.default_value !== undefined && f.default_value !== null) {
           defaultContent[f.name] = this.openaiService.replaceVariables(String(f.default_value), earlyFieldVars);
           console.log(`📌 Valeur par défaut appliquée pour ${f.name}`);

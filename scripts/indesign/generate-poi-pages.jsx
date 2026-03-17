@@ -22,7 +22,7 @@ var doc = app.activeDocument;
 // --- Configuration -----------------------------------------------------------
 // Mettre a true pour afficher une alerte de diagnostic picto sur chaque page POI.
 // Desactiver (false) en production.
-var DEBUG_PICTOS      = false;
+var DEBUG_PICTOS      = true;
 var DEBUG_INSPIRATION = false;
 var DEBUG_PAGES       = false;
 
@@ -686,6 +686,7 @@ var ALL_PICTO_LABELS = [
     "picto_restauration",
     "picto_famille",
     "picto_reservation",
+    "picto_payant",
     // Variants interet (3 cadres superposes, un par valeur)
     "picto_interet_1",   // Incontournable
     "picto_interet_2",   // Interessant
@@ -699,6 +700,7 @@ var ALL_PICTO_LABELS = [
     // Anciens noms numerotes (compatibilite) et alias POI_ (si renommes un jour)
     "POI_picto_1", "POI_picto_2", "POI_picto_3",
     "POI_picto_4", "POI_picto_5", "POI_picto_6",
+    "POI_picto_7", "POI_picto_8",
     "POI_picto_interet", "POI_picto_pmr",
     "POI_picto_escaliers", "POI_picto_toilettes",
     "POI_picto_restauration", "POI_picto_famille"

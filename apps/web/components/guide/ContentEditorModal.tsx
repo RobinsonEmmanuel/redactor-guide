@@ -251,6 +251,7 @@ export default function ContentEditorModal({
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showLlmKnowledgeConfirm, setShowLlmKnowledgeConfirm] = useState(false);
+  const [localUrlSource, setLocalUrlSource] = useState<string>(page.url_source ?? '');
   const [showImageAnalysis, setShowImageAnalysis] = useState(false);
   const [showImageSelector, setShowImageSelector] = useState(false);
   const [currentImageField, setCurrentImageField] = useState<string | null>(null);
@@ -340,11 +341,34 @@ export default function ContentEditorModal({
     pageType.startsWith('poi');
 
   // Afficher le bouton "Images analysées" pour les pages POI et Cluster
-  const showImageAnalysisButton = !!(page.url_source) || isClusterPage || requiresUrlForGeneration;
+  const showImageAnalysisButton = !!(localUrlSource) || isClusterPage || requiresUrlForGeneration;
   const requiresPoisForGeneration = isInspirationPage;
 
+  // Sauvegarde de l'URL source sur la page avant génération
+  const saveUrlSource = async (url: string): Promise<boolean> => {
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ url_source: url }),
+        }
+      );
+      return res.ok;
+    } catch {
+      return false;
+    }
+  };
+
   const handleGenerateContent = async (useLlmKnowledge = false) => {
-    if (requiresUrlForGeneration && !page.url_source && !useLlmKnowledge) {
+    const effectiveUrl = localUrlSource.trim();
+    const hasValidUrl = effectiveUrl && (() => {
+      try { return new URL(effectiveUrl).pathname.replace(/\//g, '').length > 0; } catch { return false; }
+    })();
+
+    if (requiresUrlForGeneration && !hasValidUrl && !useLlmKnowledge) {
       setShowLlmKnowledgeConfirm(true);
       return;
     }
@@ -358,15 +382,30 @@ export default function ContentEditorModal({
     setError(null);
 
     try {
+      // Si l'URL a été modifiée localement, la sauvegarder en base d'abord
+      const effectiveUrl = localUrlSource.trim();
+      if (effectiveUrl && effectiveUrl !== (page.url_source ?? '')) {
+        const saved = await saveUrlSource(effectiveUrl);
+        if (!saved) {
+          setError('Impossible de sauvegarder l\'URL source');
+          setGenerating(false);
+          return;
+        }
+      }
+
       console.log('🤖 Lancement génération contenu (analyse images incluse)...');
       
+      const body: Record<string, any> = {};
+      if (useLlmKnowledge) body.use_llm_knowledge = true;
+      if (effectiveUrl && effectiveUrl !== (page.url_source ?? '')) body.url_source = effectiveUrl;
+
       const res = await fetch(
         `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}/generate-content`,
         {
           method: 'POST',
           credentials: 'include',
-          headers: useLlmKnowledge ? { 'Content-Type': 'application/json' } : undefined,
-          body: useLlmKnowledge ? JSON.stringify({ use_llm_knowledge: true }) : undefined,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
         }
       );
 
@@ -1236,25 +1275,25 @@ export default function ContentEditorModal({
                   || (isInspirationPage && template?.info_source === 'inspiration_auto_match'
                       && (page.metadata?.inspiration_pois ?? []).some((p: InspirationPoi) => !p.url_source))
                 }
-                title={generating ? 'Génération en cours…' : requiresUrlForGeneration && !page.url_source ? 'Générer sans article source (base de connaissance LLM)' : 'Générer le contenu automatiquement'}
+                title={generating ? 'Génération en cours…' : requiresUrlForGeneration && !localUrlSource ? 'Générer sans article source (base de connaissance LLM)' : 'Générer le contenu automatiquement'}
                 className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm ${
-                  requiresUrlForGeneration && !page.url_source
+                  requiresUrlForGeneration && !localUrlSource
                     ? 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-300/50'
                     : 'bg-white/10 hover:bg-white/20 border-white/30'
                 }`}
               >
                 {generating
                   ? <><ArrowPathIcon className="h-4 w-4 animate-spin" /><span className="hidden sm:inline">Génération…</span></>
-                  : requiresUrlForGeneration && !page.url_source
+                  : requiresUrlForGeneration && !localUrlSource
                     ? <><ExclamationTriangleIcon className="h-4 w-4" /><span className="hidden sm:inline">Générer</span></>
                     : <><SparklesIcon className="h-4 w-4" /><span className="hidden sm:inline">Générer</span></>}
               </button>
 
-              {page.url_source && (
+              {localUrlSource && (
                 <button
                   type="button"
-                  onClick={() => window.open(page.url_source!, '_blank', 'noopener,noreferrer')}
-                  title={`Ouvrir l'article source : ${page.url_source}`}
+                  onClick={() => window.open(localUrlSource, '_blank', 'noopener,noreferrer')}
+                  title={`Ouvrir l'article source : ${localUrlSource}`}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors text-sm"
                 >
                   <ArrowTopRightOnSquareIcon className="h-4 w-4" />
@@ -1292,26 +1331,33 @@ export default function ContentEditorModal({
             </div>
           </div>
 
-          {/* Avertissement URL manquante + dialog de confirmation LLM */}
-          {requiresUrlForGeneration && !page.url_source && !showLlmKnowledgeConfirm && (
-            <p className="text-xs text-amber-200/80 mt-2">
-              ⚠️ Aucun article WordPress source lié — cliquez sur "Générer" pour choisir le mode de génération.
-            </p>
+          {/* Saisie / modification de l'URL source pour les pages POI */}
+          {requiresUrlForGeneration && (
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="text"
+                value={localUrlSource}
+                onChange={(e) => { setLocalUrlSource(e.target.value); setShowLlmKnowledgeConfirm(false); }}
+                placeholder="URL article WordPress source (ex: https://...)"
+                className="flex-1 px-2 py-1 text-xs rounded bg-white/10 border border-white/30 text-white placeholder-white/40 focus:outline-none focus:border-white/60"
+              />
+            </div>
           )}
+          {/* Confirmation génération sans article source */}
           {showLlmKnowledgeConfirm && (
             <div className="mt-2 px-3 py-2.5 rounded bg-amber-500/20 border border-amber-300/40 text-white text-xs">
               <div className="flex items-start gap-2">
                 <BookOpenIcon className="h-4 w-4 mt-0.5 flex-shrink-0 text-amber-300" />
                 <div className="flex-1">
                   <p className="font-semibold mb-1">Aucun article WordPress source associé à cette page.</p>
-                  <p className="text-white/80 mb-2.5">Voulez-vous générer le contenu à partir de la <strong>base de connaissance du LLM</strong> (sans source de référence) ?</p>
+                  <p className="text-white/80 mb-2.5">Vous pouvez renseigner une URL ci-dessus, ou générer depuis la <strong>base de connaissance du LLM</strong>.</p>
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={() => handleGenerateContent(true)}
                       className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-white rounded font-medium transition-colors"
                     >
-                      Oui, générer depuis la base de connaissance
+                      Générer sans article
                     </button>
                     <button
                       type="button"
@@ -1546,7 +1592,7 @@ export default function ContentEditorModal({
                 template?.info_source === 'tous_articles_site' ||
                 template?.info_source === 'tous_articles_et_llm'
                   ? 'guide'
-                  : page.url_source
+                  : localUrlSource
                   ? 'page'
                   : 'guide'
               )

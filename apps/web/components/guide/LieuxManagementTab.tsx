@@ -584,55 +584,6 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Type
-                </label>
-                <select
-                  value={manualForm.type}
-                  onChange={(e) => setManualForm({ ...manualForm, type: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                >
-                  <option value="autre">Autre</option>
-                  <option value="musée">Musée</option>
-                  <option value="site_culturel">Site culturel</option>
-                  <option value="village">Village</option>
-                  <option value="ville">Ville</option>
-                  <option value="plage">Plage</option>
-                  <option value="site_naturel">Site naturel</option>
-                  <option value="panorama">Panorama</option>
-                  <option value="quartier">Quartier</option>
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Latitude (optionnel)
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={manualForm.lat}
-                    onChange={(e) => setManualForm({ ...manualForm, lat: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    placeholder="48.8584"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Longitude (optionnel)
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={manualForm.lon}
-                    onChange={(e) => setManualForm({ ...manualForm, lon: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    placeholder="2.2945"
-                  />
-                </div>
-              </div>
             </div>
 
             <div className="flex gap-3 mt-6">

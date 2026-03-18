@@ -1558,7 +1558,7 @@ Si aucun doublon détecté : retourne { "groupes": [] }`;
       // souvent dans le contenu. C'est l'algorithme décrit par Julie :
       // "il doit sélectionner la page où il y a le plus d'occurrences du nom du POI".
       console.log(`🔍 [WORKER-DEDUP] Phase 3 : sélection meilleur article par occurrences...`);
-      const guideLangForDedup = guide.language || 'fr';
+      const guideLangForDedup = guide?.language || 'fr';
       let bestUrlUpdated = 0;
 
       // Cache slug → article pour éviter de recharger le même article plusieurs fois

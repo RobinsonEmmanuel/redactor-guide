@@ -2,17 +2,34 @@ import { MongoClient } from 'mongodb';
 import { env } from '../src/config/env';
 
 /**
- * Script pour créer l'index unique sur la collection image_analyses
- * Garantit qu'une URL d'image ne peut être analysée qu'une seule fois
+ * Script pour dédupliquer la collection image_analyses et créer l'index unique sur url.
+ * Garantit qu'une URL d'image ne peut être analysée qu'une seule fois.
  */
 async function createIndexes() {
   console.log('🔧 Connexion à MongoDB...');
   const client = await MongoClient.connect(env.MONGODB_URI);
   const db = client.db(env.MONGODB_DB_NAME);
 
-  console.log('📊 Création des index pour image_analyses...');
+  console.log('🧹 Déduplication de image_analyses en cours...');
 
   try {
+    // Trouver toutes les URL en doublon via aggregation
+    const duplicates = await db.collection('image_analyses').aggregate([
+      { $group: { _id: '$url', ids: { $push: '$_id' }, count: { $sum: 1 } } },
+      { $match: { count: { $gt: 1 } } },
+    ]).toArray();
+
+    let removedCount = 0;
+    for (const dup of duplicates) {
+      // Garder le premier (_id[0]), supprimer les suivants
+      const idsToRemove = dup.ids.slice(1);
+      await db.collection('image_analyses').deleteMany({ _id: { $in: idsToRemove } });
+      removedCount += idsToRemove.length;
+    }
+    console.log(`✅ ${removedCount} doublon(s) supprimé(s) (${duplicates.length} URL(s) concernée(s))`);
+
+    console.log('📊 Création des index pour image_analyses...');
+
     // Index unique sur l'URL
     await db.collection('image_analyses').createIndex(
       { url: 1 },

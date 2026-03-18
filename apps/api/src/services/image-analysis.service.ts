@@ -70,16 +70,22 @@ export class ImageAnalysisService {
           
           const analysis = await this.analyzeSingleImage(url, analysisPrompt, i);
           
-          // 3. Sauvegarder dans le cache global
-          await this.db.collection(COLLECTIONS.image_analyses).insertOne({
-            url,
-            analysis: analysis.analysis,
-            analyzed_at: analysis.analyzed_at,
-            model_used: 'gpt-4o',
-            prompt_version: '1.0.0',
-            reuse_count: 0,
-            poi_names: [],
-          });
+          // 3. Sauvegarder dans le cache global (upsert atomique pour éviter les doublons)
+          await this.db.collection(COLLECTIONS.image_analyses).updateOne(
+            { url },
+            {
+              $setOnInsert: {
+                url,
+                analysis: analysis.analysis,
+                analyzed_at: analysis.analyzed_at,
+                model_used: 'gpt-4o',
+                prompt_version: '1.0.0',
+                reuse_count: 0,
+                poi_names: [],
+              },
+            },
+            { upsert: true }
+          );
           
           analyses.push(analysis);
           newAnalyses++;

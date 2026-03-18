@@ -971,14 +971,18 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         .find(filter, { projection: { title: 1, slug: 1, images_analysis: 1 } })
         .toArray();
 
-      // 3. Aplatir toutes les images avec la source article
+      // 3. Aplatir toutes les images avec la source article (dédupliquées par URL)
+      const seenImageUrls = new Set<string>();
       const allImages: any[] = [];
       for (const article of articles) {
         for (let idx = 0; idx < (article.images_analysis ?? []).length; idx++) {
           const imgAnalysis = article.images_analysis[idx];
+          const imgUrl = imgAnalysis.url || '';
+          if (!imgUrl || seenImageUrls.has(imgUrl)) continue;
+          seenImageUrls.add(imgUrl);
           allImages.push({
             image_id:                    `${article.slug}_${idx}`,
-            url:                         imgAnalysis.url || '',
+            url:                         imgUrl,
             source_article_title:        article.title ?? article.slug,
             source_article_slug:         article.slug,
             shows_entire_site:           imgAnalysis.analysis?.shows_entire_site ?? false,

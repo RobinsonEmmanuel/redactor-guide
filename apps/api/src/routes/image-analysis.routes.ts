@@ -318,7 +318,15 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
           )
           .toArray();
 
-        const mapped = images.map((doc: any) => ({
+        // Dédupliquer par URL (doublons possibles en base si insertions concurrentes passées)
+        const seenUrls = new Set<string>();
+        const uniqueImages = images.filter((doc: any) => {
+          if (seenUrls.has(doc.url)) return false;
+          seenUrls.add(doc.url);
+          return true;
+        });
+
+        const mapped = uniqueImages.map((doc: any) => ({
           image_id:                   doc._id.toString(),
           url:                        doc.url,
           poi_names:                  doc.poi_names ?? [],

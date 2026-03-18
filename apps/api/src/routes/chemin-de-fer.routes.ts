@@ -266,6 +266,16 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           return reply.status(404).send({ error: 'Page non trouvée' });
         }
 
+        // Synchroniser url_source vers pois_selection pour qu'elle survive
+        // à une régénération de structure (uniquement si la page est un POI)
+        if (body.url_source && result.metadata?.poi_id && result.guide_id) {
+          await db.collection(COLLECTIONS.pois_selection).updateOne(
+            { guide_id: result.guide_id, 'pois.poi_id': result.metadata.poi_id },
+            { $set: { 'pois.$.url_source': body.url_source, updated_at: now } }
+          );
+          console.log(`🔄 [Sync POI URL] poi_id=${result.metadata.poi_id} → ${body.url_source}`);
+        }
+
         return reply.send(result);
       } catch (error) {
         if (error instanceof z.ZodError) {
@@ -1208,6 +1218,59 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       const articleUrlCache: Record<string, string | null> = {};
       const guideLang = guide.language || 'fr';
 
+      /**
+       * Normalise un texte pour comparaison (minuscules, sans accents, sans ponctuation)
+       */
+      const normalizeForMatch = (s: string): string =>
+        s.toLowerCase()
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9 ]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+      /**
+       * Résout l'URL d'un article depuis son slug, avec cache.
+       */
+      const resolveSlugUrl = async (slug: string): Promise<string | null> => {
+        if (!(slug in articleUrlCache)) {
+          const art = await db.collection(COLLECTIONS.articles_raw).findOne(
+            { slug },
+            { projection: { urls_by_lang: 1 } }
+          );
+          articleUrlCache[slug] =
+            art?.urls_by_lang?.[guideLang] ??
+            art?.urls_by_lang?.['fr']     ??
+            null;
+        }
+        return articleUrlCache[slug];
+      };
+
+      /**
+       * Cherche un article dédié au POI par correspondance de mots-clés dans le slug.
+       * Ex : POI "Château de Serrant" → cherche un slug contenant "chateau" ET "serrant".
+       * Retourne l'URL si un article dédié est trouvé, null sinon.
+       */
+      const findDedicatedArticleUrl = async (poiNom: string): Promise<string | null> => {
+        const normalized = normalizeForMatch(poiNom);
+        const keywords = normalized.split(' ').filter((w: string) => w.length >= 4);
+        if (keywords.length === 0) return null;
+
+        // Construire un regex qui exige la présence de tous les mots-clés dans le slug
+        const slugRegex = keywords.map((kw: string) => `(?=.*${kw})`).join('') + '.*';
+        const cacheKey = `dedicated:${normalized}`;
+        if (!(cacheKey in articleUrlCache)) {
+          const dedicatedArt = await db.collection(COLLECTIONS.articles_raw).findOne(
+            { slug: { $regex: slugRegex, $options: 'i' } },
+            { projection: { urls_by_lang: 1 } }
+          );
+          articleUrlCache[cacheKey] =
+            dedicatedArt?.urls_by_lang?.[guideLang] ??
+            dedicatedArt?.urls_by_lang?.['fr']     ??
+            null;
+        }
+        return articleUrlCache[cacheKey];
+      };
+
       const normalizedPages = await Promise.all(rawPages.map(async (p: any) => {
         // Résoudre template_id depuis le nom
         if (!templateCache[p.template_name]) {
@@ -1226,21 +1289,35 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           p.template_name               ||
           'Page';
 
-        // Résoudre url_source depuis article_source (slug POI) → articles_raw.urls_by_lang
+        // ── Résolution de url_source (ordre de priorité) ──────────────────────
         let url_source: string | null = null;
-        const articleSlug: string | undefined = p.metadata?.article_source;
-        if (articleSlug) {
-          if (!(articleSlug in articleUrlCache)) {
-            const article = await db.collection(COLLECTIONS.articles_raw).findOne(
-              { slug: articleSlug },
-              { projection: { urls_by_lang: 1 } }
-            );
-            articleUrlCache[articleSlug] =
-              article?.urls_by_lang?.[guideLang] ??
-              article?.urls_by_lang?.['fr']     ??
-              null;
+
+        // Priorité 1 : url_source définie manuellement sur le POI (via PATCH étape 3)
+        const manualPoiUrl: string | undefined = p.metadata?.poi_url_source;
+        if (manualPoiUrl && manualPoiUrl.startsWith('http')) {
+          url_source = manualPoiUrl;
+          console.log(`🔗 [URL manuelle POI] ${titre} → ${url_source}`);
+        }
+
+        // Priorité 2 : chercher un article dédié via correspondance slug ↔ nom POI
+        if (!url_source && p.metadata?.poi_name) {
+          url_source = await findDedicatedArticleUrl(p.metadata.poi_name);
+          if (url_source) {
+            console.log(`🎯 [URL article dédié] ${titre} → ${url_source}`);
           }
-          url_source = articleUrlCache[articleSlug];
+        }
+
+        // Priorité 3 : résolution depuis article_source (slug ou titre partiel)
+        if (!url_source) {
+          const articleSlug: string | undefined = p.metadata?.article_source;
+          if (articleSlug) {
+            url_source = await resolveSlugUrl(articleSlug);
+          }
+        }
+
+        // Priorité 4 : url_source directe depuis pois_selection (titre de l'article liste)
+        if (!url_source && p.metadata?.poi_url_source) {
+          url_source = p.metadata.poi_url_source;
         }
 
         if (url_source) {

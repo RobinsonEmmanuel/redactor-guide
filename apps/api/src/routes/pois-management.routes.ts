@@ -812,12 +812,13 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       type?: string;
       coordinates?: { lat: number; lon: number } | null;
       article_source?: string;
+      url_source?: string;
     };
   }>(
     '/guides/:guideId/pois/:poiId',
     async (request, reply) => {
       const { guideId, poiId } = request.params;
-      const { nom, type, coordinates, article_source } = request.body;
+      const { nom, type, coordinates, article_source, url_source } = request.body;
 
       try {
         const poisSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
@@ -831,6 +832,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
         if (type !== undefined) patch.type = type;
         if (coordinates !== undefined) patch.coordinates = coordinates;
         if (article_source !== undefined) patch.article_source = article_source;
+        if (url_source !== undefined) patch.url_source = url_source;
 
         poisSelection.pois[poiIndex] = { ...poisSelection.pois[poiIndex], ...patch };
 

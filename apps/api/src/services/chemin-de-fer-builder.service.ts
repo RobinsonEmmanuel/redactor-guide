@@ -256,6 +256,7 @@ export class CheminDeFerBuilderService {
           poi_id:                   poi.poi_id,
           poi_name:                 poi.nom,
           article_source:           poi.article_source   ?? null,
+          poi_url_source:           poi.url_source       ?? null,
           autres_articles_mentions: poi.autres_articles_mentions ?? [],
           page_type: 'poi',
         };

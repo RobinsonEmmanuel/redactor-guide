@@ -696,6 +696,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     lat: '',
     lon: '',
     article_source: '',
+    url_source: '',
   });
 
   // Mode édition d'un POI existant (null = mode création)
@@ -1054,6 +1055,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             lon: parseFloat(manualForm.lon),
           } : undefined,
           article_source: manualForm.article_source || undefined,
+          url_source: manualForm.url_source || undefined,
           origine: 'manuel',
         }),
       });
@@ -1061,7 +1063,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
       if (res.ok) {
         await loadPois();
         setShowManualModal(false);
-        setManualForm({ nom: '', type: 'autre', lat: '', lon: '', article_source: '' });
+        setManualForm({ nom: '', type: 'autre', lat: '', lon: '', article_source: '', url_source: '' });
         alert('✅ Lieu créé !');
       } else {
         const errorData = await res.json();
@@ -1081,6 +1083,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
       lat: poi.coordinates?.lat?.toString() || '',
       lon: poi.coordinates?.lon?.toString() || '',
       article_source: poi.article_source || '',
+      url_source: (poi as any).url_source || '',
     });
     setShowManualModal(true);
   };
@@ -1098,6 +1101,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             ? { lat: parseFloat(manualForm.lat), lon: parseFloat(manualForm.lon) }
             : null,
           article_source: manualForm.article_source || '',
+          url_source: manualForm.url_source || '',
         }),
       });
       if (res.ok) {
@@ -1105,7 +1109,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         setPois(prev => prev.map(p => p.poi_id === editingPoi.poi_id ? { ...p, ...updated } : p));
         setShowManualModal(false);
         setEditingPoi(null);
-        setManualForm({ nom: '', type: 'autre', lat: '', lon: '', article_source: '' });
+        setManualForm({ nom: '', type: 'autre', lat: '', lon: '', article_source: '', url_source: '' });
       } else {
         const err = await res.json();
         alert(`❌ Erreur: ${err.error}`);
@@ -1764,14 +1768,31 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-0.5">URL article source</label>
+                <label className="block text-xs font-medium text-gray-700 mb-0.5">Slug article source</label>
                 <input
                   type="text"
                   value={manualForm.article_source}
                   onChange={(e) => setManualForm({ ...manualForm, article_source: e.target.value })}
                   className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                  placeholder="Ex: /que-faire-paris/"
+                  placeholder="Ex: chateau-de-serrant"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-0.5">
+                  URL article dédié{' '}
+                  <span className="text-blue-600 font-semibold">(prioritaire pour la génération)</span>
+                </label>
+                <input
+                  type="url"
+                  value={manualForm.url_source}
+                  onChange={(e) => setManualForm({ ...manualForm, url_source: e.target.value })}
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                  placeholder="Ex: https://monsite.com/chateau-de-serrant/"
+                />
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Renseigne ici l'URL de l'article dédié au POI pour remplacer l'article liste.
+                </p>
               </div>
             </div>
 
@@ -1780,7 +1801,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                 onClick={() => {
                   setShowManualModal(false);
                   setEditingPoi(null);
-                  setManualForm({ nom: '', type: 'autre', lat: '', lon: '', article_source: '' });
+                  setManualForm({ nom: '', type: 'autre', lat: '', lon: '', article_source: '', url_source: '' });
                 }}
                 className="flex-1 px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
               >

@@ -1288,6 +1288,27 @@ Retourne STRICTEMENT un JSON valide sans texte additionnel :
     }
 
     /**
+     * Retourne vrai si le slug de l'article semble dédié au POI.
+     * Ex : "Château de Serrant" → keywords ["chateau","serrant"]
+     *      slug "chateau-de-serrant" → 2/2 keywords présents → dédié ✓
+     *      slug "que-faire-autour-angers" → 0/2 keywords → liste ✗
+     */
+    function isArticleDedicatedToPoi(articleSource: string, poiNom: string): boolean {
+      const normalizeSlug = (s: string) =>
+        s.toLowerCase()
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9 ]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      const slugWords = normalizeSlug(articleSource.replace(/-/g, ' '));
+      const poiWords = normalizeSlug(poiNom);
+      const keywords = poiWords.split(' ').filter((w: string) => w.length >= 4);
+      if (keywords.length === 0) return false;
+      const matchCount = keywords.filter((kw: string) => slugWords.includes(kw)).length;
+      return matchCount >= Math.ceil(keywords.length * 0.6);
+    }
+
+    /**
      * Phase 1 : déduplication algorithmique pure, sans LLM.
      *
      * Fusionne les POIs dont :
@@ -1296,8 +1317,12 @@ Retourne STRICTEMENT un JSON valide sans texte additionnel :
      *  (c) l'un des noms normalisés est entièrement contenu dans l'autre
      *      ET les deux partagent le même premier mot significatif (≥ 4 chars)
      *
-     * Pour chaque groupe, le POI conservé est celui qui possède le nom le plus court
-     * (le plus canonique) et les autres_articles_mentions sont consolidés.
+     * Représentant choisi par priorité :
+     *  1. POI issu d'un article dédié (slug correspondant au nom du POI)
+     *  2. POI avec nom le plus court (le plus canonique)
+     *
+     * Fix : l'article_source de chaque doublon éliminé est conservé dans
+     * autres_articles_mentions (était perdu auparavant).
      */
     function deduplicateAlgorithmically(pois: any[]): { pois: any[]; groups: string[][] } {
       const norms = pois.map(p => normalizeName(p.nom));
@@ -1345,16 +1370,45 @@ Retourne STRICTEMENT un JSON valide sans texte additionnel :
       const fusionGroups: string[][] = [];
 
       for (const members of groups.values()) {
-        // Choisir le représentant : nom le plus court (le plus canonique)
-        const sorted = members.sort((a, b) => pois[a].nom.length - pois[b].nom.length);
-        const rep = pois[sorted[0]];
+        // ── Sélection du représentant (Solution 2) ────────────────────────────
+        // Priorité 1 : POI issu d'un article dédié (slug match avec le nom du POI)
+        // Priorité 2 : POI avec le nom le plus court (le plus canonique)
+        let repIdx = members[0];
+        for (const idx of members) {
+          const poi = pois[idx];
+          if (poi.article_source && isArticleDedicatedToPoi(poi.article_source, poi.nom)) {
+            repIdx = idx;
+            break; // premier article dédié trouvé → représentant
+          }
+        }
+        // Fallback : nom le plus court parmi ceux sans article dédié
+        if (repIdx === members[0]) {
+          const sorted = [...members].sort((a, b) => pois[a].nom.length - pois[b].nom.length);
+          repIdx = sorted[0];
+        }
+        const rep = pois[repIdx];
 
-        // Consolider les mentions
+        // ── Consolidation des mentions (Solution 1) ───────────────────────────
+        // Fix : les article_source de TOUS les doublons éliminés sont désormais
+        // préservés dans autres_articles_mentions (avant : silencieusement perdus)
         const allMentions = new Set<string>([
           ...(rep.autres_articles_mentions || []),
-          ...sorted.slice(1).flatMap((idx: number) => pois[idx].autres_articles_mentions || []),
         ]);
+        for (const idx of members) {
+          if (idx === repIdx) continue;
+          const dup = pois[idx];
+          // article_source du doublon éliminé → préservé
+          if (dup.article_source && dup.article_source !== rep.article_source) {
+            allMentions.add(dup.article_source);
+          }
+          // url_source du doublon éliminé → préservée si différente
+          if (dup.url_source && dup.url_source !== rep.url_source) {
+            allMentions.add(dup.url_source);
+          }
+          (dup.autres_articles_mentions || []).forEach((m: string) => allMentions.add(m));
+        }
         if (rep.article_source) allMentions.delete(rep.article_source);
+        if (rep.url_source) allMentions.delete(rep.url_source);
 
         fusedPois.push({
           ...rep,
@@ -1496,6 +1550,96 @@ Si aucun doublon détecté : retourne { "groupes": [] }`;
       const totalRemoved = rawPois.length - dedupPois.length;
       console.log(`✅ [WORKER-DEDUP] Phase 2 LLM : ${dedupPois.length} POIs (${removedLLM} supplémentaires)`);
       console.log(`✅ [WORKER-DEDUP] TOTAL : ${dedupPois.length} POIs uniques (${totalRemoved} doublons sur ${rawPois.length})`);
+
+      // ── Phase 3 : sélection du meilleur article par comptage d'occurrences ──
+      //
+      // Pour chaque POI ayant des autres_articles_mentions, on charge tous les
+      // articles candidats et on choisit celui où le nom du POI apparaît le plus
+      // souvent dans le contenu. C'est l'algorithme décrit par Julie :
+      // "il doit sélectionner la page où il y a le plus d'occurrences du nom du POI".
+      console.log(`🔍 [WORKER-DEDUP] Phase 3 : sélection meilleur article par occurrences...`);
+      const guideLangForDedup = guide.language || 'fr';
+      let bestUrlUpdated = 0;
+
+      // Cache slug → article pour éviter de recharger le même article plusieurs fois
+      const articleCache: Record<string, any> = {};
+      const getArticle = async (slugOrSource: string): Promise<any | null> => {
+        if (articleCache[slugOrSource] !== undefined) return articleCache[slugOrSource];
+        const art = await db.collection(COLLECTIONS.articles_raw).findOne(
+          { $or: [{ slug: slugOrSource }, { title: slugOrSource }] },
+          { projection: { slug: 1, title: 1, markdown: 1, urls_by_lang: 1 } }
+        );
+        articleCache[slugOrSource] = art ?? null;
+        return articleCache[slugOrSource];
+      };
+
+      const normalizeText = (s: string) =>
+        s.toLowerCase()
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9 ]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+      const countOccurrences = (text: string, term: string): number => {
+        if (!text || !term) return 0;
+        const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const matches = text.match(new RegExp(escaped, 'gi'));
+        return matches ? matches.length : 0;
+      };
+
+      for (let i = 0; i < dedupPois.length; i++) {
+        const poi = dedupPois[i];
+        const mentions: string[] = poi.autres_articles_mentions || [];
+        if (mentions.length === 0) continue; // rien à comparer
+
+        const poiNom = normalizeText(poi.nom || '');
+
+        // Candidats : article principal + toutes les mentions
+        const candidates = [poi.article_source, ...mentions].filter(Boolean) as string[];
+
+        let bestSource = poi.article_source;
+        let bestUrl = poi.url_source || null;
+        let bestCount = -1;
+
+        for (const candidate of candidates) {
+          const art = await getArticle(candidate);
+          if (!art) continue;
+
+          const artUrl =
+            art.urls_by_lang?.[guideLangForDedup] ??
+            art.urls_by_lang?.['fr'] ??
+            art.urls_by_lang?.['en'] ??
+            null;
+          if (!artUrl) continue;
+
+          const artText = normalizeText(art.markdown || art.title || '');
+          const count = countOccurrences(artText, poiNom);
+
+          if (count > bestCount) {
+            bestCount = count;
+            bestSource = candidate;
+            bestUrl = artUrl;
+          }
+        }
+
+        if (bestSource !== poi.article_source && bestUrl) {
+          const oldSource = poi.article_source;
+          // Déplacer l'ancien article_source vers autres_articles_mentions
+          const newMentions = new Set<string>(mentions);
+          if (oldSource) newMentions.add(oldSource);
+          newMentions.delete(bestSource);
+
+          dedupPois[i] = {
+            ...poi,
+            article_source: bestSource,
+            url_source: bestUrl,
+            autres_articles_mentions: Array.from(newMentions),
+          };
+          bestUrlUpdated++;
+          console.log(`  ↳ [Phase 3] "${poi.nom}" : "${oldSource}" (${bestCount - (countOccurrences(normalizeText((await getArticle(oldSource) as any)?.markdown || ''), poiNom))} occ) → "${bestSource}" (${bestCount} occ)`);
+        }
+      }
+      console.log(`✅ [WORKER-DEDUP] Phase 3 : ${bestUrlUpdated} article(s) principal(aux) mis à jour par comptage d'occurrences`);
 
       await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
         { _id: new ObjectId(jobId) },

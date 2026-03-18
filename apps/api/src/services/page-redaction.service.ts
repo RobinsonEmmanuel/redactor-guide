@@ -94,10 +94,11 @@ export class PageRedactionService {
       // Si la page n'a pas encore d'url_source et qu'elle est de type POI,
       // on tente de résoudre automatiquement la meilleure URL depuis pois_selection
       // (url_source + autres_articles_mentions). Fonctionne sans régénérer la structure.
-      if (infoSource === 'article_source' && !isValidArticleUrl(page.url_source)) {
+      let resolvedUrlSource: string | null = page.url_source ?? null;
+      if (infoSource === 'article_source' && !isValidArticleUrl(resolvedUrlSource)) {
         const resolvedUrl = await this.resolvePoiArticleUrl(page);
         if (resolvedUrl) {
-          page = { ...page, url_source: resolvedUrl };
+          resolvedUrlSource = resolvedUrl;
           // Persister pour les prochaines générations
           await this.db.collection(COLLECTIONS.pages).updateOne(
             { _id: page._id },
@@ -107,7 +108,7 @@ export class PageRedactionService {
         }
       }
 
-      const hasValidArticleUrl = isValidArticleUrl(page.url_source);
+      const hasValidArticleUrl = isValidArticleUrl(resolvedUrlSource);
 
       if (infoSource === 'article_source') {
         // Mode article spécifique : utilise l'article WordPress lié à la page
@@ -120,7 +121,7 @@ export class PageRedactionService {
             throw new Error("Ce template utilise 'article_source' mais aucune url_source n'est définie sur la page");
           }
         } else {
-          article = await this.loadArticleSource(page.url_source);
+          article = await this.loadArticleSource(resolvedUrlSource ?? undefined);
           if (!article) {
             throw new Error('Article WordPress source non trouvé');
           }

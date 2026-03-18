@@ -91,20 +91,53 @@ export class PageRedactionService {
         catch { return false; }
       };
 
-      // Si la page n'a pas encore d'url_source et qu'elle est de type POI,
-      // on tente de résoudre automatiquement la meilleure URL depuis pois_selection
-      // (url_source + autres_articles_mentions). Fonctionne sans régénérer la structure.
+      /**
+       * Vérifie si l'URL courante pointe déjà vers un article dédié au POI.
+       * On extrait le slug depuis le chemin de l'URL et on teste si les mots-clés
+       * du nom du POI sont présents dedans.
+       * Ex : POI "Château de Serrant", URL "https://…/chateau-de-serrant/" → dédié ✓
+       *      POI "Château de Serrant", URL "https://…/que-faire-autour-angers/" → liste ✗
+       */
+      const currentUrlIsDedicated = (url: string | null, poiNom: string): boolean => {
+        if (!url || !poiNom) return false;
+        try {
+          const slug = new URL(url).pathname.replace(/^\/|\/$/g, '').split('/').pop() ?? '';
+          const normalizeStr = (s: string) =>
+            s.toLowerCase()
+              .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+              .replace(/[^a-z0-9 ]/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+          const slugWords = normalizeStr(slug.replace(/-/g, ' '));
+          const keywords = normalizeStr(poiNom).split(' ').filter((w: string) => w.length >= 4);
+          if (keywords.length === 0) return false;
+          const matchCount = keywords.filter((kw: string) => slugWords.includes(kw)).length;
+          return matchCount >= Math.ceil(keywords.length * 0.6);
+        } catch { return false; }
+      };
+
+      // Contrôle systématique de la meilleure URL disponible pour les pages POI.
+      // On cherche un meilleur article si :
+      //   (a) aucune url_source n'est définie, OU
+      //   (b) l'url_source actuelle n'est pas un article dédié au POI
+      //       (ex : c'est encore l'article liste assigné automatiquement)
+      // Si l'utilisateur a déjà une URL dédiée ou l'a saisie manuellement,
+      // le test (b) est vrai → on ne la remplace pas.
+      const poiNameForCheck = page.metadata?.poi_name || page.titre || '';
       let resolvedUrlSource: string | null = page.url_source ?? null;
-      if (infoSource === 'article_source' && !isValidArticleUrl(resolvedUrlSource)) {
+      if (
+        infoSource === 'article_source' &&
+        (!isValidArticleUrl(resolvedUrlSource) || !currentUrlIsDedicated(resolvedUrlSource, poiNameForCheck))
+      ) {
         const resolvedUrl = await this.resolvePoiArticleUrl(page);
-        if (resolvedUrl) {
+        if (resolvedUrl && resolvedUrl !== resolvedUrlSource) {
           resolvedUrlSource = resolvedUrl;
           // Persister pour les prochaines générations
           await this.db.collection(COLLECTIONS.pages).updateOne(
             { _id: page._id },
             { $set: { url_source: resolvedUrl } }
           );
-          console.log(`🔎 [Auto-résolution URL POI] "${page.titre}" → ${resolvedUrl}`);
+          console.log(`🔎 [Auto-résolution URL POI] "${page.titre}" : "${page.url_source ?? '(vide)'}" → "${resolvedUrl}"`);
         }
       }
 

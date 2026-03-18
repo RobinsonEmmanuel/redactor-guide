@@ -894,6 +894,100 @@ INSTRUCTIONS STRICTES :
    *
    * Fonctionne pour les structures vierges (ajout manuel) et les guides en cours.
    */
+  /**
+   * Cherche l'ancre HTML (#id) d'un heading correspondant au nom du POI
+   * dans le html_brut d'un article.
+   *
+   * WordPress stocke un attribut id sur chaque heading. Exemple :
+   *   <h2 id="4_Jardin_Marquis_Quinta_Roja_La_Orotava">4. Jardin Marquis…</h2>
+   *
+   * Retourne l'id si trouvé, null sinon.
+   */
+  private findAnchorInHtml(htmlBrut: string, poiName: string): string | null {
+    if (!htmlBrut || !poiName) return null;
+
+    const normalizeStr = (s: string) =>
+      s.toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9 ]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const normalizedPoi = normalizeStr(poiName);
+    const keywords = normalizedPoi.split(' ').filter((w: string) => w.length >= 4);
+    if (keywords.length === 0) return null;
+
+    // Extraire tous les headings h2/h3/h4 avec leur id et texte
+    const headingRegex = /<h[2-4][^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/h[2-4]>/gi;
+    let match;
+    while ((match = headingRegex.exec(htmlBrut)) !== null) {
+      const anchorId = match[1];
+      // Nettoyer le texte du heading (supprimer les balises HTML internes)
+      const headingText = normalizeStr(match[2].replace(/<[^>]+>/g, ' '));
+      // Vérifier si au moins 60% des mots-clés du POI sont dans ce heading
+      const matchCount = keywords.filter((kw: string) => headingText.includes(kw)).length;
+      if (matchCount >= Math.ceil(keywords.length * 0.6)) {
+        return anchorId;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Extrait la section d'un article Markdown correspondant à un POI,
+   * depuis le heading qui le mentionne jusqu'au prochain heading de même niveau.
+   *
+   * Utilisé quand l'URL contient une ancre (#) pointant sur une section d'un article liste.
+   * Permet à l'IA de ne voir que la section pertinente, pas tout l'article.
+   */
+  private extractSectionFromMarkdown(markdown: string, poiName: string): string | null {
+    if (!markdown || !poiName) return null;
+
+    const normalizeStr = (s: string) =>
+      s.toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9 ]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const normalizedPoi = normalizeStr(poiName);
+    const keywords = normalizedPoi.split(' ').filter((w: string) => w.length >= 4);
+    if (keywords.length === 0) return null;
+
+    const lines = markdown.split('\n');
+    let sectionStart = -1;
+    let sectionLevel = 0;
+
+    // Trouver le heading qui correspond au POI
+    for (let i = 0; i < lines.length; i++) {
+      const headingMatch = lines[i].match(/^(#{2,4})\s+(.+)/);
+      if (!headingMatch) continue;
+
+      const headingText = normalizeStr(headingMatch[2]);
+      const level = headingMatch[1].length;
+      const matchCount = keywords.filter((kw: string) => headingText.includes(kw)).length;
+
+      if (matchCount >= Math.ceil(keywords.length * 0.6)) {
+        sectionStart = i;
+        sectionLevel = level;
+        break;
+      }
+    }
+
+    if (sectionStart === -1) return null;
+
+    // Extraire jusqu'au prochain heading de même niveau ou supérieur
+    const sectionLines = [lines[sectionStart]];
+    for (let i = sectionStart + 1; i < lines.length; i++) {
+      const nextHeading = lines[i].match(/^(#{1,4})\s+/);
+      if (nextHeading && nextHeading[1].length <= sectionLevel) break;
+      sectionLines.push(lines[i]);
+    }
+
+    const section = sectionLines.join('\n').trim();
+    return section.length > 50 ? section : null;
+  }
+
   private async resolvePoiArticleUrl(page: any): Promise<string | null> {
     const poiName: string = page.metadata?.poi_name || page.titre || '';
     if (!poiName.trim()) return null;
@@ -911,9 +1005,28 @@ INSTRUCTIONS STRICTES :
     const normalizedName = normalizeStr(poiName);
     const keywords = normalizedName.split(' ').filter((w: string) => w.length >= 4);
 
-    // ── Étape 1 : chercher un article dont le slug contient tous les mots-clés ──
+    /**
+     * Construit l'URL finale en cherchant si possible l'ancre du POI dans le html_brut
+     * de l'article. Si une ancre est trouvée, retourne url#ancre — ce qui permettra
+     * à loadArticleSource d'extraire uniquement la section pertinente.
+     */
+    const buildUrlWithAnchor = async (baseUrl: string, articleDoc?: any): Promise<string> => {
+      const doc = articleDoc ?? await this.db.collection(COLLECTIONS.articles_raw).findOne(
+        { $or: [{ 'urls_by_lang.fr': baseUrl }, { 'urls_by_lang.en': baseUrl }] },
+        { projection: { html_brut: 1 } }
+      );
+      if (doc?.html_brut) {
+        const anchor = this.findAnchorInHtml(doc.html_brut, poiName);
+        if (anchor) {
+          console.log(`⚓ [Ancre trouvée] "${poiName}" → #${anchor}`);
+          return `${baseUrl}#${anchor}`;
+        }
+      }
+      return baseUrl;
+    };
+
+    // ── Étape 1 : chercher un article dédié (slug contenant les mots-clés du POI) ──
     if (keywords.length > 0) {
-      // Regex lookahead : chaque mot-clé doit être présent dans le slug
       const slugRegex = keywords.map((kw: string) => `(?=.*${kw})`).join('') + '.*';
       const dedicated = await this.db.collection(COLLECTIONS.articles_raw).findOne(
         { slug: { $regex: slugRegex, $options: 'i' } },
@@ -925,39 +1038,36 @@ INSTRUCTIONS STRICTES :
           ?? Object.values(dedicated.urls_by_lang ?? {})[0]
           ?? null;
         if (url) {
-          console.log(`🎯 [resolvePoiArticleUrl] Article dédié trouvé pour "${poiName}" → ${url}`);
-          return url as string;
+          console.log(`🎯 [resolvePoiArticleUrl] Article dédié pour "${poiName}" → ${url}`);
+          return url as string; // Article dédié : pas besoin d'ancre
         }
       }
     }
 
-    // ── Étape 2 : récupérer pois_selection et utiliser url_source + autres_articles_mentions ──
+    // ── Étape 2 : pois_selection → url_source + autres_articles_mentions ──
     if (guideId) {
       const poisSelection = await this.db.collection(COLLECTIONS.pois_selection).findOne(
         { guide_id: guideId },
         { projection: { pois: 1 } }
       );
       if (poisSelection?.pois) {
-        // Chercher le POI par poi_id (prioritaire) ou par correspondance de nom
         const poi = (poisSelection.pois as any[]).find((p: any) =>
           (page.metadata?.poi_id && p.poi_id === page.metadata.poi_id) ||
           normalizeStr(p.nom || '') === normalizedName
         );
 
         if (poi) {
-          // url_source du POI (peut être l'article liste — on l'utilise en dernier recours)
           const poiUrl: string | null = poi.url_source?.startsWith('http') ? poi.url_source : null;
 
-          // Parcourir autres_articles_mentions pour trouver un meilleur article
+          // Chercher un meilleur article dans autres_articles_mentions
           const mentions: string[] = poi.autres_articles_mentions || [];
           for (const slugOrTitle of mentions) {
             const art = await this.db.collection(COLLECTIONS.articles_raw).findOne(
               { $or: [{ slug: slugOrTitle }, { title: slugOrTitle }] },
-              { projection: { urls_by_lang: 1, slug: 1 } }
+              { projection: { urls_by_lang: 1, slug: 1, html_brut: 1 } }
             );
             if (!art) continue;
 
-            // Préférer cet article si son slug contient des mots-clés du POI
             const artSlug = normalizeStr((art.slug || '').replace(/-/g, ' '));
             const matchCount = keywords.filter((kw: string) => artSlug.includes(kw)).length;
             if (keywords.length > 0 && matchCount >= Math.ceil(keywords.length * 0.6)) {
@@ -972,10 +1082,11 @@ INSTRUCTIONS STRICTES :
             }
           }
 
-          // Aucun meilleur article trouvé dans les mentions → url_source existante
+          // Fallback : url_source du POI (article liste) → chercher l'ancre dedans
           if (poiUrl) {
-            console.log(`📄 [resolvePoiArticleUrl] url_source pois_selection pour "${poiName}" → ${poiUrl}`);
-            return poiUrl;
+            const urlWithAnchor = await buildUrlWithAnchor(poiUrl);
+            console.log(`📄 [resolvePoiArticleUrl] url_source pois_selection pour "${poiName}" → ${urlWithAnchor}`);
+            return urlWithAnchor;
           }
         }
       }
@@ -989,16 +1100,39 @@ INSTRUCTIONS STRICTES :
       throw new Error('URL source manquante');
     }
 
-    // Chercher l'article par son URL (toutes langues)
+    // Séparer l'éventuelle ancre (#) de l'URL de base
+    const hashIdx = urlSource.indexOf('#');
+    const baseUrl = hashIdx !== -1 ? urlSource.slice(0, hashIdx) : urlSource;
+    const anchor  = hashIdx !== -1 ? urlSource.slice(hashIdx + 1) : null;
+
+    // Chercher l'article par son URL de base (toutes langues)
     const article = await this.db.collection(COLLECTIONS.articles_raw).findOne({
       $or: [
-        { 'urls_by_lang.fr': urlSource },
-        { 'urls_by_lang.en': urlSource },
-        { 'urls_by_lang.de': urlSource },
-        { 'urls_by_lang.es': urlSource },
-        { 'urls_by_lang.it': urlSource },
+        { 'urls_by_lang.fr': baseUrl },
+        { 'urls_by_lang.en': baseUrl },
+        { 'urls_by_lang.de': baseUrl },
+        { 'urls_by_lang.es': baseUrl },
+        { 'urls_by_lang.it': baseUrl },
       ],
     });
+
+    if (!article || !anchor) return article;
+
+    // ── Si une ancre est présente : extraire uniquement la section du POI ──
+    // L'ancre indique que le POI est une section d'un article liste.
+    // On extrait la section correspondante pour que l'IA ne voie que le contenu utile.
+    const poiName = anchor
+      .replace(/^[\d_]+/, '')       // supprimer les préfixes numériques "4_"
+      .replace(/[_-]/g, ' ')        // remplacer _ et - par des espaces
+      .trim();
+
+    if (poiName && article.markdown) {
+      const section = this.extractSectionFromMarkdown(article.markdown, poiName);
+      if (section) {
+        console.log(`✂️ [Section extraite] "${poiName}" (${section.length} chars sur ${article.markdown.length} total)`);
+        return { ...article, markdown: section, _section_extracted: true };
+      }
+    }
 
     return article;
   }

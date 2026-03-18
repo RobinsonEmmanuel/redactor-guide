@@ -85,11 +85,29 @@ export class PageRedactionService {
       const infoSource: string = template.info_source ?? 'article_source';
 
       // Une URL racine (ex: https://monsite.fr/) n'est pas un article valide
-      const hasValidArticleUrl = (() => {
-        if (!page.url_source) return false;
-        try { return new URL(page.url_source).pathname.replace(/\//g, '').length > 0; }
+      const isValidArticleUrl = (u?: string | null): boolean => {
+        if (!u) return false;
+        try { return new URL(u).pathname.replace(/\//g, '').length > 0; }
         catch { return false; }
-      })();
+      };
+
+      // Si la page n'a pas encore d'url_source et qu'elle est de type POI,
+      // on tente de résoudre automatiquement la meilleure URL depuis pois_selection
+      // (url_source + autres_articles_mentions). Fonctionne sans régénérer la structure.
+      if (infoSource === 'article_source' && !isValidArticleUrl(page.url_source)) {
+        const resolvedUrl = await this.resolvePoiArticleUrl(page);
+        if (resolvedUrl) {
+          page = { ...page, url_source: resolvedUrl };
+          // Persister pour les prochaines générations
+          await this.db.collection(COLLECTIONS.pages).updateOne(
+            { _id: page._id },
+            { $set: { url_source: resolvedUrl } }
+          );
+          console.log(`🔎 [Auto-résolution URL POI] "${page.titre}" → ${resolvedUrl}`);
+        }
+      }
+
+      const hasValidArticleUrl = isValidArticleUrl(page.url_source);
 
       if (infoSource === 'article_source') {
         // Mode article spécifique : utilise l'article WordPress lié à la page
@@ -830,6 +848,108 @@ INSTRUCTIONS STRICTES :
   /**
    * Charger un article WordPress depuis la base
    */
+  /**
+   * Résout automatiquement la meilleure URL d'article pour une page POI,
+   * sans nécessiter de régénérer la structure du chemin de fer.
+   *
+   * Stratégie (ordre de priorité) :
+   *  1. Article dédié détecté par correspondance de mots-clés (slug ↔ nom POI)
+   *     → cherche dans tous les articles du site dont le slug contient les mots-clés du POI
+   *  2. url_source stockée dans pois_selection pour ce POI
+   *  3. Premiers résultats dans autres_articles_mentions (slugs alternatifs)
+   *
+   * Fonctionne pour les structures vierges (ajout manuel) et les guides en cours.
+   */
+  private async resolvePoiArticleUrl(page: any): Promise<string | null> {
+    const poiName: string = page.metadata?.poi_name || page.titre || '';
+    if (!poiName.trim()) return null;
+
+    const guideId: string = page.guide_id || '';
+
+    // Normaliser le nom pour comparaison (sans accents, minuscules)
+    const normalizeStr = (s: string) =>
+      s.toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9 ]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const normalizedName = normalizeStr(poiName);
+    const keywords = normalizedName.split(' ').filter((w: string) => w.length >= 4);
+
+    // ── Étape 1 : chercher un article dont le slug contient tous les mots-clés ──
+    if (keywords.length > 0) {
+      // Regex lookahead : chaque mot-clé doit être présent dans le slug
+      const slugRegex = keywords.map((kw: string) => `(?=.*${kw})`).join('') + '.*';
+      const dedicated = await this.db.collection(COLLECTIONS.articles_raw).findOne(
+        { slug: { $regex: slugRegex, $options: 'i' } },
+        { projection: { urls_by_lang: 1 } }
+      );
+      if (dedicated) {
+        const url = dedicated.urls_by_lang?.fr
+          ?? dedicated.urls_by_lang?.en
+          ?? Object.values(dedicated.urls_by_lang ?? {})[0]
+          ?? null;
+        if (url) {
+          console.log(`🎯 [resolvePoiArticleUrl] Article dédié trouvé pour "${poiName}" → ${url}`);
+          return url as string;
+        }
+      }
+    }
+
+    // ── Étape 2 : récupérer pois_selection et utiliser url_source + autres_articles_mentions ──
+    if (guideId) {
+      const poisSelection = await this.db.collection(COLLECTIONS.pois_selection).findOne(
+        { guide_id: guideId },
+        { projection: { pois: 1 } }
+      );
+      if (poisSelection?.pois) {
+        // Chercher le POI par poi_id (prioritaire) ou par correspondance de nom
+        const poi = (poisSelection.pois as any[]).find((p: any) =>
+          (page.metadata?.poi_id && p.poi_id === page.metadata.poi_id) ||
+          normalizeStr(p.nom || '') === normalizedName
+        );
+
+        if (poi) {
+          // url_source du POI (peut être l'article liste — on l'utilise en dernier recours)
+          const poiUrl: string | null = poi.url_source?.startsWith('http') ? poi.url_source : null;
+
+          // Parcourir autres_articles_mentions pour trouver un meilleur article
+          const mentions: string[] = poi.autres_articles_mentions || [];
+          for (const slugOrTitle of mentions) {
+            const art = await this.db.collection(COLLECTIONS.articles_raw).findOne(
+              { $or: [{ slug: slugOrTitle }, { title: slugOrTitle }] },
+              { projection: { urls_by_lang: 1, slug: 1 } }
+            );
+            if (!art) continue;
+
+            // Préférer cet article si son slug contient des mots-clés du POI
+            const artSlug = normalizeStr((art.slug || '').replace(/-/g, ' '));
+            const matchCount = keywords.filter((kw: string) => artSlug.includes(kw)).length;
+            if (keywords.length > 0 && matchCount >= Math.ceil(keywords.length * 0.6)) {
+              const url = art.urls_by_lang?.fr
+                ?? art.urls_by_lang?.en
+                ?? Object.values(art.urls_by_lang ?? {})[0]
+                ?? null;
+              if (url) {
+                console.log(`📎 [resolvePoiArticleUrl] Meilleur article via mentions pour "${poiName}" → ${url}`);
+                return url as string;
+              }
+            }
+          }
+
+          // Aucun meilleur article trouvé dans les mentions → url_source existante
+          if (poiUrl) {
+            console.log(`📄 [resolvePoiArticleUrl] url_source pois_selection pour "${poiName}" → ${poiUrl}`);
+            return poiUrl;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
   private async loadArticleSource(urlSource?: string): Promise<any> {
     if (!urlSource) {
       throw new Error('URL source manquante');

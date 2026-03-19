@@ -272,9 +272,12 @@ async function generateMapsLink(ctx: FieldServiceContext): Promise<FieldServiceR
   const destination: string = guide.destination ?? guide.destinations?.[0] ?? guide.name ?? '';
   const country = destination ? _geocodingService.getCountryFromDestination(destination) : undefined;
 
-  // Enrichir la requête avec la destination (ex: "Cathédrale de La Laguna, Tenerife, Spain")
-  // → précision bien supérieure à un simple pays ("Spain") seul
-  const enrichedQuery = destination ? `${query}, ${destination}` : query;
+  // Ajouter le cluster entre le nom du POI et la destination pour lever les homonymies
+  // (ex: "Playa Las Teresitas, Santa Cruz de Tenerife, Tenerife")
+  const clusterName: string = (currentPage as any).metadata?.cluster_name?.trim() ?? '';
+  const enrichedQuery = clusterName && destination ? `${query}, ${clusterName}, ${destination}`
+    : destination                                  ? `${query}, ${destination}`
+    :                                                query;
 
   console.log(`[geocoding_maps_link] Géocodage : "${enrichedQuery}" (${country ?? 'pays inconnu'})`);
 

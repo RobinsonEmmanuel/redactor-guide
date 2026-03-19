@@ -81,6 +81,7 @@ export class PerplexityService {
         return_citations: true,
         temperature: 0.1,
       }),
+      signal: AbortSignal.timeout(50_000),
     });
 
     if (!response.ok) {
@@ -168,6 +169,7 @@ export class PerplexityService {
         return_citations: true,
         temperature: 0.1,
       }),
+      signal: AbortSignal.timeout(50_000),
     });
 
     if (!response.ok) {
@@ -235,6 +237,7 @@ export class PerplexityService {
         return_citations: true,
         temperature: 0.1,
       }),
+      signal: AbortSignal.timeout(50_000),
     });
 
     if (!response.ok) {

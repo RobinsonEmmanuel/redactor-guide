@@ -27,6 +27,7 @@ export class OpenAIService {
   constructor(config: OpenAIConfig) {
     this.client = new OpenAI({
       apiKey: config.apiKey,
+      timeout: 55_000,
     });
     this.model = config.model || 'gpt-5-mini';
     this.reasoningEffort = config.reasoningEffort || 'medium';

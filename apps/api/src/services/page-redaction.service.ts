@@ -175,19 +175,37 @@ export class PageRedactionService {
       } else if (infoSource === 'cluster_auto_match') {
         // Mode cluster : recherche automatique de l'article "Que faire à <nom du cluster>"
         const clusterName = page.metadata?.cluster_name || page.titre || '';
-        article = await this.findBestClusterArticle(clusterName);
 
-        if (article) {
+        // 1. Mode LLM knowledge explicite (demandé par l'utilisateur via le dialog de confirmation)
+        if (options?.useLlmKnowledge) {
+          const destinationCtx = guideDestination ? ` à/en ${guideDestination}` : '';
+          articleContext = `[MODE BASE DE CONNAISSANCE]\nAucun article WordPress source n'est associé à ce cluster.\nGénère le contenu en te basant uniquement sur tes connaissances générales du cluster "${clusterName}"${destinationCtx}.\nSois factuel, précis et adopte le ton éditorial habituel de Region Lovers.`;
+          console.log(`🧠 Mode base de connaissance cluster pour "${clusterName}"${guideDestination ? ` [destination: ${guideDestination}]` : ''}`);
+
+        // 2. URL article manuelle fournie par l'utilisateur (via la barre URL du modal)
+        } else if (hasValidArticleUrl) {
+          article = await this.loadArticleSource(resolvedUrlSource ?? undefined);
+          if (!article) throw new Error('Article WordPress source non trouvé à l\'URL fournie');
           await this.ensureImagesAnalyzed(article);
           articleContext = this.formatArticle(article, page.titre);
-          if (page.titre && article.images?.length) {
-            void this.tagImagesWithPOI(this.filterImagesForPOI(article.images, page.titre), page.titre);
-          }
-          console.log(`🔍 Mode cluster_auto_match : article trouvé → "${article.title}"`);
+          console.log(`📄 Mode cluster avec URL manuelle : ${article.title}`);
+
+        // 3. Recherche automatique par nom de cluster
         } else {
-          console.warn(`⚠️ Mode cluster_auto_match : aucun article trouvé pour "${clusterName}" — fallback contexte général`);
-          article = null;
-          articleContext = await this.buildGeneralContext(_guideId, page);
+          article = await this.findBestClusterArticle(clusterName);
+
+          if (article) {
+            await this.ensureImagesAnalyzed(article);
+            articleContext = this.formatArticle(article, page.titre);
+            if (page.titre && article.images?.length) {
+              void this.tagImagesWithPOI(this.filterImagesForPOI(article.images, page.titre), page.titre);
+            }
+            console.log(`🔍 Mode cluster_auto_match : article trouvé → "${article.title}"`);
+          } else {
+            // Aucun article trouvé : lever une erreur pour que le frontend affiche
+            // le dialog "URL ou base de connaissance LLM" (même comportement que les pages POI)
+            throw new Error(`Aucun article source trouvé pour le cluster "${clusterName}". Renseignez une URL ou choisissez la génération depuis la base de connaissance du LLM.`);
+          }
         }
 
       } else if (infoSource === 'saison_auto_match') {

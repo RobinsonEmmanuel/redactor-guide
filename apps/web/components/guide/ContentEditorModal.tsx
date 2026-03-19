@@ -368,7 +368,7 @@ export default function ContentEditorModal({
       try { return new URL(effectiveUrl).pathname.replace(/\//g, '').length > 0; } catch { return false; }
     })();
 
-    if (requiresUrlForGeneration && !hasValidUrl && !useLlmKnowledge) {
+    if ((requiresUrlForGeneration || isClusterPage) && !hasValidUrl && !useLlmKnowledge) {
       setShowLlmKnowledgeConfirm(true);
       return;
     }

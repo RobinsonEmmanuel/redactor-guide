@@ -77,10 +77,14 @@ export class PageRedactionService {
         throw new Error(`Template non trouvé (id=${page.template_id ?? 'null'}, name=${page.template_name ?? 'null'})`);
       }
 
-      // 3. Charger le contenu source selon la stratégie info_source du template
+      // 3. Charger la destination du guide (utilisée dans le contexte LLM et le focus POI)
+      const guideDoc = await this.db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(_guideId) });
+      const guideDestination: string = guideDoc?.destination ?? guideDoc?.destinations?.[0] ?? '';
+
+      // 4. Charger le contenu source selon la stratégie info_source du template
       let article: any;
       let articleContext: string;
-      let extraVars: Record<string, string> = {};
+      let extraVars: Record<string, string> = { DESTINATION: guideDestination };
 
       const infoSource: string = template.info_source ?? 'article_source';
 
@@ -148,8 +152,9 @@ export class PageRedactionService {
         if (!hasValidArticleUrl) {
           if (options?.useLlmKnowledge) {
             // Pas de source WordPress : génération depuis la base de connaissance du LLM
-            articleContext = `[MODE BASE DE CONNAISSANCE]\nAucun article WordPress source n'est associé à cette page.\nGénère le contenu en te basant uniquement sur tes connaissances générales du lieu "${page.titre ?? 'inconnu'}".\nSois factuel, précis et adopte le ton éditorial habituel de Region Lovers.`;
-            console.log(`🧠 Mode base de connaissance (sans article source) pour "${page.titre}"`);
+            const destinationCtx = guideDestination ? `, situé(e) à/en ${guideDestination}` : '';
+            articleContext = `[MODE BASE DE CONNAISSANCE]\nAucun article WordPress source n'est associé à cette page.\nGénère le contenu en te basant uniquement sur tes connaissances générales du lieu "${page.titre ?? 'inconnu'}"${destinationCtx}.\nSois factuel, précis et adopte le ton éditorial habituel de Region Lovers.`;
+            console.log(`🧠 Mode base de connaissance (sans article source) pour "${page.titre}"${guideDestination ? ` [destination: ${guideDestination}]` : ''}`);
           } else {
             throw new Error("Ce template utilise 'article_source' mais aucune url_source n'est définie sur la page");
           }
@@ -208,9 +213,6 @@ export class PageRedactionService {
           }
         }
 
-        const guide = await this.db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(_guideId) });
-        const destination = guide?.destination ?? guide?.destinations?.[0] ?? '';
-
         const moisRef = saison ? (SAISON_MOIS[saison as keyof typeof SAISON_MOIS]?.[0] ?? '') : '';
 
         if (!saison) {
@@ -218,14 +220,14 @@ export class PageRedactionService {
           article = null;
           articleContext = await this.buildGeneralContext(_guideId, page);
         } else {
-          article = await this.findSeasonArticle(saison, destination);
+          article = await this.findSeasonArticle(saison, guideDestination);
 
           if (article) {
             await this.ensureImagesAnalyzed(article);
             articleContext = this.formatArticle(article);
             console.log(`🌸 Mode saison_auto_match [${saison}/${moisRef}] : article trouvé → "${article.title}"`);
           } else {
-            console.warn(`⚠️ Mode saison_auto_match : aucun article pour saison="${saison}" destination="${destination}" — fallback contexte général`);
+            console.warn(`⚠️ Mode saison_auto_match : aucun article pour saison="${saison}" destination="${guideDestination}" — fallback contexte général`);
             article = null;
             articleContext = await this.buildGeneralContext(_guideId, page);
           }
@@ -233,10 +235,10 @@ export class PageRedactionService {
 
         // Variables supplémentaires pour la substitution dans ai_instructions
         extraVars = {
+          ...extraVars,
           SAISON: saison,
           SAISON_LABEL: { printemps: 'Printemps', ete: 'Été', automne: 'Automne', hiver: 'Hiver' }[saison] ?? saison,
           MOIS_REFERENCE: moisRef,
-          DESTINATION: destination,
         };
 
       } else if (infoSource === 'inspiration_auto_match') {
@@ -350,8 +352,9 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
       const focusName = page.titre?.trim();
       const isArticleBasedMode = infoSource === 'article_source' || infoSource === 'cluster_auto_match';
       if (focusName && isArticleBasedMode) {
-        articleContext += `\n\n⚠️ FOCUS OBLIGATOIRE : Cette page de guide concerne UNIQUEMENT "${focusName}". Si l'article source traite de plusieurs lieux, ne retiens QUE les informations relatives à "${focusName}". Toutes les informations portant sur d'autres lieux doivent être ignorées.`;
-        console.log(`🎯 Focus POI injecté dans le contexte : "${focusName}"`);
+        const destinationFocus = guideDestination ? ` (destination : ${guideDestination})` : '';
+        articleContext += `\n\n⚠️ FOCUS OBLIGATOIRE : Cette page de guide concerne UNIQUEMENT "${focusName}"${destinationFocus}. Si l'article source traite de plusieurs lieux, ne retiens QUE les informations relatives à "${focusName}". Toutes les informations portant sur d'autres lieux doivent être ignorées.`;
+        console.log(`🎯 Focus POI injecté dans le contexte : "${focusName}"${guideDestination ? ` [destination: ${guideDestination}]` : ''}`);
       }
 
       // Injecter le commentaire interne de l'éditeur s'il est renseigné

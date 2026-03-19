@@ -1629,7 +1629,34 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
                 console.log(`📋 [VALIDATE] Prompt cohérence chargé depuis DB (${PROMPT_ID_CONSISTENCY})`);
               } else {
                 console.warn(`⚠️ [VALIDATE] Prompt cohérence non trouvé en DB (id: ${PROMPT_ID_CONSISTENCY}), utilisation du fallback`);
-                consistencyPrompt = `Tu es un éditeur vérifiant la cohérence entre un contenu rédigé et son article source.\n\nArticle source :\n---\n${articleExcerpt}\n---\n\nContenu rédigé pour "${name}"${clusterContext} :\n${fieldsJson}\n\nÉvalue si ce qui est ÉCRIT dans chaque champ est confirmé par l'article (present/partial/absent).\n\nRetourne UNIQUEMENT ce JSON :\n{ "consistency": [{ "field": "nom_du_champ", "article_consistency": "present|partial|absent", "article_excerpt": "citation ou null", "article_comment": "explication max 80 caractères" }] }`;
+                consistencyPrompt = [
+                  `Tu es un éditeur vérifiant la cohérence sémantique entre un contenu rédigé et son article source.`,
+                  ``,
+                  `RÈGLES DE CLASSIFICATION (lire attentivement) :`,
+                  `- "present"  : l'information est dans l'article, même reformulée, condensée ou dans un format différent.`,
+                  `  Ex: article="1h30 à 2h" / champ="1h30-2h" → present`,
+                  `  Ex: article="deux niveaux de plateformes" / champ="plateformes sur deux niveaux" → present`,
+                  `  Ex: article="restaurant étoilé" / champ="restaurant étoilé" → present`,
+                  `- "partial"  : l'information est partiellement dans l'article (certains éléments confirmés, d'autres non).`,
+                  `- "absent"   : UNIQUEMENT si l'information est introuvable dans l'article, même en cherchant des équivalences.`,
+                  `  NE PAS classer "absent" si l'info est présente sous une autre formulation ou un format condensé.`,
+                  ``,
+                  `Article source :`,
+                  `---`,
+                  articleExcerpt,
+                  `---`,
+                  ``,
+                  `Contenu rédigé pour "${name}"${clusterContext} :`,
+                  fieldsJson,
+                  ``,
+                  `Pour chaque champ, fournis :`,
+                  `- article_consistency : "present" | "partial" | "absent" (selon les règles ci-dessus)`,
+                  `- article_excerpt : la phrase exacte de l'article qui confirme l'info (null si absent)`,
+                  `- article_comment : explication courte (max 80 caractères) — OBLIGATOIRE si partial ou absent`,
+                  ``,
+                  `Retourne UNIQUEMENT ce JSON :`,
+                  `{ "consistency": [{ "field": "nom_du_champ", "article_consistency": "present|partial|absent", "article_excerpt": "citation ou null", "article_comment": "explication max 80 caractères" }] }`,
+                ].join('\n');
               }
 
               const consistencyResult = await openai.generateJSON(consistencyPrompt, 6000);

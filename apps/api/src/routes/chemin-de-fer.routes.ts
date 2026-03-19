@@ -1569,9 +1569,50 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
               const { OpenAIService } = await import('../services/openai.service');
               const openai = new OpenAIService({ apiKey: openaiApiKey, model: 'gpt-5-mini', reasoningEffort: 'low' });
 
-              // Tronquer le markdown article pour rester dans le contexte (8000 chars max)
-              const articleExcerpt = (articleDoc.markdown as string).substring(0, 8000);
-              const fieldsJson = fieldsToValidate.map(f => `- ${f.label} (${f.name}): "${f.value}"`).join('\n');
+              // ── Extraction intelligente de l'article ─────────────────────────────
+              // Problème : un article "Que faire à X" couvre 10-15 POIs → 20 000-40 000 chars.
+              // Tronquer naïvement au début ignore les sections de POIs éloignés.
+              // Stratégie :
+              //   1. Si article ≤ 25 000 chars → texte complet
+              //   2. Sinon : intro (2 000 chars) + section centrée sur le nom du POI (± 10 000 chars)
+              const MAX_FULL      = 25_000;
+              const MAX_WINDOW    = 12_000; // chars autour du POI si article long
+              const INTRO_CHARS   = 2_000;
+              const fullMarkdown  = articleDoc.markdown as string;
+
+              let articleExcerpt: string;
+              if (fullMarkdown.length <= MAX_FULL) {
+                articleExcerpt = fullMarkdown;
+              } else {
+                // Chercher la première occurrence du nom du POI (insensible à la casse)
+                const searchName = name.split(/[,\s]+/)[0]; // premier mot significatif
+                const poiIndex   = searchName.length > 3
+                  ? fullMarkdown.toLowerCase().indexOf(searchName.toLowerCase())
+                  : -1;
+
+                if (poiIndex !== -1) {
+                  const start   = Math.max(0, poiIndex - 2_000);
+                  const end     = Math.min(fullMarkdown.length, poiIndex + MAX_WINDOW);
+                  const intro   = start > INTRO_CHARS ? fullMarkdown.substring(0, INTRO_CHARS) + '\n[…]\n' : '';
+                  articleExcerpt = intro + fullMarkdown.substring(start, end);
+                } else {
+                  // POI non trouvé → prendre les 25 000 premiers chars (bien mieux que 8 000)
+                  articleExcerpt = fullMarkdown.substring(0, MAX_FULL);
+                }
+              }
+
+              // Nettoyer les marqueurs custom des champs rédigés avant envoi à OpenAI
+              // (**gras**, {orange}, ^chiffre^, ~gras-orange~) → perturbent la comparaison sémantique
+              const stripMarkers = (s: string) =>
+                s.replace(/\*\*/g, '')
+                 .replace(/\{([^}]*)\}/g, '$1')
+                 .replace(/\^([^^]*)\^/g, '$1')
+                 .replace(/~([^~]*)~/g, '$1')
+                 .trim();
+
+              const fieldsJson = fieldsToValidate
+                .map(f => `- ${f.label} (${f.name}): "${stripMarkers(f.value)}"`)
+                .join('\n');
 
               // ── Charger le prompt depuis la collection (fallback intégré si absent) ──
               const PROMPT_ID_CONSISTENCY = process.env.PROMPT_ID_CONSISTENCY ?? 'validation_coherence_article';

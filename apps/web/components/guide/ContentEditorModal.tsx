@@ -553,10 +553,10 @@ export default function ContentEditorModal({
       ? 'border-l-amber-400'
       : 'border-l-emerald-400';
 
-    const ARTICLE_CFG: Record<string, { label: string; color: string }> = {
-      present: { label: 'Présent dans l\'article',  color: 'text-teal-600' },
-      partial: { label: 'Approximatif vs article',  color: 'text-purple-600' },
-      absent:  { label: 'Absent de l\'article',     color: 'text-slate-500' },
+    const ARTICLE_CFG: Record<string, { label: string; color: string; bgColor: string }> = {
+      present: { label: 'Présent dans l\'article',  color: 'text-teal-700',  bgColor: 'bg-teal-50' },
+      partial: { label: 'Approximatif vs article',  color: 'text-purple-700', bgColor: 'bg-purple-50' },
+      absent:  { label: 'Absent de l\'article',     color: 'text-slate-600',  bgColor: 'bg-slate-50' },
     };
 
     return (
@@ -567,12 +567,19 @@ export default function ContentEditorModal({
           const cfg = ARTICLE_CFG[v.article_consistency!];
           if (!cfg) return null;
           return (
-            <p className={`${cfg.color} leading-snug`} title={v.article_comment || undefined}>
-              <span className="font-medium">Article :</span> {cfg.label}
-              {v.article_excerpt && (
-                <span className="text-gray-400 italic"> — "{v.article_excerpt}"</span>
+            <div className={`rounded px-2 py-1 ${cfg.bgColor} leading-snug space-y-0.5`}>
+              <p className={`${cfg.color} font-medium`}>
+                Article : {cfg.label}
+              </p>
+              {/* Explication de l'IA (toujours affichée, pas seulement en tooltip) */}
+              {v.article_comment && (
+                <p className="text-gray-500 italic">→ {v.article_comment}</p>
               )}
-            </p>
+              {/* Citation de l'article source quand trouvée */}
+              {v.article_excerpt && (
+                <p className="text-gray-400 italic">« {v.article_excerpt} »</p>
+              )}
+            </div>
           );
         })()}
 

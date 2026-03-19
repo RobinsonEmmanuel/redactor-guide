@@ -162,7 +162,7 @@ export class PageRedactionService {
         } else {
           article = await this.loadArticleSource(resolvedUrlSource ?? undefined);
           if (!article) {
-            throw new Error('Article WordPress source non trouvé');
+            throw new Error(`Article WordPress source non trouvé pour l'URL : "${resolvedUrlSource}". Vérifiez que cet article a bien été ingéré dans la base.`);
           }
           await this.ensureImagesAnalyzed(article);
           articleContext = this.formatArticle(article, page.titre);
@@ -185,7 +185,7 @@ export class PageRedactionService {
         // 2. URL article manuelle fournie par l'utilisateur (via la barre URL du modal)
         } else if (hasValidArticleUrl) {
           article = await this.loadArticleSource(resolvedUrlSource ?? undefined);
-          if (!article) throw new Error('Article WordPress source non trouvé à l\'URL fournie');
+          if (!article) throw new Error(`Article WordPress source non trouvé à l'URL fournie : "${resolvedUrlSource}". Vérifiez que cet article a bien été ingéré dans la base.`);
           await this.ensureImagesAnalyzed(article);
           articleContext = this.formatArticle(article, page.titre);
           console.log(`📄 Mode cluster avec URL manuelle : ${article.title}`);
@@ -1129,18 +1129,73 @@ INSTRUCTIONS STRICTES :
     const baseUrl = hashIdx !== -1 ? urlSource.slice(0, hashIdx) : urlSource;
     const anchor  = hashIdx !== -1 ? urlSource.slice(hashIdx + 1) : null;
 
-    // Chercher l'article par son URL de base (toutes langues)
+    // Normaliser : générer les deux variantes (avec et sans slash final)
+    const urlWithSlash    = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
+    const urlWithoutSlash = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+
+    // Chercher par urls_by_lang (toutes langues) ET champ url direct, avec les deux variantes
+    const urlVariants = [urlWithSlash, urlWithoutSlash];
     const article = await this.db.collection(COLLECTIONS.articles_raw).findOne({
-      $or: [
-        { 'urls_by_lang.fr': baseUrl },
-        { 'urls_by_lang.en': baseUrl },
-        { 'urls_by_lang.de': baseUrl },
-        { 'urls_by_lang.es': baseUrl },
-        { 'urls_by_lang.it': baseUrl },
-      ],
+      $or: urlVariants.flatMap(u => [
+        { 'urls_by_lang.fr': u },
+        { 'urls_by_lang.en': u },
+        { 'urls_by_lang.de': u },
+        { 'urls_by_lang.es': u },
+        { 'urls_by_lang.it': u },
+        { url: u },
+      ]),
     });
 
-    if (!article || !anchor) return article;
+    if (article) {
+      console.log(`🔍 [loadArticleSource] "${baseUrl}" → trouvé en base (${article.title ?? article._id})`);
+    } else {
+      // ── Fallback : fetch live depuis l'URL si l'article n'est pas en base ──
+      console.warn(`⚠️ [loadArticleSource] "${baseUrl}" introuvable en base — tentative de fetch live...`);
+      try {
+        const liveRes = await fetch(urlWithSlash, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RedactorGuide/1.0; +https://redactor-guide.vercel.app)' },
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!liveRes.ok) throw new Error(`HTTP ${liveRes.status}`);
+        const html = await liveRes.text();
+
+        // Extraction basique : supprimer scripts/styles/balises HTML
+        const stripped = html
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+          .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
+          .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
+          .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&#\d+;/g, ' ')
+          .replace(/[ \t]{2,}/g, ' ')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
+
+        const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+        const liveTitle = titleMatch ? titleMatch[1].replace(/[|\-–—].*$/, '').trim() : baseUrl;
+
+        console.log(`✅ [loadArticleSource] Fetch live réussi pour "${baseUrl}" — "${liveTitle}" (${stripped.length} chars)`);
+        const liveArticle: any = { title: liveTitle, markdown: stripped, url: baseUrl, _live_fetched: true };
+
+        if (anchor) {
+          const poiNameLive = anchor.replace(/^[\d_]+/, '').replace(/[_-]/g, ' ').trim();
+          if (poiNameLive && stripped) {
+            const sectionLive = this.extractSectionFromMarkdown(stripped, poiNameLive);
+            if (sectionLive) {
+              console.log(`✂️ [Section live extraite] "${poiNameLive}" (${sectionLive.length} chars)`);
+              return { ...liveArticle, markdown: sectionLive, _section_extracted: true };
+            }
+          }
+        }
+        return liveArticle;
+      } catch (fetchErr) {
+        console.error(`❌ [loadArticleSource] Fetch live échoué pour "${baseUrl}":`, fetchErr instanceof Error ? fetchErr.message : fetchErr);
+        return null;
+      }
+    }
+
+    if (!anchor) return article;
 
     // ── Si une ancre est présente : extraire uniquement la section du POI ──
     // L'ancre indique que le POI est une section d'un article liste.

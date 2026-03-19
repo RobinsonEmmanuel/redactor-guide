@@ -677,7 +677,8 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
   // Templates qui nécessitent un article WordPress spécifique pour la génération
   // INSPIRATION utilise les articles de ses POIs associés (metadata.inspiration_pois),
   // pas d'url_source globale — ne pas bloquer la génération pour ce type.
-  const TEMPLATES_REQUIRING_URL = ['POI'];
+  // CLUSTER sans url_source explicite → afficher le dialog URL/LLM (même comportement que POI)
+  const TEMPLATES_REQUIRING_URL = ['POI', 'CLUSTER'];
 
   /**
    * Une url_source est "valide" (pointe vers un article spécifique) si son

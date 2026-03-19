@@ -236,6 +236,16 @@ export default function ImageSelectorModal({
   const [importingFileId, setImportingFileId] = useState<string | null>(null);
   // Pile de navigation : [{id, name}]
   const [driveBreadcrumb, setDriveBreadcrumb] = useState<Array<{ id: string; name: string }>>([]);
+  // Recherche Drive par mots-clés
+  const [driveSearchInput, setDriveSearchInput] = useState('');
+  const [driveSearchQuery, setDriveSearchQuery] = useState('');
+  const [driveSearchResults, setDriveSearchResults] = useState<DriveFile[] | null>(null);
+  const [driveSearchLoading, setDriveSearchLoading] = useState(false);
+
+  // ── Lightbox ──────────────────────────────────────────────────────────────
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightboxName, setLightboxName] = useState<string>('');
+  const [lightboxDriveFile, setLightboxDriveFile] = useState<DriveFile | null>(null);
 
   // ── États HEIC ───────────────────────────────────────────────────────────
   const [heicConverting, setHeicConverting] = useState(false);
@@ -313,6 +323,35 @@ export default function ImageSelectorModal({
     } finally {
       setDriveLoading(false);
     }
+  };
+
+  const handleDriveSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = driveSearchInput.trim();
+    if (!q) return;
+    setDriveSearchQuery(q);
+    setDriveSearchLoading(true);
+    setDriveSearchResults(null);
+    try {
+      const token = document.cookie.split('; ').find(r => r.startsWith('accessToken='))?.split('=')[1];
+      const url = `${apiUrl}/api/v1/guides/${guideId}/drive-images?q=${encodeURIComponent(q)}`;
+      const res = await fetch(url, {
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        credentials: 'include',
+      });
+      const data = await res.json();
+      setDriveSearchResults(data.files ?? []);
+    } catch {
+      setDriveSearchResults([]);
+    } finally {
+      setDriveSearchLoading(false);
+    }
+  };
+
+  const handleClearDriveSearch = () => {
+    setDriveSearchInput('');
+    setDriveSearchQuery('');
+    setDriveSearchResults(null);
   };
 
   const handleOpenDriveFolder = (folder: DriveFolder) => {
@@ -882,6 +921,78 @@ export default function ImageSelectorModal({
           {/* ── Google Drive ──────────────────────────────────────────────────── */}
           {inputMode === 'drive' && (
             <div>
+              {/* Barre de recherche Drive */}
+              <form onSubmit={handleDriveSearch} className="flex gap-2 mb-4">
+                <input
+                  type="text"
+                  value={driveSearchInput}
+                  onChange={e => setDriveSearchInput(e.target.value)}
+                  placeholder="Rechercher par nom de fichier…"
+                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+                <button
+                  type="submit"
+                  disabled={!driveSearchInput.trim() || driveSearchLoading}
+                  className="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed whitespace-nowrap"
+                >
+                  {driveSearchLoading ? <ArrowPathIcon className="h-4 w-4 animate-spin" /> : 'Rechercher'}
+                </button>
+                {driveSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={handleClearDriveSearch}
+                    className="px-3 py-2 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    ✕
+                  </button>
+                )}
+              </form>
+
+              {/* Résultats de recherche Drive */}
+              {driveSearchQuery && (
+                <div className="mb-4">
+                  <p className="text-xs text-gray-500 mb-3">
+                    {driveSearchLoading ? 'Recherche en cours…' : `${driveSearchResults?.length ?? 0} résultat(s) pour « ${driveSearchQuery} »`}
+                  </p>
+                  {!driveSearchLoading && driveSearchResults && driveSearchResults.length === 0 && (
+                    <div className="flex items-center justify-center h-32 text-sm text-gray-400">Aucune image trouvée</div>
+                  )}
+                  {!driveSearchLoading && driveSearchResults && driveSearchResults.length > 0 && (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {driveSearchResults.map(file => {
+                        const isImporting = importingFileId === file.id;
+                        return (
+                          <div key={file.id} className="relative rounded-lg border-2 overflow-hidden transition-all border-gray-200 hover:border-purple-400 hover:shadow-md">
+                            <div
+                              className="aspect-video bg-gray-100 flex items-center justify-center overflow-hidden cursor-zoom-in"
+                              onClick={() => { if (file.thumbnailLink) { setLightboxUrl(file.thumbnailLink); setLightboxName(file.name); setLightboxDriveFile(file); } }}
+                            >
+                              {file.thumbnailLink
+                                ? <img src={file.thumbnailLink} alt={file.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" loading="lazy" />
+                                : <div className="flex flex-col items-center gap-1 text-gray-400 p-2"><PhotoIcon className="h-8 w-8" /><span className="text-[10px] text-center line-clamp-2">{file.name}</span></div>
+                              }
+                            </div>
+                            <div className="px-2 py-1.5 bg-white border-t border-gray-100">
+                              <p className="text-[10px] text-gray-600 truncate mb-1.5" title={file.name}>{file.name}</p>
+                              <button
+                                onClick={() => handleImportDriveFile(file)}
+                                disabled={isImporting || importingFileId !== null}
+                                className="w-full flex items-center justify-center gap-1.5 px-2 py-1 bg-purple-600 text-white rounded text-xs hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                              >
+                                {isImporting ? <><ArrowPathIcon className="h-3 w-3 animate-spin" /> Import…</> : <><ArrowDownTrayIcon className="h-3 w-3" /> Importer</>}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Navigation par dossier (masquée pendant une recherche active) */}
+              {!driveSearchQuery && (
+              <>
               {/* Fil d'Ariane */}
               {driveBreadcrumb.length > 0 && (
                 <div className="flex items-center gap-2 mb-4">
@@ -972,7 +1083,10 @@ export default function ImageSelectorModal({
                               key={file.id}
                               className="relative rounded-lg border-2 overflow-hidden transition-all border-gray-200 hover:border-purple-400 hover:shadow-md"
                             >
-                              <div className="aspect-video bg-gray-100 flex items-center justify-center overflow-hidden">
+                              <div
+                        className="aspect-video bg-gray-100 flex items-center justify-center overflow-hidden cursor-zoom-in"
+                        onClick={() => { if (file.thumbnailLink) { setLightboxUrl(file.thumbnailLink); setLightboxName(file.name); setLightboxDriveFile(file); } }}
+                      >
                                 {file.thumbnailLink ? (
                                   <img
                                     src={file.thumbnailLink}
@@ -1026,6 +1140,9 @@ export default function ImageSelectorModal({
                   )}
                 </>
               )}
+              {/* Fermeture du bloc conditionnel "pas de recherche active" */}
+              </>
+              )}
             </div>
           )}
 
@@ -1060,7 +1177,7 @@ export default function ImageSelectorModal({
                   return (
                     <div
                       key={image.image_id || index}
-                      onClick={() => { setSelectedImage(image.url); setOpenAnalysisId(null); }}
+                      onClick={() => { setOpenAnalysisId(null); setLightboxName(image.analysis_summary || `Image ${index + 1}`); setLightboxDriveFile(null); setLightboxUrl(image.url); }}
                       className={`relative cursor-pointer rounded-lg border-2 overflow-hidden transition-all ${
                         isSelected
                           ? 'border-purple-600 ring-2 ring-purple-300 shadow-lg scale-105'
@@ -1194,6 +1311,59 @@ export default function ImageSelectorModal({
           </button>
         </div>
       </div>
+
+      {/* ── Lightbox ─────────────────────────────────────────────────────────── */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/90 flex flex-col items-center justify-center p-4"
+          onClick={() => setLightboxUrl(null)}
+        >
+          {/* Image */}
+          <img
+            src={lightboxUrl}
+            alt={lightboxName}
+            className="max-w-full max-h-[75vh] rounded-lg shadow-2xl object-contain"
+            referrerPolicy="no-referrer"
+            onClick={e => e.stopPropagation()}
+          />
+
+          {/* Nom du fichier */}
+          {lightboxName && (
+            <p className="mt-3 text-white/70 text-sm text-center max-w-lg truncate">{lightboxName}</p>
+          )}
+
+          {/* Boutons d'action */}
+          <div className="mt-4 flex gap-3" onClick={e => e.stopPropagation()}>
+            {lightboxDriveFile ? (
+              /* Image Drive : bouton Importer */
+              <button
+                onClick={() => { handleImportDriveFile(lightboxDriveFile); setLightboxUrl(null); }}
+                disabled={importingFileId !== null}
+                className="px-6 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium disabled:bg-gray-400"
+              >
+                {importingFileId === lightboxDriveFile.id ? 'Import en cours…' : 'Importer cette image'}
+              </button>
+            ) : (
+              /* Image analysée : bouton Sélectionner */
+              <button
+                onClick={() => { setSelectedImage(lightboxUrl); setLightboxUrl(null); }}
+                className="px-6 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
+              >
+                ✓ Sélectionner cette image
+              </button>
+            )}
+            <button
+              onClick={() => setLightboxUrl(null)}
+              className="px-6 py-2.5 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors"
+            >
+              Fermer
+            </button>
+          </div>
+
+          {/* Hint fermeture */}
+          <p className="mt-3 text-white/30 text-xs">Cliquer en dehors pour fermer</p>
+        </div>
+      )}
     </div>
   );
 }

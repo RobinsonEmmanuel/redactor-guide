@@ -58,6 +58,40 @@ export default async function driveImagesRoutes(fastify: FastifyInstance) {
 
       try {
         const DRIVE_OPTS = { supportsAllDrives: true, includeItemsFromAllDrives: true };
+        const searchQuery: string | undefined = (request.query as any).q;
+
+        // ── Mode recherche par mots-clés ────────────────────────────────────
+        if (searchQuery && searchQuery.trim()) {
+          const keyword = searchQuery.trim().replace(/'/g, "\\'");
+          const searchRes = await drive.files.list({
+            q: `name contains '${keyword}' and mimeType contains 'image/' and trashed = false`,
+            fields: 'files(id, name, mimeType, thumbnailLink, size, createdTime)',
+            pageSize: 100,
+            orderBy: 'name',
+            ...DRIVE_OPTS,
+          });
+          const files = (searchRes.data.files ?? []).map((f: any) => ({
+            id: f.id,
+            name: f.name,
+            mimeType: f.mimeType,
+            thumbnailLink: f.thumbnailLink ?? null,
+            size: f.size ? parseInt(f.size, 10) : null,
+            createdTime: f.createdTime ?? null,
+            type: 'image' as const,
+          }));
+          console.log(`🔍 [Drive] recherche "${keyword}" → ${files.length} résultat(s)`);
+          return reply.send({
+            current_folder_id: folderId,
+            is_root: true,
+            root_folder_id: folderId,
+            subfolders: [],
+            files,
+            is_search: true,
+            search_query: searchQuery.trim(),
+          });
+        }
+
+        // ── Mode navigation par dossier ─────────────────────────────────────
         const browseId: string = (request.query as any).folder_id ?? folderId;
 
         // Sous-dossiers du dossier courant

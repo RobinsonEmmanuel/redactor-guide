@@ -1436,12 +1436,12 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
    * Valide le contenu d'une fiche via Perplexity (grounding web).
    * Retourne un rapport de validation avec statut, correction et source pour chaque champ.
    */
-  fastify.post<{ Params: { guideId: string; pageId: string }; Body: { content: Record<string, any>; poi_name?: string } }>(
+  fastify.post<{ Params: { guideId: string; pageId: string }; Body: { content: Record<string, any>; poi_name?: string; cluster_name?: string } }>(
     '/guides/:guideId/chemin-de-fer/pages/:pageId/validate-content',
     async (request, reply) => {
       const db = request.server.container.db;
       const { guideId, pageId } = request.params;
-      const { content, poi_name } = request.body;
+      const { content, poi_name, cluster_name } = request.body;
 
       try {
         // Récupérer le guide (pour la destination) et la page (pour le template)
@@ -1526,6 +1526,8 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         const perplexity = new PerplexityService(perplexityApiKey, 'sonar');
 
         const name = poi_name || page.titre || 'POI';
+        const resolvedClusterName: string = cluster_name || page.metadata?.cluster_name || '';
+        const clusterContext = resolvedClusterName ? ` (cluster : ${resolvedClusterName})` : '';
 
         // ── Charger le prompt Perplexity depuis la DB ─────────────────────────
         const PROMPT_ID_FACTUEL = process.env.PROMPT_ID_FACTUEL ?? 'validation_factuelle_poi';
@@ -1539,16 +1541,17 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           // replaceVariables via une fonction locale (OpenAIService non disponible ici sans instance)
           renderedPrompt = factuelPromptDoc.texte_prompt
             .replace(/\{\{NOM_POI\}\}/g, name)
+            .replace(/\{\{CLUSTER_NAME\}\}/g, resolvedClusterName)
             .replace(/\{\{DESTINATION\}\}/g, destination)
             .replace(/\{\{CHAMPS_A_VERIFIER\}\}/g, fieldsText)
             .replace(/\{\{NOMS_CHAMPS\}\}/g, nomsChamps);
           console.log(`📋 [VALIDATE] Prompt factuel chargé depuis DB (${PROMPT_ID_FACTUEL})`);
         } else {
           console.warn(`⚠️ [VALIDATE] Prompt factuel non trouvé (id: ${PROMPT_ID_FACTUEL}), fallback`);
-          renderedPrompt = `Tu es un fact-checker. Vérifie chaque information sur "${name}" (${destination}) via tes sources web. NE PAS utiliser canarias-lovers.com.\n\n${fieldsText}\n\nRetourne UNIQUEMENT du JSON : {"results":[{"field":"...","label":"...","value":"...","status":"valid|invalid|uncertain","validated_points":[{"point":"...","source_ref":1}],"invalid_points":[{"point":"...","correction":"...","source_ref":1}],"comment":"..."}]}`;
+          renderedPrompt = `Tu es un fact-checker. Vérifie chaque information sur "${name}"${clusterContext} (${destination}) via tes sources web. NE PAS utiliser canarias-lovers.com.\n\n${fieldsText}\n\nRetourne UNIQUEMENT du JSON : {"results":[{"field":"...","label":"...","value":"...","status":"valid|invalid|uncertain","validated_points":[{"point":"...","source_ref":1}],"invalid_points":[{"point":"...","correction":"...","source_ref":1}],"comment":"..."}]}`;
         }
 
-        console.log(`🔍 [VALIDATE] Validation Perplexity Sonar de "${name}" (${fieldsToValidate.length} champs)`);
+        console.log(`🔍 [VALIDATE] Validation Perplexity Sonar de "${name}"${clusterContext} (${fieldsToValidate.length} champs)`);
 
         // ── 1. Validation factuelle Perplexity + récupération article en parallèle ──
         const [report, articleDoc] = await Promise.all([
@@ -1579,12 +1582,13 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
                 consistencyPrompt = openai.replaceVariables(consistencyPromptDoc.texte_prompt, {
                   ARTICLE_SOURCE: articleExcerpt,
                   NOM_POI: name,
+                  CLUSTER_NAME: resolvedClusterName,
                   CHAMPS_REDIGES: fieldsJson,
                 });
                 console.log(`📋 [VALIDATE] Prompt cohérence chargé depuis DB (${PROMPT_ID_CONSISTENCY})`);
               } else {
                 console.warn(`⚠️ [VALIDATE] Prompt cohérence non trouvé en DB (id: ${PROMPT_ID_CONSISTENCY}), utilisation du fallback`);
-                consistencyPrompt = `Tu es un éditeur vérifiant la cohérence entre un contenu rédigé et son article source.\n\nArticle source :\n---\n${articleExcerpt}\n---\n\nContenu rédigé pour "${name}" :\n${fieldsJson}\n\nÉvalue si ce qui est ÉCRIT dans chaque champ est confirmé par l'article (present/partial/absent).\n\nRetourne UNIQUEMENT ce JSON :\n{ "consistency": [{ "field": "nom_du_champ", "article_consistency": "present|partial|absent", "article_excerpt": "citation ou null", "article_comment": "explication max 80 caractères" }] }`;
+                consistencyPrompt = `Tu es un éditeur vérifiant la cohérence entre un contenu rédigé et son article source.\n\nArticle source :\n---\n${articleExcerpt}\n---\n\nContenu rédigé pour "${name}"${clusterContext} :\n${fieldsJson}\n\nÉvalue si ce qui est ÉCRIT dans chaque champ est confirmé par l'article (present/partial/absent).\n\nRetourne UNIQUEMENT ce JSON :\n{ "consistency": [{ "field": "nom_du_champ", "article_consistency": "present|partial|absent", "article_excerpt": "citation ou null", "article_comment": "explication max 80 caractères" }] }`;
               }
 
               const consistencyResult = await openai.generateJSON(consistencyPrompt, 6000);

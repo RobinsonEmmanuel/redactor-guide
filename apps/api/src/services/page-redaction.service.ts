@@ -153,8 +153,9 @@ export class PageRedactionService {
           if (options?.useLlmKnowledge) {
             // Pas de source WordPress : génération depuis la base de connaissance du LLM
             const destinationCtx = guideDestination ? `, situé(e) à/en ${guideDestination}` : '';
-            articleContext = `[MODE BASE DE CONNAISSANCE]\nAucun article WordPress source n'est associé à cette page.\nGénère le contenu en te basant uniquement sur tes connaissances générales du lieu "${page.titre ?? 'inconnu'}"${destinationCtx}.\nSois factuel, précis et adopte le ton éditorial habituel de Region Lovers.`;
-            console.log(`🧠 Mode base de connaissance (sans article source) pour "${page.titre}"${guideDestination ? ` [destination: ${guideDestination}]` : ''}`);
+            const clusterCtx = page.metadata?.cluster_name ? `, appartenant au cluster "${page.metadata.cluster_name}"` : '';
+            articleContext = `[MODE BASE DE CONNAISSANCE]\nAucun article WordPress source n'est associé à cette page.\nGénère le contenu en te basant uniquement sur tes connaissances générales du lieu "${page.titre ?? 'inconnu'}"${clusterCtx}${destinationCtx}.\nSois factuel, précis et adopte le ton éditorial habituel de Region Lovers.`;
+            console.log(`🧠 Mode base de connaissance (sans article source) pour "${page.titre}"${page.metadata?.cluster_name ? ` [cluster: ${page.metadata.cluster_name}]` : ''}${guideDestination ? ` [destination: ${guideDestination}]` : ''}`);
           } else {
             throw new Error("Ce template utilise 'article_source' mais aucune url_source n'est définie sur la page");
           }
@@ -350,11 +351,13 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
       // Injecter une instruction de focus si l'article peut être multi-lieux
       // (ex: "Que faire à Santa Cruz" couvre 10 POIs — on guide l'IA sur le POI exact de cette page)
       const focusName = page.titre?.trim();
+      const clusterName: string = page.metadata?.cluster_name?.trim() ?? '';
       const isArticleBasedMode = infoSource === 'article_source' || infoSource === 'cluster_auto_match';
       if (focusName && isArticleBasedMode) {
         const destinationFocus = guideDestination ? ` (destination : ${guideDestination})` : '';
-        articleContext += `\n\n⚠️ FOCUS OBLIGATOIRE : Cette page de guide concerne UNIQUEMENT "${focusName}"${destinationFocus}. Si l'article source traite de plusieurs lieux, ne retiens QUE les informations relatives à "${focusName}". Toutes les informations portant sur d'autres lieux doivent être ignorées.`;
-        console.log(`🎯 Focus POI injecté dans le contexte : "${focusName}"${guideDestination ? ` [destination: ${guideDestination}]` : ''}`);
+        const clusterFocus = clusterName ? ` dans le cluster "${clusterName}"` : '';
+        articleContext += `\n\n⚠️ FOCUS OBLIGATOIRE : Cette page de guide concerne UNIQUEMENT "${focusName}"${clusterFocus}${destinationFocus}. Si l'article source traite de plusieurs lieux, ne retiens QUE les informations relatives à "${focusName}"${clusterFocus}. Toutes les informations portant sur d'autres lieux doivent être ignorées.`;
+        console.log(`🎯 Focus POI injecté dans le contexte : "${focusName}"${clusterName ? ` [cluster: ${clusterName}]` : ''}${guideDestination ? ` [destination: ${guideDestination}]` : ''}`);
       }
 
       // Injecter le commentaire interne de l'éditeur s'il est renseigné

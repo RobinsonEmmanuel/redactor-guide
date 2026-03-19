@@ -285,7 +285,7 @@ export default function ContentEditorModal({
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: formData, poi_name: page.titre }),
+          body: JSON.stringify({ content: formData, poi_name: page.titre, cluster_name: page.metadata?.cluster_name }),
         }
       );
       const data = await res.json();
@@ -783,6 +783,16 @@ export default function ContentEditorModal({
                 placeholder="URL de l'image ou chemin local"
                 className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
+              {fieldValue && (
+                <button
+                  type="button"
+                  onClick={() => { handleFieldChange(field.name, ''); setImageErrors(prev => { const s = new Set(prev); s.delete(field.name); return s; }); }}
+                  className="px-3 py-2 bg-red-50 text-red-500 border border-red-200 rounded-lg hover:bg-red-100 transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                  title="Supprimer l'image (laisser vide)"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => handleOpenImageSelector(field.name)}
@@ -825,6 +835,14 @@ export default function ContentEditorModal({
                         Changer l'image
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleFieldChange(field.name, ''); setImageErrors(prev => { const s = new Set(prev); s.delete(field.name); return s; }); }}
+                      className="absolute top-1.5 right-1.5 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10"
+                      title="Supprimer l'image"
+                    >
+                      <XMarkIcon className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 )}
               </div>
@@ -1158,6 +1176,20 @@ export default function ContentEditorModal({
                                   placeholder="https://…"
                                   className="flex-1 px-2 py-1.5 text-xs border border-gray-200 rounded-md"
                                 />
+                                {item[sf.name] && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const next = [...items];
+                                      next[idx] = { ...item, [sf.name]: '' };
+                                      updateItems(next);
+                                    }}
+                                    className="px-2 py-1.5 bg-red-50 text-red-500 border border-red-200 rounded-md hover:bg-red-100 text-xs flex items-center shrink-0 transition-colors"
+                                    title="Supprimer l'image"
+                                  >
+                                    <XMarkIcon className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -1202,6 +1234,19 @@ export default function ContentEditorModal({
                                       <PhotoIcon className="h-3 w-3" /> Changer
                                     </span>
                                   </div>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const next = [...items];
+                                      next[idx] = { ...item, [sf.name]: '' };
+                                      updateItems(next);
+                                    }}
+                                    className="absolute top-1 right-1 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10"
+                                    title="Supprimer l'image"
+                                  >
+                                    <XMarkIcon className="h-3 w-3" />
+                                  </button>
                                 </div>
                               )}
                             </div>
@@ -1331,8 +1376,8 @@ export default function ContentEditorModal({
             </div>
           </div>
 
-          {/* Saisie / modification de l'URL source pour les pages POI */}
-          {requiresUrlForGeneration && (
+          {/* Saisie / modification de l'URL source pour les pages POI et Cluster */}
+          {(requiresUrlForGeneration || isClusterPage) && (
             <div className="mt-2 flex items-center gap-2">
               <input
                 type="text"

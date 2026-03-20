@@ -72,6 +72,13 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
   // URL racine du site (wpConfig.siteUrl) pour le mode LLM
   const [guideSiteUrl, setGuideSiteUrl] = useState('');
 
+  // Modale "Article non ingéré" (URL valide mais absente de la base)
+  const [showArticleNotInDbModal, setShowArticleNotInDbModal] = useState(false);
+  const [articleNotInDbPage, setArticleNotInDbPage] = useState<Page | null>(null);
+  const [articleNotInDbUrl, setArticleNotInDbUrl] = useState('');
+  const [articleIngestLoading, setArticleIngestLoading] = useState(false);
+  const [articleIngestError, setArticleIngestError] = useState<string | null>(null);
+
   // Polling — useRef pour éviter les closures stale
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -803,15 +810,22 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
     }
   };
 
-  const handleGeneratePageContent = async (page: Page) => {
+  const handleGeneratePageContent = async (page: Page, opts?: { useLlmKnowledge?: boolean; linkDefaultUrl?: string }) => {
     try {
       console.log('🤖 Génération du contenu pour la page:', page.titre);
       
+      const body = opts ? JSON.stringify({
+        use_llm_knowledge: opts.useLlmKnowledge || undefined,
+        link_default_url: opts.linkDefaultUrl || undefined,
+      }) : undefined;
+
       const res = await fetch(
         `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}/generate-content`,
         {
           method: 'POST',
+          headers: body ? { 'Content-Type': 'application/json' } : undefined,
           credentials: 'include',
+          body,
         }
       );
 
@@ -819,8 +833,13 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
 
       if (res.ok) {
         console.log('✅ Génération lancée avec succès');
-        // Recharger les pages pour afficher le statut "en_attente"
         loadPages();
+      } else if (res.status === 422 && data.error === 'ARTICLE_NOT_IN_DB') {
+        // L'article source n'est pas ingéré → afficher la modale dédiée
+        setArticleNotInDbPage(page);
+        setArticleNotInDbUrl(data.url || (page as any).url_source || '');
+        setArticleIngestError(null);
+        setShowArticleNotInDbModal(true);
       } else {
         console.error('❌ Erreur génération:', data);
         alert(`Erreur: ${data.error || 'Impossible de lancer la génération'}`);
@@ -829,6 +848,56 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
       console.error('Erreur génération:', err);
       alert('Erreur lors du lancement de la génération');
     }
+  };
+
+  const handleIngestAndGenerate = async () => {
+    if (!articleNotInDbPage || !articleNotInDbUrl) return;
+    if (!guide?.wpConfig?.siteUrl || !guide?.wpConfig?.jwtToken) {
+      setArticleIngestError('Configuration WordPress manquante sur ce guide');
+      return;
+    }
+
+    setArticleIngestLoading(true);
+    setArticleIngestError(null);
+
+    try {
+      // 1. Ingérer l'article
+      const ingestRes = await fetch(`${apiUrl}/api/v1/ingest/single-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          siteId:         guide.slug,
+          siteUrl:        guide.wpConfig.siteUrl,
+          jwtToken:       guide.wpConfig.jwtToken,
+          articleUrl:     articleNotInDbUrl,
+          destinationIds: guide.destinations || [],
+        }),
+      });
+
+      const ingestData = await ingestRes.json();
+      if (!ingestRes.ok) {
+        setArticleIngestError(ingestData.error || 'Échec de l\'ingestion');
+        setArticleIngestLoading(false);
+        return;
+      }
+
+      // 2. Lancer la génération
+      setShowArticleNotInDbModal(false);
+      setArticleNotInDbPage(null);
+      await handleGeneratePageContent(articleNotInDbPage);
+    } catch {
+      setArticleIngestError('Erreur réseau');
+    } finally {
+      setArticleIngestLoading(false);
+    }
+  };
+
+  const handleGenerateFromNotInDbWithLlm = async () => {
+    if (!articleNotInDbPage) return;
+    setShowArticleNotInDbModal(false);
+    setArticleNotInDbPage(null);
+    await handleGeneratePageContent(articleNotInDbPage, { useLlmKnowledge: true, linkDefaultUrl: guideSiteUrl || undefined });
   };
 
   const handleSaveContent = async (content: Record<string, any>) => {
@@ -1633,6 +1702,90 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
             <button
               onClick={() => { setShowNoUrlModal(false); setNoUrlModalPage(null); }}
               className="mt-4 w-full px-4 py-2 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modale "Article non ingéré" : URL valide mais absente de la base */}
+      {showArticleNotInDbModal && articleNotInDbPage && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="shrink-0 w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center">
+                <svg className="h-5 w-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Article non ingéré</h2>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  La page <span className="font-medium text-gray-700">{articleNotInDbPage.titre}</span>
+                </p>
+              </div>
+            </div>
+
+            <p className="text-sm text-gray-600 mb-1">URL source :</p>
+            <p className="text-xs font-mono text-blue-700 bg-blue-50 rounded px-3 py-2 mb-5 break-all">
+              {articleNotInDbUrl}
+            </p>
+
+            <p className="text-sm text-gray-600 mb-4">
+              Cet article existe dans WordPress mais n&apos;a pas encore été importé dans la base.
+              Choisissez comment procéder :
+            </p>
+
+            {/* Option A : ingérer l'article puis générer */}
+            <div className="border border-blue-200 bg-blue-50 rounded-lg p-4 mb-3">
+              <p className="text-sm font-medium text-blue-900 mb-1">
+                Importer l&apos;article et générer
+              </p>
+              <p className="text-xs text-blue-700 mb-3">
+                L&apos;article sera importé depuis WordPress (texte + images + traductions), puis la génération sera lancée automatiquement.
+              </p>
+              {articleIngestError && (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 mb-2">
+                  {articleIngestError}
+                </p>
+              )}
+              <button
+                onClick={handleIngestAndGenerate}
+                disabled={articleIngestLoading}
+                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {articleIngestLoading ? (
+                  <>
+                    <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                    Import en cours…
+                  </>
+                ) : 'Importer et générer'}
+              </button>
+            </div>
+
+            {/* Option B : base de connaissance LLM */}
+            <div className="border border-gray-200 rounded-lg p-4">
+              <p className="text-sm font-medium text-gray-800 mb-1">Générer depuis la base de connaissance du LLM</p>
+              <p className="text-xs text-gray-500 mb-3">
+                Génération sans article source, basée sur les connaissances générales du LLM.
+              </p>
+              <button
+                onClick={handleGenerateFromNotInDbWithLlm}
+                disabled={articleIngestLoading}
+                className="w-full px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+              >
+                Générer depuis la base de connaissance
+              </button>
+            </div>
+
+            <button
+              onClick={() => { setShowArticleNotInDbModal(false); setArticleNotInDbPage(null); setArticleIngestError(null); }}
+              disabled={articleIngestLoading}
+              className="mt-4 w-full px-4 py-2 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
             >
               Annuler
             </button>

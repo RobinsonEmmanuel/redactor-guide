@@ -673,6 +673,39 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
             can_use_llm_knowledge: true,
           });
         }
+
+        // Vérifier que l'article est bien ingéré en base (si URL valide et pas mode LLM)
+        if (hasValidArticleUrl && !useLlmKnowledge) {
+          const rawUrl: string = page.url_source as string;
+          const hashIdx = rawUrl.indexOf('#');
+          const baseUrl = hashIdx !== -1 ? rawUrl.slice(0, hashIdx) : rawUrl;
+          const urlWithSlash    = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
+          const urlWithoutSlash = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+
+          const articleExists = await db.collection(COLLECTIONS.articles_raw).findOne(
+            {
+              $or: [urlWithSlash, urlWithoutSlash].flatMap(u => [
+                { 'urls_by_lang.fr': u },
+                { 'urls_by_lang.en': u },
+                { 'urls_by_lang.de': u },
+                { 'urls_by_lang.es': u },
+                { 'urls_by_lang.it': u },
+                { url: u },
+              ]),
+            },
+            { projection: { _id: 1 } }
+          );
+
+          if (!articleExists) {
+            return reply.status(422).send({
+              error: 'ARTICLE_NOT_IN_DB',
+              url: rawUrl,
+              message: `L'article source n'est pas encore ingéré dans la base. Ajoutez-le pour générer depuis l'article, ou générez depuis la base de connaissance du LLM.`,
+              can_use_llm_knowledge: true,
+              can_ingest_article: true,
+            });
+          }
+        }
         if (pageType === 'inspiration' && !page.metadata?.inspiration_pois?.length) {
           return reply.status(400).send({
             error: 'Aucun POI associé à cette page inspiration',

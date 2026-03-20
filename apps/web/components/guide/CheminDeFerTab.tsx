@@ -71,6 +71,8 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
   const [noUrlSaving, setNoUrlSaving] = useState(false);
   // URL racine du site (wpConfig.siteUrl) pour le mode LLM
   const [guideSiteUrl, setGuideSiteUrl] = useState('');
+  // Config WordPress pour l'ingestion single-url
+  const [guideWpConfig, setGuideWpConfig] = useState<{ siteUrl: string; jwtToken: string; siteId: string; destinations: string[] } | null>(null);
 
   // Modale "Article non ingéré" (URL valide mais absente de la base)
   const [showArticleNotInDbModal, setShowArticleNotInDbModal] = useState(false);
@@ -108,7 +110,17 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
     // Récupérer l'URL racine du site pour le mode LLM
     fetch(`${apiUrl}/api/v1/guides/${guideId}`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data?.wpConfig?.siteUrl) setGuideSiteUrl(data.wpConfig.siteUrl); })
+      .then(data => {
+        if (data?.wpConfig?.siteUrl) setGuideSiteUrl(data.wpConfig.siteUrl);
+        if (data?.wpConfig?.siteUrl && data?.wpConfig?.jwtToken) {
+          setGuideWpConfig({
+            siteUrl:      data.wpConfig.siteUrl,
+            jwtToken:     data.wpConfig.jwtToken,
+            siteId:       data.slug ?? guideId,
+            destinations: data.destinations ?? [],
+          });
+        }
+      })
       .catch(() => {});
   }, [guideId]);
 
@@ -852,7 +864,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
 
   const handleIngestAndGenerate = async () => {
     if (!articleNotInDbPage || !articleNotInDbUrl) return;
-    if (!guide?.wpConfig?.siteUrl || !guide?.wpConfig?.jwtToken) {
+    if (!guideWpConfig?.siteUrl || !guideWpConfig?.jwtToken) {
       setArticleIngestError('Configuration WordPress manquante sur ce guide');
       return;
     }
@@ -867,11 +879,11 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          siteId:         guide.slug,
-          siteUrl:        guide.wpConfig.siteUrl,
-          jwtToken:       guide.wpConfig.jwtToken,
+          siteId:         guideWpConfig.siteId,
+          siteUrl:        guideWpConfig.siteUrl,
+          jwtToken:       guideWpConfig.jwtToken,
           articleUrl:     articleNotInDbUrl,
-          destinationIds: guide.destinations || [],
+          destinationIds: guideWpConfig.destinations,
         }),
       });
 

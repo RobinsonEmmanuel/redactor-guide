@@ -3,6 +3,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { env } from '../config/env';
 import { COLLECTIONS } from '../config/collections.js';
+import { extractImageUrls, normalizeImageUrl, htmlToMarkdown } from '@redactor-guide/ingestion-wp';
 
 const IngestBodySchema = z.object({
   siteId: z.string().min(1, 'siteId requis'),
@@ -214,6 +215,131 @@ export async function ingestRoutes(fastify: FastifyInstance) {
    * POST /ingest/run
    * Appelé par QStash avec le payload du job. Exécute l’ingestion et met à jour le statut.
    */
+  /**
+   * POST /ingest/single-url
+   * Ingère un article WordPress unique depuis son URL publique.
+   * Utile pour ajouter un article manquant sans relancer toute l'ingestion.
+   */
+  fastify.post('/ingest/single-url', async (request, reply) => {
+    try {
+      const body = z.object({
+        siteId:         z.string().min(1),
+        siteUrl:        z.string().url(),
+        jwtToken:       z.string().min(1),
+        articleUrl:     z.string().url(),
+        destinationIds: z.array(z.string()).default([]),
+      }).parse(request.body);
+
+      const urlParsed = new URL(body.articleUrl);
+      const slug = urlParsed.pathname.replace(/\/$/, '').split('/').filter(Boolean).pop();
+      if (!slug) {
+        return reply.status(400).send({ error: `Impossible d'extraire le slug depuis : ${body.articleUrl}` });
+      }
+
+      const wpApiUrl = `${body.siteUrl}/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug)}&lang=fr&per_page=1`;
+      const wpRes = await fetch(wpApiUrl, {
+        headers: { Authorization: `Bearer ${body.jwtToken}` },
+        signal: AbortSignal.timeout(20_000),
+      });
+
+      if (!wpRes.ok) {
+        return reply.status(502).send({ error: `WordPress API: ${wpRes.status} pour le slug "${slug}"` });
+      }
+
+      const posts = await wpRes.json() as any[];
+      if (posts.length === 0) {
+        return reply.status(404).send({
+          error: `Article introuvable dans WordPress pour le slug "${slug}". Vérifiez que l'article est publié.`,
+        });
+      }
+
+      const post = posts[0];
+      const htmlContent: string = post.content?.rendered ?? '';
+
+      const rawImageUrls = extractImageUrls(htmlContent);
+      const seenNormalized = new Map<string, string>();
+      const imageUrls: string[] = [];
+      for (const url of rawImageUrls) {
+        const n = normalizeImageUrl(url);
+        if (!seenNormalized.has(n)) { seenNormalized.set(n, url); imageUrls.push(url); }
+      }
+
+      const urlsByLang: Record<string, string> = { fr: post.link };
+      const LOCALE_MAP: Record<string, string> = {
+        pt_PT: 'pt-pt', pt_BR: 'pt-br',
+        fr: 'fr', en: 'en', it: 'it', es: 'es',
+        de: 'de', da: 'da', sv: 'sv', nl: 'nl',
+      };
+      for (const t of (post.wpml_translations ?? []) as any[]) {
+        if (!t.href) continue;
+        const prefix = (t.locale as string).split('_')[0].toLowerCase();
+        const lang = LOCALE_MAP[t.locale as string] ?? LOCALE_MAP[prefix] ?? null;
+        if (lang && lang !== 'fr') urlsByLang[lang] = t.href as string;
+      }
+
+      let categoryNames: string[] = [];
+      if ((post.categories as number[] | undefined)?.length) {
+        try {
+          const catRes = await fetch(
+            `${body.siteUrl}/wp-json/wp/v2/categories?include=${(post.categories as number[]).join(',')}&per_page=100`,
+            { headers: { Authorization: `Bearer ${body.jwtToken}` }, signal: AbortSignal.timeout(10_000) }
+          );
+          if (catRes.ok) {
+            const cats = await catRes.json() as any[];
+            categoryNames = cats.map((c: any) => c.name as string).filter(Boolean);
+          }
+        } catch { /* non bloquant */ }
+      }
+
+      const articleDoc = {
+        site_id:         body.siteId,
+        destination_ids: body.destinationIds,
+        slug:            post.slug as string,
+        wp_id:           post.id as number,
+        title:           (post.title?.rendered ?? '') as string,
+        html_brut:       htmlContent,
+        markdown:        htmlToMarkdown(htmlContent),
+        categories:      categoryNames,
+        tags:            [] as string[],
+        urls_by_lang:    urlsByLang,
+        images:          imageUrls,
+        updated_at:      new Date((post.modified || post.date) as string),
+      };
+
+      const result = await db.collection(COLLECTIONS.articles_raw).updateOne(
+        { 'urls_by_lang.fr': articleDoc.urls_by_lang.fr },
+        { $set: articleDoc },
+        { upsert: true }
+      );
+
+      const wasInserted = result.upsertedCount > 0;
+      const wasUpdated  = result.modifiedCount > 0;
+      console.log(
+        `[ingest/single-url] "${articleDoc.title}" (${slug}) — ` +
+        `${wasInserted ? 'NOUVEAU' : wasUpdated ? 'mis a jour' : 'deja a jour'} — ` +
+        `${imageUrls.length} image(s)`
+      );
+
+      return reply.status(200).send({
+        success:     true,
+        title:       articleDoc.title,
+        slug:        articleDoc.slug,
+        inserted:    wasInserted,
+        updated:     wasUpdated,
+        imagesCount: imageUrls.length,
+        langs:       Object.keys(urlsByLang),
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return reply.status(400).send({ error: 'Donnees invalides', details: error.errors });
+      }
+      fastify.log.error(error);
+      return reply.status(500).send({
+        error: error instanceof Error ? error.message : 'Erreur ingestion article',
+      });
+    }
+  });
+
   fastify.post('/ingest/run', async (request, reply) => {
     try {
       const body = IngestBodySchema.extend({ jobId: z.string().uuid() }).parse(request.body as object);

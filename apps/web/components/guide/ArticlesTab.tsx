@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowPathIcon, EyeIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
+import { ArrowPathIcon, EyeIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 
 interface Article {
   _id: string;
@@ -30,6 +30,12 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
   const [ingestionStatus, setIngestionStatus] = useState<string | null>(null);
   const [ingestionError, setIngestionError] = useState<string | null>(null);
   const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0, totalPages: 0 });
+
+  // Ajout d'un article par URL
+  const [singleUrl, setSingleUrl] = useState('');
+  const [singleLoading, setSingleLoading] = useState(false);
+  const [singleResult, setSingleResult] = useState<{ title: string; inserted: boolean; updated: boolean; imagesCount: number } | null>(null);
+  const [singleError, setSingleError] = useState<string | null>(null);
 
   useEffect(() => {
     loadArticles();
@@ -163,11 +169,54 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
     }
   };
 
+  const handleSingleUrl = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!singleUrl.trim()) return;
+    if (!guide?.wpConfig?.siteUrl || !guide?.wpConfig?.jwtToken) {
+      setSingleError('Configuration WordPress manquante sur ce guide');
+      return;
+    }
+
+    setSingleLoading(true);
+    setSingleError(null);
+    setSingleResult(null);
+
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/ingest/single-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          siteId:         guide.slug,
+          siteUrl:        guide.wpConfig.siteUrl,
+          jwtToken:       guide.wpConfig.jwtToken,
+          articleUrl:     singleUrl.trim(),
+          destinationIds: guide.destinations || [],
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setSingleError(data.error || 'Erreur lors de l\'ajout');
+      } else {
+        setSingleResult(data);
+        setSingleUrl('');
+        await loadArticles();
+        onArticlesImported?.();
+      }
+    } catch {
+      setSingleError('Erreur réseau lors de l\'ajout');
+    } finally {
+      setSingleLoading(false);
+    }
+  };
+
   const languages = guide?.availableLanguages || ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'];
 
   return (
     <div>
-      {/* Actions */}
+      {/* En-tête + boutons principaux */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -176,19 +225,66 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
               {pagination.total} article{pagination.total > 1 ? 's' : ''}
             </p>
           </div>
-          <button
-            onClick={launchIngestion}
-            disabled={ingesting}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-          >
-            <ArrowPathIcon className={`h-5 w-5 ${ingesting ? 'animate-spin' : ''}`} />
-            {ingesting ? 'Récupération...' : 'Récupérer les articles'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={launchIngestion}
+              disabled={ingesting}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+              title="Relance l'ingestion complète et récupère les nouveaux articles"
+            >
+              <ArrowPathIcon className={`h-5 w-5 ${ingesting ? 'animate-spin' : ''}`} />
+              {ingesting ? 'Actualisation...' : pagination.total === 0 ? 'Récupérer les articles' : 'Actualiser'}
+            </button>
+          </div>
         </div>
 
+        {/* Ajout d'un article par URL */}
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+          <p className="text-sm font-medium text-gray-700 mb-2">
+            Ajouter un article par URL
+          </p>
+          <p className="text-xs text-gray-500 mb-3">
+            Colle l&apos;URL d&apos;un article WordPress pour l&apos;ingérer immédiatement sans relancer la récupération complète.
+          </p>
+          <form onSubmit={handleSingleUrl} className="flex gap-2">
+            <input
+              type="url"
+              value={singleUrl}
+              onChange={e => { setSingleUrl(e.target.value); setSingleResult(null); setSingleError(null); }}
+              placeholder="https://canarias-lovers.com/que-faire-candelaria-tenerife/"
+              className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={singleLoading}
+            />
+            <button
+              type="submit"
+              disabled={singleLoading || !singleUrl.trim()}
+              className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+            >
+              <PlusIcon className={`h-4 w-4 ${singleLoading ? 'animate-spin' : ''}`} />
+              {singleLoading ? 'Ajout...' : 'Ajouter'}
+            </button>
+          </form>
+
+          {singleResult && (
+            <div className="mt-2 flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">
+              <CheckCircleIcon className="h-4 w-4 shrink-0" />
+              <span>
+                <strong>&laquo;{singleResult.title}&raquo;</strong>{' '}
+                {singleResult.inserted ? 'ajouté' : singleResult.updated ? 'mis à jour' : 'déjà à jour'}{' '}
+                · {singleResult.imagesCount} image{singleResult.imagesCount > 1 ? 's' : ''}
+              </span>
+            </div>
+          )}
+
+          {singleError && (
+            <div className="mt-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+              {singleError}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Status */}
+      {/* Status ingestion bulk */}
       {ingestionStatus && (
         <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
           <p className="text-sm text-blue-800">{ingestionStatus}</p>

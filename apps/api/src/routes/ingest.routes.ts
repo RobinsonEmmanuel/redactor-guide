@@ -314,10 +314,70 @@ export async function ingestRoutes(fastify: FastifyInstance) {
 
       const wasInserted = result.upsertedCount > 0;
       const wasUpdated  = result.modifiedCount > 0;
+
+      // ── Résolution des URLs de traduction via redirects WPML ─────────────────
+      // Même technique que syncTranslationUrls : /?p={wp_id}&lang={xx}
+      // On tente en parallèle toutes les langues cibles et on met à jour celles résolues.
+      const TRANSLATION_LANGS = ['it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'];
+      const wpId = post.id as number;
+      const frUrl = articleDoc.urls_by_lang.fr;
+
+      // D'abord essayer via l'API WP REST par slug dans chaque langue (plus fiable)
+      const translationSets = await Promise.allSettled(
+        TRANSLATION_LANGS.map(async (lang) => {
+          // 1. Essai via l'API WP REST avec le slug + lang
+          try {
+            const langApiUrl = `${body.siteUrl}/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug)}&lang=${lang}&per_page=1&_fields=id,link`;
+            const langRes = await fetch(langApiUrl, {
+              headers: { Authorization: `Bearer ${body.jwtToken}` },
+              signal: AbortSignal.timeout(8_000),
+            });
+            if (langRes.ok) {
+              const langPosts = await langRes.json() as any[];
+              if (langPosts.length > 0 && langPosts[0].link && !langPosts[0].link.includes('?p=')) {
+                return { lang, url: langPosts[0].link as string };
+              }
+            }
+          } catch { /* essai suivant */ }
+
+          // 2. Fallback via redirect WPML /?p={id}&lang={lang}
+          try {
+            const redirectUrl = `${body.siteUrl}/?p=${wpId}&lang=${lang}`;
+            const resp = await fetch(redirectUrl, { redirect: 'follow', signal: AbortSignal.timeout(6_000) });
+            const finalUrl = resp.url;
+            if (resp.status < 400 && finalUrl && !finalUrl.includes('?p=') && finalUrl !== frUrl) {
+              return { lang, url: finalUrl };
+            }
+          } catch { /* ignore */ }
+
+          return null;
+        })
+      );
+
+      const resolvedLangs: Record<string, string> = {};
+      for (const res of translationSets) {
+        if (res.status === 'fulfilled' && res.value) {
+          resolvedLangs[res.value.lang] = res.value.url;
+        }
+      }
+
+      if (Object.keys(resolvedLangs).length > 0) {
+        const setFields: Record<string, string> = {};
+        for (const [lang, url] of Object.entries(resolvedLangs)) {
+          setFields[`urls_by_lang.${lang}`] = url;
+          urlsByLang[lang] = url;
+        }
+        await db.collection(COLLECTIONS.articles_raw).updateOne(
+          { 'urls_by_lang.fr': frUrl },
+          { $set: setFields }
+        );
+        console.log(`[ingest/single-url] Traductions resolues : ${Object.keys(resolvedLangs).join(', ')}`);
+      }
+
       console.log(
         `[ingest/single-url] "${articleDoc.title}" (${slug}) — ` +
         `${wasInserted ? 'NOUVEAU' : wasUpdated ? 'mis a jour' : 'deja a jour'} — ` +
-        `${imageUrls.length} image(s)`
+        `${imageUrls.length} image(s) — langs: ${Object.keys(urlsByLang).join(', ')}`
       );
 
       return reply.status(200).send({

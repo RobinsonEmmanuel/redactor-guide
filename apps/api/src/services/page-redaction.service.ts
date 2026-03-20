@@ -1460,6 +1460,17 @@ INSTRUCTIONS STRICTES :
             parts.push(`  • "${sf.name}" (${sf.type}${sf.label ? ` — ${sf.label}` : ''})${sfInstr}${sfCalibrage}`);
           }
 
+          // Avertissement sur les sous-champs image dans le répétitif
+          const hasArticleImages = articleSource?.images && (articleSource.images as string[]).length > 0;
+          const hasImageSubfields = field.sub_fields.some((sf: any) => sf.type === 'image');
+          if (hasImageSubfields) {
+            if (hasArticleImages) {
+              parts.push(`⚠️ Pour les sous-champs image : choisir UNIQUEMENT parmi les URLs listées dans "Images disponibles" du contexte article.`);
+            } else {
+              parts.push(`⚠️ Pour les sous-champs image : AUCUNE IMAGE DISPONIBLE — mettre "" (chaîne vide) pour les champs image. Ne PAS inventer d'URL.`);
+            }
+          }
+
           // Exemple de format attendu
           const exampleObj = field.sub_fields.reduce((acc: Record<string, string>, sf: any) => {
             acc[sf.name] = sf.type === 'image' ? 'https://...' : sf.type === 'lien' ? 'https://...' : '...';
@@ -1539,6 +1550,17 @@ INSTRUCTIONS STRICTES :
 
         parts.push(`⚠️ Répondre UNIQUEMENT avec l'objet JSON { "label": "...", "url": "..." }, sans texte autour.`);
         return parts.join('\n');
+      }
+
+      // ── Champ image (hors destination_pool) : interdire l'hallucination d'URL ─
+      if (field.type === 'image') {
+        const hasArticleImages = articleSource?.images && (articleSource.images as string[]).length > 0;
+        if (hasArticleImages) {
+          parts.push(`⚠️ SÉLECTION IMAGE OBLIGATOIRE : Choisir UNIQUEMENT parmi les URLs listées dans "Images disponibles" du contexte article. Ne JAMAIS inventer, modifier ou construire une URL.`);
+          parts.push(`✅ Répondre avec l'URL complète exacte, telle quelle, sans aucun texte autour.`);
+        } else {
+          parts.push(`⚠️ AUCUNE IMAGE DISPONIBLE dans le contexte article — retourner obligatoirement une chaîne vide "" (ne PAS inventer d'URL, ne PAS suggérer d'URL Cloudinary ou autre).`);
+        }
       }
 
       // ── Champs classiques ────────────────────────────────────────────────────

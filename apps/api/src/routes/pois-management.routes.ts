@@ -12,289 +12,65 @@ const ManualPOISchema = z.object({
 export default async function poisManagementRoutes(fastify: FastifyInstance) {
   const db: Db = fastify.mongo.db!;
 
+  // ─── Helper proxy vers ingestion-service ─────────────────────────────────
+
+  async function proxyToIngestionService(request: any, reply: any, targetPath: string, method?: string) {
+    const serviceUrl = env.INGESTION_SERVICE_URL;
+    if (!serviceUrl) {
+      return reply.status(503).send({ error: 'Ingestion service non disponible', message: 'INGESTION_SERVICE_URL doit être configuré.' });
+    }
+    const targetUrl = `${serviceUrl.replace(/\/$/, '')}/api/v1${targetPath}`;
+    const reqMethod = method || request.method;
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (env.INGESTION_SERVICE_API_KEY) headers['X-Api-Key'] = env.INGESTION_SERVICE_API_KEY;
+      const fetchOptions: RequestInit = { method: reqMethod, headers };
+      if (reqMethod !== 'GET' && reqMethod !== 'HEAD' && request.body) {
+        fetchOptions.body = JSON.stringify(request.body);
+      }
+      const res = await fetch(targetUrl, fetchOptions);
+      const data = await res.json().catch(() => ({ error: 'Réponse non-JSON du microservice' }));
+      return reply.status(res.status).send(data);
+    } catch (error: any) {
+      fastify.log.error({ error: error.message, targetUrl }, 'Proxy ingestion-service error');
+      return reply.status(502).send({ error: 'Erreur de communication avec le service d\'ingestion', details: error.message });
+    }
+  }
+
   /**
    * POST /guides/:guideId/pois/generate
-   * Génère les POIs depuis les articles WordPress via IA (asynchrone via QStash)
+   * Proxy → ingestion-service
    */
   fastify.post<{ Params: { guideId: string } }>(
     '/guides/:guideId/pois/generate',
-    async (request, reply) => {
-      const { guideId } = request.params;
-
-      try {
-        console.log(`🔍 [POIs] Génération POIs pour guide ${guideId}`);
-
-        // 1. Vérifier que le guide existe
-        const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
-        if (!guide) {
-          return reply.code(404).send({ error: 'Guide non trouvé' });
-        }
-
-        // 2. Vérifier qu'il y a des articles filtrés par destination
-        const destination: string = guide.destination ?? guide.destinations?.[0] ?? '';
-        const destinationFilter = destination
-          ? { categories: { $regex: destination, $options: 'i' } }
-          : {};
-
-        const articlesCount = await db.collection(COLLECTIONS.articles_raw).countDocuments(destinationFilter);
-
-        if (articlesCount === 0) {
-          return reply.code(400).send({ 
-            error: `Aucun article trouvé pour la destination "${destination}"`, 
-            message: 'Récupérez d\'abord les articles WordPress depuis l\'onglet Articles' 
-          });
-        }
-
-        console.log(`📚 ${articlesCount} articles disponibles pour "${destination}"`);
-
-        // 3. Créer un job de génération
-        const jobId = new ObjectId();
-        await db.collection(COLLECTIONS.pois_generation_jobs).insertOne({
-          _id: jobId,
-          guide_id: guideId,
-          status: 'pending',
-          created_at: new Date(),
-          updated_at: new Date(),
-        });
-
-        // 4. Envoyer vers QStash (worker asynchrone)
-        const qstashToken = env.QSTASH_TOKEN;
-        let workerUrl = env.INGEST_WORKER_URL || process.env.RAILWAY_PUBLIC_DOMAIN || process.env.API_URL;
-        
-        // Ajouter https:// si absent
-        if (workerUrl && !workerUrl.startsWith('http')) {
-          workerUrl = `https://${workerUrl}`;
-        }
-
-        console.log(`🔧 [Config] QSTASH_TOKEN: ${qstashToken ? '✅ présent' : '❌ manquant'}`);
-        console.log(`🔧 [Config] workerUrl: ${workerUrl || '❌ manquant'}`);
-
-        if (qstashToken && workerUrl) {
-          // Worker asynchrone via QStash
-          const fullWorkerUrl = `${workerUrl}/api/v1/workers/generate-pois`;
-          
-          console.log(`📤 [QStash] Envoi job vers ${fullWorkerUrl}`);
-          
-          try {
-            const qstashResponse = await fetch(`https://qstash.upstash.io/v2/publish/${fullWorkerUrl}`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${qstashToken}`,
-                'Content-Type': 'application/json',
-                'Upstash-Retries': '0',
-              },
-              body: JSON.stringify({ guideId, jobId: jobId.toString() }),
-            });
-
-            if (!qstashResponse.ok) {
-              const qstashError = await qstashResponse.text();
-              console.error('❌ [QStash] Erreur:', qstashError);
-              
-              // Marquer le job comme failed
-              await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
-                { _id: jobId },
-                { 
-                  $set: { 
-                    status: 'failed',
-                    error: `Erreur QStash: ${qstashError}`,
-                    updated_at: new Date() 
-                  } 
-                }
-              );
-
-              throw new Error(`QStash error: ${qstashError}`);
-            }
-
-            console.log(`✅ [QStash] Job envoyé avec succès`);
-
-            return reply.send({ 
-              success: true, 
-              jobId: jobId.toString(),
-              message: 'Génération des POIs lancée en arrière-plan'
-            });
-
-          } catch (qstashErr: any) {
-            console.error('❌ [QStash] Exception:', qstashErr);
-            throw qstashErr;
-          }
-        } else {
-          // Fallback : impossible sans QStash
-          console.error('⚠️ QStash non configuré - impossible de générer les POIs');
-          
-          await db.collection(COLLECTIONS.pois_generation_jobs).deleteOne({ _id: jobId });
-          
-          return reply.code(503).send({
-            error: 'QStash non configuré',
-            message: 'La génération asynchrone n\'est pas disponible. Configurez QSTASH_TOKEN.',
-          });
-        }
-
-      } catch (error: any) {
-        console.error('❌ [POIs] Erreur génération:', error);
-        return reply.code(500).send({
-          error: 'Erreur lors de la génération des POIs',
-          details: error.message,
-        });
-      }
-    }
+    (request, reply) => proxyToIngestionService(request, reply, `/guides/${(request.params as any).guideId}/pois/generate`)
   );
 
   /**
    * GET /guides/:guideId/pois/latest-job
-   * Retourne le job le plus récent nécessitant une action (extraction_complete, deduplicating, dedup_complete)
-   * Permet de reprendre le workflow après un rafraîchissement de page.
+   * Proxy → ingestion-service
    */
   fastify.get<{ Params: { guideId: string } }>(
     '/guides/:guideId/pois/latest-job',
-    async (request, reply) => {
-      const { guideId } = request.params;
-      try {
-        const job = await db.collection(COLLECTIONS.pois_generation_jobs).findOne(
-          {
-            guide_id: guideId,
-            status: { $in: ['extraction_complete', 'deduplicating', 'dedup_complete'] },
-          },
-          { sort: { created_at: -1 } }
-        );
-
-        if (!job) {
-          return reply.send({ job: null });
-        }
-
-        return reply.send({
-          job: {
-            jobId: job._id.toString(),
-            status: job.status,
-            raw_count: job.raw_count || job.preview_pois?.length || 0,
-            preview_pois: job.preview_pois || [],
-            preview_batches: job.preview_batches || [],
-            classification_log: job.classification_log || [],
-            mono_count: job.mono_count ?? null,
-            multi_count: job.multi_count ?? null,
-            excluded_count: job.excluded_count ?? null,
-            deduplicated_pois: job.deduplicated_pois || [],
-            created_at: job.created_at,
-            updated_at: job.updated_at,
-          },
-        });
-      } catch (error: any) {
-        console.error('❌ [POIs] Erreur latest-job:', error);
-        return reply.code(500).send({ error: error.message });
-      }
-    }
+    (request, reply) => proxyToIngestionService(request, reply, `/guides/${(request.params as any).guideId}/pois/latest-job`, 'GET')
   );
 
   /**
    * GET /guides/:guideId/pois/job-status/:jobId
-   * Vérifie le statut d'un job de génération POIs
+   * Proxy → ingestion-service
    */
   fastify.get<{ Params: { guideId: string; jobId: string } }>(
     '/guides/:guideId/pois/job-status/:jobId',
-    async (request, reply) => {
-      const { jobId } = request.params;
-
-      try {
-        if (!ObjectId.isValid(jobId)) {
-          return reply.code(400).send({ error: 'Job ID invalide' });
-        }
-
-        const job = await db.collection(COLLECTIONS.pois_generation_jobs).findOne({
-          _id: new ObjectId(jobId),
-        });
-
-        if (!job) {
-          return reply.code(404).send({ error: 'Job non trouvé' });
-        }
-
-        return reply.send({
-          status: job.status,
-          count: job.count || 0,
-          raw_count: job.raw_count || 0,
-          progress: job.progress || null,
-          preview_pois: job.preview_pois || [],
-          preview_batches: job.preview_batches || [],
-          classification_log: job.classification_log || [],
-          mono_count: job.mono_count ?? null,
-          multi_count: job.multi_count ?? null,
-          excluded_count: job.excluded_count ?? null,
-          deduplicated_pois: job.deduplicated_pois || [],
-          error: job.error || null,
-          created_at: job.created_at,
-          updated_at: job.updated_at,
-        });
-      } catch (error: any) {
-        console.error('❌ [POIs] Erreur statut job:', error);
-        return reply.code(500).send({ error: error.message });
-      }
-    }
+    (request, reply) => proxyToIngestionService(request, reply, `/guides/${(request.params as any).guideId}/pois/job-status/${(request.params as any).jobId}`, 'GET')
   );
 
   /**
    * POST /guides/:guideId/pois/jobs/:jobId/deduplicate
-   * Déclenche le dédoublonnage de manière asynchrone via QStash.
-   * Répond immédiatement (pas de timeout) — le frontend poll le statut du job.
+   * Proxy → ingestion-service
    */
   fastify.post<{ Params: { guideId: string; jobId: string } }>(
     '/guides/:guideId/pois/jobs/:jobId/deduplicate',
-    async (request, reply) => {
-      const { guideId, jobId } = request.params;
-
-      try {
-        if (!ObjectId.isValid(jobId)) return reply.code(400).send({ error: 'Job ID invalide' });
-
-        const job = await db.collection(COLLECTIONS.pois_generation_jobs).findOne({ _id: new ObjectId(jobId) });
-        if (!job) return reply.code(404).send({ error: 'Job non trouvé' });
-
-        const rawPois: any[] = job.preview_pois || [];
-        if (rawPois.length === 0) return reply.code(400).send({ error: 'Aucun POI extrait à dédoublonner' });
-
-        // Marquer le job comme en cours de déduplication
-        await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
-          { _id: new ObjectId(jobId) },
-          { $set: { status: 'deduplicating', updated_at: new Date() } }
-        );
-
-        // Déclencher le worker via QStash (réponse immédiate, pas de timeout)
-        const qstashToken = env.QSTASH_TOKEN;
-        let workerUrl = env.INGEST_WORKER_URL || process.env.RAILWAY_PUBLIC_DOMAIN || process.env.API_URL;
-        if (workerUrl && !workerUrl.startsWith('http')) workerUrl = `https://${workerUrl}`;
-
-        if (!qstashToken || !workerUrl) {
-          return reply.code(503).send({ error: 'QStash non configuré' });
-        }
-
-        const fullWorkerUrl = `${workerUrl}/api/v1/workers/deduplicate-pois`;
-        const qstashResponse = await fetch(`https://qstash.upstash.io/v2/publish/${fullWorkerUrl}`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${qstashToken}`,
-            'Content-Type': 'application/json',
-            'Upstash-Retries': '0',
-          },
-          body: JSON.stringify({ guideId, jobId }),
-        });
-
-        if (!qstashResponse.ok) {
-          const err = await qstashResponse.text();
-          await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
-            { _id: new ObjectId(jobId) },
-            { $set: { status: 'extraction_complete', updated_at: new Date() } }
-          ).catch(() => {});
-          return reply.code(500).send({ error: `QStash error: ${err}` });
-        }
-
-        console.log(`✅ [DEDUP] Job ${jobId} envoyé à QStash pour dédoublonnage`);
-        return reply.send({ success: true, status: 'deduplicating', raw_count: rawPois.length });
-
-      } catch (error: any) {
-        console.error('❌ [DEDUP] Erreur:', error);
-        await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
-          { _id: new ObjectId(jobId) },
-          { $set: { status: 'extraction_complete', updated_at: new Date() } }
-        ).catch(() => {});
-        return reply.code(500).send({ error: error.message });
-      }
-    }
+    (request, reply) => proxyToIngestionService(request, reply, `/guides/${(request.params as any).guideId}/pois/jobs/${(request.params as any).jobId}/deduplicate`)
   );
 
   /**

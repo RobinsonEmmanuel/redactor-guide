@@ -4,6 +4,7 @@ import { PageRedactionService } from '../services/page-redaction.service';
 import { JsonTranslatorService } from '../services/json-translator.service';
 import { FieldServiceRunner, explodeRepetitifField } from '../services/field-service-runner.service.js';
 import { COLLECTIONS } from '../config/collections.js';
+import { env } from '../config/env.js';
 
 export async function workersRoutes(fastify: FastifyInstance) {
   /**
@@ -767,11 +768,30 @@ export async function workersRoutes(fastify: FastifyInstance) {
 
   /**
    * POST /workers/generate-pois
-   * Worker pour générer les POIs depuis les articles WordPress via IA
-   * Traitement par batch pour un recensement exhaustif, suivi d'un appel de déduplication.
-   * Appelé par QStash de manière asynchrone
+   * Proxy → ingestion-service
    */
   fastify.post('/workers/generate-pois', async (request, reply) => {
+    const serviceUrl = env.INGESTION_SERVICE_URL;
+    if (!serviceUrl) {
+      return reply.status(503).send({ error: 'Ingestion service non disponible', message: 'INGESTION_SERVICE_URL doit être configuré.' });
+    }
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      // worker route — pas d'API key (appelé par QStash)
+      const res = await fetch(`${serviceUrl.replace(/\/$/, '')}/api/v1/workers/generate-pois`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(request.body),
+      });
+      const data = await res.json().catch(() => ({ error: 'Réponse non-JSON' }));
+      return reply.status(res.status).send(data);
+    } catch (error: any) {
+      return reply.status(502).send({ error: 'Erreur proxy generate-pois', details: error.message });
+    }
+  });
+
+  // Old generate-pois implementation (moved to ingestion-service):
+  const _oldGeneratePois = async (request: any, reply: any) => {
     const db = request.server.container.db;
     const { guideId, jobId } = request.body as { guideId: string; jobId: string };
 
@@ -1254,13 +1274,33 @@ Retourne STRICTEMENT un JSON valide sans texte additionnel :
         details: error.message,
       });
     }
-  });
+  };
+  void _oldGeneratePois; // silence unused warning
 
   /**
    * POST /workers/deduplicate-pois
-   * Worker asynchrone (appelé par QStash) pour dédoublonner les POIs extraits.
+   * Proxy → ingestion-service
    */
   fastify.post('/workers/deduplicate-pois', async (request, reply) => {
+    const serviceUrl = env.INGESTION_SERVICE_URL;
+    if (!serviceUrl) {
+      return reply.status(503).send({ error: 'Ingestion service non disponible', message: 'INGESTION_SERVICE_URL doit être configuré.' });
+    }
+    try {
+      const res = await fetch(`${serviceUrl.replace(/\/$/, '')}/api/v1/workers/deduplicate-pois`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request.body),
+      });
+      const data = await res.json().catch(() => ({ error: 'Réponse non-JSON' }));
+      return reply.status(res.status).send(data);
+    } catch (error: any) {
+      return reply.status(502).send({ error: 'Erreur proxy deduplicate-pois', details: error.message });
+    }
+  });
+
+  // Old deduplicate-pois implementation (moved to ingestion-service):
+  const _oldDeduplicatePois = async (request: any, reply: any) => {
     const db = request.server.container.db;
     const { guideId, jobId } = request.body as { guideId: string; jobId: string };
 
@@ -1665,7 +1705,8 @@ Si aucun doublon détecté : retourne { "groupes": [] }`;
       ).catch(() => {});
       return reply.status(500).send({ error: error.message });
     }
-  });
+  };
+  void _oldDeduplicatePois; // silence unused warning
 
   /**
    * POST /workers/translate-json

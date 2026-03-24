@@ -20,8 +20,7 @@ import { COLLECTIONS } from '../config/collections.js';
 // ─── Configuration ────────────────────────────────────────────────────────────
 
 const FIELDS_TO_REGENERATE = [
-  'POI_picto_8',  // Payant (nouveau champ — POI_picto_8 dans le template)
-  'POI_picto_1',  // Intérêt touristique (prompt modifié — POI_picto_1 dans le template non migré)
+  'POI_liste_1',  // Liste Choses à voir (prompt modifié)
 ];
 
 const TARGET_DESTINATION = process.env.TARGET_DESTINATION || 'Tenerife';

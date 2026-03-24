@@ -50,6 +50,10 @@ const EnvSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   /** URL API Region Lovers (par défaut: https://api-prod.regionlovers.ai) */
   REGION_LOVERS_API_URL: z.string().optional(),
+  /** URL du microservice d'ingestion (ex: http://localhost:4001) */
+  INGESTION_SERVICE_URL: z.string().optional(),
+  /** Clé API pour s'authentifier auprès du microservice d'ingestion */
+  INGESTION_SERVICE_API_KEY: z.string().optional(),
 });
 
 /**

@@ -4,18 +4,18 @@ import { env } from '../config/env.js';
 /**
  * Routes de matching clusters.
  *
- * Proxy léger vers apps/ingestion-service.
- * Si INGESTION_SERVICE_URL n'est pas configuré, répond 503.
+ * Proxy léger vers apps/poi-service.
+ * Si POI_SERVICE_URL n'est pas configuré, répond 503.
  */
 export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
-  const serviceUrl = env.INGESTION_SERVICE_URL;
-  const apiKey = env.INGESTION_SERVICE_API_KEY;
+  const serviceUrl = env.POI_SERVICE_URL;
+  const apiKey = env.POI_SERVICE_API_KEY;
 
   async function proxyRequest(request: any, reply: any, targetPath: string, method?: string) {
     if (!serviceUrl) {
       return reply.status(503).send({
-        error: 'Ingestion service non disponible',
-        message: 'INGESTION_SERVICE_URL doit être configuré.',
+        error: 'POI service non disponible',
+        message: 'POI_SERVICE_URL doit être configuré.',
       });
     }
 
@@ -43,8 +43,8 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
       const data = await res.json().catch(() => ({ error: 'Réponse non-JSON du microservice' }));
       return reply.status(res.status).send(data);
     } catch (error: any) {
-      fastify.log.error({ error: error.message, targetUrl }, 'Proxy cluster-matching error');
-      return reply.status(502).send({ error: 'Erreur de communication avec le service d\'ingestion', details: error.message });
+      fastify.log.error({ error: error.message, targetUrl }, 'Proxy poi-service error');
+      return reply.status(502).send({ error: 'Erreur de communication avec le POI service', details: error.message });
     }
   }
 

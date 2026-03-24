@@ -20,8 +20,8 @@ async function bootstrap() {
     console.log('📍 Endpoints disponibles:');
     console.log(`   - http://localhost:${env.PORT}/health`);
     console.log(`   - http://localhost:${env.PORT}/api/v1/ingest`);
-    console.log(`   - http://localhost:${env.PORT}/api/v1/guides/:id/pois/generate`);
-    console.log(`   - http://localhost:${env.PORT}/api/v1/guides/:id/matching/generate`);
+    console.log(`   - http://localhost:${env.PORT}/api/v1/ingest/enqueue`);
+    console.log(`   - http://localhost:${env.PORT}/api/v1/ingest/single-url`);
     console.log('');
   } catch (error) {
     console.error('❌ Erreur au démarrage:', error);

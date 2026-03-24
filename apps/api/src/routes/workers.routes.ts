@@ -768,12 +768,12 @@ export async function workersRoutes(fastify: FastifyInstance) {
 
   /**
    * POST /workers/generate-pois
-   * Proxy → ingestion-service
+   * Proxy → poi-service
    */
   fastify.post('/workers/generate-pois', async (request, reply) => {
-    const serviceUrl = env.INGESTION_SERVICE_URL;
+    const serviceUrl = env.POI_SERVICE_URL;
     if (!serviceUrl) {
-      return reply.status(503).send({ error: 'Ingestion service non disponible', message: 'INGESTION_SERVICE_URL doit être configuré.' });
+      return reply.status(503).send({ error: 'POI service non disponible', message: 'POI_SERVICE_URL doit être configuré.' });
     }
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -1279,12 +1279,12 @@ Retourne STRICTEMENT un JSON valide sans texte additionnel :
 
   /**
    * POST /workers/deduplicate-pois
-   * Proxy → ingestion-service
+   * Proxy → poi-service
    */
   fastify.post('/workers/deduplicate-pois', async (request, reply) => {
-    const serviceUrl = env.INGESTION_SERVICE_URL;
+    const serviceUrl = env.POI_SERVICE_URL;
     if (!serviceUrl) {
-      return reply.status(503).send({ error: 'Ingestion service non disponible', message: 'INGESTION_SERVICE_URL doit être configuré.' });
+      return reply.status(503).send({ error: 'POI service non disponible', message: 'POI_SERVICE_URL doit être configuré.' });
     }
     try {
       const res = await fetch(`${serviceUrl.replace(/\/$/, '')}/api/v1/workers/deduplicate-pois`, {

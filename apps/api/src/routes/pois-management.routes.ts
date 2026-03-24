@@ -12,18 +12,20 @@ const ManualPOISchema = z.object({
 export default async function poisManagementRoutes(fastify: FastifyInstance) {
   const db: Db = fastify.mongo.db!;
 
-  // ─── Helper proxy vers ingestion-service ─────────────────────────────────
+  // ─── Helper proxy vers poi-service ──────────────────────────────────────
 
-  async function proxyToIngestionService(request: any, reply: any, targetPath: string, method?: string) {
-    const serviceUrl = env.INGESTION_SERVICE_URL;
+  async function proxyToPoiService(request: any, reply: any, targetPath: string, method?: string) {
+    const serviceUrl = env.POI_SERVICE_URL;
     if (!serviceUrl) {
-      return reply.status(503).send({ error: 'Ingestion service non disponible', message: 'INGESTION_SERVICE_URL doit être configuré.' });
+      return reply.status(503).send({ error: 'POI service non disponible', message: 'POI_SERVICE_URL doit être configuré.' });
     }
     const targetUrl = `${serviceUrl.replace(/\/$/, '')}/api/v1${targetPath}`;
     const reqMethod = method || request.method;
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (env.INGESTION_SERVICE_API_KEY) headers['X-Api-Key'] = env.INGESTION_SERVICE_API_KEY;
+      if (env.POI_SERVICE_API_KEY) headers['X-Api-Key'] = env.POI_SERVICE_API_KEY;
+      if (request.headers.authorization) headers['Authorization'] = request.headers.authorization as string;
+      if (request.headers.cookie) headers['Cookie'] = request.headers.cookie as string;
       const fetchOptions: RequestInit = { method: reqMethod, headers };
       if (reqMethod !== 'GET' && reqMethod !== 'HEAD' && request.body) {
         fetchOptions.body = JSON.stringify(request.body);
@@ -32,45 +34,45 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       const data = await res.json().catch(() => ({ error: 'Réponse non-JSON du microservice' }));
       return reply.status(res.status).send(data);
     } catch (error: any) {
-      fastify.log.error({ error: error.message, targetUrl }, 'Proxy ingestion-service error');
-      return reply.status(502).send({ error: 'Erreur de communication avec le service d\'ingestion', details: error.message });
+      fastify.log.error({ error: error.message, targetUrl }, 'Proxy poi-service error');
+      return reply.status(502).send({ error: 'Erreur de communication avec le POI service', details: error.message });
     }
   }
 
   /**
    * POST /guides/:guideId/pois/generate
-   * Proxy → ingestion-service
+   * Proxy → poi-service
    */
   fastify.post<{ Params: { guideId: string } }>(
     '/guides/:guideId/pois/generate',
-    (request, reply) => proxyToIngestionService(request, reply, `/guides/${(request.params as any).guideId}/pois/generate`)
+    (request, reply) => proxyToPoiService(request, reply, `/guides/${(request.params as any).guideId}/pois/generate`)
   );
 
   /**
    * GET /guides/:guideId/pois/latest-job
-   * Proxy → ingestion-service
+   * Proxy → poi-service
    */
   fastify.get<{ Params: { guideId: string } }>(
     '/guides/:guideId/pois/latest-job',
-    (request, reply) => proxyToIngestionService(request, reply, `/guides/${(request.params as any).guideId}/pois/latest-job`, 'GET')
+    (request, reply) => proxyToPoiService(request, reply, `/guides/${(request.params as any).guideId}/pois/latest-job`, 'GET')
   );
 
   /**
    * GET /guides/:guideId/pois/job-status/:jobId
-   * Proxy → ingestion-service
+   * Proxy → poi-service
    */
   fastify.get<{ Params: { guideId: string; jobId: string } }>(
     '/guides/:guideId/pois/job-status/:jobId',
-    (request, reply) => proxyToIngestionService(request, reply, `/guides/${(request.params as any).guideId}/pois/job-status/${(request.params as any).jobId}`, 'GET')
+    (request, reply) => proxyToPoiService(request, reply, `/guides/${(request.params as any).guideId}/pois/job-status/${(request.params as any).jobId}`, 'GET')
   );
 
   /**
    * POST /guides/:guideId/pois/jobs/:jobId/deduplicate
-   * Proxy → ingestion-service
+   * Proxy → poi-service
    */
   fastify.post<{ Params: { guideId: string; jobId: string } }>(
     '/guides/:guideId/pois/jobs/:jobId/deduplicate',
-    (request, reply) => proxyToIngestionService(request, reply, `/guides/${(request.params as any).guideId}/pois/jobs/${(request.params as any).jobId}/deduplicate`)
+    (request, reply) => proxyToPoiService(request, reply, `/guides/${(request.params as any).guideId}/pois/jobs/${(request.params as any).jobId}/deduplicate`)
   );
 
   /**

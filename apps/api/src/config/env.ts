@@ -54,6 +54,10 @@ const EnvSchema = z.object({
   INGESTION_SERVICE_URL: z.string().optional(),
   /** Clé API pour s'authentifier auprès du microservice d'ingestion */
   INGESTION_SERVICE_API_KEY: z.string().optional(),
+  /** URL du microservice POI (ex: http://localhost:4002) */
+  POI_SERVICE_URL: z.string().optional(),
+  /** Clé API pour s'authentifier auprès du microservice POI */
+  POI_SERVICE_API_KEY: z.string().optional(),
 });
 
 /**

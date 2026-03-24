@@ -67,13 +67,6 @@ export async function createServer(db: Db, _port: number) {
       const { ingestRoutes } = await import('./routes/ingest.routes.js');
       await api.register(ingestRoutes);
 
-      // ── POI routes (triggers + workers) ───────────────────────────────────
-      const { poisRoutes } = await import('./routes/pois.routes.js');
-      await api.register(poisRoutes);
-
-      // ── Matching routes ────────────────────────────────────────────────────
-      const matchingRoutesModule = await import('./routes/matching.routes.js');
-      await api.register(matchingRoutesModule.default);
     },
     { prefix: '/api/v1' }
   );

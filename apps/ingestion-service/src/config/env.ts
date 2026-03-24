@@ -33,13 +33,6 @@ const EnvSchema = z.object({
   QSTASH_TOKEN: z.string().optional(),
   /** URL publique de ce service (utilisée par QStash pour les callbacks worker) */
   INGEST_WORKER_URL: z.string().optional(),
-  /** Clé OpenAI pour la détection POI et la déduplication */
-  OPENAI_API_KEY: z.string().optional(),
-  /** URL API Region Lovers */
-  REGION_LOVERS_API_URL: z.string().optional(),
-  /** IDs des prompts en DB */
-  PROMPT_ID_POI_EXTRACTION: z.string().optional(),
-  PROMPT_ID_POI_DEDUP: z.string().optional(),
 });
 
 export const env = EnvSchema.parse(process.env);

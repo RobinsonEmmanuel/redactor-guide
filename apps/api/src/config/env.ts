@@ -29,6 +29,19 @@ if (envPath) {
   dotenv.config(); // Fallback sur le comportement par défaut
 }
 
+/** Accepte `https://host` ou un simple `host` (préfixe https:// ajouté) pour les URLs de microservices. */
+function normalizeOptionalServiceUrl(val: string | undefined): string | undefined {
+  if (val === undefined || val.trim() === '') return undefined;
+  const trimmed = val.trim().replace(/\/$/, '');
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    new URL(withScheme);
+  } catch {
+    throw new Error(`URL de microservice invalide: ${val}`);
+  }
+  return withScheme;
+}
+
 /**
  * Schema de validation des variables d'environnement
  */
@@ -50,12 +63,18 @@ const EnvSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   /** URL API Region Lovers (par défaut: https://api-prod.regionlovers.ai) */
   REGION_LOVERS_API_URL: z.string().optional(),
-  /** URL du microservice d'ingestion (ex: http://localhost:4001) */
-  INGESTION_SERVICE_URL: z.string().optional(),
+  /** URL du microservice d'ingestion (ex: http://localhost:4001 ou host Railway sans schéma) */
+  INGESTION_SERVICE_URL: z
+    .string()
+    .optional()
+    .transform((v) => normalizeOptionalServiceUrl(v)),
   /** Clé API pour s'authentifier auprès du microservice d'ingestion */
   INGESTION_SERVICE_API_KEY: z.string().optional(),
-  /** URL du microservice POI (ex: http://localhost:4002) */
-  POI_SERVICE_URL: z.string().optional(),
+  /** URL du microservice POI (ex: http://localhost:4002 ; sur Railway inclure https:// ou seulement le hostname) */
+  POI_SERVICE_URL: z
+    .string()
+    .optional()
+    .transform((v) => normalizeOptionalServiceUrl(v)),
   /** Clé API pour s'authentifier auprès du microservice POI */
   POI_SERVICE_API_KEY: z.string().optional(),
 });

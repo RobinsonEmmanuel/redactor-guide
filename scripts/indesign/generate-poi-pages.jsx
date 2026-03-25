@@ -753,9 +753,17 @@ function injectPictoBar(page, contentData, durationValue) {
     //    Chaque entree : { field, picto_key, indesign_layer, variant_layer, value, label }
     //    variant_layer = calque exact du gabarit (ex: picto_interet_2, picto_pmr_half)
     //    indesign_layer = calque de base, utilise en fallback si variant absent du gabarit
-    var pictosActive = (contentData._derived && contentData._derived.pictos_active)
+    var pictosRaw = (contentData._derived && contentData._derived.pictos_active)
         ? contentData._derived.pictos_active
         : [];
+    // Filet de securite : exclure les pictos dont la valeur est "non" (booleen inactif).
+    // Protege contre une mauvaise configuration option_layers dans le template MongoDB
+    // qui mapperait "non" vers un calque non-null.
+    var pictosActive = [];
+    for (var fi = 0; fi < pictosRaw.length; fi++) {
+        var fVal = String(pictosRaw[fi].value || "").toLowerCase().replace(/^\s+|\s+$/, "");
+        if (fVal !== "non") { pictosActive.push(pictosRaw[fi]); }
+    }
 
     // 3. Collecter les blocs InDesign dans l'ordre de la liste
     var activePictos = [];

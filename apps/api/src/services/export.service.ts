@@ -108,7 +108,10 @@ export class ExportService {
 
         if (isPictoField(field.name)) {
           const strValue     = String(value);
-          const variantLayer = resolveVariantLayer(field.option_layers, strValue);
+          const rawLayer     = resolveVariantLayer(field.option_layers, strValue);
+          // "non" est toujours inactif : forcer picto_key = null même si option_layers
+          // est mal configuré et mappe "non" vers un calque non-null.
+          const variantLayer = strValue.toLowerCase() === 'non' ? null : rawLayer;
           pictoFields[field.name] = {
             value:          strValue,
             picto_key:      variantLayer,   // non-null = actif (filtre normalize-export)

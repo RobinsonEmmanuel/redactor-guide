@@ -11,6 +11,8 @@ import {
   SparklesIcon,
   PlusIcon,
   ArrowTopRightOnSquareIcon,
+  TrashIcon,
+  PencilSquareIcon,
 } from '@heroicons/react/24/outline';
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, useDraggable, useDroppable } from '@dnd-kit/core';
 import { authFetch } from '@/lib/api-client';
@@ -113,12 +115,16 @@ function DroppableInspiration({
   isExpanded, 
   onToggle,
   onRemovePOI,
+  onEdit,
+  onDelete,
 }: { 
   inspiration: Inspiration;
   pois: POI[];
   isExpanded: boolean;
   onToggle: () => void;
   onRemovePOI: (poiId: string) => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: inspiration.theme_id,
@@ -131,11 +137,12 @@ function DroppableInspiration({
         isOver ? 'ring-2 ring-purple-500 border-purple-500' : 'border-gray-200'
       }`}
     >
-      <button
-        onClick={onToggle}
-        className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-50 transition-colors"
-      >
-        <div className="flex items-center gap-2 flex-1 min-w-0">
+      <div className="w-full px-2 py-2 flex items-center gap-1 hover:bg-gray-50 transition-colors">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex items-center gap-2 flex-1 min-w-0 text-left rounded px-1 py-0.5 -mx-1"
+        >
           <LightBulbIcon className="w-4 h-4 text-purple-600 flex-shrink-0" />
           <div className="text-left flex-1 min-w-0">
             <div className="text-sm font-semibold text-gray-900 truncate">{inspiration.titre}</div>
@@ -144,13 +151,44 @@ function DroppableInspiration({
           <span className="px-1.5 py-0.5 bg-gray-200 text-gray-700 text-xs rounded-full flex-shrink-0">
             {pois.length}
           </span>
+        </button>
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+            }}
+            title="Modifier titre et angle éditorial"
+            className="p-1.5 rounded text-gray-500 hover:text-purple-700 hover:bg-purple-50 transition-colors"
+          >
+            <PencilSquareIcon className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            title="Supprimer cette inspiration"
+            className="p-1.5 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </button>
         </div>
-        {isExpanded ? (
-          <ChevronUpIcon className="w-4 h-4 text-gray-500 ml-2 flex-shrink-0" />
-        ) : (
-          <ChevronDownIcon className="w-4 h-4 text-gray-500 ml-2 flex-shrink-0" />
-        )}
-      </button>
+        <button
+          type="button"
+          onClick={onToggle}
+          className="p-1 text-gray-500 hover:bg-gray-100 rounded flex-shrink-0"
+          aria-label={isExpanded ? 'Replier' : 'Déplier'}
+        >
+          {isExpanded ? (
+            <ChevronUpIcon className="w-4 h-4" />
+          ) : (
+            <ChevronDownIcon className="w-4 h-4" />
+          )}
+        </button>
+      </div>
 
       {isExpanded && (
         <div className="p-2 space-y-0.5 max-h-64 overflow-y-auto border-t border-gray-100">
@@ -195,8 +233,10 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
   // États drag & drop
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
-  // États modal création inspiration
+  // États modal création / édition inspiration
   const [showInspirationModal, setShowInspirationModal] = useState(false);
+  const [inspirationModalMode, setInspirationModalMode] = useState<'create' | 'edit'>('create');
+  const [editingInspirationId, setEditingInspirationId] = useState<string | null>(null);
   const [inspirationForm, setInspirationForm] = useState({
     titre: '',
     angle_editorial: '',
@@ -301,9 +341,68 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
     setInspirations(updatedInspirations);
     await saveInspirations(updatedInspirations);
 
-    setShowInspirationModal(false);
-    setInspirationForm({ titre: '', angle_editorial: '' });
+    closeInspirationModal();
     alert('✅ Inspiration créée !');
+  };
+
+  const closeInspirationModal = () => {
+    setShowInspirationModal(false);
+    setInspirationModalMode('create');
+    setEditingInspirationId(null);
+    setInspirationForm({ titre: '', angle_editorial: '' });
+  };
+
+  const openEditInspirationModal = (insp: Inspiration) => {
+    setInspirationModalMode('edit');
+    setEditingInspirationId(insp.theme_id);
+    setInspirationForm({
+      titre: insp.titre,
+      angle_editorial: insp.angle_editorial || '',
+    });
+    setShowInspirationModal(true);
+  };
+
+  const updateInspiration = async () => {
+    if (!editingInspirationId || !inspirationForm.titre.trim()) {
+      alert('⚠️ Veuillez saisir un titre');
+      return;
+    }
+
+    const updatedInspirations = inspirations.map((insp) =>
+      insp.theme_id === editingInspirationId
+        ? {
+            ...insp,
+            titre: inspirationForm.titre.trim(),
+            angle_editorial:
+              inspirationForm.angle_editorial.trim() || 'Inspiration mise à jour manuellement',
+          }
+        : insp
+    );
+
+    setInspirations(updatedInspirations);
+    await saveInspirations(updatedInspirations, editingInspirationId);
+    closeInspirationModal();
+    alert('✅ Inspiration mise à jour !');
+  };
+
+  const deleteInspiration = async (themeId: string, titre: string) => {
+    if (
+      !confirm(
+        `Supprimer l'inspiration « ${titre} » ?\n\nLes lieux associés seront retirés de cette inspiration. Pensez à synchroniser le chemin de fer si des pages inspiration existent déjà.`
+      )
+    ) {
+      return;
+    }
+
+    const updatedInspirations = inspirations.filter((insp) => insp.theme_id !== themeId);
+    setInspirations(updatedInspirations);
+    setExpandedInspirations((prev) => {
+      const next = new Set(prev);
+      next.delete(themeId);
+      return next;
+    });
+    await saveInspirations(updatedInspirations);
+    alert('✅ Inspiration supprimée.');
   };
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -480,7 +579,12 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
                 <div className="text-sm font-semibold text-gray-900">Inspirations ({inspirations.length})</div>
                 
                 <button
-                  onClick={() => setShowInspirationModal(true)}
+                  onClick={() => {
+                    setInspirationModalMode('create');
+                    setEditingInspirationId(null);
+                    setInspirationForm({ titre: '', angle_editorial: '' });
+                    setShowInspirationModal(true);
+                  }}
                   className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
                 >
                   <PlusIcon className="w-3.5 h-3.5" />
@@ -498,6 +602,8 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
                   isExpanded={expandedInspirations.has(inspiration.theme_id)}
                   onToggle={() => toggleInspiration(inspiration.theme_id)}
                   onRemovePOI={(poiId) => removePOIFromInspiration(inspiration.theme_id, poiId)}
+                  onEdit={() => openEditInspirationModal(inspiration)}
+                  onDelete={() => deleteInspiration(inspiration.theme_id, inspiration.titre)}
                 />
               ))}
 
@@ -523,11 +629,15 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
         ) : null}
       </DragOverlay>
 
-      {/* Modal création d'inspiration */}
+      {/* Modal création / édition d'inspiration */}
       {showInspirationModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-4 w-full max-w-md">
-            <h3 className="text-base font-semibold mb-3">Créer une nouvelle inspiration</h3>
+            <h3 className="text-base font-semibold mb-3">
+              {inspirationModalMode === 'edit'
+                ? 'Modifier l’inspiration'
+                : 'Créer une nouvelle inspiration'}
+            </h3>
             
             <div className="space-y-3">
               <div>
@@ -559,20 +669,19 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
 
             <div className="flex gap-2 mt-4">
               <button
-                onClick={() => {
-                  setShowInspirationModal(false);
-                  setInspirationForm({ titre: '', angle_editorial: '' });
-                }}
+                type="button"
+                onClick={closeInspirationModal}
                 className="flex-1 px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
               >
                 Annuler
               </button>
               <button
-                onClick={createInspiration}
+                type="button"
+                onClick={inspirationModalMode === 'edit' ? updateInspiration : createInspiration}
                 disabled={!inspirationForm.titre.trim()}
                 className="flex-1 px-3 py-1.5 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
               >
-                Créer
+                {inspirationModalMode === 'edit' ? 'Enregistrer' : 'Créer'}
               </button>
             </div>
           </div>

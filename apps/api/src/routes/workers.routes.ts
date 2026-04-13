@@ -4,6 +4,7 @@ import { PageRedactionService } from '../services/page-redaction.service';
 import { JsonTranslatorService } from '../services/json-translator.service';
 import { FieldServiceRunner, explodeRepetitifField } from '../services/field-service-runner.service.js';
 import { COLLECTIONS } from '../config/collections.js';
+import { getArticlesDatabase } from '../config/database.js';
 import { env } from '../config/env.js';
 
 export async function workersRoutes(fastify: FastifyInstance) {
@@ -214,7 +215,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
           const slug: string | undefined = poi.article_source;
           if (slug) {
             if (!(slug in articleUrlCache)) {
-              const artDoc = await db.collection(COLLECTIONS.articles_raw).findOne({ slug }, { projection: { urls_by_lang: 1 } });
+              const artDoc = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({ slug }, { projection: { urls_by_lang: 1 } });
               articleUrlCache[slug] = artDoc?.urls_by_lang?.[guideLang] ?? artDoc?.urls_by_lang?.['fr'] ?? null;
             }
             poiUrl = articleUrlCache[slug];
@@ -403,7 +404,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
           const slug: string | undefined = poi.article_source;
           if (slug) {
             if (!(slug in urlCache)) {
-              const art = await db.collection(COLLECTIONS.articles_raw).findOne({ slug }, { projection: { urls_by_lang: 1 } });
+              const art = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({ slug }, { projection: { urls_by_lang: 1 } });
               urlCache[slug] = art?.urls_by_lang?.[guideLang] ?? art?.urls_by_lang?.['fr'] ?? null;
             }
             url = urlCache[slug];
@@ -416,7 +417,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
           if (!url && poi.url_source && typeof poi.url_source === 'string' && !poi.url_source.startsWith('http')) {
             const cacheKey = `url:${poi.url_source}`;
             if (!(cacheKey in urlCache)) {
-              const art2 = await db.collection(COLLECTIONS.articles_raw).findOne({ slug: poi.url_source }, { projection: { urls_by_lang: 1 } });
+              const art2 = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({ slug: poi.url_source }, { projection: { urls_by_lang: 1 } });
               urlCache[cacheKey] = art2?.urls_by_lang?.[guideLang] ?? art2?.urls_by_lang?.['fr'] ?? null;
             }
             url = urlCache[cacheKey];
@@ -682,7 +683,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
         const poiSlug: string | undefined = poi.article_source;
         if (poiSlug) {
           if (!(poiSlug in articleUrlCache)) {
-            const artDoc = await db.collection(COLLECTIONS.articles_raw).findOne(
+            const artDoc = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne(
               { slug: poiSlug },
               { projection: { urls_by_lang: 1 } }
             );
@@ -700,7 +701,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
         if (!poiUrl && poi.url_source && typeof poi.url_source === 'string' && !poi.url_source.startsWith('http')) {
           const cacheKey = `url:${poi.url_source}`;
           if (!(cacheKey in articleUrlCache)) {
-            const art2 = await db.collection(COLLECTIONS.articles_raw).findOne({ slug: poi.url_source }, { projection: { urls_by_lang: 1 } });
+            const art2 = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({ slug: poi.url_source }, { projection: { urls_by_lang: 1 } });
             articleUrlCache[cacheKey] = art2?.urls_by_lang?.[guideLang] ?? art2?.urls_by_lang?.['fr'] ?? null;
           }
           poiUrl = articleUrlCache[cacheKey];
@@ -843,7 +844,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
       // 2. Récupérer les articles WordPress filtrés par destination
       const destinationFilter = { categories: { $regex: destination, $options: 'i' } };
 
-      const articles = await db
+      const articles = await getArticlesDatabase()
         .collection(COLLECTIONS.articles_raw)
         .find(destinationFilter)
         .project({ title: 1, slug: 1, markdown: 1, url: 1 })
@@ -1605,7 +1606,7 @@ Si aucun doublon détecté : retourne { "groupes": [] }`;
       const articleCache: Record<string, any> = {};
       const getArticle = async (slugOrSource: string): Promise<any | null> => {
         if (articleCache[slugOrSource] !== undefined) return articleCache[slugOrSource];
-        const art = await db.collection(COLLECTIONS.articles_raw).findOne(
+        const art = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne(
           { $or: [{ slug: slugOrSource }, { title: slugOrSource }] },
           { projection: { slug: 1, title: 1, markdown: 1, urls_by_lang: 1 } }
         );

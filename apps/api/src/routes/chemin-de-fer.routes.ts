@@ -8,6 +8,7 @@ import {
   CreateSectionSchema,
 } from '@redactor-guide/core-model';
 import { COLLECTIONS } from '../config/collections.js';
+import { getArticlesDatabase } from '../config/database.js';
 
 export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   /**
@@ -97,7 +98,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
             const slug: string | undefined = poi.article_source;
             if (slug) {
               if (!(slug in urlCache)) {
-                const artDoc = await db.collection(COLLECTIONS.articles_raw).findOne(
+                const artDoc = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne(
                   { slug },
                   { projection: { urls_by_lang: 1 } }
                 );
@@ -111,7 +112,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
             if (!poiUrl && poi.url_source && typeof poi.url_source === 'string' && !poi.url_source.startsWith('http')) {
               const cacheKey = `url:${poi.url_source}`;
               if (!(cacheKey in urlCache)) {
-                const artBySlug = await db.collection(COLLECTIONS.articles_raw).findOne(
+                const artBySlug = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne(
                   { slug: poi.url_source },
                   { projection: { urls_by_lang: 1 } }
                 );
@@ -682,7 +683,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           const urlWithSlash    = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
           const urlWithoutSlash = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
 
-          const articleExists = await db.collection(COLLECTIONS.articles_raw).findOne(
+          const articleExists = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne(
             {
               $or: [urlWithSlash, urlWithoutSlash].flatMap(u => [
                 { 'urls_by_lang.fr': u },
@@ -872,7 +873,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         }
 
         // Récupérer l'article WordPress correspondant
-        const article = await db.collection(COLLECTIONS.articles_raw).findOne({ 
+        const article = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({ 
           'urls_by_lang.fr': page.url_source 
         });
 
@@ -999,7 +1000,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         filter.title = { $regex: q, $options: 'i' };
       }
 
-      const articles = await db
+      const articles = await getArticlesDatabase()
         .collection(COLLECTIONS.articles_raw)
         .find(filter, { projection: { title: 1, slug: 1, images_analysis: 1 } })
         .toArray();
@@ -1090,7 +1091,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
     }
 
     // Vérifier qu'il y a des articles pour ce site avec cette destination
-    const articlesCount = await db.collection(COLLECTIONS.articles_raw).countDocuments({ 
+    const articlesCount = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).countDocuments({ 
       site_id: site._id.toString(),
       categories: { $in: [guide.destination] }, // Catégories contient la destination
     });
@@ -1270,7 +1271,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
        */
       const resolveSlugUrl = async (slug: string): Promise<string | null> => {
         if (!(slug in articleUrlCache)) {
-          const art = await db.collection(COLLECTIONS.articles_raw).findOne(
+          const art = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne(
             { slug },
             { projection: { urls_by_lang: 1 } }
           );
@@ -1296,7 +1297,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         const slugRegex = keywords.map((kw: string) => `(?=.*${kw})`).join('') + '.*';
         const cacheKey = `dedicated:${normalized}`;
         if (!(cacheKey in articleUrlCache)) {
-          const dedicatedArt = await db.collection(COLLECTIONS.articles_raw).findOne(
+          const dedicatedArt = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne(
             { slug: { $regex: slugRegex, $options: 'i' } },
             { projection: { urls_by_lang: 1 } }
           );
@@ -1376,7 +1377,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
             const poiSlug: string | undefined = poi.article_source;
             if (poiSlug) {
               if (!(poiSlug in articleUrlCache)) {
-                const artDoc = await db.collection(COLLECTIONS.articles_raw).findOne(
+                const artDoc = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne(
                   { slug: poiSlug },
                   { projection: { urls_by_lang: 1 } }
                 );
@@ -1590,7 +1591,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         const [report, articleDoc] = await Promise.all([
           perplexity.validatePageContent(renderedPrompt),
           page.url_source
-            ? db.collection(COLLECTIONS.articles_raw).findOne({ 'urls_by_lang.fr': page.url_source })
+            ? getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({ 'urls_by_lang.fr': page.url_source })
             : Promise.resolve(null),
         ]);
 

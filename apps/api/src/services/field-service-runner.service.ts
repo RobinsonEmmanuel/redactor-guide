@@ -2,6 +2,7 @@ import { Db } from 'mongodb';
 import OpenAI from 'openai';
 import { GeocodingService } from './geocoding.service.js';
 import { COLLECTIONS } from '../config/collections.js';
+import { getArticlesDatabase } from '../config/database.js';
 
 /**
  * Contexte passé à chaque service lors de l'export.
@@ -477,7 +478,7 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     }).filter(Boolean);
 
     if (slugsToCheck.length > 0) {
-      const articles = await db.collection(COLLECTIONS.articles_raw).find(
+      const articles = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).find(
         { guide_id: ctx.guideId, slug: { $in: [...new Set(slugsToCheck)] } },
         { projection: { slug: 1, urls_by_lang: 1 } }
       ).toArray();

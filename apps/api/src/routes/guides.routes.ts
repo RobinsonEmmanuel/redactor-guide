@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ObjectId } from 'mongodb';
 import { GuideTranslationService } from '../services/guide-translation.service.js';
 import { COLLECTIONS } from '../config/collections.js';
+import { getArticlesDatabase } from '../config/database.js';
 
 // Langues cibles supportées pour la traduction IA.
 // 'fr' est volontairement absent : c'est la langue source, non une cible.
@@ -220,7 +221,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
 
       if (slugParam || q) {
         // Pas de pagination pour les lookups et recherches
-        const rawArticles = await db
+        const rawArticles = await getArticlesDatabase()
           .collection(COLLECTIONS.articles_raw)
           .find(filter, { projection })
           .limit(200)
@@ -232,8 +233,8 @@ export async function guidesRoutes(fastify: FastifyInstance) {
 
       // 3. Vue paginée
       const [total, rawArticles] = await Promise.all([
-        db.collection(COLLECTIONS.articles_raw).countDocuments(filter),
-        db.collection(COLLECTIONS.articles_raw)
+        getArticlesDatabase().collection(COLLECTIONS.articles_raw).countDocuments(filter),
+        getArticlesDatabase().collection(COLLECTIONS.articles_raw)
           .find(filter, { projection })
           .sort({ title: 1 })
           .skip(skip)

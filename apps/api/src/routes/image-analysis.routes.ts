@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ObjectId } from 'mongodb';
 import { ImageAnalysisService } from '../services/image-analysis.service';
 import { COLLECTIONS } from '../config/collections.js';
+import { getArticlesDatabase } from '../config/database.js';
 
 const AnalyzeArticleImagesSchema = z.object({
   articleId: z.string().optional(),
@@ -47,11 +48,11 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
       // Charger l'article
       let article;
       if (body.articleId) {
-        article = await db.collection(COLLECTIONS.articles_raw).findOne({
+        article = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({
           _id: new ObjectId(body.articleId)
         });
       } else if (body.articleUrl) {
-        article = await db.collection(COLLECTIONS.articles_raw).findOne({
+        article = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({
           'urls_by_lang.fr': body.articleUrl
         });
       }
@@ -93,7 +94,7 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
       );
 
       // Mettre à jour l'article avec les analyses
-      await db.collection(COLLECTIONS.articles_raw).updateOne(
+      await getArticlesDatabase().collection(COLLECTIONS.articles_raw).updateOne(
         { _id: article._id },
         {
           $set: {
@@ -168,11 +169,11 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
       // Charger l'article
       let article;
       if (body.articleId) {
-        article = await db.collection(COLLECTIONS.articles_raw).findOne({
+        article = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({
           _id: new ObjectId(body.articleId)
         });
       } else if (body.articleUrl) {
-        article = await db.collection(COLLECTIONS.articles_raw).findOne({
+        article = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({
           'urls_by_lang.fr': body.articleUrl
         });
       }
@@ -201,7 +202,7 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
       );
 
       // Mettre à jour l'article avec les nouvelles analyses
-      await db.collection(COLLECTIONS.articles_raw).updateOne(
+      await getArticlesDatabase().collection(COLLECTIONS.articles_raw).updateOne(
         { _id: article._id },
         {
           $set: {
@@ -376,7 +377,7 @@ export async function imageAnalysisRoutes(fastify: FastifyInstance) {
       try {
         const { articleId } = request.params;
 
-        const article = await db.collection(COLLECTIONS.articles_raw).findOne(
+        const article = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne(
           { _id: new ObjectId(articleId) },
           { projection: { images_analysis: 1, images: 1, title: 1, images_analyzed_at: 1 } }
         );

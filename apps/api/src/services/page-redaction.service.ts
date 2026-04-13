@@ -4,6 +4,7 @@ import { OpenAIService } from './openai.service';
 import { FieldValidatorService, ValidationError } from './field-validator.service';
 import { ImageAnalysisService, SelectionCriteria } from './image-analysis.service';
 import { COLLECTIONS } from '../config/collections.js';
+import { getArticlesDatabase } from '../config/database.js';
 
 export interface RedactionRequest {
   guideId: string;
@@ -605,7 +606,7 @@ Tu peux également t'appuyer sur tes propres connaissances sur cette destination
       );
 
       // Sauvegarder les analyses
-      await this.db.collection(COLLECTIONS.articles_raw).updateOne(
+      await getArticlesDatabase().collection(COLLECTIONS.articles_raw).updateOne(
         { _id: article._id },
         {
           $set: {
@@ -805,7 +806,7 @@ INSTRUCTIONS STRICTES :
     const namePattern = escapeRegex(name);
 
     // 1. Priorité absolue : titre contient le nom du cluster ET "que faire"
-    const bestMatch = await this.db.collection(COLLECTIONS.articles_raw).findOne({
+    const bestMatch = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({
       $and: [
         { title: { $regex: namePattern, $options: 'i' } },
         { title: { $regex: 'que faire', $options: 'i' } },
@@ -814,7 +815,7 @@ INSTRUCTIONS STRICTES :
     if (bestMatch) return bestMatch;
 
     // 2. Titre contient le nom du cluster (sans contrainte sur "que faire")
-    const nameMatch = await this.db.collection(COLLECTIONS.articles_raw).findOne({
+    const nameMatch = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({
       title: { $regex: namePattern, $options: 'i' },
     });
     if (nameMatch) return nameMatch;
@@ -826,7 +827,7 @@ INSTRUCTIONS STRICTES :
       const wordPatterns = significantWords.map((w) => ({
         title: { $regex: escapeRegex(w), $options: 'i' },
       }));
-      const partialMatch = await this.db.collection(COLLECTIONS.articles_raw).findOne({
+      const partialMatch = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({
         $and: [
           { title: { $regex: 'que faire', $options: 'i' } },
           { $and: wordPatterns },
@@ -874,7 +875,7 @@ INSTRUCTIONS STRICTES :
         : { $or: destWords.map((w) => ({ title: { $regex: w, $options: 'i' } })) };
 
       // 1. "Partir à [destination] en [mois]"
-      const exactMatch = await this.db.collection(COLLECTIONS.articles_raw).findOne({
+      const exactMatch = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({
         $and: [
           destCondition,
           { title: { $regex: monthPattern, $options: 'i' } },
@@ -887,7 +888,7 @@ INSTRUCTIONS STRICTES :
       }
 
       // 2. [destination] + [mois] (sans "partir")
-      const looseMatch = await this.db.collection(COLLECTIONS.articles_raw).findOne({
+      const looseMatch = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({
         $and: [
           destCondition,
           { title: { $regex: monthPattern, $options: 'i' } },
@@ -1035,7 +1036,7 @@ INSTRUCTIONS STRICTES :
      * à loadArticleSource d'extraire uniquement la section pertinente.
      */
     const buildUrlWithAnchor = async (baseUrl: string, articleDoc?: any): Promise<string> => {
-      const doc = articleDoc ?? await this.db.collection(COLLECTIONS.articles_raw).findOne(
+      const doc = articleDoc ?? await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne(
         { $or: [{ 'urls_by_lang.fr': baseUrl }, { 'urls_by_lang.en': baseUrl }] },
         { projection: { html_brut: 1 } }
       );
@@ -1052,7 +1053,7 @@ INSTRUCTIONS STRICTES :
     // ── Étape 1 : chercher un article dédié (slug contenant les mots-clés du POI) ──
     if (keywords.length > 0) {
       const slugRegex = keywords.map((kw: string) => `(?=.*${kw})`).join('') + '.*';
-      const dedicated = await this.db.collection(COLLECTIONS.articles_raw).findOne(
+      const dedicated = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne(
         { slug: { $regex: slugRegex, $options: 'i' } },
         { projection: { urls_by_lang: 1 } }
       );
@@ -1086,7 +1087,7 @@ INSTRUCTIONS STRICTES :
           // Chercher un meilleur article dans autres_articles_mentions
           const mentions: string[] = poi.autres_articles_mentions || [];
           for (const slugOrTitle of mentions) {
-            const art = await this.db.collection(COLLECTIONS.articles_raw).findOne(
+            const art = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne(
               { $or: [{ slug: slugOrTitle }, { title: slugOrTitle }] },
               { projection: { urls_by_lang: 1, slug: 1, html_brut: 1 } }
             );
@@ -1135,7 +1136,7 @@ INSTRUCTIONS STRICTES :
 
     // Chercher par urls_by_lang (toutes langues) ET champ url direct, avec les deux variantes
     const urlVariants = [urlWithSlash, urlWithoutSlash];
-    const article = await this.db.collection(COLLECTIONS.articles_raw).findOne({
+    const article = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({
       $or: urlVariants.flatMap(u => [
         { 'urls_by_lang.fr': u },
         { 'urls_by_lang.en': u },
@@ -1244,7 +1245,7 @@ INSTRUCTIONS STRICTES :
     if (page.titre) parts.push(`Page à rédiger : ${page.titre}`);
 
     // Projeter uniquement title + urls_by_lang (pas categories, qui peut être très volumineux)
-    const articles = await this.db
+    const articles = await getArticlesDatabase()
       .collection(COLLECTIONS.articles_raw)
       .find(
         destination ? { categories: { $regex: destination, $options: 'i' } } : {},
@@ -1318,7 +1319,7 @@ INSTRUCTIONS STRICTES :
       ? { categories: { $regex: destination, $options: 'i' } }
       : {};
 
-    const allArticles = await this.db
+    const allArticles = await getArticlesDatabase()
       .collection(COLLECTIONS.articles_raw)
       .find(destinationFilter, { projection: { title: 1, url: 1, categories: 1, tags: 1, markdown: 1, html_brut: 1 } })
       .toArray();
@@ -1782,7 +1783,7 @@ INSTRUCTIONS STRICTES :
     const guide = await this.db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
     const destination: string = guide?.destination ?? guide?.destinations?.[0] ?? '';
 
-    const destArticles = await this.db
+    const destArticles = await getArticlesDatabase()
       .collection(COLLECTIONS.articles_raw)
       .find(
         destination ? { categories: { $regex: destination, $options: 'i' } } : {},

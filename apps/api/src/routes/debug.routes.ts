@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { COLLECTIONS } from '../config/collections.js';
+import { getArticlesDatabase } from '../config/database.js';
 
 /**
  * Routes de diagnostic pour débugger la génération de sommaire
@@ -88,11 +89,11 @@ export async function debugRoutes(fastify: FastifyInstance) {
 
       // 5. Vérifier les articles
       result.checks.articles = { status: 'checking' };
-      const articlesTotal = await db.collection(COLLECTIONS.articles_raw).countDocuments({
+      const articlesTotal = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).countDocuments({
         site_id: site._id.toString(),
       });
 
-      const articlesWithDestination = await db.collection(COLLECTIONS.articles_raw).countDocuments({
+      const articlesWithDestination = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).countDocuments({
         site_id: site._id.toString(),
         categories: { $in: [guide.destination] },
       });
@@ -116,7 +117,7 @@ export async function debugRoutes(fastify: FastifyInstance) {
         result.errors.push(`Aucun article avec la destination "${guide.destination}"`);
         
         // Lister les catégories disponibles
-        const allArticles = await db.collection(COLLECTIONS.articles_raw)
+        const allArticles = await getArticlesDatabase().collection(COLLECTIONS.articles_raw)
           .find({ site_id: site._id.toString() })
           .limit(10)
           .toArray();

@@ -55,6 +55,8 @@ const EnvSchema = z.object({
     .default('3000'),
   MONGODB_URI: z.string().min(1, 'MONGODB_URI est requis'),
   MONGODB_DB_NAME: z.string().min(1, 'MONGODB_DB_NAME est requis'),
+  /** Base de données source de vérité pour articles_raw (service-redaction) */
+  ARTICLES_DB_NAME: z.string().default('service-redaction'),
   /** Token Upstash QStash pour publier des jobs (optionnel ; si absent, POST /ingest/enqueue renverra 503) */
   QSTASH_TOKEN: z.string().optional(),
   /** URL publique de l'API (ex. https://xxx.railway.app) pour que QStash appelle POST /ingest/run */

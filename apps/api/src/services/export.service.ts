@@ -11,6 +11,7 @@ import {
   type ExportedPageSnapshot,
 } from './field-service-runner.service.js';
 import { COLLECTIONS } from '../config/collections.js';
+import { getArticlesDatabase } from '../config/database.js';
 import { parseLinkField, buildLinkField, normalizeArticleUrl, isGoogleMapsUrl, isRootUrl, slugify } from '../utils/link-field.js';
 
 const EXPORTED_STATUSES = ['generee_ia', 'relue', 'validee', 'texte_coule', 'visuels_montes'];
@@ -63,7 +64,7 @@ export class ExportService {
     // Source : articles_raw.urls_by_lang.{lang} ; fallback sur l'URL française.
     let urlResolver: (frUrl: string) => string = (u) => u; // identité pour FR
     if (lang !== 'fr') {
-      const articles = await db
+      const articles = await getArticlesDatabase()
         .collection(COLLECTIONS.articles_raw)
         .find(
           { [`urls_by_lang.${lang}`]: { $exists: true } },

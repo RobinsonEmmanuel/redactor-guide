@@ -1,4 +1,4 @@
-import { connectDatabase, disconnectDatabase } from './config/database';
+import { connectDatabase, connectArticlesDatabase, disconnectDatabase } from './config/database';
 import { env } from './config/env';
 import { createServer } from './server';
 
@@ -11,9 +11,12 @@ async function bootstrap() {
     console.log(`📊 Environnement: ${env.NODE_ENV}`);
     console.log(`🔌 Port: ${env.PORT}`);
     
-    // Connexion à la base de données
+    // Connexion à la base de données principale
     const db = await connectDatabase();
     console.log(`📦 Base de données: ${db.databaseName}`);
+
+    // Connexion à la base articles_raw (service-redaction)
+    await connectArticlesDatabase();
     
     // Créer et démarrer le serveur Fastify
     const server = await createServer(db, env.PORT);

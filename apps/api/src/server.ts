@@ -3,6 +3,7 @@ import { Db } from 'mongodb';
 import { DIContainer } from './di/container';
 import { UPLOADS_DIR } from './routes/image-upload.routes.js';
 import { COLLECTIONS } from './config/collections.js';
+import { getArticlesDatabase } from './config/database.js';
 
 /**
  * Créer et configurer le serveur Fastify
@@ -153,7 +154,7 @@ export async function createServer(db: Db, _port: number) {
       fastify.get<{ Params: { id: string } }>('/articles/:id', async (request, reply) => {
         const { id } = request.params;
         try {
-          const article = await db.collection(COLLECTIONS.articles_raw).findOne({ _id: new (await import('mongodb')).ObjectId(id) });
+          const article = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({ _id: new (await import('mongodb')).ObjectId(id) });
           if (!article) {
             return reply.status(404).send({ error: 'Article non trouvé' });
           }

@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import { Db } from 'mongodb';
 import type { ImageAnalysis, SelectionCriteria } from '@redactor-guide/core-model';
 import { COLLECTIONS } from '../config/collections.js';
+import { getArticlesDatabase } from '../config/database.js';
 
 export type { ImageAnalysis, SelectionCriteria };
 
@@ -338,7 +339,7 @@ export class ImageAnalysisService {
     const removedUrls = originalUrls.filter((url) => unusableUrls.has(url));
 
     // Mettre à jour l'article : remplacer images par la liste filtrée
-    await this.db.collection(COLLECTIONS.articles_raw).updateOne(
+    await getArticlesDatabase().collection(COLLECTIONS.articles_raw).updateOne(
       { _id: articleId },
       {
         $set: {

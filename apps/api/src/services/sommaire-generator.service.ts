@@ -1,6 +1,8 @@
 import { Db, ObjectId } from 'mongodb';
 import { OpenAIService } from './openai.service';
 import { GeocodingService } from './geocoding.service';
+import { COLLECTIONS } from '../config/collections.js';
+import { getArticlesDatabase } from '../config/database.js';
 
 export interface SommaireGeneratorConfig {
   db: Db;
@@ -176,11 +178,11 @@ export class SommaireGeneratorService {
     }
 
     // Charger les articles du site, filtrés par destination
-    const articles = await this.db
-      .collection('articles_raw')
+    const articles = await getArticlesDatabase()
+      .collection(COLLECTIONS.articles_raw)
       .find({ 
         site_id: site._id.toString(),
-        categories: { $in: [destination] }, // Catégories contient la destination
+        categories: { $in: [destination] },
       })
       .toArray();
 

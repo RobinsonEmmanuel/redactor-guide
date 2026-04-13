@@ -1,4 +1,4 @@
-FROM node:18-alpine AS base
+FROM node:20-alpine AS base
 WORKDIR /app
 
 # ── Dépendances ──────────────────────────────────────────────────────────────
@@ -21,7 +21,7 @@ COPY . .
 RUN npx turbo run build --filter=@redactor-guide/api...
 
 # ── Image finale ──────────────────────────────────────────────────────────────
-FROM node:18-alpine AS runner
+FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production

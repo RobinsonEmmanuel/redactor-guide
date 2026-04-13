@@ -1,0 +1,299 @@
+{
+  "type": "FeatureCollection",
+  "name": "Cluster Teide – POIs retenus pour le guide",
+  "metadata": {
+    "guide": "Tenerife",
+    "guide_id": "69aaf63f33ddb3f3d4e31376",
+    "cluster_id": "e415f62251cc4165938cba82",
+    "cluster_name": "Teide",
+    "generated_at": "2026-04-13",
+    "total": 14
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.6099, 28.2052]
+      },
+      "properties": {
+        "poi_id": "mirador_llano_de_ucanca",
+        "nom": "Mirador Llano de Ucanca",
+        "type": "site_naturel",
+        "source": "article",
+        "article_source": "Mirador Llano de Ucanca (Tenerife): photos + accès",
+        "url_source": "mirador-llano-de-ucanca-tenerife",
+        "mentions": "principale",
+        "cluster_name": "Teide",
+        "confidence": "high",
+        "score": 1.0,
+        "validated": true,
+        "place_instance_id": "6938f17ae02cb72937d5cd85"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.6425, 28.2717]
+      },
+      "properties": {
+        "poi_id": "parc_national_de_teide",
+        "nom": "Parc National de Teide",
+        "type": "site_naturel",
+        "source": "article",
+        "article_source": "Parc National de Teide: 12 attractions + conseils (2026)",
+        "url_source": "parc-national-teide-tenerife-guide-attractions",
+        "mentions": "principale",
+        "cluster_name": "Teide",
+        "confidence": "high",
+        "score": 0.9545,
+        "validated": false,
+        "place_instance_id": "69437c90e02cb72937d7c83f"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.6142, 28.2017]
+      },
+      "properties": {
+        "poi_id": "mirador-de-samara_village-de-vilaflor-de-chasna",
+        "nom": "Mirador de Samara",
+        "type": "panorama",
+        "source": "article",
+        "article_source": "Village de Vilaflor de Chasna: que faire (+ conseils)",
+        "url_source": "que-faire-vilaflor-chasna-visiter",
+        "mentions": "principale",
+        "cluster_name": "Teide",
+        "confidence": "low",
+        "score": 0.6316,
+        "validated": false,
+        "place_instance_id": "6938f181e02cb72937d5cdd6"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.6228, 28.2131]
+      },
+      "properties": {
+        "poi_id": "roques-de-garcia_visiter-10-jours-tenerife-itineraire",
+        "nom": "Roques de García",
+        "type": "site_naturel",
+        "source": "article",
+        "article_source": "10 jours à Tenerife (à 2 semaines): itinéraire",
+        "url_source": "visiter-10-jours-tenerife-itineraire",
+        "mentions": "principale",
+        "cluster_name": "Teide",
+        "confidence": "high",
+        "score": 0.9115,
+        "validated": false,
+        "place_instance_id": "6938f17ee02cb72937d5cdaf"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.5872, 28.2311]
+      },
+      "properties": {
+        "poi_id": "minas-de-san-jose_visiter-10-jours-tenerife-itineraire",
+        "nom": "Minas de San José",
+        "type": "site_naturel",
+        "source": "article",
+        "article_source": "10 jours à Tenerife (à 2 semaines): itinéraire",
+        "url_source": "visiter-10-jours-tenerife-itineraire",
+        "mentions": "principale",
+        "cluster_name": "Teide",
+        "confidence": "high",
+        "score": 0.9412,
+        "validated": false,
+        "place_instance_id": "6938f178e02cb72937d5cd6d"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.6284, 28.2728]
+      },
+      "properties": {
+        "poi_id": "montana-blanca-la-rambleta",
+        "nom": "Montaña Blanca – La Rambleta (sommet du téléphérique du Teide)",
+        "type": "site_naturel",
+        "source": "article",
+        "article_source": "10 meilleures randonnées à Tenerife (conseils + photos)",
+        "url_source": "meilleures-randonnees-tenerife",
+        "mentions": "principale",
+        "cluster_name": "Teide",
+        "confidence": "medium",
+        "score": 0.8862,
+        "validated": false,
+        "place_instance_id": "6938f184e02cb72937d5cdf7"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.6697, 28.2578]
+      },
+      "properties": {
+        "poi_id": "pico-viejo-mirador-narices-del-teide",
+        "nom": "Teide – Pico Viejo – Mirador de Las Narices del Teide",
+        "type": "panorama",
+        "source": "article",
+        "article_source": "10 meilleures randonnées à Tenerife (conseils + photos)",
+        "url_source": "meilleures-randonnees-tenerife",
+        "mentions": "principale",
+        "cluster_name": "Teide",
+        "confidence": "low",
+        "score": 0.6122,
+        "validated": false,
+        "place_instance_id": "6938f17ee02cb72937d5cda9"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.5892, 28.2200]
+      },
+      "properties": {
+        "poi_id": "samara-teide",
+        "nom": "PNT-13 Sámara (Teide)",
+        "type": "site_naturel",
+        "source": "article",
+        "article_source": "10 meilleures randonnées à Tenerife (conseils + photos)",
+        "url_source": "meilleures-randonnees-tenerife",
+        "mentions": "principale",
+        "cluster_name": "Teide",
+        "confidence": "low",
+        "score": 0.4545,
+        "validated": false,
+        "place_instance_id": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.6242, 28.1861]
+      },
+      "properties": {
+        "poi_id": "alto-de-guajara",
+        "nom": "PNT-15 Alto de Guajara (Teide)",
+        "type": "panorama",
+        "source": "article",
+        "article_source": "10 meilleures randonnées à Tenerife (conseils + photos)",
+        "url_source": "meilleures-randonnees-tenerife",
+        "mentions": "principale",
+        "cluster_name": "Teide",
+        "confidence": "low",
+        "score": 0.4815,
+        "validated": false,
+        "place_instance_id": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.5767, 28.3100]
+      },
+      "properties": {
+        "poi_id": "visitor-center-el-portillo",
+        "nom": "Visitor Center El Portillo",
+        "type": "site_culturel",
+        "source": "article",
+        "article_source": "8 plus beaux jardins à Tenerife (conseils + photos)",
+        "url_source": "plus-beaux-jardins-tenerife",
+        "mentions": "principale",
+        "cluster_name": "Teide",
+        "confidence": "high",
+        "score": 0.9,
+        "validated": false,
+        "place_instance_id": "6938f182e02cb72937d5cde2"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.7092, 28.1997]
+      },
+      "properties": {
+        "poi_id": "descente-teide-tf-38",
+        "nom": "Descente de Teide vers l'ouest (TF-38)",
+        "type": "autre",
+        "source": "article",
+        "article_source": "7 plus belles routes de Tenerife (à conduire!)",
+        "url_source": "plus-belles-routes-tenerife",
+        "mentions": "principale",
+        "cluster_name": "Teide",
+        "confidence": "low",
+        "score": 0.3824,
+        "validated": false,
+        "place_instance_id": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.62705, 28.22421]
+      },
+      "properties": {
+        "poi_id": "manual_1773141309829_ynf9iy6ko",
+        "nom": "Centro de Visitantes de Cañada Blanca",
+        "type": "autre",
+        "source": "manual",
+        "cluster_name": "Teide",
+        "confidence": null,
+        "score": null,
+        "validated": false,
+        "place_instance_id": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.62538, 28.25504]
+      },
+      "properties": {
+        "poi_id": "manual_1773141535966_t4893dpp7",
+        "nom": "Teleferico de Teide",
+        "type": "autre",
+        "source": "manual",
+        "cluster_name": "Teide",
+        "confidence": null,
+        "score": null,
+        "validated": false,
+        "place_instance_id": null
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.50367, 28.30102]
+      },
+      "properties": {
+        "poi_id": "manual_1773141625336_po1jeeqzg",
+        "nom": "Observatoire de Teide",
+        "type": "autre",
+        "source": "manual",
+        "cluster_name": "Teide",
+        "confidence": null,
+        "score": null,
+        "validated": false,
+        "place_instance_id": null
+      }
+    }
+  ]
+}

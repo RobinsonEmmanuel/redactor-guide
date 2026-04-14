@@ -7,6 +7,7 @@ import archiver from 'archiver';
 import { ExportService } from '../services/export.service.js';
 import { normalizeGuideExportV2, type NormalizerOptions } from '../services/normalize-export.service.js';
 import { buildGuideStoryboard, resolveImagesForGuide, type StoryboardInputGuide, type GuideExportJson } from '@redactor-guide/exporters';
+import { COLLECTIONS } from '../config/collections.js';
 
 export async function exportRoutes(fastify: FastifyInstance) {
   const exportService = new ExportService();

@@ -937,7 +937,8 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
   const [selected,    setSelected]    = useState<Set<string>>(new Set());
 
   const reset = () => {
-    setPreview(null); setError(null); setApplyResult(null); setSelected(new Set());
+    setPreview(null); setError(null); setApplyResult(null);
+    setSelected(new Set()); setManualMatches([]); setPendingGeoJson(null);
     if (fileRef.current) fileRef.current.value = '';
   };
 
@@ -967,19 +968,37 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
     }
   };
 
+  // ── Matching manuel ────────────────────────────────────────────────────────
+  type ManualMatch = {
+    geojsonName: string;
+    coords: { lat: number; lon: number };
+    pageId: string;
+    pageTitre: string;
+  };
+  const [manualMatches,    setManualMatches]    = useState<ManualMatch[]>([]);
+  const [pendingGeoJson,   setPendingGeoJson]   = useState<string | null>(null); // nom GeoJSON sélectionné
+
   const handleApply = async () => {
-    if (!preview || selected.size === 0) return;
+    const hasAuto   = selected.size > 0;
+    const hasManual = manualMatches.length > 0;
+    if (!preview || (!hasAuto && !hasManual)) return;
     setApplying(true); setError(null);
     try {
-      const updates = preview.matches
+      const autoUpdates = (preview?.matches ?? [])
         .filter(m => selected.has(m.page_id))
         .map(m => ({
           pageId:          m.page_id,
           lat:             m.new_coords.lat,
           lon:             m.new_coords.lon,
-          // Envoyer le nom vernaculaire si le match était via traduction
           nomVernaculaire: m.is_translated ? m.geojson_name : undefined,
         }));
+      const manualUpdates = manualMatches.map(m => ({
+        pageId:          m.pageId,
+        lat:             m.coords.lat,
+        lon:             m.coords.lon,
+        nomVernaculaire: m.geojsonName,
+      }));
+      const updates = [...autoUpdates, ...manualUpdates];
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/import/geojson/apply`, {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -1007,8 +1026,16 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
     );
   };
 
-  const toUpdateRows   = preview?.matches.filter(m => m.status === 'update') ?? [];
-  const identicalRows  = preview?.matches.filter(m => m.status === 'identical') ?? [];
+  // Rows par catégorie
+  // Exact update : sélectionnés par défaut
+  const exactUpdateRows   = preview?.matches.filter(m => m.match_quality === 'exact'   && m.status === 'update')   ?? [];
+  // Partial (tous) : à valider manuellement (non sélectionnés par défaut)
+  const partialRows       = preview?.matches.filter(m => m.match_quality === 'partial') ?? [];
+  // Exact identical : déjà OK, collapsé
+  const exactIdentRows    = preview?.matches.filter(m => m.match_quality === 'exact'   && m.status === 'identical') ?? [];
+  // compat alias
+  const toUpdateRows      = exactUpdateRows;
+  const identicalRows     = exactIdentRows;
 
   const MatchTable = ({ rows, accentColor }: { rows: MatchEntry[]; accentColor: string }) => (
     <div className="rounded-xl border border-gray-200 overflow-hidden text-xs">
@@ -1151,10 +1178,10 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
               {/* Stats */}
               <div className="grid grid-cols-4 gap-2 text-center text-xs">
                 {[
-                  { label: 'Match direct',     value: preview.stats.matched_direct,     color: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
-                  { label: 'Match IA (traduit)',value: preview.stats.matched_translated, color: 'bg-violet-50 border-violet-200 text-violet-700' },
-                  { label: 'À mettre à jour',  value: preview.stats.to_update,          color: 'bg-amber-50 border-amber-200 text-amber-700' },
-                  { label: 'Non trouvés',       value: preview.stats.unmatched_geojson,  color: 'bg-gray-50 border-gray-200 text-gray-500' },
+                  { label: 'Match exact',       value: preview.stats.matched_direct,     color: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+                  { label: 'Match approx. / IA',value: partialRows.length,               color: 'bg-orange-50 border-orange-200 text-orange-700' },
+                  { label: 'À affecter manuellement', value: preview.stats.unmatched_geojson, color: 'bg-gray-50 border-gray-200 text-gray-500' },
+                  { label: 'À mettre à jour',   value: preview.stats.to_update + manualMatches.length, color: 'bg-amber-50 border-amber-200 text-amber-700' },
                 ].map(s => (
                   <div key={s.label} className={`rounded-lg border px-2 py-2 ${s.color}`}>
                     <p className="text-lg font-bold">{s.value}</p>
@@ -1163,15 +1190,12 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
                 ))}
               </div>
 
-              {/* Tableau mises à jour */}
+              {/* ── Section 1 : Mises à jour exactes (auto-validées) ── */}
               {toUpdateRows.length > 0 && (
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
-                      Mises à jour ({toUpdateRows.length})
-                      {toUpdateRows.some(m => m.is_translated) && (
-                        <span className="ml-2 font-normal text-violet-500 normal-case">dont {toUpdateRows.filter(m => m.is_translated).length} via traduction IA</span>
-                      )}
+                      Mises à jour — match exact ({toUpdateRows.length})
                     </p>
                     <button type="button" onClick={() => toggleGroup(toUpdateRows)} className="text-xs text-emerald-600 hover:underline">
                       {toUpdateRows.every(m => selected.has(m.page_id)) ? 'Tout désélectionner' : 'Tout sélectionner'}
@@ -1181,61 +1205,172 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
                 </div>
               )}
 
-              {/* Tableau identiques (dépliable) */}
+              {/* ── Section 2 : Rapprochements approx. / IA — à valider ── */}
+              {partialRows.length > 0 && (
+                <div className="rounded-xl border border-orange-200 bg-orange-50/50 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <ExclamationTriangleIcon className="w-4 h-4 text-orange-500 flex-shrink-0" />
+                      <p className="text-xs font-semibold text-orange-800">
+                        Rapprochements approximatifs — à valider ({partialRows.length})
+                      </p>
+                    </div>
+                    <button type="button" onClick={() => toggleGroup(partialRows)} className="text-xs text-orange-600 hover:underline">
+                      {partialRows.every(m => selected.has(m.page_id)) ? 'Tout désélectionner' : 'Tout valider'}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-orange-600 pl-6">
+                    Ces correspondances ont été trouvées par similarité de nom (containment ou overlap de mots). Vérifie que chaque ligne est correcte avant d'appliquer.
+                  </p>
+                  <MatchTable rows={partialRows} accentColor="bg-orange-100" />
+                </div>
+              )}
+
+              {/* ── Section 3 : Déjà corrects (collapsé) ── */}
               {identicalRows.length > 0 && (
                 <details>
                   <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600 select-none">
                     {identicalRows.length} POI{identicalRows.length > 1 ? 's' : ''} déjà à jour (coordonnées identiques) ▾
                   </summary>
-                  <div className="mt-2">
-                    <MatchTable rows={identicalRows} accentColor="bg-emerald-50" />
+                  <div className="mt-2"><MatchTable rows={identicalRows} accentColor="bg-emerald-50" /></div>
+                </details>
+              )}
+
+              {/* ── Section 4 : Affectation manuelle ── */}
+              {(preview.unmatched_geojson.length > 0 || preview.unmatched_pages.length > 0) && (
+                <div className="rounded-xl border border-gray-200 p-3 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <DocumentTextIcon className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                    <p className="text-xs font-semibold text-gray-700">
+                      Affectation manuelle — {preview.unmatched_geojson.length} point{preview.unmatched_geojson.length > 1 ? 's' : ''} GeoJSON sans correspondance
+                    </p>
                   </div>
-                </details>
+                  <p className="text-[11px] text-gray-400 pl-6">
+                    Clique un point GeoJSON (gauche) puis une page POI (droite) pour créer une correspondance.
+                  </p>
+
+                  {/* Paires déjà créées */}
+                  {manualMatches.length > 0 && (
+                    <div className="space-y-1">
+                      {manualMatches.map((mm, i) => (
+                        <div key={i} className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5 text-xs">
+                          <span className="text-gray-500 italic flex-1 truncate">{mm.geojsonName}</span>
+                          <span className="text-gray-300">→</span>
+                          <span className="text-emerald-700 font-medium flex-1 truncate">{mm.pageTitre}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setManualMatches(prev => prev.filter((_, j) => j !== i));
+                              setPendingGeoJson(null);
+                            }}
+                            className="text-gray-300 hover:text-red-500 ml-1 flex-shrink-0"
+                            title="Supprimer cette correspondance"
+                          >
+                            <XMarkIcon className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Colonnes GeoJSON | Pages */}
+                  {(() => {
+                    const usedGeoJsonNames = new Set(manualMatches.map(m => m.geojsonName));
+                    const usedPageIds      = new Set(manualMatches.map(m => m.pageId));
+                    const availableGeoJson = preview.unmatched_geojson.filter(u => !usedGeoJsonNames.has(u.name));
+                    const availablePages   = preview.unmatched_pages.filter(p => !usedPageIds.has(p.page_id));
+                    if (availableGeoJson.length === 0 && availablePages.length === 0) return null;
+                    return (
+                      <div className="grid grid-cols-2 gap-3">
+                        {/* Colonne GeoJSON */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
+                            Points GeoJSON ({availableGeoJson.length})
+                          </p>
+                          <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                            {availableGeoJson.map((u, i) => (
+                              <button
+                                key={i}
+                                type="button"
+                                onClick={() => setPendingGeoJson(prev => prev === u.name ? null : u.name)}
+                                className={`w-full text-left px-2.5 py-1.5 rounded-lg border text-xs transition-colors ${
+                                  pendingGeoJson === u.name
+                                    ? 'bg-blue-100 border-blue-400 text-blue-800 font-medium'
+                                    : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                                }`}
+                              >
+                                <span className="block truncate">{u.name}</span>
+                                {u.translated_name && u.translated_name !== u.name && (
+                                  <span className="block text-[10px] text-gray-400 truncate">→ {u.translated_name}</span>
+                                )}
+                                <span className="block text-[10px] font-mono text-gray-300">
+                                  {u.coords.lat.toFixed(4)}, {u.coords.lon.toFixed(4)}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        {/* Colonne Pages */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
+                            Pages POI sans GPS ({availablePages.length})
+                          </p>
+                          <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                            {availablePages.map((p, i) => (
+                              <button
+                                key={i}
+                                type="button"
+                                disabled={!pendingGeoJson}
+                                onClick={() => {
+                                  if (!pendingGeoJson) return;
+                                  const geoJsonItem = preview.unmatched_geojson.find(u => u.name === pendingGeoJson);
+                                  if (!geoJsonItem) return;
+                                  setManualMatches(prev => [...prev, {
+                                    geojsonName: pendingGeoJson,
+                                    coords:      geoJsonItem.coords,
+                                    pageId:      p.page_id,
+                                    pageTitre:   p.titre,
+                                  }]);
+                                  setPendingGeoJson(null);
+                                }}
+                                className={`w-full text-left px-2.5 py-1.5 rounded-lg border text-xs transition-colors ${
+                                  pendingGeoJson
+                                    ? 'bg-white border-blue-300 text-gray-700 hover:bg-blue-50 cursor-pointer'
+                                    : 'bg-white border-gray-200 text-gray-400 cursor-not-allowed'
+                                }`}
+                              >
+                                <span className="block truncate">{p.titre}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {pendingGeoJson && (
+                    <p className="text-xs text-blue-600 font-medium flex items-center gap-1">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                      </svg>
+                      « {pendingGeoJson} » sélectionné — clique une page à droite pour créer la paire
+                    </p>
+                  )}
+                </div>
               )}
 
-              {/* Non trouvés GeoJSON */}
-              {preview.unmatched_geojson.length > 0 && (
-                <details>
-                  <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600 select-none">
-                    {preview.unmatched_geojson.length} point{preview.unmatched_geojson.length > 1 ? 's' : ''} GeoJSON sans correspondance (même après traduction) ▾
-                  </summary>
-                  <ul className="mt-2 space-y-1 pl-3 text-xs text-gray-400">
-                    {preview.unmatched_geojson.map((u, i) => (
-                      <li key={i}>
-                        · <span className="italic">{u.name}</span>
-                        {u.translated_name && u.translated_name !== u.name && (
-                          <span className="ml-1 text-gray-300">→ essayé « {u.translated_name} »</span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-
-              {/* Non trouvés pages */}
-              {preview.unmatched_pages.length > 0 && (
-                <details>
-                  <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600 select-none">
-                    {preview.unmatched_pages.length} page{preview.unmatched_pages.length > 1 ? 's' : ''} POI sans point GeoJSON correspondant ▾
-                  </summary>
-                  <ul className="mt-2 space-y-0.5 pl-3 text-xs text-gray-400">
-                    {preview.unmatched_pages.map((p, i) => <li key={i}>· {p.titre}</li>)}
-                  </ul>
-                </details>
-              )}
-
-              {/* Actions */}
+              {/* ── Actions ── */}
               <div className="flex items-center gap-3 pt-1">
                 <button
                   type="button" onClick={handleApply}
-                  disabled={applying || selected.size === 0}
+                  disabled={applying || (selected.size === 0 && manualMatches.length === 0)}
                   className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {applying
                     ? <><ArrowPathIcon className="w-4 h-4 animate-spin" /> Application…</>
-                    : <><CheckCircleIcon className="w-4 h-4" /> Appliquer {selected.size} mise{selected.size > 1 ? 's' : ''} à jour</>}
+                    : <><CheckCircleIcon className="w-4 h-4" /> Appliquer {selected.size + manualMatches.length} mise{(selected.size + manualMatches.length) > 1 ? 's' : ''} à jour</>}
                 </button>
-                <button type="button" onClick={reset}
+                <button type="button" onClick={() => { reset(); setManualMatches([]); setPendingGeoJson(null); }}
                   className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors">
                   Recommencer
                 </button>

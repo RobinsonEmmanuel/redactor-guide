@@ -6,6 +6,7 @@ import {
   ArrowPathIcon,
   CheckCircleIcon,
   DocumentTextIcon,
+  MapPinIcon,
   PhotoIcon,
   SwatchIcon,
   LanguageIcon,
@@ -62,6 +63,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
   const [loadingPreview, setLoadingPreview] = useState(true);
   const [downloading, setDownloading] = useState<Record<string, boolean>>({});
   const [downloadingZip, setDownloadingZip] = useState<Record<string, boolean>>({});
+  const [downloadingGeoJson, setDownloadingGeoJson] = useState(false);
   const [downloadedFiles, setDownloadedFiles] = useState<string[]>([]);
   const [translationStates, setTranslationStates] = useState<Record<string, TranslationState>>({});
   const [translating, setTranslating] = useState<Record<string, boolean>>({});
@@ -236,6 +238,38 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     for (const lang of selectedLanguages) await downloadExport(lang);
   };
 
+  const downloadGeoJson = async () => {
+    setDownloadingGeoJson(true);
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/export/geojson`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) throw new Error(`Erreur ${res.status}`);
+      const blob = await res.blob();
+
+      const cd = res.headers.get('content-disposition') || '';
+      const cdMatch = cd.match(/filename="([^"]+)"/);
+      const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+      const now = new Date();
+      const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
+      const timePart = now.toISOString().slice(11, 16).replace(':', '');
+      const dest = slugify(preview?.meta?.destination || preview?.meta?.guide_name || 'guide');
+      const fallbackName = `pois_${dest}_${datePart}_${timePart}.geojson`;
+      const filename = cdMatch ? cdMatch[1] : fallbackName;
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.click();
+      URL.revokeObjectURL(url);
+      setDownloadedFiles(prev => [...prev.filter(f => !f.endsWith('.geojson')), filename]);
+    } catch (err) {
+      alert('Erreur lors du téléchargement du GeoJSON');
+    } finally {
+      setDownloadingGeoJson(false);
+    }
+  };
+
   const renderTranslationBadge = (lang: string) => {
     const state = translationStates[lang];
     if (!state || state.status === 'idle') {
@@ -284,30 +318,44 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
             <h2 className="text-xl font-bold text-gray-900">📦 Export InDesign</h2>
             <p className="text-sm text-gray-500 mt-1">JSON normalisé layout-ready pour data merge</p>
           </div>
-          {selectedLanguages.length > 0 && (
-            <div className="flex gap-2">
-              <button
-                onClick={downloadAllSelected}
-                disabled={Object.values(downloading).some(Boolean)}
-                title="JSON seul (sans images)"
-                className="flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-gray-50 text-gray-700 font-medium rounded-lg transition-colors shadow-sm border border-gray-300 disabled:opacity-50"
-              >
-                <ArrowDownTrayIcon className="w-4 h-4" />
-                JSON
-              </button>
-              <button
-                onClick={() => selectedLanguages.forEach(l => downloadZip(l))}
-                disabled={Object.values(downloadingZip).some(Boolean)}
-                title="ZIP complet : JSON + toutes les images téléchargées (opération longue)"
-                className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors shadow-sm disabled:opacity-50"
-              >
-                {Object.values(downloadingZip).some(Boolean)
-                  ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                  : <ArrowDownTrayIcon className="w-4 h-4" />}
-                ZIP + images
-              </button>
-            </div>
-          )}
+          <div className="flex gap-2">
+            {/* GeoJSON — indépendant de la sélection de langue */}
+            <button
+              onClick={downloadGeoJson}
+              disabled={downloadingGeoJson}
+              title="GeoJSON de tous les POIs groupés par cluster (pour cartographie)"
+              className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors shadow-sm disabled:opacity-50"
+            >
+              {downloadingGeoJson
+                ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                : <MapPinIcon className="w-4 h-4" />}
+              GeoJSON
+            </button>
+            {selectedLanguages.length > 0 && (
+              <>
+                <button
+                  onClick={downloadAllSelected}
+                  disabled={Object.values(downloading).some(Boolean)}
+                  title="JSON seul (sans images)"
+                  className="flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-gray-50 text-gray-700 font-medium rounded-lg transition-colors shadow-sm border border-gray-300 disabled:opacity-50"
+                >
+                  <ArrowDownTrayIcon className="w-4 h-4" />
+                  JSON
+                </button>
+                <button
+                  onClick={() => selectedLanguages.forEach(l => downloadZip(l))}
+                  disabled={Object.values(downloadingZip).some(Boolean)}
+                  title="ZIP complet : JSON + toutes les images téléchargées (opération longue)"
+                  className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors shadow-sm disabled:opacity-50"
+                >
+                  {Object.values(downloadingZip).some(Boolean)
+                    ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                    : <ArrowDownTrayIcon className="w-4 h-4" />}
+                  ZIP + images
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Stats */}
@@ -550,6 +598,11 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                   {filename.endsWith('.zip') && (
                     <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">
                       JSON + images
+                    </span>
+                  )}
+                  {filename.endsWith('.geojson') && (
+                    <span className="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-medium">
+                      POIs cartographie
                     </span>
                   )}
                 </div>

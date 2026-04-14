@@ -319,6 +319,115 @@ export async function exportRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * GET /guides/:guideId/export/geojson
+   * Génère un GeoJSON de tous les POIs sélectionnés, groupés par cluster.
+   * Chaque feature = un POI avec ses coordonnées (null si inconnues) et ses métadonnées.
+   * L'objet metadata liste les clusters et leur nombre de POIs pour faciliter le filtrage.
+   */
+  fastify.get<{
+    Params: { guideId: string };
+  }>(
+    '/guides/:guideId/export/geojson',
+    async (request, reply) => {
+      const { guideId } = request.params;
+      const db = request.server.container.db;
+
+      if (!ObjectId.isValid(guideId)) {
+        return reply.status(400).send({ error: 'Guide ID invalide' });
+      }
+
+      try {
+        const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
+        if (!guide) return reply.status(404).send({ error: 'Guide non trouvé' });
+
+        // POIs sélectionnés pour ce guide
+        const poisSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
+        const pois: any[] = poisSelection?.pois || [];
+
+        // Métadonnées des clusters (noms canoniques)
+        const clusterAssignments = await db.collection(COLLECTIONS.cluster_assignments).findOne({ guide_id: guideId });
+        const clustersMetaMap: Record<string, string> = {};
+        for (const cm of (clusterAssignments?.clusters_metadata || [])) {
+          if (cm.cluster_id) clustersMetaMap[cm.cluster_id] = cm.cluster_name;
+        }
+
+        const destination = guide.destination || guide.nom || 'guide';
+        const slugDest = destination.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+        const now = new Date();
+        const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
+        const timePart = now.toISOString().slice(11, 16).replace(':', '');
+        const filename = `pois_${slugDest}_${datePart}_${timePart}.geojson`;
+
+        // Construire les features — géométrie null si pas de coordonnées (GeoJSON valide)
+        const features = pois.map((poi: any) => {
+          const coords = poi.coordinates;
+          const geometry =
+            coords?.lat != null && coords?.lon != null
+              ? { type: 'Point' as const, coordinates: [coords.lon, coords.lat] }
+              : null;
+
+          return {
+            type: 'Feature' as const,
+            geometry,
+            properties: {
+              poi_id:         poi.poi_id,
+              nom:            poi.nom,
+              type:           poi.type || 'autre',
+              source:         poi.source,
+              mentions:       poi.mentions   || null,
+              cluster_id:     poi.cluster_id || null,
+              cluster_name:   poi.cluster_name
+                              || (poi.cluster_id ? clustersMetaMap[poi.cluster_id] : null)
+                              || null,
+              confidence:     poi.confidence || null,
+              score:          poi.score != null ? Math.round(poi.score * 100) / 100 : null,
+              validated:      poi.validated  || false,
+              article_source: poi.article_source || null,
+              url_source:     poi.url_source     || null,
+            },
+          };
+        });
+
+        // Agrégation par cluster pour les métadonnées
+        const clusterCounts: Record<string, number> = {};
+        for (const poi of pois) {
+          const cid = poi.cluster_id || 'non_affecte';
+          clusterCounts[cid] = (clusterCounts[cid] || 0) + 1;
+        }
+
+        const geojson = {
+          type: 'FeatureCollection',
+          name: `POIs – ${destination}`,
+          metadata: {
+            guide:               destination,
+            guide_id:            guideId,
+            generated_at:        now.toISOString(),
+            total:               features.length,
+            with_coordinates:    features.filter(f => f.geometry !== null).length,
+            without_coordinates: features.filter(f => f.geometry === null).length,
+            clusters: Object.entries(clusterCounts)
+              .map(([cluster_id, count]) => ({
+                cluster_id,
+                cluster_name: clustersMetaMap[cluster_id] || cluster_id,
+                count,
+              }))
+              .sort((a, b) => (a.cluster_name > b.cluster_name ? 1 : -1)),
+          },
+          features,
+        };
+
+        reply.header('Content-Type', 'application/geo+json; charset=utf-8');
+        reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+        return reply.send(geojson);
+
+      } catch (error: any) {
+        fastify.log.error(error);
+        return reply.status(500).send({ error: 'Erreur lors de la génération du GeoJSON' });
+      }
+    }
+  );
+
+  /**
    * GET /guides/:guideId/export/preview
    * Retourne uniquement les métadonnées et statistiques de l'export (sans le contenu complet)
    */

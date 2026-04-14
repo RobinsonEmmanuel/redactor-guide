@@ -132,6 +132,9 @@ export async function createServer(db: Db, _port: number) {
         (await import('./routes/export.routes')).exportRoutes
       );
       await fastify.register(
+        (await import('./routes/import-geojson.routes')).importGeoJsonRoutes
+      );
+      await fastify.register(
         (await import('./routes/field-services.routes')).fieldServicesRoutes
       );
       await fastify.register(

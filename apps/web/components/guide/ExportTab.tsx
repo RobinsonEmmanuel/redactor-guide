@@ -611,6 +611,9 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
           </div>
         )}
 
+        {/* Import GeoJSON → mise à jour des coordonnées GPS */}
+        <GeoJsonImportPanel guideId={guideId} apiUrl={apiUrl} />
+
       </div>
     </div>
   );
@@ -892,6 +895,353 @@ function OverflowCorrectionModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Import GeoJSON → mise à jour des coordonnées GPS
+// ---------------------------------------------------------------------------
+interface MatchEntry {
+  page_id:        string;
+  page_titre:     string;
+  geojson_name:   string;
+  current_coords: { lat: number; lon: number } | null;
+  new_coords:     { lat: number; lon: number };
+  status:         'update' | 'identical';
+}
+
+interface PreviewResult {
+  matches:           MatchEntry[];
+  unmatched_geojson: Array<{ name: string; coords: { lat: number; lon: number } }>;
+  unmatched_pages:   Array<{ page_id: string; titre: string }>;
+  stats: {
+    total_features: number; matched: number; to_update: number;
+    identical: number; unmatched_geojson: number; unmatched_pages: number;
+  };
+}
+
+function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: string }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [open,        setOpen]        = useState(false);
+  const [loading,     setLoading]     = useState(false);
+  const [applying,    setApplying]    = useState(false);
+  const [preview,     setPreview]     = useState<PreviewResult | null>(null);
+  const [error,       setError]       = useState<string | null>(null);
+  const [applyResult, setApplyResult] = useState<{ updated: number; attempted: number } | null>(null);
+  // Cases cochées : par défaut toutes les lignes "update" sont sélectionnées
+  const [selected,    setSelected]    = useState<Set<string>>(new Set());
+
+  const reset = () => {
+    setPreview(null);
+    setError(null);
+    setApplyResult(null);
+    setSelected(new Set());
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setLoading(true);
+    setError(null);
+    setPreview(null);
+    setApplyResult(null);
+
+    try {
+      // Lire et fusionner toutes les features de tous les fichiers
+      const allFeatures: any[] = [];
+      for (const file of Array.from(files)) {
+        const text = await file.text();
+        const json = JSON.parse(text);
+        const feats = json.features ?? (json.type === 'Feature' ? [json] : []);
+        allFeatures.push(...feats);
+      }
+
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/import/geojson/preview`, {
+        method:      'POST',
+        credentials: 'include',
+        headers:     { 'Content-Type': 'application/json' },
+        body:        JSON.stringify({ features: allFeatures }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur serveur');
+
+      setPreview(data);
+      // Sélectionner par défaut toutes les lignes à mettre à jour
+      setSelected(new Set(data.matches.filter((m: MatchEntry) => m.status === 'update').map((m: MatchEntry) => m.page_id)));
+    } catch (err: any) {
+      setError(err.message || 'Erreur lors de l\'analyse');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApply = async () => {
+    if (!preview || selected.size === 0) return;
+    setApplying(true);
+    setError(null);
+    try {
+      const updates = preview.matches
+        .filter(m => selected.has(m.page_id))
+        .map(m => ({ pageId: m.page_id, lat: m.new_coords.lat, lon: m.new_coords.lon }));
+
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/import/geojson/apply`, {
+        method:      'POST',
+        credentials: 'include',
+        headers:     { 'Content-Type': 'application/json' },
+        body:        JSON.stringify({ updates }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur serveur');
+      setApplyResult(data);
+    } catch (err: any) {
+      setError(err.message || 'Erreur lors de l\'application');
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const toggleRow = (pageId: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(pageId) ? next.delete(pageId) : next.add(pageId);
+      return next;
+    });
+  };
+
+  const toUpdateRows = preview?.matches.filter(m => m.status === 'update') ?? [];
+  const identicalRows = preview?.matches.filter(m => m.status === 'identical') ?? [];
+
+  return (
+    <div className="bg-white rounded-xl border border-emerald-200">
+      {/* En-tête cliquable */}
+      <button
+        className="w-full flex items-center justify-between px-5 py-4 text-left"
+        onClick={() => { setOpen(o => !o); if (!open) reset(); }}
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-emerald-50">
+            <MapPinIcon className="w-5 h-5 text-emerald-600" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Import GPS — fichiers GeoJSON</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Importer des fichiers uMap pour mettre à jour les coordonnées des POIs en base
+            </p>
+          </div>
+        </div>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="px-5 pb-5 border-t border-emerald-100 pt-4 space-y-4">
+
+          {/* Zone de dépôt */}
+          {!preview && !loading && (
+            <div
+              className="border-2 border-dashed border-emerald-300 rounded-xl p-6 text-center cursor-pointer hover:bg-emerald-50 transition-colors"
+              onClick={() => fileRef.current?.click()}
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
+            >
+              <MapPinIcon className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+              <p className="text-sm font-medium text-gray-700">Déposer les fichiers GeoJSON ici</p>
+              <p className="text-xs text-gray-400 mt-1">ou cliquer pour sélectionner — plusieurs fichiers acceptés (.geojson)</p>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".geojson,application/geo+json,application/json"
+                multiple
+                className="hidden"
+                onChange={e => handleFiles(e.target.files)}
+              />
+            </div>
+          )}
+
+          {/* Chargement */}
+          {loading && (
+            <div className="flex items-center gap-3 py-4 text-sm text-gray-500">
+              <ArrowPathIcon className="w-5 h-5 animate-spin text-emerald-500" />
+              Analyse des fichiers en cours…
+            </div>
+          )}
+
+          {/* Erreur */}
+          {error && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+              <ExclamationTriangleIcon className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              {error}
+            </div>
+          )}
+
+          {/* Résultat d'application */}
+          {applyResult && (
+            <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+              <CheckCircleIcon className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-emerald-800">
+                  {applyResult.updated} coordonnée{applyResult.updated > 1 ? 's' : ''} mise{applyResult.updated > 1 ? 's' : ''} à jour
+                </p>
+                <p className="text-xs text-emerald-600 mt-0.5">
+                  Les pages ont été mises à jour — re-télécharge le GeoJSON pour vérifier.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Récap + tableau */}
+          {preview && !applyResult && (
+            <>
+              {/* Stats */}
+              <div className="grid grid-cols-3 gap-3 text-center">
+                {[
+                  { label: 'À mettre à jour',  value: preview.stats.to_update,         color: 'bg-amber-50 border-amber-200 text-amber-700' },
+                  { label: 'Déjà corrects',     value: preview.stats.identical,         color: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+                  { label: 'Non trouvés (GeoJSON)', value: preview.stats.unmatched_geojson, color: 'bg-gray-50 border-gray-200 text-gray-500' },
+                ].map(s => (
+                  <div key={s.label} className={`rounded-lg border px-3 py-2 ${s.color}`}>
+                    <p className="text-xl font-bold">{s.value}</p>
+                    <p className="text-xs mt-0.5">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Tableau des mises à jour */}
+              {toUpdateRows.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                      Mises à jour ({toUpdateRows.length})
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allIds = toUpdateRows.map(m => m.page_id);
+                        setSelected(prev =>
+                          allIds.every(id => prev.has(id))
+                            ? new Set([...prev].filter(id => !allIds.includes(id)))
+                            : new Set([...prev, ...allIds])
+                        );
+                      }}
+                      className="text-xs text-emerald-600 hover:underline"
+                    >
+                      {toUpdateRows.every(m => selected.has(m.page_id)) ? 'Tout désélectionner' : 'Tout sélectionner'}
+                    </button>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 overflow-hidden text-xs">
+                    <table className="w-full">
+                      <thead className="bg-gray-50 text-gray-500 uppercase text-[10px] tracking-wide">
+                        <tr>
+                          <th className="w-8 px-3 py-2"></th>
+                          <th className="px-3 py-2 text-left">POI (page)</th>
+                          <th className="px-3 py-2 text-left">Coords actuelles</th>
+                          <th className="px-3 py-2 text-left">Nouvelles coords (GeoJSON)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {toUpdateRows.map(m => (
+                          <tr
+                            key={m.page_id}
+                            className={`cursor-pointer transition-colors ${selected.has(m.page_id) ? 'bg-amber-50' : 'hover:bg-gray-50'}`}
+                            onClick={() => toggleRow(m.page_id)}
+                          >
+                            <td className="px-3 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={selected.has(m.page_id)}
+                                onChange={() => toggleRow(m.page_id)}
+                                onClick={e => e.stopPropagation()}
+                                className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                              />
+                            </td>
+                            <td className="px-3 py-2 font-medium text-gray-800">{m.page_titre}</td>
+                            <td className="px-3 py-2 font-mono text-gray-400">
+                              {m.current_coords
+                                ? `${m.current_coords.lat.toFixed(5)}, ${m.current_coords.lon.toFixed(5)}`
+                                : <span className="italic text-gray-300">aucune</span>}
+                            </td>
+                            <td className="px-3 py-2 font-mono text-emerald-700">
+                              {m.new_coords.lat.toFixed(5)}, {m.new_coords.lon.toFixed(5)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Non trouvés côté GeoJSON */}
+              {preview.unmatched_geojson.length > 0 && (
+                <details className="group">
+                  <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600 select-none">
+                    {preview.unmatched_geojson.length} point{preview.unmatched_geojson.length > 1 ? 's' : ''} GeoJSON sans correspondance en base ▾
+                  </summary>
+                  <ul className="mt-2 space-y-0.5 pl-3 text-xs text-gray-400">
+                    {preview.unmatched_geojson.map((u, i) => (
+                      <li key={i}>· {u.name}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+
+              {/* Non trouvés côté pages */}
+              {preview.unmatched_pages.length > 0 && (
+                <details className="group">
+                  <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600 select-none">
+                    {preview.unmatched_pages.length} page{preview.unmatched_pages.length > 1 ? 's' : ''} POI sans correspondance GeoJSON ▾
+                  </summary>
+                  <ul className="mt-2 space-y-0.5 pl-3 text-xs text-gray-400">
+                    {preview.unmatched_pages.map((p, i) => (
+                      <li key={i}>· {p.titre}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+
+              {/* Actions */}
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={handleApply}
+                  disabled={applying || selected.size === 0}
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {applying
+                    ? <><ArrowPathIcon className="w-4 h-4 animate-spin" /> Application…</>
+                    : <><CheckCircleIcon className="w-4 h-4" /> Appliquer {selected.size} mise{selected.size > 1 ? 's' : ''} à jour</>
+                  }
+                </button>
+                <button
+                  type="button"
+                  onClick={reset}
+                  className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  Recommencer
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Recommencer après apply */}
+          {applyResult && (
+            <button
+              type="button"
+              onClick={reset}
+              className="text-xs text-gray-400 hover:text-gray-600 underline decoration-dotted"
+            >
+              Importer d'autres fichiers
+            </button>
+          )}
+
+        </div>
+      )}
     </div>
   );
 }

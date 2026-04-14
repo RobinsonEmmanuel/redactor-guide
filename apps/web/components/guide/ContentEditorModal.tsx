@@ -67,10 +67,16 @@ interface Page {
   type_de_page?: string;
   ordre: number;
   url_source?: string;
+  coordinates?: {
+    lat: number;
+    lon: number;
+    display_name?: string;
+  };
   metadata?: {
     inspiration_id?: string;
     inspiration_title?: string;
     inspiration_pois?: InspirationPoi[];
+    poi_id?: string;
     [key: string]: any;
   };
   content?: Record<string, string>;
@@ -261,6 +267,54 @@ export default function ContentEditorModal({
   const [recalculatingFields, setRecalculatingFields] = useState<Set<string>>(new Set());
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
   const [refreshingPois, setRefreshingPois]           = useState(false);
+
+  // ── Coordonnées GPS ────────────────────────────────────────────────────────
+  const [localLat, setLocalLat] = useState<string>(
+    page.coordinates?.lat != null ? String(page.coordinates.lat) : ''
+  );
+  const [localLon, setLocalLon] = useState<string>(
+    page.coordinates?.lon != null ? String(page.coordinates.lon) : ''
+  );
+  const [coordSaving,  setCoordSaving]  = useState(false);
+  const [coordSaved,   setCoordSaved]   = useState(false);
+  const [coordError,   setCoordError]   = useState<string | null>(null);
+
+  const saveCoordinates = async () => {
+    const lat = parseFloat(localLat.replace(',', '.'));
+    const lon = parseFloat(localLon.replace(',', '.'));
+    if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      setCoordError('Valeurs invalides — latitude : -90 à 90, longitude : -180 à 180');
+      return;
+    }
+    setCoordSaving(true);
+    setCoordError(null);
+    setCoordSaved(false);
+    try {
+      const payload = { coordinates: { lat, lon } };
+      // 1. Sauvegarder sur la page
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}`,
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(payload) }
+      );
+      if (!res.ok) throw new Error('Erreur lors de la mise à jour de la page');
+      // 2. Synchroniser sur le POI dans pois_selection si poi_id disponible
+      const poiId = page.metadata?.poi_id;
+      if (poiId) {
+        await fetch(
+          `${apiUrl}/api/v1/guides/${guideId}/pois/${poiId}`,
+          { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ coordinates: { lat, lon } }) }
+        ).catch(() => { /* sync best-effort — pas bloquant */ });
+      }
+      setCoordSaved(true);
+      setTimeout(() => setCoordSaved(false), 3000);
+    } catch (err: any) {
+      setCoordError(err.message || 'Erreur réseau');
+    } finally {
+      setCoordSaving(false);
+    }
+  };
+  // ──────────────────────────────────────────────────────────────────────────
+
   const [validating, setValidating] = useState(false);
   const [validationReport, setValidationReport] = useState<any | null>(null);
   const [showValidation, setShowValidation] = useState(false);
@@ -1457,6 +1511,79 @@ export default function ContentEditorModal({
 
         {/* ── Zone scrollable : résumé validation + formulaire ──────────────── */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-auto">
+
+          {/* ── Coordonnées GPS (pages POI uniquement) ──────────────────────── */}
+          {requiresUrlForGeneration && !isClusterPage && (
+            <div className="px-6 pt-5 max-w-3xl mx-auto">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span className="text-sm font-semibold text-emerald-800">Coordonnées GPS</span>
+                  {localLat && localLon && !coordSaving && !coordError && (
+                    <a
+                      href={`https://www.google.com/maps?q=${localLat.replace(',', '.')},${localLon.replace(',', '.')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-auto text-xs text-emerald-600 hover:text-emerald-800 underline decoration-dotted flex items-center gap-1"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                      Voir sur Maps
+                    </a>
+                  )}
+                </div>
+                <div className="flex items-end gap-3">
+                  <div className="flex-1">
+                    <label className="block text-xs font-medium text-emerald-700 mb-1">Latitude</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={localLat}
+                      onChange={(e) => { setLocalLat(e.target.value); setCoordSaved(false); setCoordError(null); }}
+                      placeholder="ex : 28.2052"
+                      className="w-full px-3 py-2 text-sm border border-emerald-300 rounded-lg bg-white focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs font-medium text-emerald-700 mb-1">Longitude</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={localLon}
+                      onChange={(e) => { setLocalLon(e.target.value); setCoordSaved(false); setCoordError(null); }}
+                      placeholder="ex : -16.6099"
+                      className="w-full px-3 py-2 text-sm border border-emerald-300 rounded-lg bg-white focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={saveCoordinates}
+                    disabled={coordSaving || (!localLat && !localLon)}
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {coordSaving ? (
+                      <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
+                    ) : coordSaved ? (
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : null}
+                    {coordSaving ? 'Sauvegarde…' : coordSaved ? 'Enregistré !' : 'Enregistrer'}
+                  </button>
+                </div>
+                {coordError && (
+                  <p className="mt-2 text-xs text-red-600 font-medium">{coordError}</p>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Panneau POI cards pour les pages inspiration */}
           {isInspirationPage && page.metadata?.inspiration_pois && page.metadata.inspiration_pois.length > 0 && (

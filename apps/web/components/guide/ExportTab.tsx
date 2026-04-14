@@ -903,21 +903,25 @@ function OverflowCorrectionModal({
 // Import GeoJSON → mise à jour des coordonnées GPS
 // ---------------------------------------------------------------------------
 interface MatchEntry {
-  page_id:        string;
-  page_titre:     string;
-  geojson_name:   string;
-  current_coords: { lat: number; lon: number } | null;
-  new_coords:     { lat: number; lon: number };
-  status:         'update' | 'identical';
+  page_id:          string;
+  page_titre:       string;
+  geojson_name:     string;
+  translated_name:  string | null;
+  is_translated:    boolean;
+  current_coords:   { lat: number; lon: number } | null;
+  new_coords:       { lat: number; lon: number };
+  status:           'update' | 'identical';
 }
 
 interface PreviewResult {
   matches:           MatchEntry[];
-  unmatched_geojson: Array<{ name: string; coords: { lat: number; lon: number } }>;
+  unmatched_geojson: Array<{ name: string; translated_name: string | null; coords: { lat: number; lon: number } }>;
   unmatched_pages:   Array<{ page_id: string; titre: string }>;
   stats: {
-    total_features: number; matched: number; to_update: number;
-    identical: number; unmatched_geojson: number; unmatched_pages: number;
+    total_features: number; matched: number;
+    matched_direct: number; matched_translated: number;
+    to_update: number; identical: number;
+    unmatched_geojson: number; unmatched_pages: number;
   };
 }
 
@@ -929,45 +933,31 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
   const [preview,     setPreview]     = useState<PreviewResult | null>(null);
   const [error,       setError]       = useState<string | null>(null);
   const [applyResult, setApplyResult] = useState<{ updated: number; attempted: number } | null>(null);
-  // Cases cochées : par défaut toutes les lignes "update" sont sélectionnées
   const [selected,    setSelected]    = useState<Set<string>>(new Set());
 
   const reset = () => {
-    setPreview(null);
-    setError(null);
-    setApplyResult(null);
-    setSelected(new Set());
+    setPreview(null); setError(null); setApplyResult(null); setSelected(new Set());
     if (fileRef.current) fileRef.current.value = '';
   };
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    setLoading(true);
-    setError(null);
-    setPreview(null);
-    setApplyResult(null);
-
+    setLoading(true); setError(null); setPreview(null); setApplyResult(null);
     try {
-      // Lire et fusionner toutes les features de tous les fichiers
       const allFeatures: any[] = [];
       for (const file of Array.from(files)) {
         const text = await file.text();
         const json = JSON.parse(text);
-        const feats = json.features ?? (json.type === 'Feature' ? [json] : []);
-        allFeatures.push(...feats);
+        allFeatures.push(...(json.features ?? (json.type === 'Feature' ? [json] : [])));
       }
-
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/import/geojson/preview`, {
-        method:      'POST',
-        credentials: 'include',
-        headers:     { 'Content-Type': 'application/json' },
-        body:        JSON.stringify({ features: allFeatures }),
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ features: allFeatures }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur serveur');
-
       setPreview(data);
-      // Sélectionner par défaut toutes les lignes à mettre à jour
       setSelected(new Set(data.matches.filter((m: MatchEntry) => m.status === 'update').map((m: MatchEntry) => m.page_id)));
     } catch (err: any) {
       setError(err.message || 'Erreur lors de l\'analyse');
@@ -978,18 +968,21 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
 
   const handleApply = async () => {
     if (!preview || selected.size === 0) return;
-    setApplying(true);
-    setError(null);
+    setApplying(true); setError(null);
     try {
       const updates = preview.matches
         .filter(m => selected.has(m.page_id))
-        .map(m => ({ pageId: m.page_id, lat: m.new_coords.lat, lon: m.new_coords.lon }));
-
+        .map(m => ({
+          pageId:          m.page_id,
+          lat:             m.new_coords.lat,
+          lon:             m.new_coords.lon,
+          // Envoyer le nom vernaculaire si le match était via traduction
+          nomVernaculaire: m.is_translated ? m.geojson_name : undefined,
+        }));
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/import/geojson/apply`, {
-        method:      'POST',
-        credentials: 'include',
-        headers:     { 'Content-Type': 'application/json' },
-        body:        JSON.stringify({ updates }),
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur serveur');
@@ -1002,19 +995,78 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
   };
 
   const toggleRow = (pageId: string) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      next.has(pageId) ? next.delete(pageId) : next.add(pageId);
-      return next;
-    });
+    setSelected(prev => { const n = new Set(prev); n.has(pageId) ? n.delete(pageId) : n.add(pageId); return n; });
+  };
+  const toggleGroup = (rows: MatchEntry[]) => {
+    const ids = rows.map(m => m.page_id);
+    setSelected(prev =>
+      ids.every(id => prev.has(id))
+        ? new Set([...prev].filter(id => !ids.includes(id)))
+        : new Set([...prev, ...ids])
+    );
   };
 
-  const toUpdateRows = preview?.matches.filter(m => m.status === 'update') ?? [];
-  const identicalRows = preview?.matches.filter(m => m.status === 'identical') ?? [];
+  const toUpdateRows   = preview?.matches.filter(m => m.status === 'update') ?? [];
+  const identicalRows  = preview?.matches.filter(m => m.status === 'identical') ?? [];
+
+  const MatchTable = ({ rows, accentColor }: { rows: MatchEntry[]; accentColor: string }) => (
+    <div className="rounded-xl border border-gray-200 overflow-hidden text-xs">
+      <table className="w-full">
+        <thead className="bg-gray-50 text-gray-500 uppercase text-[10px] tracking-wide">
+          <tr>
+            <th className="w-8 px-3 py-2" />
+            <th className="px-3 py-2 text-left">Page (français)</th>
+            <th className="px-3 py-2 text-left">Nom GeoJSON</th>
+            <th className="px-3 py-2 text-left">Coords actuelles</th>
+            <th className="px-3 py-2 text-left">Nouvelles coords</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {rows.map(m => (
+            <tr
+              key={m.page_id}
+              className={`cursor-pointer transition-colors ${selected.has(m.page_id) ? accentColor : 'hover:bg-gray-50'}`}
+              onClick={() => toggleRow(m.page_id)}
+            >
+              <td className="px-3 py-2 text-center">
+                <input
+                  type="checkbox"
+                  checked={selected.has(m.page_id)}
+                  onChange={() => toggleRow(m.page_id)}
+                  onClick={e => e.stopPropagation()}
+                  className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                />
+              </td>
+              <td className="px-3 py-2 font-medium text-gray-800">{m.page_titre}</td>
+              <td className="px-3 py-2 text-gray-500">
+                {m.is_translated ? (
+                  <span>
+                    <span className="text-gray-400 italic">{m.geojson_name}</span>
+                    <span className="mx-1 text-gray-300">→</span>
+                    <span className="text-violet-700 font-medium">{m.translated_name}</span>
+                    <span className="ml-1.5 text-[9px] bg-violet-100 text-violet-600 px-1 py-0.5 rounded font-medium uppercase tracking-wide">IA</span>
+                  </span>
+                ) : (
+                  m.geojson_name
+                )}
+              </td>
+              <td className="px-3 py-2 font-mono text-gray-400">
+                {m.current_coords
+                  ? `${m.current_coords.lat.toFixed(5)}, ${m.current_coords.lon.toFixed(5)}`
+                  : <span className="italic text-gray-300">aucune</span>}
+              </td>
+              <td className="px-3 py-2 font-mono text-emerald-700">
+                {m.new_coords.lat.toFixed(5)}, {m.new_coords.lon.toFixed(5)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 
   return (
     <div className="bg-white rounded-xl border border-emerald-200">
-      {/* En-tête cliquable */}
       <button
         className="w-full flex items-center justify-between px-5 py-4 text-left"
         onClick={() => { setOpen(o => !o); if (!open) reset(); }}
@@ -1026,15 +1078,12 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
           <div>
             <p className="text-sm font-semibold text-gray-900">Import GPS — fichiers GeoJSON</p>
             <p className="text-xs text-gray-500 mt-0.5">
-              Importer des fichiers uMap pour mettre à jour les coordonnées des POIs en base
+              Importer des fichiers uMap · matching direct + traduction IA des noms vernaculaires
             </p>
           </div>
         </div>
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
-          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-        >
+        <svg xmlns="http://www.w3.org/2000/svg" className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </button>
@@ -1052,35 +1101,28 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
             >
               <MapPinIcon className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
               <p className="text-sm font-medium text-gray-700">Déposer les fichiers GeoJSON ici</p>
-              <p className="text-xs text-gray-400 mt-1">ou cliquer pour sélectionner — plusieurs fichiers acceptés (.geojson)</p>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".geojson,application/geo+json,application/json"
-                multiple
-                className="hidden"
-                onChange={e => handleFiles(e.target.files)}
-              />
+              <p className="text-xs text-gray-400 mt-1">Plusieurs fichiers acceptés — matching direct puis traduction IA des noms vernaculaires</p>
+              <input ref={fileRef} type="file" accept=".geojson,application/geo+json,application/json"
+                multiple className="hidden" onChange={e => handleFiles(e.target.files)} />
             </div>
           )}
 
-          {/* Chargement */}
           {loading && (
-            <div className="flex items-center gap-3 py-4 text-sm text-gray-500">
-              <ArrowPathIcon className="w-5 h-5 animate-spin text-emerald-500" />
-              Analyse des fichiers en cours…
+            <div className="space-y-2 py-2">
+              <div className="flex items-center gap-3 text-sm text-gray-500">
+                <ArrowPathIcon className="w-5 h-5 animate-spin text-emerald-500" />
+                Analyse + traduction IA des noms vernaculaires…
+              </div>
+              <p className="text-xs text-gray-400 pl-8">Les noms sans correspondance directe sont traduits en français par GPT-4o-mini.</p>
             </div>
           )}
 
-          {/* Erreur */}
           {error && (
             <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
-              <ExclamationTriangleIcon className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              {error}
+              <ExclamationTriangleIcon className="w-4 h-4 flex-shrink-0 mt-0.5" />{error}
             </div>
           )}
 
-          {/* Résultat d'application */}
           {applyResult && (
             <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
               <CheckCircleIcon className="w-5 h-5 text-emerald-600 flex-shrink-0" />
@@ -1089,118 +1131,86 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
                   {applyResult.updated} coordonnée{applyResult.updated > 1 ? 's' : ''} mise{applyResult.updated > 1 ? 's' : ''} à jour
                 </p>
                 <p className="text-xs text-emerald-600 mt-0.5">
-                  Les pages ont été mises à jour — re-télécharge le GeoJSON pour vérifier.
+                  Coordonnées + noms vernaculaires enregistrés — re-télécharge le GeoJSON pour vérifier.
                 </p>
               </div>
             </div>
           )}
 
-          {/* Récap + tableau */}
           {preview && !applyResult && (
             <>
               {/* Stats */}
-              <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="grid grid-cols-4 gap-2 text-center text-xs">
                 {[
-                  { label: 'À mettre à jour',  value: preview.stats.to_update,         color: 'bg-amber-50 border-amber-200 text-amber-700' },
-                  { label: 'Déjà corrects',     value: preview.stats.identical,         color: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
-                  { label: 'Non trouvés (GeoJSON)', value: preview.stats.unmatched_geojson, color: 'bg-gray-50 border-gray-200 text-gray-500' },
+                  { label: 'Match direct',     value: preview.stats.matched_direct,     color: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+                  { label: 'Match IA (traduit)',value: preview.stats.matched_translated, color: 'bg-violet-50 border-violet-200 text-violet-700' },
+                  { label: 'À mettre à jour',  value: preview.stats.to_update,          color: 'bg-amber-50 border-amber-200 text-amber-700' },
+                  { label: 'Non trouvés',       value: preview.stats.unmatched_geojson,  color: 'bg-gray-50 border-gray-200 text-gray-500' },
                 ].map(s => (
-                  <div key={s.label} className={`rounded-lg border px-3 py-2 ${s.color}`}>
-                    <p className="text-xl font-bold">{s.value}</p>
-                    <p className="text-xs mt-0.5">{s.label}</p>
+                  <div key={s.label} className={`rounded-lg border px-2 py-2 ${s.color}`}>
+                    <p className="text-lg font-bold">{s.value}</p>
+                    <p className="text-[10px] mt-0.5 leading-tight">{s.label}</p>
                   </div>
                 ))}
               </div>
 
-              {/* Tableau des mises à jour */}
+              {/* Tableau mises à jour */}
               {toUpdateRows.length > 0 && (
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
                       Mises à jour ({toUpdateRows.length})
+                      {toUpdateRows.some(m => m.is_translated) && (
+                        <span className="ml-2 font-normal text-violet-500 normal-case">dont {toUpdateRows.filter(m => m.is_translated).length} via traduction IA</span>
+                      )}
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const allIds = toUpdateRows.map(m => m.page_id);
-                        setSelected(prev =>
-                          allIds.every(id => prev.has(id))
-                            ? new Set([...prev].filter(id => !allIds.includes(id)))
-                            : new Set([...prev, ...allIds])
-                        );
-                      }}
-                      className="text-xs text-emerald-600 hover:underline"
-                    >
+                    <button type="button" onClick={() => toggleGroup(toUpdateRows)} className="text-xs text-emerald-600 hover:underline">
                       {toUpdateRows.every(m => selected.has(m.page_id)) ? 'Tout désélectionner' : 'Tout sélectionner'}
                     </button>
                   </div>
-                  <div className="rounded-xl border border-gray-200 overflow-hidden text-xs">
-                    <table className="w-full">
-                      <thead className="bg-gray-50 text-gray-500 uppercase text-[10px] tracking-wide">
-                        <tr>
-                          <th className="w-8 px-3 py-2"></th>
-                          <th className="px-3 py-2 text-left">POI (page)</th>
-                          <th className="px-3 py-2 text-left">Coords actuelles</th>
-                          <th className="px-3 py-2 text-left">Nouvelles coords (GeoJSON)</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {toUpdateRows.map(m => (
-                          <tr
-                            key={m.page_id}
-                            className={`cursor-pointer transition-colors ${selected.has(m.page_id) ? 'bg-amber-50' : 'hover:bg-gray-50'}`}
-                            onClick={() => toggleRow(m.page_id)}
-                          >
-                            <td className="px-3 py-2 text-center">
-                              <input
-                                type="checkbox"
-                                checked={selected.has(m.page_id)}
-                                onChange={() => toggleRow(m.page_id)}
-                                onClick={e => e.stopPropagation()}
-                                className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
-                              />
-                            </td>
-                            <td className="px-3 py-2 font-medium text-gray-800">{m.page_titre}</td>
-                            <td className="px-3 py-2 font-mono text-gray-400">
-                              {m.current_coords
-                                ? `${m.current_coords.lat.toFixed(5)}, ${m.current_coords.lon.toFixed(5)}`
-                                : <span className="italic text-gray-300">aucune</span>}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-emerald-700">
-                              {m.new_coords.lat.toFixed(5)}, {m.new_coords.lon.toFixed(5)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <MatchTable rows={toUpdateRows} accentColor="bg-amber-50" />
                 </div>
               )}
 
-              {/* Non trouvés côté GeoJSON */}
-              {preview.unmatched_geojson.length > 0 && (
-                <details className="group">
+              {/* Tableau identiques (dépliable) */}
+              {identicalRows.length > 0 && (
+                <details>
                   <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600 select-none">
-                    {preview.unmatched_geojson.length} point{preview.unmatched_geojson.length > 1 ? 's' : ''} GeoJSON sans correspondance en base ▾
+                    {identicalRows.length} POI{identicalRows.length > 1 ? 's' : ''} déjà à jour (coordonnées identiques) ▾
                   </summary>
-                  <ul className="mt-2 space-y-0.5 pl-3 text-xs text-gray-400">
+                  <div className="mt-2">
+                    <MatchTable rows={identicalRows} accentColor="bg-emerald-50" />
+                  </div>
+                </details>
+              )}
+
+              {/* Non trouvés GeoJSON */}
+              {preview.unmatched_geojson.length > 0 && (
+                <details>
+                  <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600 select-none">
+                    {preview.unmatched_geojson.length} point{preview.unmatched_geojson.length > 1 ? 's' : ''} GeoJSON sans correspondance (même après traduction) ▾
+                  </summary>
+                  <ul className="mt-2 space-y-1 pl-3 text-xs text-gray-400">
                     {preview.unmatched_geojson.map((u, i) => (
-                      <li key={i}>· {u.name}</li>
+                      <li key={i}>
+                        · <span className="italic">{u.name}</span>
+                        {u.translated_name && u.translated_name !== u.name && (
+                          <span className="ml-1 text-gray-300">→ essayé « {u.translated_name} »</span>
+                        )}
+                      </li>
                     ))}
                   </ul>
                 </details>
               )}
 
-              {/* Non trouvés côté pages */}
+              {/* Non trouvés pages */}
               {preview.unmatched_pages.length > 0 && (
-                <details className="group">
+                <details>
                   <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600 select-none">
-                    {preview.unmatched_pages.length} page{preview.unmatched_pages.length > 1 ? 's' : ''} POI sans correspondance GeoJSON ▾
+                    {preview.unmatched_pages.length} page{preview.unmatched_pages.length > 1 ? 's' : ''} POI sans point GeoJSON correspondant ▾
                   </summary>
                   <ul className="mt-2 space-y-0.5 pl-3 text-xs text-gray-400">
-                    {preview.unmatched_pages.map((p, i) => (
-                      <li key={i}>· {p.titre}</li>
-                    ))}
+                    {preview.unmatched_pages.map((p, i) => <li key={i}>· {p.titre}</li>)}
                   </ul>
                 </details>
               )}
@@ -1208,38 +1218,28 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
               {/* Actions */}
               <div className="flex items-center gap-3 pt-1">
                 <button
-                  type="button"
-                  onClick={handleApply}
+                  type="button" onClick={handleApply}
                   disabled={applying || selected.size === 0}
                   className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {applying
                     ? <><ArrowPathIcon className="w-4 h-4 animate-spin" /> Application…</>
-                    : <><CheckCircleIcon className="w-4 h-4" /> Appliquer {selected.size} mise{selected.size > 1 ? 's' : ''} à jour</>
-                  }
+                    : <><CheckCircleIcon className="w-4 h-4" /> Appliquer {selected.size} mise{selected.size > 1 ? 's' : ''} à jour</>}
                 </button>
-                <button
-                  type="button"
-                  onClick={reset}
-                  className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
-                >
+                <button type="button" onClick={reset}
+                  className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors">
                   Recommencer
                 </button>
               </div>
             </>
           )}
 
-          {/* Recommencer après apply */}
           {applyResult && (
-            <button
-              type="button"
-              onClick={reset}
-              className="text-xs text-gray-400 hover:text-gray-600 underline decoration-dotted"
-            >
+            <button type="button" onClick={reset}
+              className="text-xs text-gray-400 hover:text-gray-600 underline decoration-dotted">
               Importer d'autres fichiers
             </button>
           )}
-
         </div>
       )}
     </div>

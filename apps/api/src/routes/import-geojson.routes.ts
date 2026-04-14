@@ -1,9 +1,10 @@
 import { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
+import OpenAI from 'openai';
 import { COLLECTIONS } from '../config/collections.js';
+import { env } from '../config/env.js';
 
 // ─── Normalisation des noms pour le matching ─────────────────────────────────
-// Minuscules + suppression des accents + caractères non-alphanumériques → espace
 function normalizeName(name: string): string {
   return name
     .toLowerCase()
@@ -13,6 +14,51 @@ function normalizeName(name: string): string {
     .trim();
 }
 
+// ─── Traduction batch ES→FR via OpenAI ───────────────────────────────────────
+// Traduit un tableau de noms en une seule requête et retourne un Map nom → traduction.
+// Si la clé OPENAI_API_KEY est absente, retourne un Map vide (dégradé silencieux).
+async function translateNamesToFrench(
+  names: string[]
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (!names.length || !env.OPENAI_API_KEY) return result;
+
+  try {
+    const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+    const prompt = `Tu es expert en tourisme et noms de lieux hispanophones.
+Traduis chaque nom ci-dessous de l'espagnol vers le français.
+Règles :
+- Pour les noms propres géographiques sans traduction courante (ex: Masca, Garachico), garde le nom original.
+- Pour les noms communs traduits habituellement (Iglesia → Église, Playa → Plage, Mirador → Belvédère, etc.), traduis.
+- Certains noms sont déjà en français : garde-les identiques.
+- Réponds UNIQUEMENT avec un objet JSON valide : {"nom_original": "traduction", ...}
+
+Noms à traduire :
+${JSON.stringify(names)}`;
+
+    const resp = await client.chat.completions.create({
+      model:           'gpt-4o-mini',
+      messages:        [{ role: 'user', content: prompt }],
+      max_tokens:      1000,
+      temperature:     0.1,
+      response_format: { type: 'json_object' },
+    });
+
+    const raw = resp.choices[0]?.message?.content ?? '{}';
+    const parsed: Record<string, string> = JSON.parse(raw);
+    for (const [orig, trans] of Object.entries(parsed)) {
+      if (typeof trans === 'string' && trans.trim()) {
+        result.set(orig, trans.trim());
+      }
+    }
+  } catch (err) {
+    console.error('[import-geojson] Erreur traduction AI:', err);
+  }
+  return result;
+}
+
+// ─── Types partagés ──────────────────────────────────────────────────────────
+
 interface GeoJsonFeature {
   type: 'Feature';
   geometry: { type: 'Point'; coordinates: [number, number] } | null;
@@ -21,23 +67,28 @@ interface GeoJsonFeature {
 }
 
 export interface MatchEntry {
-  page_id:        string;
-  page_titre:     string;
-  geojson_name:   string;
-  /** null = pas de coordonnées actuelles en base */
-  current_coords: { lat: number; lon: number } | null;
-  new_coords:     { lat: number; lon: number };
-  /** update = valeurs différentes, identical = déjà correct */
-  status:         'update' | 'identical';
+  page_id:          string;
+  page_titre:       string;
+  /** Nom dans le fichier GeoJSON (peut être vernaculaire) */
+  geojson_name:     string;
+  /** Nom traduit utilisé pour le match (= geojson_name si match direct) */
+  translated_name:  string | null;
+  /** true si le match a nécessité une traduction AI */
+  is_translated:    boolean;
+  current_coords:   { lat: number; lon: number } | null;
+  new_coords:       { lat: number; lon: number };
+  status:           'update' | 'identical';
 }
 
 export interface PreviewResult {
   matches:           MatchEntry[];
-  unmatched_geojson: Array<{ name: string; coords: { lat: number; lon: number } }>;
+  unmatched_geojson: Array<{ name: string; translated_name: string | null; coords: { lat: number; lon: number } }>;
   unmatched_pages:   Array<{ page_id: string; titre: string }>;
   stats: {
     total_features:     number;
     matched:            number;
+    matched_direct:     number;
+    matched_translated: number;
     to_update:          number;
     identical:          number;
     unmatched_geojson:  number;
@@ -49,7 +100,10 @@ export async function importGeoJsonRoutes(fastify: FastifyInstance) {
   /**
    * POST /guides/:guideId/import/geojson/preview
    * Analyse un tableau de features GeoJSON et compare avec les pages POI en base.
-   * Retourne : matches (avec statut update/identical), non-matchés côté GeoJSON, non-matchés côté pages.
+   *
+   * Matching en 2 passes :
+   *   1. Matching direct par nom normalisé
+   *   2. Pour les non-matchés, traduction ES→FR via GPT-4o-mini puis second matching
    *
    * Body: { features: GeoJsonFeature[] }
    */
@@ -70,14 +124,14 @@ export async function importGeoJsonRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ error: 'Le corps doit contenir un tableau "features" non vide' });
       }
 
-      // 1. Chemin de fer → chemin_de_fer_id
+      // 1. Chemin de fer
       const cheminDeFer = await db.collection(COLLECTIONS.chemins_de_fer).findOne({ guide_id: guideId });
       if (!cheminDeFer) {
         return reply.status(404).send({ error: 'Chemin de fer non trouvé pour ce guide' });
       }
       const cheminDeFerId = cheminDeFer._id.toString();
 
-      // 2. Charger toutes les pages POI du chemin de fer
+      // 2. Pages POI du chemin de fer
       const pages = await db.collection(COLLECTIONS.pages)
         .find({
           chemin_de_fer_id: cheminDeFerId,
@@ -85,8 +139,7 @@ export async function importGeoJsonRoutes(fastify: FastifyInstance) {
         })
         .toArray();
 
-      // 3. Index pages par nom normalisé
-      // En cas de doublons de pages on garde le premier
+      // 3. Index pages par nom normalisé (dedupliqué : premier gagne)
       const pageIndex = new Map<string, typeof pages[number]>();
       for (const p of pages) {
         const key = normalizeName(p.titre as string ?? '');
@@ -94,34 +147,32 @@ export async function importGeoJsonRoutes(fastify: FastifyInstance) {
       }
       const matchedPageIds = new Set<string>();
 
-      // 4. Filtrer les features avec une géométrie Point valide
+      // 4. Features valides avec Point
       const validFeatures = features.filter(
         f => f.geometry?.type === 'Point' &&
              Array.isArray(f.geometry.coordinates) &&
-             f.geometry.coordinates.length === 2
+             f.geometry.coordinates.length === 2 &&
+             f.properties?.name
       );
 
-      const matches:           MatchEntry[] = [];
-      const unmatchedGeoJson:  PreviewResult['unmatched_geojson'] = [];
+      const matches:          MatchEntry[] = [];
+      const stillUnmatched:   { feature: GeoJsonFeature; name: string; coords: { lat: number; lon: number } }[] = [];
 
+      // ── Passe 1 : matching direct ──────────────────────────────────────────
       for (const feature of validFeatures) {
-        const rawName = feature.properties?.name as string | undefined;
-        if (!rawName) continue;
-
-        // GeoJSON : [longitude, latitude]
+        const rawName = feature.properties.name as string;
         const [lon, lat] = feature.geometry!.coordinates as [number, number];
-        const newCoords = { lat, lon };
-        const key = normalizeName(rawName);
-        const page = pageIndex.get(key);
+        const newCoords  = { lat, lon };
+        const key        = normalizeName(rawName);
+        const page       = pageIndex.get(key);
 
         if (!page) {
-          unmatchedGeoJson.push({ name: rawName, coords: newCoords });
+          stillUnmatched.push({ feature, name: rawName, coords: newCoords });
           continue;
         }
 
-        // Doublon GeoJSON (même page déjà matchée) → on ignore le second
         const pageIdStr = (page._id as ObjectId).toString();
-        if (matchedPageIds.has(pageIdStr)) continue;
+        if (matchedPageIds.has(pageIdStr)) continue; // doublon GeoJSON
         matchedPageIds.add(pageIdStr);
 
         const currentCoords = (page as any).coordinates as { lat: number; lon: number } | undefined ?? null;
@@ -131,33 +182,81 @@ export async function importGeoJsonRoutes(fastify: FastifyInstance) {
           Math.abs(currentCoords.lon - lon) < 1e-6;
 
         matches.push({
-          page_id:        pageIdStr,
-          page_titre:     page.titre as string,
-          geojson_name:   rawName,
-          current_coords: currentCoords,
-          new_coords:     newCoords,
-          status:         identical ? 'identical' : 'update',
+          page_id:         pageIdStr,
+          page_titre:      page.titre as string,
+          geojson_name:    rawName,
+          translated_name: null,
+          is_translated:   false,
+          current_coords:  currentCoords,
+          new_coords:      newCoords,
+          status:          identical ? 'identical' : 'update',
         });
       }
 
-      // 5. Pages non matchées
+      // ── Passe 2 : traduction AI pour les non-matchés ──────────────────────
+      const uniqueUnmatchedNames = [...new Set(stillUnmatched.map(u => u.name))];
+      const translations = await translateNamesToFrench(uniqueUnmatchedNames);
+
+      const finalUnmatched: PreviewResult['unmatched_geojson'] = [];
+
+      for (const { name, coords } of stillUnmatched) {
+        const translated = translations.get(name) ?? null;
+        const matchKey   = translated ? normalizeName(translated) : null;
+        const page       = matchKey ? pageIndex.get(matchKey) : undefined;
+
+        if (!page) {
+          finalUnmatched.push({ name, translated_name: translated, coords });
+          continue;
+        }
+
+        const pageIdStr = (page._id as ObjectId).toString();
+        if (matchedPageIds.has(pageIdStr)) {
+          // Page déjà matchée via un autre feature → signaler comme non-matché
+          finalUnmatched.push({ name, translated_name: translated, coords });
+          continue;
+        }
+        matchedPageIds.add(pageIdStr);
+
+        const currentCoords = (page as any).coordinates as { lat: number; lon: number } | undefined ?? null;
+        const { lat, lon } = coords;
+        const identical =
+          currentCoords !== null &&
+          Math.abs(currentCoords.lat - lat) < 1e-6 &&
+          Math.abs(currentCoords.lon - lon) < 1e-6;
+
+        matches.push({
+          page_id:         pageIdStr,
+          page_titre:      page.titre as string,
+          geojson_name:    name,
+          translated_name: translated,
+          is_translated:   true,
+          current_coords:  currentCoords,
+          new_coords:      coords,
+          status:          identical ? 'identical' : 'update',
+        });
+      }
+
+      // Pages sans correspondance GeoJSON
       const unmatchedPages: PreviewResult['unmatched_pages'] = pages
         .filter(p => !matchedPageIds.has((p._id as ObjectId).toString()))
         .map(p => ({ page_id: (p._id as ObjectId).toString(), titre: p.titre as string }));
 
-      const toUpdate = matches.filter(m => m.status === 'update').length;
+      const toUpdate          = matches.filter(m => m.status === 'update').length;
+      const matchedTranslated = matches.filter(m => m.is_translated).length;
 
       const result: PreviewResult = {
         matches,
-        unmatched_geojson: unmatchedGeoJson,
+        unmatched_geojson: finalUnmatched,
         unmatched_pages:   unmatchedPages,
         stats: {
-          total_features:    validFeatures.length,
-          matched:           matches.length,
-          to_update:         toUpdate,
-          identical:         matches.length - toUpdate,
-          unmatched_geojson: unmatchedGeoJson.length,
-          unmatched_pages:   unmatchedPages.length,
+          total_features:     validFeatures.length,
+          matched:            matches.length,
+          matched_direct:     matches.length - matchedTranslated,
+          matched_translated: matchedTranslated,
+          to_update:          toUpdate,
+          identical:          matches.length - toUpdate,
+          unmatched_geojson:  finalUnmatched.length,
+          unmatched_pages:    unmatchedPages.length,
         },
       };
 
@@ -167,13 +266,13 @@ export async function importGeoJsonRoutes(fastify: FastifyInstance) {
 
   /**
    * POST /guides/:guideId/import/geojson/apply
-   * Applique les mises à jour de coordonnées GPS sur les pages sélectionnées.
+   * Applique les coordonnées GPS et enregistre le nom vernaculaire si fourni.
    *
-   * Body: { updates: Array<{ pageId: string; lat: number; lon: number }> }
+   * Body: { updates: Array<{ pageId: string; lat: number; lon: number; nomVernaculaire?: string }> }
    */
   fastify.post<{
     Params: { guideId: string };
-    Body:   { updates: Array<{ pageId: string; lat: number; lon: number }> };
+    Body:   { updates: Array<{ pageId: string; lat: number; lon: number; nomVernaculaire?: string }> };
   }>(
     '/guides/:guideId/import/geojson/apply',
     async (request, reply) => {
@@ -191,15 +290,24 @@ export async function importGeoJsonRoutes(fastify: FastifyInstance) {
       let updatedCount = 0;
       const errors: string[] = [];
 
-      for (const { pageId, lat, lon } of updates) {
+      for (const { pageId, lat, lon, nomVernaculaire } of updates) {
         if (!ObjectId.isValid(pageId) || typeof lat !== 'number' || typeof lon !== 'number') {
           errors.push(`Entrée invalide : ${pageId}`);
           continue;
         }
         try {
+          const $set: Record<string, any> = {
+            coordinates: { lat, lon },
+            updated_at:  new Date(),
+          };
+          // Enregistrer le nom vernaculaire dans metadata si fourni et non-vide
+          if (nomVernaculaire && nomVernaculaire.trim()) {
+            $set['metadata.nom_vernaculaire'] = nomVernaculaire.trim();
+          }
+
           const result = await db.collection(COLLECTIONS.pages).updateOne(
             { _id: new ObjectId(pageId) },
-            { $set: { coordinates: { lat, lon }, updated_at: new Date() } }
+            { $set }
           );
           if (result.modifiedCount > 0) updatedCount++;
         } catch (err: any) {

@@ -908,6 +908,7 @@ interface MatchEntry {
   geojson_name:     string;
   translated_name:  string | null;
   is_translated:    boolean;
+  match_quality:    'exact' | 'partial';
   current_coords:   { lat: number; lon: number } | null;
   new_coords:       { lat: number; lon: number };
   status:           'update' | 'identical';
@@ -1040,14 +1041,22 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
               <td className="px-3 py-2 font-medium text-gray-800">{m.page_titre}</td>
               <td className="px-3 py-2 text-gray-500">
                 {m.is_translated ? (
-                  <span>
+                  <span className="flex flex-wrap items-center gap-1">
                     <span className="text-gray-400 italic">{m.geojson_name}</span>
-                    <span className="mx-1 text-gray-300">→</span>
+                    <span className="text-gray-300">→</span>
                     <span className="text-violet-700 font-medium">{m.translated_name}</span>
-                    <span className="ml-1.5 text-[9px] bg-violet-100 text-violet-600 px-1 py-0.5 rounded font-medium uppercase tracking-wide">IA</span>
+                    <span className="text-[9px] bg-violet-100 text-violet-600 px-1 py-0.5 rounded font-medium uppercase tracking-wide">IA</span>
+                    {m.match_quality === 'partial' && (
+                      <span className="text-[9px] bg-orange-100 text-orange-600 px-1 py-0.5 rounded font-medium uppercase tracking-wide">~partiel</span>
+                    )}
                   </span>
                 ) : (
-                  m.geojson_name
+                  <span className="flex items-center gap-1">
+                    {m.geojson_name}
+                    {m.match_quality === 'partial' && (
+                      <span className="text-[9px] bg-orange-100 text-orange-600 px-1 py-0.5 rounded font-medium uppercase tracking-wide">~partiel</span>
+                    )}
+                  </span>
                 )}
               </td>
               <td className="px-3 py-2 font-mono text-gray-400">

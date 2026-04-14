@@ -14,6 +14,70 @@ function normalizeName(name: string): string {
     .trim();
 }
 
+// Mots vides ES/FR ignorés dans le calcul d'overlap
+const STOPWORDS = new Set([
+  'de', 'del', 'la', 'le', 'les', 'el', 'los', 'las', 'un', 'una', 'une',
+  'des', 'du', 'au', 'aux', 'en', 'et', 'y', 'of', 'the', 'a',
+]);
+
+/**
+ * Score de similarité entre deux noms normalisés.
+ * 1.0  = identiques
+ * 0.95 = l'un est préfixe de l'autre (ex: "chateau de san cristobal" ⊂ "chateau de san cristobal vestiges")
+ * 0.85 = l'un est contenu dans l'autre
+ * 0..1 = Jaccard sur les mots significatifs (> 2 caractères, hors stopwords)
+ */
+function matchScore(a: string, b: string): number {
+  if (a === b) return 1.0;
+  // containment / prefix
+  if (b.startsWith(a + ' ') || b === a) return 0.95;
+  if (a.startsWith(b + ' ') || a === b) return 0.95;
+  if (b.includes(a)         || a.includes(b))        return 0.85;
+  // Jaccard sur mots significatifs
+  const words = (s: string) =>
+    new Set(s.split(' ').filter(w => w.length > 2 && !STOPWORDS.has(w)));
+  const wa = words(a);
+  const wb = words(b);
+  if (wa.size === 0 || wb.size === 0) return 0;
+  const inter = [...wa].filter(w => wb.has(w)).length;
+  const union = new Set([...wa, ...wb]).size;
+  return inter / union;
+}
+
+type PageDoc = Record<string, any>;
+
+/**
+ * Cherche la meilleure page correspondant à un nom normalisé.
+ * Respecte matchedPageIds pour ne pas matcher deux fois la même page.
+ * threshold : score minimum accepté (0.6 par défaut).
+ */
+function findBestMatch(
+  normalizedName: string,
+  pageIndex: Map<string, PageDoc>,
+  allPages: PageDoc[],
+  matchedPageIds: Set<string>,
+  threshold = 0.6,
+): { page: PageDoc; score: number; match_quality: 'exact' | 'partial' } | null {
+  // 1. Exact (O(1))
+  const exact = pageIndex.get(normalizedName);
+  if (exact && !matchedPageIds.has((exact._id as ObjectId).toString())) {
+    return { page: exact, score: 1.0, match_quality: 'exact' };
+  }
+  // 2. Fuzzy (O(n)) sur les pages non encore matchées
+  let best: { page: PageDoc; score: number } | null = null;
+  for (const page of allPages) {
+    const id = (page._id as ObjectId).toString();
+    if (matchedPageIds.has(id)) continue;
+    const pageName = normalizeName(page.titre as string ?? '');
+    const score = matchScore(normalizedName, pageName);
+    if (score >= threshold && (!best || score > best.score)) {
+      best = { page, score };
+    }
+  }
+  if (!best) return null;
+  return { ...best, match_quality: 'partial' };
+}
+
 // ─── Traduction batch ES→FR via OpenAI ───────────────────────────────────────
 // Traduit un tableau de noms en une seule requête et retourne un Map nom → traduction.
 // Si la clé OPENAI_API_KEY est absente, retourne un Map vide (dégradé silencieux).
@@ -75,6 +139,8 @@ export interface MatchEntry {
   translated_name:  string | null;
   /** true si le match a nécessité une traduction AI */
   is_translated:    boolean;
+  /** 'exact' = noms identiques après normalisation, 'partial' = containment ou overlap */
+  match_quality:    'exact' | 'partial';
   current_coords:   { lat: number; lon: number } | null;
   new_coords:       { lat: number; lon: number };
   status:           'update' | 'identical';
@@ -155,24 +221,24 @@ export async function importGeoJsonRoutes(fastify: FastifyInstance) {
              f.properties?.name
       );
 
-      const matches:          MatchEntry[] = [];
-      const stillUnmatched:   { feature: GeoJsonFeature; name: string; coords: { lat: number; lon: number } }[] = [];
+      const matches:        MatchEntry[] = [];
+      const stillUnmatched: { feature: GeoJsonFeature; name: string; coords: { lat: number; lon: number } }[] = [];
 
-      // ── Passe 1 : matching direct ──────────────────────────────────────────
+      // ── Passe 1 : matching direct (exact + fuzzy) ─────────────────────────
       for (const feature of validFeatures) {
-        const rawName = feature.properties.name as string;
+        const rawName  = feature.properties.name as string;
         const [lon, lat] = feature.geometry!.coordinates as [number, number];
         const newCoords  = { lat, lon };
         const key        = normalizeName(rawName);
-        const page       = pageIndex.get(key);
 
-        if (!page) {
+        const result = findBestMatch(key, pageIndex, pages, matchedPageIds);
+        if (!result) {
           stillUnmatched.push({ feature, name: rawName, coords: newCoords });
           continue;
         }
 
+        const { page, match_quality } = result;
         const pageIdStr = (page._id as ObjectId).toString();
-        if (matchedPageIds.has(pageIdStr)) continue; // doublon GeoJSON
         matchedPageIds.add(pageIdStr);
 
         const currentCoords = (page as any).coordinates as { lat: number; lon: number } | undefined ?? null;
@@ -187,34 +253,34 @@ export async function importGeoJsonRoutes(fastify: FastifyInstance) {
           geojson_name:    rawName,
           translated_name: null,
           is_translated:   false,
+          match_quality,
           current_coords:  currentCoords,
           new_coords:      newCoords,
           status:          identical ? 'identical' : 'update',
         });
       }
 
-      // ── Passe 2 : traduction AI pour les non-matchés ──────────────────────
+      // ── Passe 2 : traduction AI + fuzzy pour les non-matchés ─────────────
       const uniqueUnmatchedNames = [...new Set(stillUnmatched.map(u => u.name))];
       const translations = await translateNamesToFrench(uniqueUnmatchedNames);
 
       const finalUnmatched: PreviewResult['unmatched_geojson'] = [];
 
       for (const { name, coords } of stillUnmatched) {
-        const translated = translations.get(name) ?? null;
-        const matchKey   = translated ? normalizeName(translated) : null;
-        const page       = matchKey ? pageIndex.get(matchKey) : undefined;
+        const translated    = translations.get(name) ?? null;
+        const translatedKey = translated ? normalizeName(translated) : null;
 
-        if (!page) {
+        const result = translatedKey
+          ? findBestMatch(translatedKey, pageIndex, pages, matchedPageIds)
+          : null;
+
+        if (!result) {
           finalUnmatched.push({ name, translated_name: translated, coords });
           continue;
         }
 
+        const { page, match_quality } = result;
         const pageIdStr = (page._id as ObjectId).toString();
-        if (matchedPageIds.has(pageIdStr)) {
-          // Page déjà matchée via un autre feature → signaler comme non-matché
-          finalUnmatched.push({ name, translated_name: translated, coords });
-          continue;
-        }
         matchedPageIds.add(pageIdStr);
 
         const currentCoords = (page as any).coordinates as { lat: number; lon: number } | undefined ?? null;
@@ -230,6 +296,7 @@ export async function importGeoJsonRoutes(fastify: FastifyInstance) {
           geojson_name:    name,
           translated_name: translated,
           is_translated:   true,
+          match_quality,
           current_coords:  currentCoords,
           new_coords:      coords,
           status:          identical ? 'identical' : 'update',

@@ -10,6 +10,53 @@ import {
 import { COLLECTIONS } from '../config/collections.js';
 import { getArticlesDatabase } from '../config/database.js';
 
+/** Extrait l'URL de l'image principale depuis le content d'une page POI. */
+function extractMainImageFromContent(content: Record<string, any> | null | undefined): string | null {
+  if (!content) return null;
+  const IMAGE_KEYS = ['photo_principale', 'photo', 'image_principale', 'image', 'visuel'];
+  for (const key of Object.keys(content)) {
+    const val = content[key];
+    if (typeof val !== 'string' || !val.startsWith('http')) continue;
+    if (IMAGE_KEYS.some(ik => key.toLowerCase().includes(ik))) return val;
+  }
+  for (const val of Object.values(content)) {
+    if (typeof val === 'string' && val.startsWith('http') &&
+        /\.(jpg|jpeg|png|webp|gif|avif)(\?|$)/i.test(val)) return val;
+  }
+  return null;
+}
+
+/** Extrait la première URL d'article (champ lien JSON {label,url}) depuis le content d'une page POI. */
+function extractArticleLinkFromContent(content: Record<string, any> | null | undefined): string | null {
+  if (!content) return null;
+  for (const val of Object.values(content)) {
+    if (typeof val !== 'string') continue;
+    // Champ lien structuré : {label, url}
+    if (val.startsWith('{')) {
+      try {
+        const obj = JSON.parse(val) as { url?: string };
+        if (typeof obj.url === 'string' && obj.url.startsWith('http') &&
+            !/\.(jpg|jpeg|png|webp|gif|avif)(\?|$)/i.test(obj.url)) return obj.url;
+      } catch { /* not JSON */ }
+    }
+    // URL directe dans un champ dont la clé contient "lien" ou "url"
+  }
+  return null;
+}
+
+/** Extrait le texte brut (sans URLs ni JSON) du content d'une page POI pour contexte IA. */
+function extractTextFromContent(content: Record<string, any> | null | undefined): string {
+  if (!content) return '';
+  const parts: string[] = [];
+  for (const val of Object.values(content)) {
+    if (typeof val !== 'string') continue;
+    if (val.startsWith('http') || val.startsWith('[') || val.startsWith('{')) continue;
+    const trimmed = val.trim();
+    if (trimmed.length > 10) parts.push(trimmed);
+  }
+  return parts.slice(0, 6).join('\n').substring(0, 1200);
+}
+
 export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   /**
    * GET /guides/:guideId/chemin-de-fer
@@ -46,6 +93,26 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         .sort({ ordre: 1 })
         .toArray();
 
+      // ── Index des pages POI : fallback url_source + image pour les inspirations ──
+      // Construit à partir de rawPages (déjà chargé) — pas de requête supplémentaire.
+      type PoiPageRef = { url_source: string | null; image: string | null; nom_vernaculaire: string | null; content_text: string };
+      const poiPageByPoiId  = new Map<string, PoiPageRef>();
+      const poiPageByTitre  = new Map<string, PoiPageRef>();
+
+      for (const p of rawPages as any[]) {
+        if (p.type_de_page !== 'poi' && p.metadata?.page_type !== 'poi') continue;
+        const ref: PoiPageRef = {
+          url_source:      p.url_source ?? extractArticleLinkFromContent(p.content),
+          image:           extractMainImageFromContent(p.content),
+          nom_vernaculaire: p.metadata?.nom_vernaculaire ?? null,
+          content_text:    extractTextFromContent(p.content),
+        };
+        const poiId = p.metadata?.poi_id;
+        if (poiId)    poiPageByPoiId.set(String(poiId), ref);
+        const titre = (p.titre as string | undefined)?.toLowerCase().trim();
+        if (titre)    poiPageByTitre.set(titre, ref);
+      }
+
       // Résoudre inspiration_pois pour toutes les pages inspiration ayant des inspiration_pois_ids
       const inspirationPagesNeedingResolution = rawPages.filter(
         (p: any) =>
@@ -54,7 +121,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           p.metadata.inspiration_pois_ids.length > 0
       );
 
-      let resolvedPoisByPageId: Record<string, Array<{ poi_id: string; nom: string; url_source: string | null }>> = {};
+      let resolvedPoisByPageId: Record<string, Array<{ poi_id: string; nom: string; url_source: string | null; image?: string | null; nom_vernaculaire?: string | null; content_text?: string }>> = {};
 
       if (inspirationPagesNeedingResolution.length > 0) {
         const poisDoc = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
@@ -75,7 +142,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         }
 
         for (const p of inspirationPagesNeedingResolution) {
-          const resolved: Array<{ poi_id: string; nom: string; url_source: string | null }> = [];
+          const resolved: Array<{ poi_id: string; nom: string; url_source: string | null; image?: string | null; nom_vernaculaire?: string | null; content_text?: string }> = [];
           const ids: string[] = p.metadata.inspiration_pois_ids;
 
           for (const poiId of ids) {
@@ -120,7 +187,16 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
               }
               poiUrl = urlCache[cacheKey];
             }
-            resolved.push({ poi_id: poi.poi_id, nom: poi.nom, url_source: poiUrl });
+            // Fallback : url_source + image + nom_vernaculaire depuis la page POI du chemin de fer
+            const nomKey  = poi.nom?.toLowerCase()?.trim();
+            const pageRef = poiPageByPoiId.get(poi.poi_id) ?? poiPageByTitre.get(nomKey ?? '');
+            if (!poiUrl && pageRef?.url_source) poiUrl = pageRef.url_source;
+            const poiImage          = pageRef?.image ?? null;
+            const nomVernaculaire   = pageRef?.nom_vernaculaire ?? null;
+            const poiContentText    = pageRef?.content_text ?? '';
+
+            resolved.push({ poi_id: poi.poi_id, nom: poi.nom, url_source: poiUrl,
+              image: poiImage, nom_vernaculaire: nomVernaculaire, content_text: poiContentText });
           }
           resolvedPoisByPageId[p._id.toString()] = resolved;
         }

@@ -7,6 +7,51 @@ import { COLLECTIONS } from '../config/collections.js';
 import { getArticlesDatabase } from '../config/database.js';
 import { env } from '../config/env.js';
 
+/** Extrait l'URL de l'image principale depuis le content d'une page POI. */
+function extractMainImageFromWorkerContent(content: Record<string, any> | null | undefined): string | null {
+  if (!content) return null;
+  const IMAGE_KEYS = ['photo_principale', 'photo', 'image_principale', 'image', 'visuel'];
+  for (const key of Object.keys(content)) {
+    const val = content[key];
+    if (typeof val !== 'string' || !val.startsWith('http')) continue;
+    if (IMAGE_KEYS.some(ik => key.toLowerCase().includes(ik))) return val;
+  }
+  for (const val of Object.values(content)) {
+    if (typeof val === 'string' && val.startsWith('http') &&
+        /\.(jpg|jpeg|png|webp|gif|avif)(\?|$)/i.test(val)) return val;
+  }
+  return null;
+}
+
+/** Extrait la première URL d'article (champ lien JSON {label,url}) depuis le content. */
+function extractArticleLinkFromWorkerContent(content: Record<string, any> | null | undefined): string | null {
+  if (!content) return null;
+  for (const val of Object.values(content)) {
+    if (typeof val !== 'string') continue;
+    if (val.startsWith('{')) {
+      try {
+        const obj = JSON.parse(val) as { url?: string };
+        if (typeof obj.url === 'string' && obj.url.startsWith('http') &&
+            !/\.(jpg|jpeg|png|webp|gif|avif)(\?|$)/i.test(obj.url)) return obj.url;
+      } catch { /* not JSON */ }
+    }
+  }
+  return null;
+}
+
+/** Extrait le texte brut du content pour contexte IA. */
+function extractTextFromWorkerContent(content: Record<string, any> | null | undefined): string {
+  if (!content) return '';
+  const parts: string[] = [];
+  for (const val of Object.values(content)) {
+    if (typeof val !== 'string') continue;
+    if (val.startsWith('http') || val.startsWith('[') || val.startsWith('{')) continue;
+    const trimmed = val.trim();
+    if (trimmed.length > 10) parts.push(trimmed);
+  }
+  return parts.slice(0, 6).join('\n').substring(0, 1200);
+}
+
 export async function workersRoutes(fastify: FastifyInstance) {
   /**
    * POST /workers/generate-page-content
@@ -662,15 +707,40 @@ export async function workersRoutes(fastify: FastifyInstance) {
       console.log(`🔄 [refresh-inspiration-pois] Page ${pageId} — ${poisIds.length} POI(s) à ré-résoudre`);
 
       // 1. Charger les données du guide
-      const guide  = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
+      const guide   = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
       const poisDoc = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
       const allPois: any[] = poisDoc?.pois ?? [];
 
       const guideLang: string = guide?.language ?? guide?.langue ?? 'fr';
 
+      // Index des pages POI du chemin de fer (fallback url_source + image)
+      type PoiPageRef = { url_source: string | null; image: string | null; nom_vernaculaire: string | null; content_text: string };
+      const poiPageByPoiId = new Map<string, PoiPageRef>();
+      const poiPageByTitre = new Map<string, PoiPageRef>();
+      const cdf = await db.collection(COLLECTIONS.chemins_de_fer).findOne({ guide_id: guideId });
+      if (cdf) {
+        const poiPages = await db.collection(COLLECTIONS.pages).find(
+          { chemin_de_fer_id: cdf._id.toString(),
+            $or: [{ type_de_page: 'poi' }, { 'metadata.page_type': 'poi' }] },
+          { projection: { url_source: 1, content: 1, metadata: 1, titre: 1 } }
+        ).toArray();
+        for (const pp of poiPages) {
+          const ref: PoiPageRef = {
+            url_source:      (pp as any).url_source ?? extractArticleLinkFromWorkerContent((pp as any).content),
+            image:           extractMainImageFromWorkerContent((pp as any).content),
+            nom_vernaculaire: (pp as any).metadata?.nom_vernaculaire ?? null,
+            content_text:    extractTextFromWorkerContent((pp as any).content),
+          };
+          const ppPoiId = (pp as any).metadata?.poi_id;
+          if (ppPoiId) poiPageByPoiId.set(String(ppPoiId), ref);
+          const ppTitre = ((pp as any).titre as string | undefined)?.toLowerCase().trim();
+          if (ppTitre) poiPageByTitre.set(ppTitre, ref);
+        }
+      }
+
       // 2. Ré-résoudre chaque POI : nom + url_source WordPress
       const articleUrlCache: Record<string, string | null> = {};
-      const resolvedPois: Array<{ poi_id: string; nom: string; url_source: string | null }> = [];
+      const resolvedPois: Array<{ poi_id: string; nom: string; url_source: string | null; image?: string | null; nom_vernaculaire?: string | null; content_text?: string }> = [];
 
       for (const poiId of poisIds) {
         const poi = allPois.find((x: any) => x.poi_id === poiId);
@@ -706,8 +776,16 @@ export async function workersRoutes(fastify: FastifyInstance) {
           }
           poiUrl = articleUrlCache[cacheKey];
         }
+        // Fallback : url_source + image depuis la page POI du chemin de fer
+        const nomKey  = poi.nom?.toLowerCase()?.trim();
+        const pageRef = poiPageByPoiId.get(poi.poi_id) ?? poiPageByTitre.get(nomKey ?? '');
+        if (!poiUrl && pageRef?.url_source) poiUrl = pageRef.url_source;
+        const poiImage         = pageRef?.image ?? null;
+        const nomVernaculaire  = pageRef?.nom_vernaculaire ?? null;
+        const poiContentText   = pageRef?.content_text ?? '';
 
-        resolvedPois.push({ poi_id: poi.poi_id, nom: poi.nom, url_source: poiUrl });
+        resolvedPois.push({ poi_id: poi.poi_id, nom: poi.nom, url_source: poiUrl,
+          image: poiImage, nom_vernaculaire: nomVernaculaire, content_text: poiContentText });
       }
 
       console.log(`  ✅ ${resolvedPois.length} POI(s) résolus`);

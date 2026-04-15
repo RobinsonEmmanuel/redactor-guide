@@ -456,7 +456,7 @@ function resolveSubField(
 async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<FieldServiceResult> {
   const { currentPage, guide, db, fieldDef } = ctx;
 
-  const inspirationPois: Array<{ poi_id?: string; nom: string; url_source: string | null }> =
+  const inspirationPois: Array<{ poi_id?: string; nom: string; url_source: string | null; image?: string | null; nom_vernaculaire?: string | null; content_text?: string }> =
     currentPage.metadata?.inspiration_pois ?? [];
 
   if (inspirationPois.length === 0) {
@@ -578,16 +578,17 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     const resolvedPoiUrl = resolvePoiArticleUrl(poi);
     const poiVars: Record<string, string> = {
       ...pageVars,
-      POI_NOM:         poi.nom,
+      POI_NOM:         poi.nom_vernaculaire?.trim() || poi.nom,
       POI_URL_ARTICLE: resolvedPoiUrl,
       IMAGES_POI:      imagesPoiText,
+      POI_CONTENU:     poi.content_text?.substring(0, 800) ?? '',
     };
 
     // ── image ─────────────────────────────────────────────────────────────────
-    // Priorité : image manuelle sauvegardée > mode service > IA > auto (meilleure rankée)
+    // Priorité : image manuelle > image_analyses > image de la page POI > null
     let imageUrl: string | null = hasManualImage
       ? savedImage!
-      : poiImages[0]?.url ?? null;
+      : poiImages[0]?.url ?? poi.image ?? null;
 
     if (!hasManualImage) {
       const imgResolved = resolveSubField(
@@ -616,29 +617,16 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     // mode 'skip' ou image manuelle → imageUrl est déjà défini
 
     // ── nom ───────────────────────────────────────────────────────────────────
-    const nomResolved = resolveSubField(
-      fieldDef, 'nom',
-      `Réécris ce nom de lieu pour une carte de guide touristique. Angle éditorial : "{{ANGLE_EDITORIAL}}". Réponds uniquement avec le nom court (sans ponctuation finale, sans guillemets).`,
-      poiVars
-    );
-    let nom = poi.nom;
-    if (nomResolved.mode === 'default') {
-      nom = nomResolved.defaultValue ?? poi.nom;
-    } else if (nomResolved.mode === 'ai' && nomResolved.instructions) {
-      try {
-        const calibreNom = nomResolved.max_chars
-          ? `\n⚠️ CALIBRE OBLIGATOIRE : ${nomResolved.max_chars} caractères MAXIMUM (ne pas dépasser).`
-          : '';
-        const aiNom = await miniAI(`${nomResolved.instructions}\nLieu : "${poi.nom}"${calibreNom}`);
-        if (aiNom) nom = aiNom;
-      } catch { /* fallback : nom brut */ }
-    }
-    // mode 'skip' → nom brut conservé
+    // Règle : nom vernaculaire s'il existe, sinon nom français brut.
+    // Aucun ajout d'adjectif ou de reformulation — le sous-champ template est ignoré pour le nom.
+    const nom = poi.nom_vernaculaire?.trim() || poi.nom;
 
     // ── hashtag ───────────────────────────────────────────────────────────────
+    // Génère un hashtag qui capture l'élément distinctif du lieu (pas son nom).
+    // Ex : "Plage El Médano" → "#EauxCristallines" d'après le contenu de la page.
     const hashResolved = resolveSubField(
       fieldDef, 'hashtag',
-      `Génère un seul hashtag (avec #) court, sans espace, en français ou langue locale. Angle éditorial : "{{ANGLE_EDITORIAL}}". Réponds uniquement avec le hashtag.`,
+      `Tu es rédacteur d'un guide touristique. À partir du contenu ci-dessous sur le lieu "{{POI_NOM}}", identifie son élément distinctif le plus fort (paysage, activité, ambiance, caractéristique unique). Crée un hashtag d'un seul mot en CamelCase, avec #, sans espace, en français. Réponds UNIQUEMENT avec le hashtag (ex: #EauxCristallines).`,
       poiVars
     );
     let hashtag = '';
@@ -646,10 +634,17 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
       hashtag = hashResolved.defaultValue ?? '';
     } else if (hashResolved.mode === 'ai' && hashResolved.instructions) {
       try {
+        const poiContenu = poi.content_text?.trim() ?? '';
         const calibreHash = hashResolved.max_chars
-          ? `\n⚠️ CALIBRE OBLIGATOIRE : ${hashResolved.max_chars} caractères MAXIMUM (ne pas dépasser).`
+          ? `\n⚠️ CALIBRE OBLIGATOIRE : ${hashResolved.max_chars} caractères MAXIMUM.`
           : '';
-        hashtag = await miniAI(`${hashResolved.instructions}\nLieu : "${poi.nom}"${calibreHash}`);
+        const contextLine = poiContenu
+          ? `\n\nContenu de la page :\n${poiContenu.substring(0, 800)}`
+          : '';
+        hashtag = await miniAI(`${hashResolved.instructions}\nLieu : "${poi.nom}"${contextLine}${calibreHash}`);
+        // S'assurer que la réponse est bien un hashtag
+        if (hashtag && !hashtag.startsWith('#')) hashtag = '#' + hashtag;
+        hashtag = hashtag.split(/\s/)[0] ?? '';  // premier mot seulement
       } catch { hashtag = ''; }
     }
     // mode 'skip' → hashtag vide (géré ailleurs)

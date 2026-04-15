@@ -239,6 +239,13 @@ export class PageRedactionService {
           console.warn(`⚠️ Mode saison_auto_match : aucune saison définie sur la page "${page.titre}" — fallback contexte général`);
           article = null;
           articleContext = await this.buildGeneralContext(_guideId, page);
+        } else if (hasValidArticleUrl) {
+          // URL source saisie manuellement → priorité absolue (comme cluster_auto_match)
+          article = await this.loadArticleSource(resolvedUrlSource ?? undefined);
+          if (!article) throw new Error(`Article WordPress source non trouvé à l'URL fournie : "${resolvedUrlSource}". Vérifiez que cet article a bien été ingéré dans la base.`);
+          await this.ensureImagesAnalyzed(article);
+          articleContext = this.formatArticle(article);
+          console.log(`📄 Mode saison_auto_match avec URL manuelle [${saison}] : ${article.title}`);
         } else {
           article = await this.findSeasonArticle(saison, guideDestination);
 

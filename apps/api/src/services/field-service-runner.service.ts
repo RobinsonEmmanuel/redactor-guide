@@ -4,6 +4,48 @@ import { GeocodingService } from './geocoding.service.js';
 import { COLLECTIONS } from '../config/collections.js';
 import { getArticlesDatabase } from '../config/database.js';
 
+// ── Helpers d'extraction depuis le content d'une page POI ────────────────────
+function extractMainImageFromServiceContent(content: Record<string, any> | null | undefined): string | null {
+  if (!content) return null;
+  const IMAGE_KEYS = ['photo_principale', 'photo', 'image_principale', 'image', 'visuel'];
+  for (const key of Object.keys(content)) {
+    const val = content[key];
+    if (typeof val !== 'string' || !val.startsWith('http')) continue;
+    if (IMAGE_KEYS.some(ik => key.toLowerCase().includes(ik))) return val;
+  }
+  for (const val of Object.values(content)) {
+    if (typeof val === 'string' && val.startsWith('http') &&
+        /\.(jpg|jpeg|png|webp|gif|avif)(\?|$)/i.test(val)) return val;
+  }
+  return null;
+}
+function extractArticleLinkFromServiceContent(content: Record<string, any> | null | undefined): string | null {
+  if (!content) return null;
+  for (const val of Object.values(content)) {
+    if (typeof val !== 'string') continue;
+    if (val.startsWith('{')) {
+      try {
+        const obj = JSON.parse(val) as { url?: string };
+        if (typeof obj.url === 'string' && obj.url.startsWith('http') &&
+            !/\.(jpg|jpeg|png|webp|gif|avif)(\?|$)/i.test(obj.url)) return obj.url;
+      } catch { /* not JSON */ }
+    }
+  }
+  return null;
+}
+function extractTextFromServiceContent(content: Record<string, any> | null | undefined): string {
+  if (!content) return '';
+  const parts: string[] = [];
+  for (const val of Object.values(content)) {
+    if (typeof val !== 'string') continue;
+    if (val.startsWith('http') || val.startsWith('[') || val.startsWith('{')) continue;
+    const trimmed = val.trim();
+    if (trimmed.length > 10) parts.push(trimmed);
+  }
+  return parts.slice(0, 6).join('\n').substring(0, 1200);
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
  * Contexte passé à chaque service lors de l'export.
  * Le service reçoit l'intégralité des informations disponibles au moment de l'exécution.
@@ -464,8 +506,37 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     return { value: '[]' };
   }
 
-  // ── Résolution des URLs d'articles (même logique 3-niveaux que chemin-de-fer.routes.ts) ──
-  // Une seule requête DB pour tous les POIs de la page.
+  // ── Index live des pages POI du chemin de fer ───────────────────────────────
+  // Chargé systématiquement pour avoir les url_source/image/nom_vernaculaire à jour,
+  // indépendamment de la date du dernier refresh-inspiration-pois.
+  type LivePoiRef = { url_source: string | null; image: string | null; nom_vernaculaire: string | null; content_text: string };
+  const livePoiByPoiId  = new Map<string, LivePoiRef>();
+  const livePoiByTitre  = new Map<string, LivePoiRef>();
+  {
+    const cdf = await db.collection(COLLECTIONS.chemins_de_fer).findOne({ guide_id: ctx.guideId });
+    if (cdf) {
+      const poiPages = await db.collection(COLLECTIONS.pages).find(
+        { chemin_de_fer_id: cdf._id.toString(),
+          $or: [{ type_de_page: 'poi' }, { 'metadata.page_type': 'poi' }] },
+        { projection: { url_source: 1, content: 1, metadata: 1, titre: 1 } }
+      ).toArray();
+      for (const pp of poiPages as any[]) {
+        const contentLink = extractArticleLinkFromServiceContent(pp.content);
+        const ref: LivePoiRef = {
+          url_source:      pp.url_source ?? contentLink,
+          image:           extractMainImageFromServiceContent(pp.content),
+          nom_vernaculaire: pp.metadata?.nom_vernaculaire ?? null,
+          content_text:    extractTextFromServiceContent(pp.content),
+        };
+        const ppPoiId = pp.metadata?.poi_id;
+        if (ppPoiId) livePoiByPoiId.set(String(ppPoiId), ref);
+        const ppTitre = (pp.titre as string | undefined)?.toLowerCase().trim();
+        if (ppTitre) livePoiByTitre.set(ppTitre, ref);
+      }
+    }
+  }
+
+  // ── Résolution des URLs d'articles via articles_raw ──────────────────────────
   const articleUrlCache: Record<string, string> = {};
   {
     const slugsToCheck = inspirationPois.flatMap((p) => {
@@ -489,21 +560,29 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     }
   }
 
-  /** Résout l'URL article d'un POI : url_source directe > lookup par poi_id > lookup par url_source slug */
-  function resolvePoiArticleUrl(poi: { poi_id?: string; url_source: string | null }): string {
+  /** Résout l'URL article : url_source stockée > articles_raw > url_source live de la page POI */
+  function resolvePoiArticleUrl(poi: { poi_id?: string; nom?: string; url_source: string | null }): string {
+    // 1. url_source directe dans inspiration_pois (si http)
     if (poi.url_source?.startsWith('http')) return poi.url_source;
+    // 2. articles_raw par poi_id slug
     if (poi.poi_id) {
       const url = articleUrlCache[poi.poi_id]
                ?? articleUrlCache[poi.poi_id.replace(/_/g, '-')]
                ?? null;
       if (url) return url;
     }
+    // 3. articles_raw par url_source slug
     if (poi.url_source) {
       const url = articleUrlCache[poi.url_source]
                ?? articleUrlCache[poi.url_source.replace(/_/g, '-')]
                ?? null;
       if (url) return url;
     }
+    // 4. url_source live de la page POI du chemin de fer (indépendant du refresh)
+    const nomKey  = poi.nom?.toLowerCase()?.trim();
+    const liveRef = (poi.poi_id ? livePoiByPoiId.get(poi.poi_id) : undefined)
+                 ?? (nomKey ? livePoiByTitre.get(nomKey) : undefined);
+    if (liveRef?.url_source) return liveRef.url_source;
     return '';
   }
 
@@ -565,30 +644,40 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
 
     console.log(`[inspiration_poi_cards] POI ${i + 1}/${inspirationPois.length} : "${poi.nom}"`);
 
+    // Enrichir le POI avec les données live de sa page (nom_vernaculaire, content_text, image)
+    const nomKey  = poi.nom?.toLowerCase()?.trim();
+    const liveRef = (poi.poi_id ? livePoiByPoiId.get(poi.poi_id) : undefined)
+                 ?? (nomKey ? livePoiByTitre.get(nomKey) : undefined);
+    const enrichedPoi = {
+      ...poi,
+      nom_vernaculaire: poi.nom_vernaculaire ?? liveRef?.nom_vernaculaire ?? null,
+      content_text:     poi.content_text     ?? liveRef?.content_text     ?? '',
+      image:            poi.image            ?? liveRef?.image             ?? null,
+    };
+
     // Image manuellement choisie par l'utilisateur pour cette entrée (priorité absolue)
     const savedImage: string | undefined = savedCards[i]?.image;
     const hasManualImage = typeof savedImage === 'string' && savedImage.startsWith('http');
 
     // Charger les images disponibles pour ce POI (une seule requête DB, réutilisée)
-    // Saut possible si l'image manuelle est déjà définie et que le mode n'est pas IA
     const poiImages = hasManualImage ? [] : await loadPoiImages(db, poi.nom);
     const imagesPoiText = formatPoiImagesForPrompt(poiImages);
 
     // Variables spécifiques à ce POI (enrichissent pageVars)
-    const resolvedPoiUrl = resolvePoiArticleUrl(poi);
+    const resolvedPoiUrl = resolvePoiArticleUrl(enrichedPoi);
     const poiVars: Record<string, string> = {
       ...pageVars,
-      POI_NOM:         poi.nom_vernaculaire?.trim() || poi.nom,
+      POI_NOM:         enrichedPoi.nom_vernaculaire?.trim() || enrichedPoi.nom,
       POI_URL_ARTICLE: resolvedPoiUrl,
       IMAGES_POI:      imagesPoiText,
-      POI_CONTENU:     poi.content_text?.substring(0, 800) ?? '',
+      POI_CONTENU:     enrichedPoi.content_text?.substring(0, 800) ?? '',
     };
 
     // ── image ─────────────────────────────────────────────────────────────────
     // Priorité : image manuelle > image_analyses > image de la page POI > null
     let imageUrl: string | null = hasManualImage
       ? savedImage!
-      : poiImages[0]?.url ?? poi.image ?? null;
+      : poiImages[0]?.url ?? enrichedPoi.image ?? null;
 
     if (!hasManualImage) {
       const imgResolved = resolveSubField(
@@ -618,8 +707,7 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
 
     // ── nom ───────────────────────────────────────────────────────────────────
     // Règle : nom vernaculaire s'il existe, sinon nom français brut.
-    // Aucun ajout d'adjectif ou de reformulation — le sous-champ template est ignoré pour le nom.
-    const nom = poi.nom_vernaculaire?.trim() || poi.nom;
+    const nom = enrichedPoi.nom_vernaculaire?.trim() || enrichedPoi.nom;
 
     // ── hashtag ───────────────────────────────────────────────────────────────
     // Génère un hashtag qui capture l'élément distinctif du lieu (pas son nom).
@@ -634,7 +722,7 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
       hashtag = hashResolved.defaultValue ?? '';
     } else if (hashResolved.mode === 'ai' && hashResolved.instructions) {
       try {
-        const poiContenu = poi.content_text?.trim() ?? '';
+        const poiContenu = enrichedPoi.content_text?.trim() ?? '';
         const calibreHash = hashResolved.max_chars
           ? `\n⚠️ CALIBRE OBLIGATOIRE : ${hashResolved.max_chars} caractères MAXIMUM.`
           : '';

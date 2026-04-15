@@ -1183,8 +1183,9 @@ INSTRUCTIONS STRICTES :
         const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
         const liveTitle = titleMatch ? titleMatch[1].replace(/[|\-–—].*$/, '').trim() : baseUrl;
 
-        console.log(`✅ [loadArticleSource] Fetch live réussi pour "${baseUrl}" — "${liveTitle}" (${stripped.length} chars)`);
-        const liveArticle: any = { title: liveTitle, markdown: stripped, url: baseUrl, _live_fetched: true };
+        const liveImages = this.extractImagesFromHtml(html);
+        console.log(`✅ [loadArticleSource] Fetch live réussi pour "${baseUrl}" — "${liveTitle}" (${stripped.length} chars, ${liveImages.length} image(s))`);
+        const liveArticle: any = { title: liveTitle, markdown: stripped, url: baseUrl, _live_fetched: true, images: liveImages };
 
         if (anchor) {
           const poiNameLive = anchor.replace(/^[\d_]+/, '').replace(/[_-]/g, ' ').trim();
@@ -1680,11 +1681,21 @@ INSTRUCTIONS STRICTES :
       parts.unshift(`Tags: ${article.tags.join(', ')}`);
     }
 
-    // Ajouter les images disponibles, filtrées par POI si applicable
-    if (article.images && article.images.length > 0) {
+    // Images : champ dédié en priorité, sinon extraction depuis html_brut
+    let imageList: string[] = article.images?.length ? [...article.images] : [];
+    if (imageList.length === 0 && article.html_brut) {
+      imageList = this.extractImagesFromHtml(article.html_brut);
+      if (imageList.length > 0) {
+        console.log(`🖼️ [formatArticle] ${imageList.length} image(s) extraites du html_brut (champ images vide)`);
+        // Persister pour éviter de re-extraire à chaque génération
+        article.images = imageList;
+      }
+    }
+
+    if (imageList.length > 0) {
       const images = poiFocusFilter
-        ? this.filterImagesForPOI(article.images, poiFocusFilter)
-        : (article.images as string[]);
+        ? this.filterImagesForPOI(imageList, poiFocusFilter)
+        : imageList;
 
       parts.push('');
       parts.push(`Images disponibles (${images.length}):`);
@@ -1694,6 +1705,30 @@ INSTRUCTIONS STRICTES :
     }
 
     return parts.join('\n');
+  }
+
+  /**
+   * Extrait les URLs d'images depuis un HTML brut (fallback quand article.images est vide).
+   * Couvre img[src], img[data-src] (lazy loading) et source[srcset].
+   */
+  private extractImagesFromHtml(html: string): string[] {
+    const urls = new Set<string>();
+    const IMAGE_EXT = /\.(jpg|jpeg|png|webp|gif|avif)(\?|$)/i;
+    // Patterns à chercher : src, data-src, srcset (premier candidat)
+    const patterns = [
+      /<img[^>]+\bsrc=["']([^"']+)["']/gi,
+      /<img[^>]+\bdata-src=["']([^"']+)["']/gi,
+      /<source[^>]+\bsrcset=["']([^"',\s]+)/gi,
+    ];
+    for (const re of patterns) {
+      let m: RegExpExecArray | null;
+      re.lastIndex = 0;
+      while ((m = re.exec(html)) !== null) {
+        const src = m[1].trim();
+        if (src.startsWith('http') && IMAGE_EXT.test(src)) urls.add(src);
+      }
+    }
+    return [...urls];
   }
 
   /**

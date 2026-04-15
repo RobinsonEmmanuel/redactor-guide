@@ -150,6 +150,7 @@ export interface PreviewResult {
   matches:           MatchEntry[];
   unmatched_geojson: Array<{ name: string; translated_name: string | null; coords: { lat: number; lon: number } }>;
   unmatched_pages:   Array<{ page_id: string; titre: string }>;
+  all_pages:         Array<{ page_id: string; titre: string }>;
   stats: {
     total_features:     number;
     matched:            number;
@@ -306,7 +307,13 @@ export async function importGeoJsonRoutes(fastify: FastifyInstance) {
       // Pages sans correspondance GeoJSON
       const unmatchedPages: PreviewResult['unmatched_pages'] = pages
         .filter(p => !matchedPageIds.has((p._id as ObjectId).toString()))
-        .map(p => ({ page_id: (p._id as ObjectId).toString(), titre: p.titre as string }));
+        .map(p => ({ page_id: (p._id as ObjectId).toString(), titre: p.titre as string }))
+        .sort((a, b) => a.titre.localeCompare(b.titre, 'fr'));
+
+      // Toutes les pages POI (pour l'affectation manuelle exhaustive)
+      const allPages: PreviewResult['all_pages'] = pages
+        .map(p => ({ page_id: (p._id as ObjectId).toString(), titre: p.titre as string }))
+        .sort((a, b) => a.titre.localeCompare(b.titre, 'fr'));
 
       const toUpdate          = matches.filter(m => m.status === 'update').length;
       const matchedTranslated = matches.filter(m => m.is_translated).length;
@@ -315,6 +322,7 @@ export async function importGeoJsonRoutes(fastify: FastifyInstance) {
         matches,
         unmatched_geojson: finalUnmatched,
         unmatched_pages:   unmatchedPages,
+        all_pages:         allPages,
         stats: {
           total_features:     validFeatures.length,
           matched:            matches.length,

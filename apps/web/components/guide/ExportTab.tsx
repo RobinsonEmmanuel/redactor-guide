@@ -918,6 +918,7 @@ interface PreviewResult {
   matches:           MatchEntry[];
   unmatched_geojson: Array<{ name: string; translated_name: string | null; coords: { lat: number; lon: number } }>;
   unmatched_pages:   Array<{ page_id: string; titre: string }>;
+  all_pages:         Array<{ page_id: string; titre: string }>;
   stats: {
     total_features: number; matched: number;
     matched_direct: number; matched_translated: number;
@@ -976,7 +977,8 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
     pageTitre: string;
   };
   const [manualMatches,    setManualMatches]    = useState<ManualMatch[]>([]);
-  const [pendingGeoJson,   setPendingGeoJson]   = useState<string | null>(null); // nom GeoJSON sélectionné
+  const [pendingGeoJson,   setPendingGeoJson]   = useState<string | null>(null);
+  const [pageSearch,       setPageSearch]       = useState('');
 
   const handleApply = async () => {
     const hasAuto   = selected.size > 0;
@@ -1277,9 +1279,20 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
                   {(() => {
                     const usedGeoJsonNames = new Set(manualMatches.map(m => m.geojsonName));
                     const usedPageIds      = new Set(manualMatches.map(m => m.pageId));
-                    const availableGeoJson = preview.unmatched_geojson.filter(u => !usedGeoJsonNames.has(u.name));
-                    const availablePages   = preview.unmatched_pages.filter(p => !usedPageIds.has(p.page_id));
-                    if (availableGeoJson.length === 0 && availablePages.length === 0) return null;
+
+                    // Colonne gauche : GeoJSON non encore affectés, triés alpha
+                    const availableGeoJson = [...preview.unmatched_geojson]
+                      .filter(u => !usedGeoJsonNames.has(u.name))
+                      .sort((a, b) => (a.translated_name ?? a.name).localeCompare(b.translated_name ?? b.name, 'fr'));
+
+                    // Colonne droite : TOUS les POI du guide, triés alpha, avec recherche
+                    const allPagesSource = preview.all_pages ?? preview.unmatched_pages;
+                    const searchQ = pageSearch.toLowerCase().trim();
+                    const availablePages = allPagesSource
+                      .filter(p => !usedPageIds.has(p.page_id))
+                      .filter(p => !searchQ || p.titre.toLowerCase().includes(searchQ));
+
+                    if (availableGeoJson.length === 0 && allPagesSource.length === 0) return null;
                     return (
                       <div className="grid grid-cols-2 gap-3">
                         {/* Colonne GeoJSON */}
@@ -1287,7 +1300,7 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
                             Points GeoJSON ({availableGeoJson.length})
                           </p>
-                          <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                          <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
                             {availableGeoJson.map((u, i) => (
                               <button
                                 key={i}
@@ -1299,9 +1312,9 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
                                     : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
                                 }`}
                               >
-                                <span className="block truncate">{u.name}</span>
+                                <span className="block truncate">{u.translated_name ?? u.name}</span>
                                 {u.translated_name && u.translated_name !== u.name && (
-                                  <span className="block text-[10px] text-gray-400 truncate">→ {u.translated_name}</span>
+                                  <span className="block text-[10px] text-gray-400 truncate">🌐 {u.name}</span>
                                 )}
                                 <span className="block text-[10px] font-mono text-gray-300">
                                   {u.coords.lat.toFixed(4)}, {u.coords.lon.toFixed(4)}
@@ -1310,12 +1323,40 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
                             ))}
                           </div>
                         </div>
-                        {/* Colonne Pages */}
+
+                        {/* Colonne Pages — tous les POI du guide */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
-                            Pages POI sans GPS ({availablePages.length})
+                            Tous les POI du guide ({availablePages.length}{searchQ ? ` sur ${allPagesSource.filter(p => !usedPageIds.has(p.page_id)).length}` : ''})
                           </p>
+                          {/* Barre de recherche */}
+                          <div className="relative mb-1.5">
+                            <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+                            </svg>
+                            <input
+                              type="text"
+                              value={pageSearch}
+                              onChange={e => setPageSearch(e.target.value)}
+                              placeholder="Rechercher un POI…"
+                              className="w-full pl-7 pr-2 py-1 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white"
+                            />
+                            {pageSearch && (
+                              <button
+                                type="button"
+                                onClick={() => setPageSearch('')}
+                                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                              >
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            )}
+                          </div>
                           <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                            {availablePages.length === 0 && (
+                              <p className="text-xs text-gray-400 italic px-2">Aucun résultat</p>
+                            )}
                             {availablePages.map((p, i) => (
                               <button
                                 key={i}
@@ -1332,6 +1373,7 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
                                     pageTitre:   p.titre,
                                   }]);
                                   setPendingGeoJson(null);
+                                  setPageSearch('');
                                 }}
                                 className={`w-full text-left px-2.5 py-1.5 rounded-lg border text-xs transition-colors ${
                                   pendingGeoJson
@@ -1370,7 +1412,7 @@ function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: stri
                     ? <><ArrowPathIcon className="w-4 h-4 animate-spin" /> Application…</>
                     : <><CheckCircleIcon className="w-4 h-4" /> Appliquer {selected.size + manualMatches.length} mise{(selected.size + manualMatches.length) > 1 ? 's' : ''} à jour</>}
                 </button>
-                <button type="button" onClick={() => { reset(); setManualMatches([]); setPendingGeoJson(null); }}
+                <button type="button" onClick={() => { reset(); setManualMatches([]); setPendingGeoJson(null); setPageSearch(''); }}
                   className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors">
                   Recommencer
                 </button>

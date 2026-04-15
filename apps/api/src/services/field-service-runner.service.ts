@@ -624,14 +624,15 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
 
   const cards: Array<Record<string, string>> = [];
 
-  // Nombre de slots visibles : soit le nombre sauvegardé manuellement (si l'utilisateur
-  // a supprimé des entrées via la modal), soit le nombre total de POIs.
-  // On boucle toujours sur TOUS les POIs pour que explodeRepetitifField puisse
-  // produire les slots vides (card='') au-delà du nombre visible — nécessaire pour
-  // que InDesign masque les groupes correspondants.
-  const visibleCount = savedCards.length > 0
-    ? Math.min(savedCards.length, inspirationPois.length)
-    : inspirationPois.length;
+  // Nombre de slots à générer : toujours tous les POIs du chemin de fer.
+  //
+  // On ignore savedCards.length comme limite car cela provoquait un bug persistant :
+  // si une génération précédente échouait après la 1re carte, savedCards n'avait
+  // qu'1 entrée, et toutes les générations suivantes produisaient aussi 1 seule carte.
+  //
+  // Les suppressions manuelles (× Supprimer dans la modale) sont reflétées dans
+  // metadata.inspiration_pois_ids, pas dans savedCards.
+  const visibleCount = inspirationPois.length;
 
   for (let i = 0; i < inspirationPois.length; i++) {
     const poi = inspirationPois[i];

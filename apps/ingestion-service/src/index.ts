@@ -1,4 +1,4 @@
-import { connectDatabase, disconnectDatabase } from './config/database.js';
+import { connectDatabase, connectArticlesDatabase, disconnectDatabase } from './config/database.js';
 import { env } from './config/env.js';
 import { createServer } from './server.js';
 
@@ -9,7 +9,9 @@ async function bootstrap() {
     console.log(`🔌 Port: ${env.PORT}`);
 
     const db = await connectDatabase();
-    console.log(`📦 Base de données: ${db.databaseName}`);
+    console.log(`📦 Base de données principale: ${db.databaseName}`);
+    const articlesDb = await connectArticlesDatabase();
+    console.log(`📦 Base articles_raw: ${articlesDb.databaseName}`);
 
     const server = await createServer(db, env.PORT);
     await server.listen({ port: env.PORT, host: '0.0.0.0' });

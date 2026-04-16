@@ -27,6 +27,8 @@ const EnvSchema = z.object({
   PORT: z.string().transform((val) => parseInt(val, 10)).default('4001'),
   MONGODB_URI: z.string().min(1, 'MONGODB_URI est requis'),
   MONGODB_DB_NAME: z.string().min(1, 'MONGODB_DB_NAME est requis'),
+  /** Base pour articles_raw — séparée de la base principale (comme dans apps/api) */
+  ARTICLES_DB_NAME: z.string().default('service-redaction'),
   /** Clé secrète pour authentifier les appels entrants via X-Api-Key */
   API_KEY_SECRET: z.string().optional(),
   /** Token QStash pour publier des jobs asynchrones */

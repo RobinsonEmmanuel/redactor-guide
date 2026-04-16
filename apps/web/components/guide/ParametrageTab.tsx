@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { PhotoIcon, CheckIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { PhotoIcon, CheckIcon, ArrowPathIcon, ShieldCheckIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { authFetch } from '@/lib/api-client';
 
 interface ParametrageTabProps {
   guide: any;
@@ -23,8 +24,14 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
     guide_template_id: '',
     google_drive_folder_id: '',
     image_principale: '',
-    wpConfig: { siteUrl: '', jwtToken: '' },
+    wpConfig: { siteUrl: '' },
   });
+
+  // Credentials WordPress — jamais stockés dans le guide, envoyés au service d'ingestion
+  const [wpCredentials, setWpCredentials] = useState({ username: '', appPassword: '' });
+  const [wpConnectStatus, setWpConnectStatus] = useState<'idle' | 'testing' | 'connected' | 'error'>('idle');
+  const [wpConnectMessage, setWpConnectMessage] = useState('');
+  const [wpHasStoredCredentials, setWpHasStoredCredentials] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -44,13 +51,29 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
         guide_template_id: guide.guide_template_id || '',
         google_drive_folder_id: guide.google_drive_folder_id || '',
         image_principale: guide.image_principale || '',
-        wpConfig: {
-          siteUrl: guide.wpConfig?.siteUrl || '',
-          jwtToken: guide.wpConfig?.jwtToken || '',
-        },
+        wpConfig: { siteUrl: guide.wpConfig?.siteUrl || '' },
       });
+      // Vérifier si des credentials sont déjà stockés dans site_connections
+      checkStoredCredentials(guide.slug);
     }
   }, [guide]);
+
+  const checkStoredCredentials = async (siteId: string) => {
+    if (!siteId) return;
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/wp-sites`);
+      if (res.ok) {
+        const sites: any[] = await res.json();
+        const found = sites.find((s: any) =>
+          s._id === siteId || s.slug === siteId || s.name?.toLowerCase() === siteId
+        );
+        if (found?.hasPassword) {
+          setWpHasStoredCredentials(true);
+          setWpCredentials(prev => ({ ...prev, username: String(found.username ?? '') }));
+        }
+      }
+    } catch { /* non bloquant */ }
+  };
 
   useEffect(() => {
     const loadTemplates = async () => {
@@ -82,19 +105,50 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
     e.preventDefault();
     setSaving(true);
     try {
+      // 1. Sauvegarde du guide
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify(formData),
       });
-      if (res.ok) {
-        setSaved(true);
-        onGuideUpdated();
-        setTimeout(() => setSaved(false), 3000);
-      } else {
+      if (!res.ok) {
         alert('Erreur lors de la sauvegarde');
+        return;
       }
+
+      // 2. Si des credentials WordPress sont renseignés, les stocker automatiquement
+      const siteId = formData.slug;
+      if (siteId && wpCredentials.username && wpCredentials.appPassword) {
+        try {
+          const connectRes = await authFetch(`${apiUrl}/api/v1/wp-sites/${siteId}/connect`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              username: wpCredentials.username,
+              appPassword: wpCredentials.appPassword,
+              siteUrl: formData.wpConfig.siteUrl || undefined,
+            }),
+          });
+          const connectData = await connectRes.json().catch(() => ({}));
+          if (connectRes.ok && connectData.success) {
+            setWpConnectStatus('connected');
+            setWpConnectMessage(`Credentials WordPress enregistrés`);
+            setWpHasStoredCredentials(true);
+            setWpCredentials(p => ({ ...p, appPassword: '' }));
+          } else {
+            setWpConnectStatus('error');
+            setWpConnectMessage(connectData.error || 'Erreur connexion WordPress');
+          }
+        } catch {
+          setWpConnectStatus('error');
+          setWpConnectMessage('Impossible de contacter le service d\'ingestion');
+        }
+      }
+
+      setSaved(true);
+      onGuideUpdated();
+      setTimeout(() => setSaved(false), 3000);
     } catch (err) {
       alert('Erreur lors de la sauvegarde');
     } finally {
@@ -375,9 +429,15 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
 
             {/* WordPress */}
             <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h3 className="text-sm font-semibold text-gray-700 mb-4 pb-2 border-b border-gray-100">
-                Connexion WordPress
-              </h3>
+              <div className="flex items-center justify-between mb-4 pb-2 border-b border-gray-100">
+                <h3 className="text-sm font-semibold text-gray-700">Connexion WordPress</h3>
+                {wpHasStoredCredentials && (
+                  <span className="flex items-center gap-1 text-xs text-green-700 bg-green-50 px-2 py-1 rounded-full">
+                    <ShieldCheckIcon className="w-3.5 h-3.5" />
+                    Credentials stockés
+                  </span>
+                )}
+              </div>
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1.5">URL du site WordPress</label>
@@ -390,16 +450,94 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
                     placeholder="https://example.com"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1.5">JWT Token</label>
-                  <input
-                    type="password"
-                    name="wpConfig.jwtToken"
-                    value={formData.wpConfig.jwtToken}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
-                    placeholder="eyJhbGciOiJIUzI1NiJ9..."
-                  />
+
+                {/* Séparateur credentials */}
+                <div className="border-t border-dashed border-gray-200 pt-4">
+                  <p className="text-xs text-gray-500 mb-3">
+                    Les credentials sont stockés de façon sécurisée dans le service d'ingestion (non sauvegardés dans ce formulaire).
+                    {wpHasStoredCredentials && ' Laissez le mot de passe vide pour conserver les credentials existants.'}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">Identifiant WordPress</label>
+                      <input
+                        type="text"
+                        value={wpCredentials.username ?? ''}
+                        onChange={e => setWpCredentials(p => ({ ...p, username: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="admin"
+                        autoComplete="off"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">Mot de passe applicatif</label>
+                      <input
+                        type="password"
+                        value={wpCredentials.appPassword ?? ''}
+                        onChange={e => setWpCredentials(p => ({ ...p, appPassword: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
+                        placeholder={wpHasStoredCredentials ? '••••••••••••' : 'xxxx xxxx xxxx xxxx xxxx xxxx'}
+                        autoComplete="new-password"
+                      />
+                      <p className="mt-1 text-xs text-gray-400">
+                        WordPress → Utilisateurs → Profil → Mots de passe d'application
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Statut connexion */}
+                  {wpConnectStatus !== 'idle' && (
+                    <div className={`mt-3 flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${
+                      wpConnectStatus === 'connected' ? 'bg-green-50 text-green-800' :
+                      wpConnectStatus === 'error'     ? 'bg-red-50 text-red-800' :
+                      'bg-blue-50 text-blue-800'
+                    }`}>
+                      {wpConnectStatus === 'testing' && <ArrowPathIcon className="w-4 h-4 animate-spin" />}
+                      {wpConnectStatus === 'connected' && <ShieldCheckIcon className="w-4 h-4" />}
+                      {wpConnectStatus === 'error' && <ExclamationTriangleIcon className="w-4 h-4" />}
+                      {wpConnectMessage}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={wpConnectStatus === 'testing' || !wpCredentials.username || !wpCredentials.appPassword}
+                    onClick={async () => {
+                      const siteId = formData.slug;
+                      if (!siteId || !wpCredentials.username || !wpCredentials.appPassword) return;
+                      setWpConnectStatus('testing');
+                      setWpConnectMessage('Test de la connexion...');
+                      try {
+                        const res = await authFetch(`${apiUrl}/api/v1/wp-sites/${siteId}/connect`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            username: wpCredentials.username,
+                            appPassword: wpCredentials.appPassword,
+                          }),
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.success) {
+                          setWpConnectStatus('connected');
+                          setWpConnectMessage(`Connexion établie ! ${data.site?.name || ''}`);
+                          setWpHasStoredCredentials(true);
+                          setWpCredentials(p => ({ ...p, appPassword: '' }));
+                        } else {
+                          setWpConnectStatus('error');
+                          setWpConnectMessage(data.error || data.message || 'Connexion échouée');
+                        }
+                      } catch {
+                        setWpConnectStatus('error');
+                        setWpConnectMessage('Impossible de joindre le service d\'ingestion');
+                      }
+                    }}
+                    className="mt-3 flex items-center gap-2 px-4 py-2 text-sm bg-gray-800 text-white rounded-lg hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {wpConnectStatus === 'testing'
+                      ? <><ArrowPathIcon className="w-4 h-4 animate-spin" /> Test en cours...</>
+                      : <><ShieldCheckIcon className="w-4 h-4" /> {wpHasStoredCredentials ? 'Mettre à jour les credentials' : 'Connecter WordPress'}</>
+                    }
+                  </button>
                 </div>
               </div>
             </div>

@@ -29,6 +29,9 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
   const [ingesting, setIngesting] = useState(false);
   const [ingestionStatus, setIngestionStatus] = useState<string | null>(null);
   const [ingestionError, setIngestionError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{
+    status: string; step: string; processed: number; total: number;
+  } | null>(null);
   const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0, totalPages: 0 });
 
   // Ajout d'un article par URL
@@ -75,22 +78,49 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
   };
 
   const launchIngestion = async () => {
-    if (!guide?.wpConfig?.siteUrl || !guide?.wpConfig?.jwtToken) {
-      setIngestionError('Configuration WordPress manquante');
+    if (!guide?.slug) {
+      setIngestionError('Slug du guide manquant');
       return;
     }
 
     setIngesting(true);
     setIngestionError(null);
     setIngestionStatus('Démarrage de la récupération...');
+    setProgress(null);
 
-    const payload = {
+    // Polling de la progression (toutes les 1,5 s)
+    let stopPolling = false;
+    const pollProgress = async () => {
+      while (!stopPolling) {
+        await new Promise(r => setTimeout(r, 1500));
+        if (stopPolling) break;
+        try {
+          const res = await fetch(`${apiUrl}/api/v1/ingest/progress`, { credentials: 'include' });
+          if (res.ok) {
+            const p = await res.json();
+            setProgress(p);
+            if (p.status === 'done' || p.status === 'error') break;
+          }
+        } catch { break; }
+      }
+    };
+    pollProgress();
+    const stopPoll = () => { stopPolling = true; };
+
+    // siteUrl uniquement si valide (évite les erreurs de validation Zod .url())
+    const rawSiteUrl = guide.wpConfig?.siteUrl?.trim() ?? '';
+    const siteUrl = rawSiteUrl && !/^https?:\/\//i.test(rawSiteUrl)
+      ? `https://${rawSiteUrl}`
+      : rawSiteUrl || undefined;
+
+    const payload: Record<string, unknown> = {
       siteId: guide.slug,
       destinationIds: guide.destinations || [],
-      siteUrl: guide.wpConfig.siteUrl,
-      jwtToken: guide.wpConfig.jwtToken,
+      ...(siteUrl ? { siteUrl } : {}),
       languages: guide.availableLanguages || ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'],
     };
+
+    console.log('[Ingestion] payload →', payload);
 
     try {
       const enqueueRes = await fetch(`${apiUrl}/api/v1/ingest/enqueue`, {
@@ -100,6 +130,7 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
         body: JSON.stringify(payload),
       });
       const enqueueData = await enqueueRes.json().catch(() => ({}));
+      if (!enqueueRes.ok) console.warn('[Ingestion] enqueue 400 →', JSON.stringify(enqueueData, null, 2));
 
       if (enqueueRes.status === 202 && enqueueData.jobId) {
         const jobId = enqueueData.jobId;
@@ -154,17 +185,24 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
 
         if (ingestRes.ok) {
           const data = await ingestRes.json();
-          setIngestionStatus(`Récupération terminée ! ${data.totalArticles || 0} articles`);
-          loadArticles();
+          setIngestionStatus(`Récupération terminée ! ${data.count ?? data.totalArticles ?? 0} articles traités`);
+          await loadArticles();
+          onArticlesImported?.();
         } else {
           const errorData = await ingestRes.json().catch(() => ({}));
-          setIngestionError(errorData.error || 'Erreur lors de la récupération');
+          console.warn('[Ingestion] /ingest 400 →', JSON.stringify(errorData, null, 2));
+          const detail = errorData.details
+            ? JSON.stringify(errorData.details).slice(0, 200)
+            : '';
+          setIngestionError(`${errorData.error || 'Erreur lors de la récupération'}${detail ? ` — ${detail}` : ''}`);
         }
+        stopPoll();
         setIngesting(false);
       }
     } catch (err) {
       console.error('Erreur ingestion:', err);
       setIngestionError('Erreur lors de la récupération');
+      stopPoll();
       setIngesting(false);
     }
   };
@@ -172,8 +210,8 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
   const handleSingleUrl = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!singleUrl.trim()) return;
-    if (!guide?.wpConfig?.siteUrl || !guide?.wpConfig?.jwtToken) {
-      setSingleError('Configuration WordPress manquante sur ce guide');
+    if (!guide?.slug) {
+      setSingleError('Slug du guide manquant');
       return;
     }
 
@@ -188,8 +226,7 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
         credentials: 'include',
         body: JSON.stringify({
           siteId:         guide.slug,
-          siteUrl:        guide.wpConfig.siteUrl,
-          jwtToken:       guide.wpConfig.jwtToken,
+          ...(guide.wpConfig?.siteUrl ? { siteUrl: guide.wpConfig.siteUrl } : {}),
           articleUrl:     singleUrl.trim(),
           destinationIds: guide.destinations || [],
         }),
@@ -238,6 +275,49 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
           </div>
         </div>
 
+        {/* Barre de progression de l'ingestion */}
+        {ingesting && (
+          <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-blue-800">
+                {progress?.step || 'Démarrage…'}
+              </span>
+              {progress && progress.total > 0 && (
+                <span className="text-sm text-blue-600 tabular-nums">
+                  {progress.processed} / {progress.total}
+                </span>
+              )}
+            </div>
+            <div className="w-full bg-blue-200 rounded-full h-2.5 overflow-hidden">
+              {progress && progress.total > 0 ? (
+                <div
+                  className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.round((progress.processed / progress.total) * 100)}%` }}
+                />
+              ) : (
+                <div className="bg-blue-400 h-2.5 rounded-full animate-pulse" style={{ width: '60%' }} />
+              )}
+            </div>
+            {progress && progress.total > 0 && (
+              <p className="mt-1.5 text-xs text-blue-500 text-right">
+                {Math.round((progress.processed / progress.total) * 100)} %
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Message de statut (succès / erreur) */}
+        {!ingesting && ingestionStatus && (
+          <div className="mb-4 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-4 py-3">
+            {ingestionStatus}
+          </div>
+        )}
+        {ingestionError && (
+          <div className="mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+            {ingestionError}
+          </div>
+        )}
+
         {/* Ajout d'un article par URL */}
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
           <p className="text-sm font-medium text-gray-700 mb-2">
@@ -283,19 +363,6 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
           )}
         </div>
       </div>
-
-      {/* Status ingestion bulk */}
-      {ingestionStatus && (
-        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-sm text-blue-800">{ingestionStatus}</p>
-        </div>
-      )}
-
-      {ingestionError && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-sm text-red-800">{ingestionError}</p>
-        </div>
-      )}
 
       {/* Liste des articles */}
       {loading ? (

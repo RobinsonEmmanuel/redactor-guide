@@ -1,30 +1,118 @@
-import { randomUUID } from 'crypto';
+import { randomUUID, createDecipheriv, createCipheriv, randomBytes } from 'crypto';
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { env } from '../config/env.js';
 import { COLLECTIONS } from '../config/collections.js';
+import { getArticlesDatabase } from '../config/database.js';
 import { extractImageUrls, normalizeImageUrl, htmlToMarkdown } from '@redactor-guide/ingestion-wp';
 import { WordPressIngestionService } from '@redactor-guide/ingestion-wp';
+import type { Db } from 'mongodb';
 
+// Nouveau format : jwtToken et siteUrl sont optionnels — résolus depuis site_connections + sites
 const IngestBodySchema = z.object({
-  siteId: z.string().min(1, 'siteId requis'),
+  siteId:         z.string().min(1, 'siteId requis'),
   destinationIds: z.array(z.string()).default([]),
-  siteUrl: z.string().url(),
-  jwtToken: z.string().min(1, 'jwtToken requis'),
-  languages: z.array(z.string()).default(['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl']),
-  analyzeImages: z.boolean().default(false),
+  siteUrl:        z.string().url().optional(),
+  jwtToken:       z.string().optional(), // déprécié, ignoré si credentials en base
+  languages:      z.array(z.string()).default(['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt', 'nl']),
+  analyzeImages:  z.boolean().default(false),
 });
 
 const SyncTranslationsBodySchema = z.object({
-  siteId: z.string().min(1, 'siteId requis'),
-  siteUrl: z.string().url(),
-  jwtToken: z.string().min(1, 'jwtToken requis'),
+  siteId:    z.string().min(1, 'siteId requis'),
+  siteUrl:   z.string().url().optional(),
+  jwtToken:  z.string().optional(),
   languages: z.array(z.string()).min(1, 'Au moins une langue cible requise'),
 });
 
+/**
+ * Résout les credentials WordPress depuis site_connections.
+ * Retourne { siteUrl, authHeader } prêts à l'emploi.
+ */
+async function resolveCredentials(
+  db: Db,
+  siteId: string,
+  fallbackSiteUrl?: string,
+  fallbackJwt?: string
+): Promise<{ siteUrl: string; authHeader: string }> {
+  // 1. Récupérer l'URL du site
+  let siteUrl = fallbackSiteUrl;
+  if (!siteUrl) {
+    const site = await db.collection(COLLECTIONS.sites).findOne(
+      { $or: [{ _id: siteId as unknown as import('mongodb').ObjectId }, { slug: siteId }] }
+    );
+    if (!site?.url) throw new Error(`Site introuvable pour siteId="${siteId}"`);
+    siteUrl = (site.url as string).replace(/\/$/, '');
+  }
+
+  // 2. Chercher les credentials stockés
+  const conn = await db.collection(COLLECTIONS.site_connections).findOne(
+    { $or: [{ site_id: siteId }, { siteId }] },
+    { sort: { updated_at: -1 } }
+  );
+
+  if (conn?.username && (conn.appPasswordEncrypted || conn.app_password_enc)) {
+    const enc = (conn.appPasswordEncrypted ?? conn.app_password_enc) as string;
+    const appPassword = decryptAppPassword(enc);
+    const b64 = Buffer.from(`${conn.username}:${appPassword}`).toString('base64');
+    return { siteUrl, authHeader: `Basic ${b64}` };
+  }
+
+  // 3. Fallback JWT (ancien format)
+  if (fallbackJwt) return { siteUrl, authHeader: `Bearer ${fallbackJwt}` };
+
+  throw new Error(`Aucun credentials trouvé pour siteId="${siteId}". Connectez le site d'abord.`);
+}
+
+/**
+ * Déchiffrement AES-256-GCM des App Passwords WordPress.
+ * Le secret est dans WP_CREDENTIALS_SECRET (même clé que le service de production).
+ */
+function decryptAppPassword(encrypted: string): string {
+  const secret = process.env.WP_CREDENTIALS_SECRET;
+  if (!secret) {
+    // Si pas de clé de déchiffrement, on suppose que c'est stocké en clair (dev)
+    return encrypted;
+  }
+  try {
+    const buf = Buffer.from(encrypted, 'base64');
+    const iv  = buf.subarray(0, 12);
+    const tag = buf.subarray(12, 28);
+    const ciphertext = buf.subarray(28);
+    const key = Buffer.from(secret, 'hex').subarray(0, 32);
+    const decipher = createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    return decipher.update(ciphertext, undefined, 'utf8') + decipher.final('utf8');
+  } catch {
+    // En dev, la clé peut être absente — retourner en clair
+    return encrypted;
+  }
+}
+
+/** État de la progression de l'ingestion en cours (singleton in-memory). */
+type JobStatus = 'idle' | 'fetching' | 'processing' | 'translations' | 'done' | 'error';
+const currentJob: {
+  status: JobStatus;
+  step: string;
+  processed: number;
+  total: number;
+  startedAt: number;
+  error?: string;
+} = { status: 'idle', step: '', processed: 0, total: 0, startedAt: 0 };
+
 export async function ingestRoutes(fastify: FastifyInstance) {
   const db = fastify.mongo.db!;
-  const wpService = new WordPressIngestionService(db);
+  // articles_raw vit dans service-redaction (même logique que apps/api)
+  const articlesDb = getArticlesDatabase();
+  const wpService = new WordPressIngestionService(articlesDb);
+
+  /**
+   * GET /ingest/progress
+   * Retourne la progression de l'ingestion en cours.
+   */
+  fastify.get('/ingest/progress', async (_request, reply) => {
+    return reply.status(200).send({ ...currentJob });
+  });
 
   /**
    * POST /ingest
@@ -33,6 +121,7 @@ export async function ingestRoutes(fastify: FastifyInstance) {
   fastify.post('/ingest', async (request, reply) => {
     try {
       const body = IngestBodySchema.parse(request.body);
+      const { siteUrl, authHeader } = await resolveCredentials(db, body.siteId, body.siteUrl, body.jwtToken);
 
       let analysisPrompt: string | undefined;
       if (body.analyzeImages) {
@@ -49,15 +138,35 @@ export async function ingestRoutes(fastify: FastifyInstance) {
         analysisPrompt = promptDoc.texte_prompt as string;
       }
 
+      // Initialiser la progression
+      Object.assign(currentJob, {
+        status: 'fetching',
+        step: 'Récupération des articles depuis WordPress…',
+        processed: 0,
+        total: 0,
+        startedAt: Date.now(),
+        error: undefined,
+      });
+
       const result = await wpService.ingestArticlesToRaw(
         body.siteId,
         body.destinationIds,
-        body.siteUrl,
-        body.jwtToken,
+        siteUrl,
+        authHeader,
         body.languages,
         analysisPrompt,
-        body.analyzeImages
+        body.analyzeImages,
+        (processed, total, step) => {
+          currentJob.processed = processed;
+          currentJob.total     = total;
+          currentJob.status    = step === 'fetched' ? 'fetching' : 'processing';
+          currentJob.step      = step === 'fetched'
+            ? `${total} articles récupérés, traitement en cours…`
+            : `Traitement de l'article ${processed} / ${total}`;
+        }
       );
+
+      Object.assign(currentJob, { status: 'done', step: `${result.count} articles traités.` });
 
       return reply.status(200).send({
         success: true,
@@ -65,6 +174,11 @@ export async function ingestRoutes(fastify: FastifyInstance) {
         errors: result.errors.length > 0 ? result.errors : undefined,
       });
     } catch (error) {
+      Object.assign(currentJob, {
+        status: 'error',
+        step: 'Erreur lors de l\'ingestion',
+        error: error instanceof Error ? error.message : String(error),
+      });
       if (error instanceof z.ZodError) {
         return reply.status(400).send({ error: 'Données invalides', details: error.errors });
       }
@@ -90,19 +204,20 @@ export async function ingestRoutes(fastify: FastifyInstance) {
     }
     try {
       const body = IngestBodySchema.parse(request.body);
+      // Résolution anticipée pour valider les credentials avant d'enqueuer
+      const { siteUrl, authHeader } = await resolveCredentials(db, body.siteId, body.siteUrl, body.jwtToken);
       const jobId = randomUUID();
       const now = new Date();
       await db.collection(COLLECTIONS.ingest_jobs).insertOne({
         jobId,
-        siteId: body.siteId,
+        siteId:         body.siteId,
         destinationIds: body.destinationIds,
-        siteUrl: body.siteUrl,
-        jwtToken: body.jwtToken,
-        languages: body.languages,
-        analyzeImages: body.analyzeImages,
-        status: 'queued',
-        createdAt: now,
-        updatedAt: now,
+        siteUrl,
+        languages:      body.languages,
+        analyzeImages:  body.analyzeImages,
+        status:         'queued',
+        createdAt:      now,
+        updatedAt:      now,
       });
 
       const runUrl = workerUrl.replace(/\/$/, '') + '/api/v1/ingest/run';
@@ -115,12 +230,12 @@ export async function ingestRoutes(fastify: FastifyInstance) {
         },
         body: JSON.stringify({
           jobId,
-          siteId: body.siteId,
+          siteId:         body.siteId,
           destinationIds: body.destinationIds,
-          siteUrl: body.siteUrl,
-          jwtToken: body.jwtToken,
-          languages: body.languages,
-          analyzeImages: body.analyzeImages,
+          siteUrl,
+          authHeader,
+          languages:      body.languages,
+          analyzeImages:  body.analyzeImages,
         }),
       });
 
@@ -162,10 +277,11 @@ export async function ingestRoutes(fastify: FastifyInstance) {
   fastify.post('/ingest/sync-translations', async (request, reply) => {
     try {
       const body = SyncTranslationsBodySchema.parse(request.body);
+      const { siteUrl, authHeader } = await resolveCredentials(db, body.siteId, body.siteUrl, body.jwtToken);
       const result = await wpService.syncTranslationUrls(
         body.siteId,
-        body.siteUrl,
-        body.jwtToken,
+        siteUrl,
+        authHeader,
         body.languages
       );
       return reply.status(200).send({
@@ -191,11 +307,12 @@ export async function ingestRoutes(fastify: FastifyInstance) {
     try {
       const body = z.object({
         siteId:         z.string().min(1),
-        siteUrl:        z.string().url(),
-        jwtToken:       z.string().min(1),
+        siteUrl:        z.string().url().optional(),
+        jwtToken:       z.string().optional(),
         articleUrl:     z.string().url(),
         destinationIds: z.array(z.string()).default([]),
       }).parse(request.body);
+      const { siteUrl: resolvedSiteUrl, authHeader } = await resolveCredentials(db, body.siteId, body.siteUrl, body.jwtToken);
 
       const urlParsed = new URL(body.articleUrl);
       const slug = urlParsed.pathname.replace(/\/$/, '').split('/').filter(Boolean).pop();
@@ -203,9 +320,9 @@ export async function ingestRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ error: `Impossible d'extraire le slug depuis : ${body.articleUrl}` });
       }
 
-      const wpApiUrl = `${body.siteUrl}/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug)}&lang=fr&per_page=1`;
+      const wpApiUrl = `${resolvedSiteUrl}/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug)}&lang=fr&per_page=1`;
       const wpRes = await fetch(wpApiUrl, {
-        headers: { Authorization: `Bearer ${body.jwtToken}` },
+        headers: { Authorization: authHeader },
         signal: AbortSignal.timeout(20_000),
       });
 
@@ -248,8 +365,8 @@ export async function ingestRoutes(fastify: FastifyInstance) {
       if ((post.categories as number[] | undefined)?.length) {
         try {
           const catRes = await fetch(
-            `${body.siteUrl}/wp-json/wp/v2/categories?include=${(post.categories as number[]).join(',')}&per_page=100`,
-            { headers: { Authorization: `Bearer ${body.jwtToken}` }, signal: AbortSignal.timeout(10_000) }
+            `${resolvedSiteUrl}/wp-json/wp/v2/categories?include=${(post.categories as number[]).join(',')}&per_page=100`,
+            { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(10_000) }
           );
           if (catRes.ok) {
             const cats = await catRes.json() as any[];
@@ -290,9 +407,9 @@ export async function ingestRoutes(fastify: FastifyInstance) {
       const translationSets = await Promise.allSettled(
         TRANSLATION_LANGS.map(async (lang) => {
           try {
-            const langApiUrl = `${body.siteUrl}/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug)}&lang=${lang}&per_page=1&_fields=id,link`;
+            const langApiUrl = `${resolvedSiteUrl}/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug)}&lang=${lang}&per_page=1&_fields=id,link`;
             const langRes = await fetch(langApiUrl, {
-              headers: { Authorization: `Bearer ${body.jwtToken}` },
+              headers: { Authorization: authHeader },
               signal: AbortSignal.timeout(8_000),
             });
             if (langRes.ok) {
@@ -304,7 +421,7 @@ export async function ingestRoutes(fastify: FastifyInstance) {
           } catch { /* essai suivant */ }
 
           try {
-            const redirectUrl = `${body.siteUrl}/?p=${wpId}&lang=${lang}`;
+            const redirectUrl = `${resolvedSiteUrl}/?p=${wpId}&lang=${lang}`;
             const resp = await fetch(redirectUrl, { redirect: 'follow', signal: AbortSignal.timeout(6_000) });
             const finalUrl = resp.url;
             if (resp.status < 400 && finalUrl && !finalUrl.includes('?p=') && finalUrl !== frUrl) {
@@ -359,8 +476,11 @@ export async function ingestRoutes(fastify: FastifyInstance) {
    */
   fastify.post('/ingest/run', async (request, reply) => {
     try {
-      const body = IngestBodySchema.extend({ jobId: z.string().uuid() }).parse(request.body as object);
-      const { jobId, ...ingestPayload } = body;
+      const body = IngestBodySchema.extend({
+        jobId:      z.string().uuid(),
+        authHeader: z.string().optional(), // passé par enqueue, prioritaire sur jwtToken
+      }).parse(request.body as object);
+      const { jobId, authHeader: bodyAuthHeader, ...ingestPayload } = body;
 
       const updated = await db.collection(COLLECTIONS.ingest_jobs).findOneAndUpdate(
         { jobId, status: 'queued' },
@@ -375,11 +495,17 @@ export async function ingestRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Job introuvable ou déjà en cours' });
       }
 
+      // authHeader peut venir du payload QStash ou être résolu depuis les credentials
+      const effectiveAuth = bodyAuthHeader
+        ?? (await resolveCredentials(db, ingestPayload.siteId, ingestPayload.siteUrl, ingestPayload.jwtToken)).authHeader;
+      const effectiveSiteUrl = ingestPayload.siteUrl
+        ?? (await resolveCredentials(db, ingestPayload.siteId)).siteUrl;
+
       const result = await wpService.ingestArticlesToRaw(
         ingestPayload.siteId,
         ingestPayload.destinationIds,
-        ingestPayload.siteUrl,
-        ingestPayload.jwtToken,
+        effectiveSiteUrl,
+        effectiveAuth,
         ingestPayload.languages
       );
 
@@ -408,6 +534,187 @@ export async function ingestRoutes(fastify: FastifyInstance) {
         );
       }
       return reply.status(500).send({ error: errMessage });
+    }
+  });
+
+  // ── Gestion des connexions WordPress (credentials) ─────────────────────────
+
+  function encryptAppPassword(plain: string): string {
+    const secret = process.env.WP_CREDENTIALS_SECRET;
+    if (!secret) return plain; // dev : stockage en clair si pas de clé
+    const iv = randomBytes(12);
+    const key = Buffer.from(secret, 'hex').subarray(0, 32);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const ciphertext = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return Buffer.concat([iv, tag, ciphertext]).toString('base64');
+  }
+
+  /**
+   * GET /user/sites
+   * Liste les sites avec leur statut de connexion.
+   */
+  fastify.get('/user/sites', async (_request, reply) => {
+    try {
+      const sites = await db.collection(COLLECTIONS.sites).find({}).toArray();
+      const connections = await db.collection(COLLECTIONS.site_connections).find({}).toArray();
+
+      const connMap = new Map<string, any>();
+      for (const c of connections) {
+        connMap.set(String(c.site_id), c);
+        connMap.set(String(c.siteId), c);
+      }
+
+      const result = sites.map((s: any) => {
+        const conn = connMap.get(String(s._id)) ?? connMap.get(String(s.slug));
+        return {
+          _id:         String(s._id),
+          slug:        s.slug,
+          name:        s.name ?? s.slug,
+          url:         s.url,
+          hasPassword: Boolean(conn?.appPasswordEncrypted ?? conn?.appPassword),
+          username:    conn?.username ?? null,
+        };
+      });
+
+      return reply.status(200).send(result);
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+
+  /**
+   * POST /user/sites/:siteId/connect
+   * Stocke ou met à jour les credentials WordPress chiffrés.
+   */
+  fastify.post('/user/sites/:siteId/connect', async (request, reply) => {
+    try {
+      const { siteId } = request.params as { siteId: string };
+      const body = z.object({
+        username:    z.string().min(1, 'username requis'),
+        appPassword: z.string().min(1, 'appPassword requis'),
+        siteUrl:     z.string().url().optional(),
+      }).parse(request.body);
+
+      const encrypted = encryptAppPassword(body.appPassword);
+      const now = new Date();
+
+      // Upsert dans site_connections
+      await db.collection(COLLECTIONS.site_connections).updateOne(
+        { $or: [{ site_id: siteId }, { siteId }] },
+        {
+          $set: {
+            site_id:              siteId,
+            username:             body.username,
+            appPasswordEncrypted: encrypted,
+            updated_at:           now,
+          },
+          $setOnInsert: { created_at: now },
+        },
+        { upsert: true }
+      );
+
+      // Mettre à jour l'URL du site si fournie
+      if (body.siteUrl) {
+        await db.collection(COLLECTIONS.sites).updateOne(
+          { $or: [{ _id: siteId as unknown as import('mongodb').ObjectId }, { slug: siteId }] },
+          { $set: { url: body.siteUrl, updated_at: now } }
+        );
+      }
+
+      // Récupérer le nom du site pour la réponse
+      const site = await db.collection(COLLECTIONS.sites).findOne(
+        { $or: [{ _id: siteId as unknown as import('mongodb').ObjectId }, { slug: siteId }] }
+      );
+
+      return reply.status(200).send({
+        success: true,
+        site: { name: (site?.name as string) ?? siteId, slug: siteId },
+      });
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        return reply.status(400).send({ error: 'Données invalides', details: error.errors });
+      }
+      fastify.log.error(error);
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+
+  /**
+   * POST /ingest/dedup
+   * Supprime les doublons dans articles_raw.
+   * Garde le document le plus complet (avec html_brut non vide) par URL française.
+   * En cas d'égalité, garde le plus récent (updated_at).
+   */
+  fastify.post('/ingest/dedup', async (_request, reply) => {
+    try {
+      const col = articlesDb.collection('articles_raw');
+
+      // Trouver tous les groupes de doublons par URL française
+      // (couvrir les deux formats : urls_by_lang.fr et wp_source.post_url)
+      const pipeline = [
+        {
+          $addFields: {
+            _frUrl: {
+              $ifNull: ['$urls_by_lang.fr', '$wp_source.post_url'],
+            },
+          },
+        },
+        {
+          $match: { _frUrl: { $ne: null, $ne: '' } },
+        },
+        {
+          $group: {
+            _id: '$_frUrl',
+            count: { $sum: 1 },
+            docs: {
+              $push: {
+                _id: '$_id',
+                hasHtml: { $cond: [{ $and: [{ $ne: ['$html_brut', null] }, { $ne: ['$html_brut', ''] }] }, 1, 0] },
+                updatedAt: { $ifNull: ['$updated_at', new Date(0)] },
+              },
+            },
+          },
+        },
+        { $match: { count: { $gt: 1 } } },
+      ];
+
+      const groups = await col.aggregate(pipeline).toArray();
+
+      let totalDeleted = 0;
+      const idsToDelete: import('mongodb').ObjectId[] = [];
+
+      for (const group of groups) {
+        const docs: Array<{ _id: import('mongodb').ObjectId; hasHtml: number; updatedAt: Date }> = group.docs;
+
+        // Trier : html_brut en premier, puis updated_at desc
+        docs.sort((a, b) => {
+          if (b.hasHtml !== a.hasHtml) return b.hasHtml - a.hasHtml;
+          const ta = a.updatedAt instanceof Date ? a.updatedAt.getTime() : 0;
+          const tb = b.updatedAt instanceof Date ? b.updatedAt.getTime() : 0;
+          return tb - ta;
+        });
+
+        // Garder le premier, supprimer le reste
+        for (let i = 1; i < docs.length; i++) {
+          idsToDelete.push(docs[i]._id);
+        }
+      }
+
+      if (idsToDelete.length > 0) {
+        const deleteResult = await col.deleteMany({ _id: { $in: idsToDelete } });
+        totalDeleted = deleteResult.deletedCount;
+      }
+
+      return reply.status(200).send({
+        success: true,
+        duplicateGroups: groups.length,
+        deleted: totalDeleted,
+        message: `${totalDeleted} doublon(s) supprimé(s) sur ${groups.length} groupe(s) détectés.`,
+      });
+    } catch (error: any) {
+      fastify.log.error(error);
+      return reply.status(500).send({ error: error.message });
     }
   });
 }

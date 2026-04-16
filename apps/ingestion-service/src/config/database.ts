@@ -3,6 +3,7 @@ import { env } from './env.js';
 
 let client: MongoClient | null = null;
 let db: Db | null = null;
+let articlesDb: Db | null = null;
 
 export async function connectDatabase(): Promise<Db> {
   if (db) return db;
@@ -19,6 +20,19 @@ export async function connectDatabase(): Promise<Db> {
   db = client.db(env.MONGODB_DB_NAME);
   console.log(`✅ [ingestion-service] Connecté à MongoDB: ${env.MONGODB_DB_NAME}`);
   return db;
+}
+
+export async function connectArticlesDatabase(): Promise<Db> {
+  if (articlesDb) return articlesDb;
+  if (!client) throw new Error('Appelez connectDatabase() avant connectArticlesDatabase().');
+  articlesDb = client.db(env.ARTICLES_DB_NAME);
+  console.log(`✅ [ingestion-service] Base articles_raw : ${env.ARTICLES_DB_NAME}`);
+  return articlesDb;
+}
+
+export function getArticlesDatabase(): Db {
+  if (!articlesDb) throw new Error('Base articles non connectée. Appelez connectArticlesDatabase() d\'abord.');
+  return articlesDb;
 }
 
 export async function disconnectDatabase(): Promise<void> {

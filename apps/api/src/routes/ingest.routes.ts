@@ -28,7 +28,13 @@ export async function ingestRoutes(fastify: FastifyInstance) {
       };
       if (apiKey) headers['X-Api-Key'] = apiKey;
 
-      const fetchOptions: RequestInit = { method: reqMethod, headers };
+      // Timeout long pour les routes d'ingestion synchrone (jusqu'à 15 min pour 200+ articles)
+      const isLongRunning = targetPath.startsWith('/ingest') && !targetPath.includes('/status');
+      const fetchOptions: RequestInit = {
+        method: reqMethod,
+        headers,
+        signal: isLongRunning ? AbortSignal.timeout(15 * 60 * 1000) : AbortSignal.timeout(30_000),
+      };
       if (reqMethod !== 'GET' && reqMethod !== 'HEAD' && request.body) {
         fetchOptions.body = JSON.stringify(request.body);
       }
@@ -54,4 +60,18 @@ export async function ingestRoutes(fastify: FastifyInstance) {
   fastify.post('/ingest/sync-translations', (req, reply) => proxyRequest(req, reply, '/ingest/sync-translations'));
   fastify.post('/ingest/single-url', (req, reply) => proxyRequest(req, reply, '/ingest/single-url'));
   fastify.post('/ingest/run', (req, reply) => proxyRequest(req, reply, '/ingest/run'));
+  fastify.post('/ingest/dedup', (req, reply) => proxyRequest(req, reply, '/ingest/dedup'));
+  fastify.get('/ingest/progress', (req, reply) => proxyRequest(req, reply, '/ingest/progress', 'GET'));
+
+  // Routes de gestion des connexions WordPress (credentials)
+  fastify.get('/wp-sites', (req, reply) => proxyRequest(req, reply, '/user/sites', 'GET'));
+  fastify.post('/wp-sites/:siteId/connect', (req, reply) =>
+    proxyRequest(req, reply, `/user/sites/${(req.params as any).siteId}/connect`)
+  );
+  fastify.post('/wp-sites/:siteId/test', (req, reply) =>
+    proxyRequest(req, reply, `/user/sites/${(req.params as any).siteId}/test`)
+  );
+  fastify.get('/wp-sites/:siteId/posts', (req, reply) =>
+    proxyRequest(req, reply, `/user/sites/${(req.params as any).siteId}/posts`, 'GET')
+  );
 }

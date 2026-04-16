@@ -24,7 +24,7 @@ const CreateGuideSchema = z.object({
   image_principale: z.string().optional(),
   wpConfig: z.object({
     siteUrl: z.string().url().or(z.literal('')),
-    jwtToken: z.string(),
+    jwtToken: z.string().optional(), // déprécié — credentials gérés via site_connections
   }).optional(),
 });
 
@@ -191,40 +191,47 @@ export async function guidesRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      // 1. Récupérer guide (langue + destination)
+      // 1. Récupérer guide (langue + destinations)
       const guide = await db.collection(COLLECTIONS.guides).findOne(
         { _id: new ObjectId(id) },
-        { projection: { language: 1, destination: 1, destinations: 1 } }
+        { projection: { language: 1, destination: 1, destinations: 1, wpConfig: 1 } }
       );
-      const targetLang  = lang || guide?.language || 'fr';
-      const destination: string = guide?.destination ?? guide?.destinations?.[0] ?? '';
+      const targetLang = lang || guide?.language || 'fr';
 
-      // 2. Construire le filtre MongoDB
-      // On filtre d'abord par guide_id (champ présent dans service-redaction.articles_raw)
-      // et, en fallback, par catégorie destination pour les bases sans guide_id.
-      const filter: Record<string, unknown> = {};
-
-      if (slugParam) {
-        // Lookup exact par slug (drag-and-drop POI)
-        filter.slug = slugParam;
-        // Restreindre au guide courant quand guide_id est disponible
-        filter.$or = [{ guide_id: id }, { guide_id: { $exists: false } }];
-      } else if (q) {
-        // Recherche texte sur les articles du guide
-        const regex = new RegExp(q, 'i');
-        filter.$and = [
-          { $or: [{ title: regex }, { slug: regex }] },
-          { $or: [{ guide_id: id }, ...(destination ? [{ categories: { $regex: destination, $options: 'i' } }] : [])] },
-        ];
-      } else {
-        // Vue liste : articles du guide (guide_id) ou de la destination (fallback)
-        filter.$or = [
-          { guide_id: id },
-          ...(destination ? [{ categories: { $regex: destination, $options: 'i' }, guide_id: { $exists: false } }] : []),
-        ];
+      // Construire la liste des noms de destination pour filtrer par catégories.
+      // guide.destination  = nom texte (ex: "Tenerife")
+      // guide.destinations = tableau (peut contenir noms ou IDs selon la version)
+      const destNames: string[] = [];
+      if (guide?.destination && typeof guide.destination === 'string') {
+        destNames.push(guide.destination);
+      }
+      if (Array.isArray(guide?.destinations)) {
+        for (const d of guide.destinations) {
+          if (typeof d === 'string' && d.length < 60 && !destNames.includes(d)) {
+            // Garder seulement les chaînes courtes (noms), pas les ObjectIds
+            if (!/^[a-f0-9]{24}$/i.test(d)) destNames.push(d);
+          }
+        }
       }
 
-      const projection = { slug: 1, title: 1, urls_by_lang: 1, categories: 1, tags: 1, updated_at: 1 };
+      // 2. Construire le filtre MongoDB — toujours par catégories/destinations
+      const filter: Record<string, unknown> = {};
+      const categoryFilter = destNames.length > 0
+        ? { categories: { $in: destNames.map(n => new RegExp(n, 'i')) } }
+        : {};
+
+      if (slugParam) {
+        filter.slug = slugParam;
+      } else if (q) {
+        const regex = new RegExp(q, 'i');
+        filter.$or = [{ title: regex }, { slug: regex }];
+        if (destNames.length > 0) Object.assign(filter, categoryFilter);
+      } else {
+        // Vue liste : tous les articles dont les catégories contiennent au moins une destination
+        if (destNames.length > 0) Object.assign(filter, categoryFilter);
+      }
+
+      const projection = { slug: 1, title: 1, urls_by_lang: 1, wp_source: 1, categories: 1, tags: 1, updated_at: 1 };
 
       if (slugParam || q) {
         // Pas de pagination pour les lookups et recherches
@@ -450,17 +457,26 @@ export async function guidesRoutes(fastify: FastifyInstance) {
 }
 
 function normalizeArticle(a: any, targetLang: string) {
+  // Nouveau format (service-redaction) : URL dans wp_source.post_url
+  // Ancien format : URLs dans urls_by_lang
+  const postUrl: string = a.wp_source?.post_url ?? '';
+  const urlsFromWpSource = postUrl ? { fr: postUrl } : {};
+  const urlsByLang: Record<string, string> = a.urls_by_lang && Object.keys(a.urls_by_lang).length > 0
+    ? a.urls_by_lang
+    : urlsFromWpSource;
+
   return {
     _id:          a._id.toString(),
     titre:        a.title ?? a.slug,
     title:        a.title ?? a.slug,
     slug:         a.slug,
-    url_francais: a.urls_by_lang?.[targetLang] ?? a.urls_by_lang?.['fr'] ?? '',
-    urls_by_lang: a.urls_by_lang ?? {},
-    urls:         a.urls_by_lang ?? {},
+    url_francais: urlsByLang[targetLang] ?? urlsByLang['fr'] ?? postUrl,
+    urls_by_lang: urlsByLang,
+    urls:         urlsByLang,
+    url:          postUrl,
     categories:   a.categories ?? [],
     tags:         a.tags ?? [],
-    updated_at:   a.updated_at ?? '',
+    updated_at:   a.updated_at ?? a.wp_modified_at ?? '',
   };
 }
 

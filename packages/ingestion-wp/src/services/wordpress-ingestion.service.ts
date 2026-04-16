@@ -98,8 +98,12 @@ export class WordPressIngestionService implements IWordPressIngestionService {
   }
 
   private async getWithAuth<T>(url: string, jwtToken: string): Promise<T> {
+    // Supporte Bearer JWT (ancien) et Basic base64 (App Passwords WordPress)
+    const authHeader = jwtToken.startsWith('Basic ') || jwtToken.startsWith('Bearer ')
+      ? jwtToken
+      : `Bearer ${jwtToken}`;
     const response = await this.httpClient(url, {
-      headers: { Authorization: `Bearer ${jwtToken}` },
+      headers: { Authorization: authHeader },
     });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -240,7 +244,8 @@ export class WordPressIngestionService implements IWordPressIngestionService {
     jwtToken: string,
     _languages?: string[],   // conservé pour compatibilité, non utilisé
     analysisPrompt?: string,
-    analyzeImages: boolean = false
+    analyzeImages: boolean = false,
+    onProgress?: (processed: number, total: number, step: string) => void
   ): Promise<IngestArticlesResult> {
     const errors: string[] = [];
     let count = 0;
@@ -292,6 +297,7 @@ export class WordPressIngestionService implements IWordPressIngestionService {
     }
 
     console.log(`${frPosts.length} articles FR récupérés`);
+    onProgress?.(0, frPosts.length, 'fetched');
 
     // Vérifier la présence de wpml_translations sur le premier article
     const haswpml = frPosts.length > 0 && (frPosts[0].wpml_translations?.length ?? 0) > 0;
@@ -305,6 +311,7 @@ export class WordPressIngestionService implements IWordPressIngestionService {
     }
 
     // 4. Ingérer chaque article FR
+    let processed = 0;
     for (const post of frPosts) {
       try {
         // ── Construire urls_by_lang depuis wpml_translations ──────────────────
@@ -372,24 +379,66 @@ export class WordPressIngestionService implements IWordPressIngestionService {
 
         ArticleRawSchema.parse(raw);
 
-        // Skip si l'article existe déjà (même slug + même URL FR).
-        // $setOnInsert : écriture uniquement lors d'une création (upsert).
+        const docDate = new Date(post.modified || post.date);
+
+        // Upsert avec deux niveaux de protection :
+        // - Métadonnées (site_id, slug, wp_id, title, urls_by_lang…) : TOUJOURS mises à jour
+        // - Contenu lourd (html_brut, markdown, images) : uniquement si absent/vide
+        // Couvrir les deux formats de clé :
+        // - nouveau : urls_by_lang.fr (après ingestion)
+        // - ancien  : wp_source.post_url (avant migration)
+        const frUrl = raw.urls_by_lang.fr;
+        const frUrlNoSlash = frUrl.replace(/\/$/, '');
+        // Priorité : (site_id + wp_id) = clé de l'index unique → match infaillible
+        // Fallback : URL FR avec/sans trailing slash, ou wp_source.post_url (ancien format)
+        const noHtml = { $or: [{ $eq: ['$html_brut', null] }, { $eq: ['$html_brut', ''] }, { $not: ['$html_brut'] }] };
         const upsertResult = await this.articlesRawCollection.updateOne(
-          { 'urls_by_lang.fr': raw.urls_by_lang.fr },
-          { $setOnInsert: { ...raw, updated_at: new Date(post.modified || post.date) } },
+          { $or: [
+            { site_id: raw.site_id, wp_id: raw.wp_id },
+            { 'urls_by_lang.fr': frUrl },
+            { 'urls_by_lang.fr': frUrlNoSlash },
+            { 'wp_source.post_url': frUrl },
+            { 'wp_source.post_url': frUrlNoSlash },
+          ] },
+          [
+            {
+              $set: {
+                // Toujours mis à jour (métadonnées)
+                site_id:         raw.site_id,
+                destination_ids: raw.destination_ids,
+                slug:            raw.slug,
+                wp_id:           raw.wp_id,
+                title:           raw.title,
+                categories:      raw.categories,
+                tags:            raw.tags,
+                urls_by_lang:    raw.urls_by_lang,
+                updated_at:      docDate,
+                // Seulement si absent/vide (contenu lourd)
+                html_brut: { $cond: [noHtml, raw.html_brut, '$html_brut'] },
+                markdown:  { $cond: [noHtml, raw.markdown,  '$markdown']  },
+                images:    { $cond: [noHtml, raw.images,    '$images']    },
+              },
+            },
+          ] as any,
           { upsert: true }
         );
 
-        if (upsertResult.upsertedCount > 0) {
+        const wasInserted = upsertResult.upsertedCount > 0;
+        const wasUpdated  = !wasInserted && upsertResult.modifiedCount > 0;
+
+        if (wasInserted || wasUpdated) {
           count++;
           if (count <= 3) {
-            console.log(`  [+${count}] "${post.title?.rendered?.substring(0, 50)}" → [${langsCovered}]`);
+            const action = wasInserted ? '+' : '↺';
+            console.log(`  [${action}${count}] "${post.title?.rendered?.substring(0, 50)}" → [${langsCovered}]`);
           }
         }
-        // article déjà présent → on ignore silencieusement
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         errors.push(`"${post.slug}": ${msg}`);
+      } finally {
+        processed++;
+        onProgress?.(processed, frPosts.length, 'processing');
       }
     }
 
@@ -515,10 +564,10 @@ export class WordPressIngestionService implements IWordPressIngestionService {
               continue;
             }
 
-            // Chercher l'article FR en base uniquement par urls_by_lang.fr (indépendant du site_id).
-            // Le guid WPML pointe toujours vers l'URL FR canonique → clé suffisamment unique.
+            // Chercher l'article FR en base par site_id + urls_by_lang.fr
             const frUrlNoSlash = frUrl.replace(/\/$/, '');
             const filter = {
+              site_id: siteId,
               $or: [
                 { 'urls_by_lang.fr': frUrl },
                 { 'urls_by_lang.fr': frUrlNoSlash },
@@ -555,7 +604,7 @@ export class WordPressIngestionService implements IWordPressIngestionService {
       // passe échoue. On utilise le redirect WPML /?p={wp_id}&lang={lang} qui
       // résout toujours l'URL traduite (ou fallback ?lang=XX si pas de slug dédié).
       const stillMissing = await this.articlesRawCollection.find(
-        { wp_id: { $exists: true }, [`urls_by_lang.${lang}`]: { $exists: false } },
+        { site_id: siteId, wp_id: { $exists: true }, [`urls_by_lang.${lang}`]: { $exists: false } },
         { projection: { _id: 1, wp_id: 1, 'urls_by_lang.fr': 1 } }
       ).toArray();
 

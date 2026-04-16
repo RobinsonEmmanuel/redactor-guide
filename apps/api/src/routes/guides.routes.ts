@@ -200,21 +200,28 @@ export async function guidesRoutes(fastify: FastifyInstance) {
       const destination: string = guide?.destination ?? guide?.destinations?.[0] ?? '';
 
       // 2. Construire le filtre MongoDB
+      // On filtre d'abord par guide_id (champ présent dans service-redaction.articles_raw)
+      // et, en fallback, par catégorie destination pour les bases sans guide_id.
       const filter: Record<string, unknown> = {};
 
       if (slugParam) {
         // Lookup exact par slug (drag-and-drop POI)
         filter.slug = slugParam;
+        // Restreindre au guide courant quand guide_id est disponible
+        filter.$or = [{ guide_id: id }, { guide_id: { $exists: false } }];
       } else if (q) {
-        // Recherche texte sur les articles de la destination
+        // Recherche texte sur les articles du guide
         const regex = new RegExp(q, 'i');
-        filter.$or = [{ title: regex }, { slug: regex }];
-        if (destination) filter.categories = { $regex: destination, $options: 'i' };
+        filter.$and = [
+          { $or: [{ title: regex }, { slug: regex }] },
+          { $or: [{ guide_id: id }, ...(destination ? [{ categories: { $regex: destination, $options: 'i' } }] : [])] },
+        ];
       } else {
-        // Vue liste : tous les articles de la destination, avec pagination
-        if (destination) {
-          filter.categories = { $regex: destination, $options: 'i' };
-        }
+        // Vue liste : articles du guide (guide_id) ou de la destination (fallback)
+        filter.$or = [
+          { guide_id: id },
+          ...(destination ? [{ categories: { $regex: destination, $options: 'i' }, guide_id: { $exists: false } }] : []),
+        ];
       }
 
       const projection = { slug: 1, title: 1, urls_by_lang: 1, categories: 1, tags: 1, updated_at: 1 };

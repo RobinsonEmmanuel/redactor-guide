@@ -147,6 +147,11 @@ export class PageRedactionService {
       }
 
       const hasValidArticleUrl = isValidArticleUrl(resolvedUrlSource);
+      const getArticleBestUrl = (art: any): string | null =>
+        art?.urls_by_lang?.fr ??
+        art?.urls_by_lang?.en ??
+        art?.wp_source?.post_url ??
+        null;
 
       if (infoSource === 'article_source') {
         // Mode article spécifique : utilise l'article WordPress lié à la page
@@ -201,6 +206,16 @@ export class PageRedactionService {
             if (page.titre && article.images?.length) {
               void this.tagImagesWithPOI(this.filterImagesForPOI(article.images, page.titre), page.titre);
             }
+            // Persister l'URL de l'article auto-résolu pour le modal "Article lié"
+            const autoUrl = getArticleBestUrl(article);
+            if (autoUrl && autoUrl !== page.url_source) {
+              await this.db.collection(COLLECTIONS.pages).updateOne(
+                { _id: page._id },
+                { $set: { url_source: autoUrl } }
+              );
+              page.url_source = autoUrl;
+              resolvedUrlSource = autoUrl;
+            }
             console.log(`🔍 Mode cluster_auto_match : article trouvé → "${article.title}"`);
           } else {
             // Aucun article trouvé : lever une erreur pour que le frontend affiche
@@ -252,6 +267,16 @@ export class PageRedactionService {
           if (article) {
             await this.ensureImagesAnalyzed(article);
             articleContext = this.formatArticle(article);
+            // Persister l'URL de l'article auto-résolu pour le modal "Article lié"
+            const autoUrl = getArticleBestUrl(article);
+            if (autoUrl && autoUrl !== page.url_source) {
+              await this.db.collection(COLLECTIONS.pages).updateOne(
+                { _id: page._id },
+                { $set: { url_source: autoUrl } }
+              );
+              page.url_source = autoUrl;
+              resolvedUrlSource = autoUrl;
+            }
             console.log(`🌸 Mode saison_auto_match [${saison}/${moisRef}] : article trouvé → "${article.title}"`);
           } else {
             console.warn(`⚠️ Mode saison_auto_match : aucun article pour saison="${saison}" destination="${guideDestination}" — fallback contexte général`);

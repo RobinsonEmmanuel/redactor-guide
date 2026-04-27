@@ -201,13 +201,18 @@ export class ExportService {
           // car le script InDesign injecte les images depuis content.images uniquement.
           if (field.type === 'repetitif' && result.value) {
             const flat = explodeRepetitifField(field.name, result.value, field.max_repetitions);
+            const pageNum = String(rawPage.ordre || i + 1).padStart(3, '0');
+            const pageSlug = slugify(rawPage.titre || rawPage.template_name || 'inspiration');
+            const pageFolder = `p${pageNum}_${pageSlug}`;
             for (const [k, v] of Object.entries(flat)) {
               if (k.includes('_image_') && typeof v === 'string' && v.startsWith('http')) {
                 pages[i].content.images[k] = {
                   url: v,
                   indesign_layer: k,
-                  local_filename: `${k.toLowerCase()}.jpg`,
-                  local_path: 'images/inspiration/',
+                  // Evite les collisions entre pages inspiration :
+                  // un sous-dossier par page + nom de fichier préfixé page.
+                  local_filename: `p${pageNum}_${k.toLowerCase()}.jpg`,
+                  local_path: `images/inspiration/${pageFolder}/`,
                 };
               } else {
                 pages[i].content.text[k] = v;

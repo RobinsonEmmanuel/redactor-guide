@@ -6,6 +6,7 @@ import {
   CreatePageSchema,
   UpdatePageSchema,
   CreateSectionSchema,
+  SAISON_MOIS,
 } from '@redactor-guide/core-model';
 import { COLLECTIONS } from '../config/collections.js';
 import { getArticlesDatabase } from '../config/database.js';
@@ -931,7 +932,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { guideId: string; pageId: string } }>(
     '/guides/:guideId/chemin-de-fer/pages/:pageId/image-analysis',
     async (request, reply) => {
-      const { pageId } = request.params;
+      const { pageId, guideId } = request.params;
       const db = request.server.container.db;
 
       try {
@@ -944,43 +945,145 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           return reply.status(404).send({ error: 'Page non trouvée' });
         }
 
+        // Fallback auto-résolution : certaines générations anciennes n'ont pas persisté url_source
         if (!page.url_source) {
-          return reply.status(404).send({ error: 'Aucune URL source pour cette page' });
+          // 1) Tenter d'extraire une URL article depuis le contenu généré de la page
+          const contentUrl = extractArticleLinkFromContent(page.content);
+          if (contentUrl) {
+            page.url_source = contentUrl;
+            await db.collection(COLLECTIONS.pages).updateOne(
+              { _id: new ObjectId(pageId) },
+              { $set: { url_source: contentUrl } }
+            );
+          } else {
+            // 2) Fallback saison : retrouver automatiquement l'article "partir à ... en <mois>"
+            const titleNorm = String(page.titre ?? '').toLowerCase()
+              .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            let saison = String(page.saison ?? page.metadata?.saison ?? '').toLowerCase();
+            if (!saison) {
+              if (titleNorm.includes('printemps')) saison = 'printemps';
+              else if (titleNorm.includes('ete')) saison = 'ete';
+              else if (titleNorm.includes('automne')) saison = 'automne';
+              else if (titleNorm.includes('hiver')) saison = 'hiver';
+            }
+
+            if (['printemps', 'ete', 'automne', 'hiver'].includes(saison)) {
+              const guideObjectId = ObjectId.isValid(guideId)
+                ? new ObjectId(guideId)
+                : (page.guide_id && ObjectId.isValid(page.guide_id) ? new ObjectId(page.guide_id) : null);
+              const guide = guideObjectId ? await db.collection(COLLECTIONS.guides).findOne(
+                { _id: guideObjectId },
+                { projection: { destination: 1 } }
+              ) : null;
+              const destination = String(guide?.destination ?? '').trim();
+              const months = SAISON_MOIS[saison as keyof typeof SAISON_MOIS] ?? [];
+              if (destination && months.length > 0) {
+                const destPattern = destination.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                let seasonArticle: any = null;
+                for (const month of months) {
+                  const monthPattern = month.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                  seasonArticle = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({
+                    $and: [
+                      { title: { $regex: destPattern, $options: 'i' } },
+                      { title: { $regex: monthPattern, $options: 'i' } },
+                      { title: { $regex: 'partir', $options: 'i' } },
+                    ],
+                  });
+                  if (seasonArticle) break;
+                }
+                if (seasonArticle) {
+                  const bestUrl =
+                    seasonArticle?.urls_by_lang?.fr ??
+                    seasonArticle?.urls_by_lang?.en ??
+                    seasonArticle?.wp_source?.post_url ??
+                    null;
+                  if (bestUrl) {
+                    page.url_source = bestUrl;
+                    await db.collection(COLLECTIONS.pages).updateOne(
+                      { _id: new ObjectId(pageId) },
+                      { $set: { url_source: bestUrl } }
+                    );
+                  }
+                }
+              }
+            }
+          }
         }
 
-        // Récupérer l'article WordPress correspondant
-        const article = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({ 
-          'urls_by_lang.fr': page.url_source 
+        if (!page.url_source) {
+          return reply.send({
+            images: [],
+            analyzed: false,
+            reason: 'Aucune URL source pour cette page'
+          });
+        }
+
+        // Normaliser l'URL pour faciliter la correspondance (retirer le slash final)
+        const urlSource: string = page.url_source;
+        const urlNoSlash = urlSource.replace(/\/$/, '');
+        const urlWithSlash = urlNoSlash + '/';
+
+        // Récupérer l'article WordPress — plusieurs stratégies de matching
+        let article = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({
+          $or: [
+            { 'urls_by_lang.fr': urlSource },
+            { 'urls_by_lang.fr': urlNoSlash },
+            { 'urls_by_lang.fr': urlWithSlash },
+            { 'wp_source.post_url': urlSource },
+            { 'wp_source.post_url': urlNoSlash },
+            { 'wp_source.post_url': urlWithSlash },
+          ]
         });
+
+        // Fallback : matching par slug extrait de l'URL
+        if (!article) {
+          const slugFromUrl = urlNoSlash.split('/').filter(Boolean).pop();
+          if (slugFromUrl) {
+            article = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne({ slug: slugFromUrl });
+          }
+        }
 
         if (!article) {
-          return reply.status(404).send({ error: 'Article WordPress non trouvé' });
+          return reply.send({
+            images: [],
+            analyzed: false,
+            reason: 'Article WordPress non trouvé pour cette URL source'
+          });
         }
 
-        // Mapper les analyses vers le format attendu par le frontend (format plat)
-        const mappedAnalyses = (article.images_analysis || []).map((imgAnalysis: any, idx: number) => ({
-          image_id: `image_${idx}`,
-          url: imgAnalysis.url || '',
-          // Aplatir l'objet "analysis" vers le niveau racine
-          shows_entire_site: imgAnalysis.analysis?.shows_entire_site ?? false,
-          shows_detail: imgAnalysis.analysis?.shows_detail ?? false,
-          detail_type: imgAnalysis.analysis?.detail_type || 'indéterminé',
-          is_iconic_view: imgAnalysis.analysis?.is_iconic_view ?? false,
-          is_contextual: imgAnalysis.analysis?.is_contextual ?? false,
-          visual_clarity_score: imgAnalysis.analysis?.visual_clarity_score ?? 0,
-          composition_quality_score: imgAnalysis.analysis?.composition_quality_score ?? 0,
-          lighting_quality_score: imgAnalysis.analysis?.lighting_quality_score ?? 0,
-          readability_small_screen_score: imgAnalysis.analysis?.readability_small_screen_score ?? 0,
-          has_text_overlay: imgAnalysis.analysis?.has_text_overlay ?? false,
-          has_graphic_effects: imgAnalysis.analysis?.has_graphic_effects ?? false,
-          editorial_relevance: imgAnalysis.analysis?.editorial_relevance || 'faible',
-          analysis_summary: imgAnalysis.analysis?.analysis_summary || '',
-        }));
+        // Si images_analysis est rempli → retourner les images analysées avec scores
+        if (article.images_analysis && article.images_analysis.length > 0) {
+          const mappedAnalyses = (article.images_analysis as any[]).map((imgAnalysis: any, idx: number) => ({
+            image_id: `image_${idx}`,
+            url: imgAnalysis.url || '',
+            shows_entire_site: imgAnalysis.analysis?.shows_entire_site ?? false,
+            shows_detail: imgAnalysis.analysis?.shows_detail ?? false,
+            detail_type: imgAnalysis.analysis?.detail_type || 'indéterminé',
+            is_iconic_view: imgAnalysis.analysis?.is_iconic_view ?? false,
+            is_contextual: imgAnalysis.analysis?.is_contextual ?? false,
+            visual_clarity_score: imgAnalysis.analysis?.visual_clarity_score ?? 0,
+            composition_quality_score: imgAnalysis.analysis?.composition_quality_score ?? 0,
+            lighting_quality_score: imgAnalysis.analysis?.lighting_quality_score ?? 0,
+            readability_small_screen_score: imgAnalysis.analysis?.readability_small_screen_score ?? 0,
+            has_text_overlay: imgAnalysis.analysis?.has_text_overlay ?? false,
+            has_graphic_effects: imgAnalysis.analysis?.has_graphic_effects ?? false,
+            editorial_relevance: imgAnalysis.analysis?.editorial_relevance || 'faible',
+            analysis_summary: imgAnalysis.analysis?.analysis_summary || '',
+          }));
+          return reply.send({ images: mappedAnalyses, analyzed: true });
+        }
 
-        return reply.send({
-          images: mappedAnalyses,
-          analyzed: mappedAnalyses.length > 0
-        });
+        // Fallback : retourner les images brutes (non analysées) si images_analysis est vide
+        if (article.images && article.images.length > 0) {
+          const rawImages = (article.images as any[]).map((imgUrl: string, idx: number) => ({
+            image_id: `raw_${idx}`,
+            url: typeof imgUrl === 'string' ? imgUrl : (imgUrl as any).url || '',
+            analyzed: false,
+          }));
+          return reply.send({ images: rawImages.filter((i: any) => i.url), analyzed: false });
+        }
+
+        return reply.send({ images: [], analyzed: false });
       } catch (error: any) {
         request.log.error(error);
         return reply.status(500).send({ 
@@ -1060,10 +1163,13 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       );
       const destination: string = guide?.destination ?? '';
 
-      // 2. Requêter TOUS les articles de la destination ayant des images analysées
-      //    (pas seulement ceux liés aux POIs — nécessaire pour COUVERTURE, CLUSTER, etc.)
+      // 2. Requêter TOUS les articles de la destination ayant des images (analysées ou brutes)
+      //    (pas seulement ceux liés aux POIs — nécessaire pour COUVERTURE, CLUSTER, SAISON, etc.)
       const filter: Record<string, unknown> = {
-        images_analysis: { $exists: true, $not: { $size: 0 } },
+        $or: [
+          { images_analysis: { $exists: true, $not: { $size: 0 } } },
+          { images: { $exists: true, $not: { $size: 0 } } },
+        ],
       };
 
       // Filtre par destination si disponible
@@ -1078,30 +1184,55 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
 
       const articles = await getArticlesDatabase()
         .collection(COLLECTIONS.articles_raw)
-        .find(filter, { projection: { title: 1, slug: 1, images_analysis: 1 } })
+        .find(filter, { projection: { title: 1, slug: 1, images_analysis: 1, images: 1 } })
         .toArray();
 
       // 3. Aplatir toutes les images avec la source article (dédupliquées par URL)
       const seenImageUrls = new Set<string>();
       const allImages: any[] = [];
       for (const article of articles) {
-        for (let idx = 0; idx < (article.images_analysis ?? []).length; idx++) {
-          const imgAnalysis = article.images_analysis[idx];
-          const imgUrl = imgAnalysis.url || '';
+        const analyzed = article.images_analysis ?? [];
+        if (analyzed.length > 0) {
+          for (let idx = 0; idx < analyzed.length; idx++) {
+            const imgAnalysis = analyzed[idx];
+            const imgUrl = imgAnalysis.url || '';
+            if (!imgUrl || seenImageUrls.has(imgUrl)) continue;
+            seenImageUrls.add(imgUrl);
+            allImages.push({
+              image_id:                    `${article.slug}_analyzed_${idx}`,
+              url:                         imgUrl,
+              source_article_title:        article.title ?? article.slug,
+              source_article_slug:         article.slug,
+              shows_entire_site:           imgAnalysis.analysis?.shows_entire_site ?? false,
+              shows_detail:                imgAnalysis.analysis?.shows_detail ?? false,
+              is_iconic_view:              imgAnalysis.analysis?.is_iconic_view ?? false,
+              visual_clarity_score:        imgAnalysis.analysis?.visual_clarity_score ?? 0,
+              composition_quality_score:   imgAnalysis.analysis?.composition_quality_score ?? 0,
+              editorial_relevance:         imgAnalysis.analysis?.editorial_relevance || 'faible',
+              analysis_summary:            imgAnalysis.analysis?.analysis_summary || '',
+            });
+          }
+        }
+
+        // Fallback : inclure aussi les images brutes si elles ne sont pas déjà présentes
+        const rawImages = article.images ?? [];
+        for (let idx = 0; idx < rawImages.length; idx++) {
+          const raw = rawImages[idx];
+          const imgUrl = typeof raw === 'string' ? raw : raw?.url || '';
           if (!imgUrl || seenImageUrls.has(imgUrl)) continue;
           seenImageUrls.add(imgUrl);
           allImages.push({
-            image_id:                    `${article.slug}_${idx}`,
+            image_id:                    `${article.slug}_raw_${idx}`,
             url:                         imgUrl,
             source_article_title:        article.title ?? article.slug,
             source_article_slug:         article.slug,
-            shows_entire_site:           imgAnalysis.analysis?.shows_entire_site ?? false,
-            shows_detail:                imgAnalysis.analysis?.shows_detail ?? false,
-            is_iconic_view:              imgAnalysis.analysis?.is_iconic_view ?? false,
-            visual_clarity_score:        imgAnalysis.analysis?.visual_clarity_score ?? 0,
-            composition_quality_score:   imgAnalysis.analysis?.composition_quality_score ?? 0,
-            editorial_relevance:         imgAnalysis.analysis?.editorial_relevance || 'faible',
-            analysis_summary:            imgAnalysis.analysis?.analysis_summary || '',
+            shows_entire_site:           false,
+            shows_detail:                false,
+            is_iconic_view:              false,
+            visual_clarity_score:        0,
+            composition_quality_score:   0,
+            editorial_relevance:         'faible',
+            analysis_summary:            '',
           });
         }
       }

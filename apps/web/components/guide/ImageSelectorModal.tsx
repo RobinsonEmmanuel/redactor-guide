@@ -205,6 +205,8 @@ export default function ImageSelectorModal({
 
   const [images, setImages] = useState<ImageItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [imagesAnalyzed, setImagesAnalyzed] = useState<boolean | null>(null);
+  const [pageImageReason, setPageImageReason] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(currentImageUrl || null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'relevance' | 'clarity' | 'composition'>('relevance');
@@ -255,6 +257,7 @@ export default function ImageSelectorModal({
   const loadImages = async () => {
     setLoading(true);
     setOpenAnalysisId(null);
+    setPageImageReason(null);
     try {
       const token = document.cookie
         .split('; ')
@@ -278,8 +281,16 @@ export default function ImageSelectorModal({
       if (res.ok) {
         const data = await res.json();
         setImages(data.images || []);
+        if (typeof data.analyzed === 'boolean') setImagesAnalyzed(data.analyzed);
+        if (typeof data.reason === 'string') setPageImageReason(data.reason);
       } else {
-        console.error('Erreur chargement images:', res.status);
+        // Les 404 sur l'endpoint page/image-analysis sont non bloquantes
+        // (ex: page sans article source) -> on affiche simplement une liste vide.
+        if (res.status !== 404) {
+          console.error('Erreur chargement images:', res.status);
+        }
+        setImages([]);
+        setImagesAnalyzed(false);
       }
     } catch (err) {
       console.error('Erreur chargement images:', err);
@@ -537,7 +548,7 @@ export default function ImageSelectorModal({
     poi:   poiName
       ? `Aucune image encore associée à "${poiName}". Générez la page une première fois pour peupler cet onglet.`
       : 'Aucun POI défini pour cette page.',
-    page:  'Les images de l\'article n\'ont pas encore été analysées',
+    page:  'Aucune image disponible pour cet article (article non ingéré ou sans images)',
     guide: searchQuery
       ? `Aucune image trouvée pour "${searchQuery}"`
       : 'Aucune image analysée pour cette destination',
@@ -554,12 +565,17 @@ export default function ImageSelectorModal({
               <PhotoIcon className="h-6 w-6" />
               <div>
                 <h2 className="text-xl font-semibold">Sélectionner une image</h2>
-                <p className="text-sm text-purple-100 mt-0.5">
+                <p className="text-sm text-purple-100 mt-0.5 flex items-center gap-2">
                   {inputMode === 'analyzed'
                     ? `${images.length} image${images.length !== 1 ? 's' : ''}${activeScope === 'guide' && searchQuery ? ` · "${searchQuery}"` : ''}`
                     : inputMode === 'url'
                     ? 'Coller une URL d\'image'
                     : 'Charger depuis l\'ordinateur'}
+                  {inputMode === 'analyzed' && activeScope === 'page' && imagesAnalyzed === false && images.length > 0 && (
+                    <span className="text-[10px] bg-yellow-400/30 text-yellow-100 border border-yellow-300/40 px-2 py-0.5 rounded-full font-medium">
+                      Non analysées — scores non disponibles
+                    </span>
+                  )}
                 </p>
               </div>
             </div>
@@ -1164,6 +1180,9 @@ export default function ImageSelectorModal({
                   <PhotoIcon className="h-12 w-12 text-gray-300 mx-auto mb-4" />
                   <p className="text-gray-600 mb-2">Aucune image disponible</p>
                   <p className="text-sm text-gray-500">{emptyMessage[activeScope]}</p>
+                  {activeScope === 'page' && pageImageReason && (
+                    <p className="text-xs text-amber-600 mt-2">{pageImageReason}</p>
+                  )}
                 </div>
               </div>
             ) : (

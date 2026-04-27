@@ -22,7 +22,7 @@ var doc = app.activeDocument;
 // --- Configuration -----------------------------------------------------------
 // Mettre a true pour afficher une alerte de diagnostic picto sur chaque page POI.
 // Desactiver (false) en production.
-var DEBUG_PICTOS      = true;
+var DEBUG_PICTOS      = false;
 var DEBUG_INSPIRATION = false;
 var DEBUG_PAGES       = false;
 
@@ -93,7 +93,8 @@ var GABARIT_NAMES = {
     "PRESENTATION_GUIDE":      "B-PRESENTATION_GUIDE",
     "SOMMAIRE":                "F-SOMMAIRE",
     "PRESENTATION_DESTINATION":"C-PRESENTATION_DESTINATION",
-    "CARTE_DESTINATION":       "E-CARTE_DESTINATION",
+    "CARTE":                   "E-CARTE_DESTINATION",
+    "CARTE_DESTINATION":       "E-CARTE_DESTINATION", // compatibilite anciens exports
     "CLUSTER":                 "D-CLUSTER",
     "POI":                     "G-POI",
     "INSPIRATION":             "H-INSPIRATION",
@@ -112,6 +113,10 @@ var missingGabarits = [];
 // Liste des blocs tronques (texte trop long) detectes pendant la generation
 // Format : { page: N, label: "...", titre: "..." }
 var overflowWarnings = [];
+// Images réellement non placées (échec local + URL) — rapport final
+var imagePlacementWarnings = [];
+// Evite de répéter le même popup debug pictos sur la même page
+var pictoDebugShownPages = {};
 
 // Contexte de la page en cours de generation (mis a jour a chaque iteration).
 // Permet a truncateOverflow de contextualiser les avertissements.
@@ -515,15 +520,48 @@ function injectNomHashtag(page, label, value) {
 // --- 8b. Injecter image (local en priorite, URL en fallback) -----------------
 // Note : les TextFrames sont ignores - placer un fichier dans un TextFrame
 // cree un graphic inline qui laisse une ligne blanche dans le bloc.
+function resolveImageTarget(item) {
+    if (!item) return null;
+    if (item instanceof TextFrame) return null;
+
+    // Cadres image standards InDesign
+    if ((item instanceof Rectangle) || (item instanceof Oval) || (item instanceof Polygon)) {
+        return item;
+    }
+
+    // Si le label est posé sur un groupe, chercher dedans le premier cadre placeable
+    try {
+        if (item.allPageItems && item.allPageItems.length > 0) {
+            for (var gi = 0; gi < item.allPageItems.length; gi++) {
+                var child = item.allPageItems[gi];
+                if ((child instanceof Rectangle) || (child instanceof Oval) || (child instanceof Polygon)) {
+                    return child;
+                }
+            }
+        }
+    } catch(e) {}
+
+    // Fallback : certains objets supportent place() sans être typés ici
+    try {
+        if (typeof item.place === "function") return item;
+    } catch(e) {}
+
+    return null;
+}
+
 function injectImage(page, label, imageData) {
     var blocks = findByLabelOnPage(page, label);
+    var hasGraphicBlock = false;
+    var placedAtLeastOne = false;
     for (var i = 0; i < blocks.length; i++) {
         var block = blocks[i];
-        // Ignorer les TextFrames : seuls les cadres image (Rectangle, etc.) acceptent place()
-        if (block instanceof TextFrame) {
+        var target = resolveImageTarget(block);
+        // Ignorer les TextFrames et objets non placeables
+        if (!target) {
             block.visible = false;
             continue;
         }
+        hasGraphicBlock = true;
         if (!imageData || (!imageData.local && !imageData.url)) {
             block.visible = false;
             continue;
@@ -534,18 +572,30 @@ function injectImage(page, label, imageData) {
             var localFile = new File(rootFolder.fullName + "/" + imageData.local);
             if (localFile.exists) {
                 try {
-                    block.place(localFile);
-                    block.fit(FitOptions.FILL_PROPORTIONALLY);
+                    target.place(localFile);
+                    target.fit(FitOptions.FILL_PROPORTIONALLY);
                     placed = true;
+                    placedAtLeastOne = true;
                 } catch(e) {}
             }
         }
         if (!placed && imageData.url) {
             try {
-                block.place(new File(imageData.url));
-                block.fit(FitOptions.FILL_PROPORTIONALLY);
+                target.place(new File(imageData.url));
+                target.fit(FitOptions.FILL_PROPORTIONALLY);
+                placedAtLeastOne = true;
             } catch(e) { block.visible = false; }
         }
+    }
+    // Rapporter uniquement les vrais échecs de placement d'image
+    if (hasGraphicBlock && imageData && (imageData.local || imageData.url) && !placedAtLeastOne) {
+        imagePlacementWarnings.push({
+            page:  currentPageNum,
+            titre: currentPageTitre,
+            label: label,
+            local: imageData.local || '',
+            url:   imageData.url || ''
+        });
     }
 }
 
@@ -705,35 +755,6 @@ var ALL_PICTO_LABELS = [
 // param durationValue : valeur de duree de visite (ou null)
 function injectPictoBar(page, contentData, durationValue) {
 
-    // --- DIAGNOSTIC (DEBUG_PICTOS = true) ------------------------------------
-    if (DEBUG_PICTOS) {
-        var _items  = page.allPageItems;
-        var _labels = [];
-        for (var _i = 0; _i < _items.length; _i++) {
-            try {
-                var _lbl = _items[_i].label;
-                if (_lbl && _lbl !== "") _labels.push(_lbl);
-            } catch(e) {}
-        }
-        var _found = [], _missing = [];
-        for (var _p = 0; _p < ALL_PICTO_LABELS.length; _p++) {
-            var _cnt = 0;
-            for (var _j = 0; _j < _items.length; _j++) if (_items[_j].label === ALL_PICTO_LABELS[_p]) _cnt++;
-            if (_cnt > 0) _found.push(ALL_PICTO_LABELS[_p]);
-            else          _missing.push(ALL_PICTO_LABELS[_p]);
-        }
-        alert(
-            "=== DEBUG PICTOS ===\n" +
-            "Items sur la page (" + _items.length + " total, " + _labels.length + " avec label) :\n" +
-            _labels.join("\n") +
-            "\n\n--- ALL_PICTO_LABELS trouves (" + _found.length + ") ---\n" +
-            (_found.length ? _found.join("\n") : "(aucun)") +
-            "\n\n--- ALL_PICTO_LABELS MANQUANTS (" + _missing.length + ") ---\n" +
-            (_missing.length ? _missing.join("\n") : "(aucun)")
-        );
-    }
-    // --- FIN DIAGNOSTIC ------------------------------------------------------
-
     // 1. Masquer TOUS les blocs picto connus + texte duree
     for (var p = 0; p < ALL_PICTO_LABELS.length; p++) {
         var pBlocks = findByLabelOnPage(page, ALL_PICTO_LABELS[p]);
@@ -789,6 +810,21 @@ function injectPictoBar(page, contentData, durationValue) {
             found = findByLabelOnPage(page, entry.indesign_layer.substring(4));
         }
         if (found.length > 0) activePictos.push(found[0]);
+    }
+
+    // Debug ciblé : alerte seulement s'il manque des pictos demandés par le contenu.
+    if (DEBUG_PICTOS && pictosActive.length > 0 && activePictos.length < pictosActive.length) {
+        var debugKey = String(currentPageNum || 0) + "|" + (currentPageTitre || "");
+        if (!pictoDebugShownPages[debugKey]) {
+            pictoDebugShownPages[debugKey] = true;
+            alert(
+                "DEBUG PICTOS — page " + (currentPageNum || "?")
+                + (currentPageTitre ? (" (" + currentPageTitre + ")") : "")
+                + "\nDemandés par le JSON : " + pictosActive.length
+                + "\nTrouvés sur le gabarit : " + activePictos.length
+                + "\n\nVérifiez les labels indesign_layer / variant_layer du template."
+            );
+        }
     }
 
     if (activePictos.length === 0) return;
@@ -1113,12 +1149,12 @@ for (var i = 0; i < data.pages.length; i++) {
         continue;
     }
 
-    // -- CARTE_DESTINATION ----------------------------------------------------
-    if (pageData.template === "CARTE_DESTINATION") {
-        var msCarteDest = loadGabarit("CARTE_DESTINATION", false);
+    // -- CARTE / CARTE_DESTINATION --------------------------------------------
+    if (pageData.template === "CARTE" || pageData.template === "CARTE_DESTINATION") {
+        var msCarteDest = loadGabarit("CARTE", false);
         if (!msCarteDest) continue;
 
-        var carteDestPage = addPageWithMaster(msCarteDest, "CARTE_DESTINATION");
+        var carteDestPage = addPageWithMaster(msCarteDest, "CARTE");
         injectPageContent(carteDestPage, pageData);
         pagesGenerated++;
         continue;
@@ -1243,6 +1279,31 @@ if (overflowWarnings.length > 0) {
 
     finalMsg += "\n\n[!] " + overflowWarnings.length + " bloc(s) tronque(s)"
               + (overflowWritten ? " -> voir overflow-report.txt" : " (impossible d ecrire le fichier rapport)");
+}
+
+if (imagePlacementWarnings.length > 0) {
+    finalMsg += "\n\n[!] " + imagePlacementWarnings.length + " image(s) non placée(s)";
+    // Ecrire un rapport dédié pour diagnostic précis
+    try {
+        var imgReport = new File(rootFolder + "/image-placement-report.txt");
+        imgReport.encoding = "UTF-8";
+        imgReport.open("w");
+        imgReport.writeln("IMAGES NON PLACEES");
+        imgReport.writeln("----------------------------------------------------");
+        for (var iw = 0; iw < imagePlacementWarnings.length; iw++) {
+            var w = imagePlacementWarnings[iw];
+            imgReport.writeln("p." + w.page
+                + "  [" + w.label + "]"
+                + (w.titre ? ("  " + w.titre) : ""));
+            if (w.local) imgReport.writeln("  local: " + w.local);
+            if (w.url)   imgReport.writeln("  url  : " + w.url);
+            imgReport.writeln("");
+        }
+        imgReport.close();
+        finalMsg += " -> voir image-placement-report.txt";
+    } catch(e) {
+        finalMsg += " (impossible d ecrire image-placement-report.txt)";
+    }
 }
 
 if (missingGabarits.length > 0) {

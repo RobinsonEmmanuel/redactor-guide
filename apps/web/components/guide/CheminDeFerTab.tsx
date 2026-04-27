@@ -87,6 +87,11 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
   const [generatingPageIds, setGeneratingPageIds] = useState<Set<string>>(new Set());
   // Compteur de séquence pour annuler les réponses loadPages obsolètes (race condition)
   const loadPagesSeqRef = useRef(0);
+  // Garde-fou pour éviter les requêtes loadPages qui se chevauchent
+  const loadPagesInFlightRef = useRef(false);
+  // Compteur d'erreurs consécutives de polling (arrêt après trop d'échecs)
+  const pollingErrorCountRef = useRef(0);
+  const [pollingApiError, setPollingApiError] = useState(false);
   
   // États pour la génération de structure
   const [generatingStructure, setGeneratingStructure] = useState(false);
@@ -205,6 +210,12 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
   };
 
   const loadPages = async () => {
+    // Evite le chevauchement : si un fetch est déjà en cours, on saute ce tick.
+    // Sinon, avec un interval court, les réponses sont constamment considérées obsolètes
+    // et l'UI ne se met à jour qu'au timeout final.
+    if (loadPagesInFlightRef.current) return;
+    loadPagesInFlightRef.current = true;
+
     // Incrémenter le compteur — seule la réponse du dernier appel est appliquée
     const seq = ++loadPagesSeqRef.current;
     try {
@@ -214,16 +225,25 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
       // Ignorer la réponse si un appel plus récent a déjà été lancé
       if (seq !== loadPagesSeqRef.current) return;
       if (res.ok) {
+        pollingErrorCountRef.current = 0;
+        setPollingApiError(false);
         const data = await res.json();
         const loadedPages = data.pages || [];
-        const inspiPages = loadedPages.filter((p: any) => p.metadata?.page_type === 'inspiration');
         setPages(loadedPages);
         // Si des pages existent en base, quitter le mode grille vide
         if (loadedPages.length > 0) setEmptyGridMode(false);
       }
     } catch (err) {
       console.error('Erreur chargement pages:', err);
+      pollingErrorCountRef.current += 1;
+      // Après 5 erreurs consécutives (15s), stopper le polling et signaler l'erreur
+      if (pollingErrorCountRef.current >= 5) {
+        console.warn('⚠️ Polling arrêté : trop d\'erreurs consécutives (API inaccessible ?)');
+        stopPolling();
+        setPollingApiError(true);
+      }
     } finally {
+      loadPagesInFlightRef.current = false;
       setLoading(false);
     }
   };
@@ -825,6 +845,19 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
   const handleGeneratePageContent = async (page: Page, opts?: { useLlmKnowledge?: boolean; linkDefaultUrl?: string }) => {
     try {
       console.log('🤖 Génération du contenu pour la page:', page.titre);
+
+      // Feedback immédiat UI : afficher le spinner sans attendre la réponse backend
+      setPages(prev =>
+        prev.map(p =>
+          p._id === page._id ? { ...p, statut_editorial: 'en_attente' } : p
+        )
+      );
+      setGeneratingPageIds(prev => {
+        const next = new Set(prev);
+        next.add(page._id);
+        return next;
+      });
+      startPolling(loadPages);
       
       const body = opts ? JSON.stringify({
         use_llm_knowledge: opts.useLlmKnowledge || undefined,
@@ -1190,7 +1223,24 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
   }
 
   return (
-    <div className="flex h-full gap-0">
+    <div className="flex flex-col h-full gap-0">
+      {/* Bandeau erreur API polling */}
+      {pollingApiError && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2 bg-orange-50 border-b border-orange-200 text-sm text-orange-800 flex-shrink-0">
+          <span>⚠️ L'API est inaccessible — les statuts de génération ne se mettent plus à jour automatiquement.</span>
+          <button
+            onClick={() => {
+              setPollingApiError(false);
+              pollingErrorCountRef.current = 0;
+              loadPages();
+            }}
+            className="px-3 py-1 bg-orange-100 hover:bg-orange-200 rounded text-xs font-medium whitespace-nowrap transition-colors"
+          >
+            Rafraîchir
+          </button>
+        </div>
+      )}
+    <div className="flex flex-1 gap-0 min-h-0">
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -1805,6 +1855,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
         </div>
       )}
 
+    </div>
     </div>
   );
 }

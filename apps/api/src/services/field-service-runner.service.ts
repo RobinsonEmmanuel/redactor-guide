@@ -213,6 +213,8 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
     if (
       pt === 'poi'       || tpl.startsWith('POI')       ||
       tpl.startsWith('COUVERTURE')                       ||
+      tpl === 'CARTE'                                    ||
+      tpl.startsWith('CARTE_DESTINATION')                ||
       tpl.startsWith('SOMMAIRE')                         ||
       pt === 'sommaire'
     ) continue;

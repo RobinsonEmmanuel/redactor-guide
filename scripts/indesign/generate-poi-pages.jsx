@@ -100,7 +100,8 @@ var GABARIT_NAMES = {
     "INSPIRATION":             "H-INSPIRATION",
     "SAISON":                  "I-SAISON",
     "ALLER_PLUS_LOIN":         "J-ALLER_PLUS_LOIN",
-    "A_PROPOS_RL":             "K-A_PROPOS_RL"
+    "A_PROPOS_RL":             "K-A_PROPOS_RL",
+    "SECTION":                 "L-SECTION"
 };
 
 // Cache des gabarits charges (evite de recharger plusieurs fois)
@@ -1210,6 +1211,17 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var aProposRLPage = addPageWithMaster(msAProposRL, "A_PROPOS_RL");
         injectPageContent(aProposRLPage, pageData);
+        pagesGenerated++;
+        continue;
+    }
+
+    // -- SECTION ---------------------------------------------------------------
+    if (pageData.template === "SECTION") {
+        var msSection = loadGabarit("SECTION", false);
+        if (!msSection) continue;
+
+        var sectionPage = addPageWithMaster(msSection, "SECTION");
+        injectPageContent(sectionPage, pageData);
         pagesGenerated++;
         continue;
     }

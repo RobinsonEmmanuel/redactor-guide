@@ -154,6 +154,7 @@ const DEFAULT_MAX_LENGTHS: Record<string, number> = {
 const TEMPLATE_VARIANT_MAP: Record<string, string> = {
   POI:                    'poi',
   CLUSTER:                'cluster',
+  SECTION:                'section',
   SAISON:                 'saison',
   COUVERTURE:             'couverture',
   SECTION_INTRO:          'section_intro',

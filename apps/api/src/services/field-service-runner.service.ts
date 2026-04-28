@@ -639,6 +639,8 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
 
   for (let i = 0; i < inspirationPois.length; i++) {
     const poi = inspirationPois[i];
+    const savedCard = (savedCards[i] ?? {}) as Record<string, string>;
+    const hasSavedKey = (k: string) => Object.prototype.hasOwnProperty.call(savedCard, k);
 
     // Slot supprimé par l'utilisateur → carte masquée (card=''), pas d'appel IA/DB
     if (i >= visibleCount) {
@@ -660,7 +662,7 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     };
 
     // Image manuellement choisie par l'utilisateur pour cette entrée (priorité absolue)
-    const savedImage: string | undefined = savedCards[i]?.image;
+    const savedImage: string | undefined = savedCard.image;
     const hasManualImage = typeof savedImage === 'string' && savedImage.startsWith('http');
 
     // Charger les images disponibles pour ce POI (une seule requête DB, réutilisée)
@@ -711,7 +713,9 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
 
     // ── nom ───────────────────────────────────────────────────────────────────
     // Règle : nom vernaculaire s'il existe, sinon nom français brut.
-    const nom = enrichedPoi.nom_vernaculaire?.trim() || enrichedPoi.nom;
+    const nomAuto = enrichedPoi.nom_vernaculaire?.trim() || enrichedPoi.nom;
+    const nomSaved = hasSavedKey('nom') ? String(savedCard.nom ?? '') : null;
+    const nom = (nomSaved !== null ? nomSaved : nomAuto).trim();
 
     // ── hashtag ───────────────────────────────────────────────────────────────
     // Génère un hashtag qui capture l'élément distinctif du lieu (pas son nom).
@@ -721,9 +725,9 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
       `Tu es rédacteur d'un guide touristique. À partir du contenu ci-dessous sur le lieu "{{POI_NOM}}", identifie son élément distinctif le plus fort (paysage, activité, ambiance, caractéristique unique). Crée un hashtag d'un seul mot en CamelCase, avec #, sans espace, en français. Réponds UNIQUEMENT avec le hashtag (ex: #EauxCristallines).`,
       poiVars
     );
-    let hashtag = '';
+    let hashtagAuto = '';
     if (hashResolved.mode === 'default') {
-      hashtag = hashResolved.defaultValue ?? '';
+      hashtagAuto = hashResolved.defaultValue ?? '';
     } else if (hashResolved.mode === 'ai' && hashResolved.instructions) {
       try {
         const poiContenu = enrichedPoi.content_text?.trim() ?? '';
@@ -733,33 +737,39 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
         const contextLine = poiContenu
           ? `\n\nContenu de la page :\n${poiContenu.substring(0, 800)}`
           : '';
-        hashtag = await miniAI(`${hashResolved.instructions}\nLieu : "${poi.nom}"${contextLine}${calibreHash}`);
+        hashtagAuto = await miniAI(`${hashResolved.instructions}\nLieu : "${poi.nom}"${contextLine}${calibreHash}`);
         // S'assurer que la réponse est bien un hashtag
-        if (hashtag && !hashtag.startsWith('#')) hashtag = '#' + hashtag;
-        hashtag = hashtag.split(/\s/)[0] ?? '';  // premier mot seulement
-      } catch { hashtag = ''; }
+        if (hashtagAuto && !hashtagAuto.startsWith('#')) hashtagAuto = '#' + hashtagAuto;
+        hashtagAuto = hashtagAuto.split(/\s/)[0] ?? '';  // premier mot seulement
+      } catch { hashtagAuto = ''; }
     }
     // mode 'skip' → hashtag vide (géré ailleurs)
+    const hashtagSaved = hasSavedKey('hashtag') ? String(savedCard.hashtag ?? '') : null;
+    const hashtag = (hashtagSaved !== null ? hashtagSaved : hashtagAuto).trim();
 
     // ── url_article (URL brute de l'article source) ───────────────────────────
     // Utilise resolvedPoiUrl (résolution 3-niveaux) plutôt que poi.url_source brut
     const urlArtResolved = resolveSubField(fieldDef, 'url_article', '', poiVars);
-    const urlArticle = urlArtResolved.mode === 'skip'    ? ''
+    const urlArticleAuto = urlArtResolved.mode === 'skip'    ? ''
       : urlArtResolved.mode === 'default' ? (urlArtResolved.defaultValue ?? resolvedPoiUrl)
       : resolvedPoiUrl;
+    const urlArticleSaved = hasSavedKey('url_article') ? String(savedCard.url_article ?? '') : null;
+    const urlArticle = (urlArticleSaved !== null ? urlArticleSaved : urlArticleAuto).trim();
 
     // ── url_maps (URL brute Google Maps pour picto carte InDesign) ───────────
-    let urlMaps = '';
+    let urlMapsAuto = '';
     const urlMapsResolved = resolveSubField(fieldDef, 'url_maps', '', poiVars);
     if (urlMapsResolved.mode !== 'skip') {
       try {
         const enrichedQuery = destination ? `${poi.nom}, ${destination}` : poi.nom;
         const geo = await _geocodingService.resolve(enrichedQuery, country);
         if (geo) {
-          urlMaps = geo.urls.google_maps;
+          urlMapsAuto = geo.urls.google_maps;
         }
-      } catch { urlMaps = ''; }
+      } catch { urlMapsAuto = ''; }
     }
+    const urlMapsSaved = hasSavedKey('url_maps') ? String(savedCard.url_maps ?? '') : null;
+    const urlMaps = (urlMapsSaved !== null ? urlMapsSaved : urlMapsAuto).trim();
 
     cards.push({
       card:         '1',         // sentinelle : '1' = groupe visible, '' = groupe masqué

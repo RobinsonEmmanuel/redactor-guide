@@ -97,7 +97,13 @@ var GABARIT_NAMES = {
     "CARTE_DESTINATION":       "E-CARTE_DESTINATION", // compatibilite anciens exports
     "CLUSTER":                 "D-CLUSTER",
     "POI":                     "G-POI",
-    "INSPIRATION":             "H-INSPIRATION",
+    "INSPIRATION":             "H-INSPIRATION-6", // fallback par defaut
+    "INSPIRATION_6":           "H-INSPIRATION-6",
+    "INSPIRATION_5":           "M-INSPIRATION-5",
+    "INSPIRATION_4":           "N-INSPIRATION-4",
+    "INSPIRATION_3":           "O-INSPIRATION-3",
+    "INSPIRATION_2":           "P-INSPIRATION-2",
+    "INSPIRATION_1":           "Q-INSPIRATION-1",
     "SAISON":                  "I-SAISON",
     "ALLER_PLUS_LOIN":         "J-ALLER_PLUS_LOIN",
     "A_PROPOS_RL":             "K-A_PROPOS_RL",
@@ -147,6 +153,72 @@ function loadGabarit(templateName, required) {
         return null;
     }
     gabaritCache[templateName] = ms;
+    return ms;
+}
+
+// --- 1b. Choix automatique du gabarit INSPIRATION selon nb de cartes ----------
+// Compte les slots N actifs (1..6) via les cles _card_N, _nom_hashtag_N, _url_*_N et _image_N.
+// Retourne un entier 0..6.
+function countInspirationCards(pageData) {
+    var textContent  = (pageData && pageData.content && pageData.content.text)   || {};
+    var imageContent = (pageData && pageData.content && pageData.content.images) || {};
+    var seen = {};
+
+    function markFromKey(key, value, strictBooleanCard) {
+        var m = key.match(/^INSPIRATION_1_(?:card|nom_hashtag|url_article|url_maps|image)_(\d+)$/);
+        if (!m) return;
+        var idx = parseInt(m[1], 10);
+        if (!(idx >= 1 && idx <= 6)) return;
+
+        if (strictBooleanCard) {
+            var s = String(value === undefined || value === null ? "" : value).toLowerCase().replace(/^\s+|\s+$/g, "");
+            if (s === "" || s === "0" || s === "false" || s === "non" || s === "null" || s === "undefined") return;
+            seen[idx] = true;
+            return;
+        }
+
+        if (value === null || value === undefined) return;
+        if (typeof value === "string") {
+            var t = value.replace(/^\s+|\s+$/g, "");
+            if (t === "") return;
+            seen[idx] = true;
+            return;
+        }
+        if (typeof value === "object") {
+            if (value.url && String(value.url).replace(/^\s+|\s+$/g, "") !== "") seen[idx] = true;
+            return;
+        }
+        seen[idx] = true;
+    }
+
+    for (var tKey in textContent) {
+        if (!textContent.hasOwnProperty(tKey)) continue;
+        markFromKey(tKey, textContent[tKey], tKey.indexOf("_card_") !== -1);
+    }
+    for (var iKey in imageContent) {
+        if (!imageContent.hasOwnProperty(iKey)) continue;
+        markFromKey(iKey, imageContent[iKey], false);
+    }
+
+    var count = 0;
+    for (var i = 1; i <= 6; i++) if (seen[i]) count++;
+    return count;
+}
+
+function loadInspirationGabarit(pageData) {
+    var count = countInspirationCards(pageData);
+    var safeCount = (count >= 1 && count <= 6) ? count : 6;
+    var key = "INSPIRATION_" + safeCount;
+    var ms = loadGabarit(key, false);
+
+    // Fallback securise : si le gabarit cible manque, tenter le 6 puis le fallback historique.
+    if (!ms && safeCount !== 6) ms = loadGabarit("INSPIRATION_6", false);
+    if (!ms) ms = loadGabarit("INSPIRATION", false);
+
+    try {
+        $.writeln("[INSPIRATION] cards=" + count + " -> gabarit=" + (ms ? key : "NONE"));
+    } catch(e) {}
+
     return ms;
 }
 
@@ -1174,7 +1246,7 @@ for (var i = 0; i < data.pages.length; i++) {
 
     // -- INSPIRATION ----------------------------------------------------------
     if (pageData.template === "INSPIRATION") {
-        var msInspi = loadGabarit("INSPIRATION", false);
+        var msInspi = loadInspirationGabarit(pageData);
         if (!msInspi) continue;
 
         var inspiPage = addPageWithMaster(msInspi, "INSPIRATION");

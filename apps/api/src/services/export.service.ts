@@ -369,11 +369,12 @@ export class ExportService {
       return trackNormalize(rawUrl);
     };
 
-    // Résout une URL de destination dans la langue cible pour le CSV.
-    // Priorité :
-    // 1) mapping articles_raw via urlResolver (FR -> langue cible),
-    // 2) normalisation canonique /guide/{lang}/{slug}/,
-    // 3) fallback explicite /guide/fr/ -> /guide/{lang}/.
+    // Résout une URL de destination pour le CSV STRICTEMENT depuis la base.
+    // Règle métier demandée:
+    // - pas de reconstruction d'URL
+    // - pas de fallback /guide/{lang}/...
+    // - uniquement lookup FR -> langue cible via articles_raw.urls_by_lang
+    // (avec support de la forme canonique FR comme clé alternative).
     const resolveDestinationForLang = (destination: string): string => {
       if (lang === 'fr') return destination;
       const resolved = urlResolver(destination);
@@ -381,11 +382,7 @@ export class ExportService {
 
       const fromCanonicalFr = urlCanonicalMap.get(normalizeArticleUrl(destination, 'fr'));
       if (fromCanonicalFr) return fromCanonicalFr;
-
-      const normalizedLang = normalizeArticleUrl(destination, lang);
-      if (normalizedLang !== destination) return normalizedLang;
-
-      return destination.replace(/\/guide\/fr\//i, `/guide/${lang}/`);
+      return destination;
     };
 
     let normalizedCount = 0;

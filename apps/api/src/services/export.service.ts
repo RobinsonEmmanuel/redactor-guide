@@ -63,6 +63,9 @@ export class ExportService {
     // Pour lang !== 'fr' : remplace les URLs françaises par la version cible.
     // Source : articles_raw.urls_by_lang.{lang} ; fallback sur l'URL française.
     let urlResolver: (frUrl: string) => string = (u) => u; // identité pour FR
+    // Map étendue pour résoudre aussi les formes canoniques (/guide/fr/slug/)
+    // vers l'URL réelle traduite (ex: /en/best-gardens-tenerife/).
+    const urlCanonicalMap = new Map<string, string>();
     if (lang !== 'fr') {
       const articles = await getArticlesDatabase()
         .collection(COLLECTIONS.articles_raw)
@@ -76,7 +79,11 @@ export class ExportService {
       for (const art of articles) {
         const frUrl  = art.urls_by_lang?.fr;
         const tgtUrl = art.urls_by_lang?.[lang];
-        if (frUrl && tgtUrl) urlMap.set(frUrl, tgtUrl);
+        if (frUrl && tgtUrl) {
+          urlMap.set(frUrl, tgtUrl);
+          // Variante canonique FR (/guide/fr/slug/) -> URL traduite réelle.
+          urlCanonicalMap.set(normalizeArticleUrl(frUrl, 'fr'), tgtUrl);
+        }
       }
       console.log(`🌐 [EXPORT][${lang}] URL resolver : ${urlMap.size} article(s) avec URL en ${lang}`);
       urlResolver = (frUrl: string) => urlMap.get(frUrl) ?? frUrl;
@@ -371,6 +378,9 @@ export class ExportService {
       if (lang === 'fr') return destination;
       const resolved = urlResolver(destination);
       if (resolved !== destination) return resolved;
+
+      const fromCanonicalFr = urlCanonicalMap.get(normalizeArticleUrl(destination, 'fr'));
+      if (fromCanonicalFr) return fromCanonicalFr;
 
       const normalizedLang = normalizeArticleUrl(destination, lang);
       if (normalizedLang !== destination) return normalizedLang;

@@ -69,6 +69,7 @@ const EnvSchema = z.object({
   INGESTION_SERVICE_URL: z
     .string()
     .optional()
+    .default('https://ingestion-service.up.railway.app')
     .transform((v) => normalizeOptionalServiceUrl(v)),
   /** Clé API pour s'authentifier auprès du microservice d'ingestion */
   INGESTION_SERVICE_API_KEY: z.string().optional(),
@@ -76,6 +77,7 @@ const EnvSchema = z.object({
   POI_SERVICE_URL: z
     .string()
     .optional()
+    .default('https://poi-service.up.railway.app')
     .transform((v) => normalizeOptionalServiceUrl(v)),
   /** Clé API pour s'authentifier auprès du microservice POI */
   POI_SERVICE_API_KEY: z.string().optional(),

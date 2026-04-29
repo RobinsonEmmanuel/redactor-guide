@@ -77,6 +77,20 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
     }
   };
 
+  const syncTranslationUrls = async (payload: Record<string, unknown>) => {
+    try {
+      setIngestionStatus('Synchronisation des URLs traduites...');
+      await fetch(`${apiUrl}/api/v1/ingest/sync-translations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      console.warn('[Ingestion] sync-translations ignoré:', err);
+    }
+  };
+
   const launchIngestion = async () => {
     if (!guide?.slug) {
       setIngestionError('Slug du guide manquant');
@@ -147,6 +161,7 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
             const statusData = await statusRes.json();
 
             if (statusData.status === 'completed') {
+              await syncTranslationUrls(payload);
               setIngestionStatus('Récupération terminée !');
               setIngesting(false);
               await loadArticles();
@@ -185,6 +200,7 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
 
         if (ingestRes.ok) {
           const data = await ingestRes.json();
+          await syncTranslationUrls(payload);
           setIngestionStatus(`Récupération terminée ! ${data.count ?? data.totalArticles ?? 0} articles traités`);
           await loadArticles();
           onArticlesImported?.();
@@ -237,6 +253,13 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
       if (!res.ok) {
         setSingleError(data.error || 'Erreur lors de l\'ajout');
       } else {
+        await syncTranslationUrls({
+          siteId:         guide.slug,
+          ...(guide.wpConfig?.siteUrl ? { siteUrl: guide.wpConfig.siteUrl } : {}),
+          articleUrl:     singleUrl.trim(),
+          destinationIds: guide.destinations || [],
+          languages:      guide.availableLanguages || ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'],
+        });
         setSingleResult(data);
         setSingleUrl('');
         await loadArticles();

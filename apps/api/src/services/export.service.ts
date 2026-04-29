@@ -362,6 +362,22 @@ export class ExportService {
       return trackNormalize(rawUrl);
     };
 
+    // Résout une URL de destination dans la langue cible pour le CSV.
+    // Priorité :
+    // 1) mapping articles_raw via urlResolver (FR -> langue cible),
+    // 2) normalisation canonique /guide/{lang}/{slug}/,
+    // 3) fallback explicite /guide/fr/ -> /guide/{lang}/.
+    const resolveDestinationForLang = (destination: string): string => {
+      if (lang === 'fr') return destination;
+      const resolved = urlResolver(destination);
+      if (resolved !== destination) return resolved;
+
+      const normalizedLang = normalizeArticleUrl(destination, lang);
+      if (normalizedLang !== destination) return normalizedLang;
+
+      return destination.replace(/\/guide\/fr\//i, `/guide/${lang}/`);
+    };
+
     let normalizedCount = 0;
     for (const page of pages) {
       // url_source de la page
@@ -407,9 +423,7 @@ export class ExportService {
     const redirectPairs: RedirectPair[] = Array.from(redirectMap.entries()).map(
       ([normalized, destination]) => ({
         normalized,
-        // Sécurise la destination dans la langue cible (si disponible dans urlResolver).
-        // Évite les CSV multilingues pointant encore vers des URLs FR.
-        destination: lang !== 'fr' ? urlResolver(destination) : destination,
+        destination: resolveDestinationForLang(destination),
       })
     );
 

@@ -63,29 +63,65 @@ export class ExportService {
     // Pour lang !== 'fr' : remplace les URLs françaises par la version cible.
     // Source : articles_raw.urls_by_lang.{lang} ; fallback sur l'URL française.
     let urlResolver: (frUrl: string) => string = (u) => u; // identité pour FR
-    // Map étendue pour résoudre aussi les formes canoniques (/guide/fr/slug/)
-    // vers l'URL réelle traduite (ex: /en/best-gardens-tenerife/).
+    // Maps étendues pour résoudre les destinations CSV STRICTEMENT depuis la base :
+    // - clé URL FR exacte
+    // - clé canonique FR (/guide/fr/slug/)
+    // - clé slug FR (dernier segment URL)
     const urlCanonicalMap = new Map<string, string>();
+    const urlSlugMap = new Map<string, string>();
     if (lang !== 'fr') {
-      const articles = await getArticlesDatabase()
-        .collection(COLLECTIONS.articles_raw)
-        .find(
-          { [`urls_by_lang.${lang}`]: { $exists: true } },
-          { projection: { 'urls_by_lang': 1 } }
-        )
-        .toArray();
+      const articleProjection = { 'urls_by_lang': 1 };
+      const articleFilter = { [`urls_by_lang.${lang}`]: { $exists: true } };
+      const [articlesFromConfiguredDb, articlesFromMainDb] = await Promise.all([
+        getArticlesDatabase()
+          .collection(COLLECTIONS.articles_raw)
+          .find(articleFilter, { projection: articleProjection })
+          .toArray(),
+        db.collection(COLLECTIONS.articles_raw)
+          .find(articleFilter, { projection: articleProjection })
+          .toArray(),
+      ]);
 
       const urlMap = new Map<string, string>();
-      for (const art of articles) {
+      const slugFromUrl = (u: string): string | null => {
+        try {
+          const p = new URL(u).pathname.replace(/\/+$/, '');
+          const parts = p.split('/').filter(Boolean);
+          if (parts.length === 0) return null;
+          // retire éventuels préfixes de langue/canonical guide
+          let slug = parts[parts.length - 1];
+          if (!slug || slug === 'guide') return null;
+          return slug.toLowerCase();
+        } catch {
+          return null;
+        }
+      };
+
+      const registerArticleUrls = (art: any) => {
         const frUrl  = art.urls_by_lang?.fr;
         const tgtUrl = art.urls_by_lang?.[lang];
         if (frUrl && tgtUrl) {
-          urlMap.set(frUrl, tgtUrl);
+          if (!urlMap.has(frUrl)) urlMap.set(frUrl, tgtUrl);
           // Variante canonique FR (/guide/fr/slug/) -> URL traduite réelle.
-          urlCanonicalMap.set(normalizeArticleUrl(frUrl, 'fr'), tgtUrl);
+          const canonicalFr = normalizeArticleUrl(frUrl, 'fr');
+          if (!urlCanonicalMap.has(canonicalFr)) urlCanonicalMap.set(canonicalFr, tgtUrl);
+          const frSlug = slugFromUrl(frUrl);
+          if (frSlug && !urlSlugMap.has(frSlug)) urlSlugMap.set(frSlug, tgtUrl);
         }
+      };
+
+      // Base configurée articles_raw + fallback base principale historique,
+      // sans changer la configuration ni déplacer les données.
+      for (const art of articlesFromConfiguredDb) registerArticleUrls(art);
+      for (const art of articlesFromMainDb) {
+        const before = urlMap.size;
+        registerArticleUrls(art);
+        if (urlMap.size === before) continue;
       }
-      console.log(`🌐 [EXPORT][${lang}] URL resolver : ${urlMap.size} article(s) avec URL en ${lang}`);
+      console.log(
+        `🌐 [EXPORT][${lang}] URL resolver : ${urlMap.size} article(s) avec URL en ${lang} `
+        + `(articlesDb=${articlesFromConfiguredDb.length}, mainDb=${articlesFromMainDb.length})`
+      );
       urlResolver = (frUrl: string) => urlMap.get(frUrl) ?? frUrl;
     }
 
@@ -376,12 +412,27 @@ export class ExportService {
     // - uniquement lookup FR -> langue cible via articles_raw.urls_by_lang
     // (avec support de la forme canonique FR comme clé alternative).
     const resolveDestinationForLang = (destination: string): string => {
+      const slugFromUrl = (u: string): string | null => {
+        try {
+          const p = new URL(u).pathname.replace(/\/+$/, '');
+          const parts = p.split('/').filter(Boolean);
+          if (parts.length === 0) return null;
+          const slug = parts[parts.length - 1];
+          if (!slug || slug === 'guide') return null;
+          return slug.toLowerCase();
+        } catch {
+          return null;
+        }
+      };
       if (lang === 'fr') return destination;
       const resolved = urlResolver(destination);
       if (resolved !== destination) return resolved;
 
       const fromCanonicalFr = urlCanonicalMap.get(normalizeArticleUrl(destination, 'fr'));
       if (fromCanonicalFr) return fromCanonicalFr;
+
+      const slug = slugFromUrl(destination);
+      if (slug && urlSlugMap.has(slug)) return urlSlugMap.get(slug) as string;
       return destination;
     };
 

@@ -405,7 +405,12 @@ export class ExportService {
     console.log(`🔗 [EXPORT][${lang}] URLs normalisées : ${normalizedCount} | redirections uniques : ${redirectMap.size}`);
 
     const redirectPairs: RedirectPair[] = Array.from(redirectMap.entries()).map(
-      ([normalized, destination]) => ({ normalized, destination })
+      ([normalized, destination]) => ({
+        normalized,
+        // Sécurise la destination dans la langue cible (si disponible dans urlResolver).
+        // Évite les CSV multilingues pointant encore vers des URLs FR.
+        destination: lang !== 'fr' ? urlResolver(destination) : destination,
+      })
     );
 
     // ── 6. Construire le mapping field→calque depuis les templates réels ──────

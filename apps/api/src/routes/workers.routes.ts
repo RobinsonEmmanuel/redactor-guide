@@ -2,6 +2,8 @@ import { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { PageRedactionService } from '../services/page-redaction.service';
 import { JsonTranslatorService } from '../services/json-translator.service';
+import { ExportService } from '../services/export.service.js';
+import { normalizeGuideExportV2 } from '../services/normalize-export.service.js';
 import { FieldServiceRunner, explodeRepetitifField } from '../services/field-service-runner.service.js';
 import { COLLECTIONS } from '../config/collections.js';
 import { getArticlesDatabase } from '../config/database.js';
@@ -1786,6 +1788,75 @@ Si aucun doublon détecté : retourne { "groupes": [] }`;
     }
   };
   void _oldDeduplicatePois; // silence unused warning
+
+  /**
+   * POST /workers/generate-export-json
+   * Worker pour générer un export JSON en arrière-plan.
+   */
+  fastify.post('/workers/generate-export-json', async (request, reply) => {
+    const db = request.server.container.db;
+    const { jobId } = request.body as { jobId: string };
+
+    try {
+      if (!ObjectId.isValid(jobId)) {
+        return reply.code(400).send({ error: 'Job ID invalide' });
+      }
+
+      const job = await db.collection(COLLECTIONS.export_json_jobs).findOne({
+        _id: new ObjectId(jobId),
+      });
+      if (!job) {
+        return reply.code(404).send({ error: 'Job non trouvé' });
+      }
+
+      await db.collection(COLLECTIONS.export_json_jobs).updateOne(
+        { _id: new ObjectId(jobId) },
+        { $set: { status: 'processing', updated_at: new Date().toISOString() } }
+      );
+
+      const exportService = new ExportService();
+      const rawExport = await exportService.buildGuideExport(
+        String(job.guide_id),
+        db,
+        { language: String(job.lang || 'fr') }
+      );
+      const outputJson = job.normalize === false
+        ? rawExport
+        : normalizeGuideExportV2(
+            rawExport as unknown as Record<string, unknown>,
+            { dropNullPictos: job.drop_null_pictos !== false }
+          );
+
+      await db.collection(COLLECTIONS.export_json_jobs).updateOne(
+        { _id: new ObjectId(jobId) },
+        {
+          $set: {
+            status: 'completed',
+            output_json: outputJson,
+            error: null,
+            updated_at: new Date().toISOString(),
+          },
+        }
+      );
+
+      return reply.send({ success: true, jobId });
+    } catch (error: any) {
+      if (ObjectId.isValid(jobId)) {
+        await db.collection(COLLECTIONS.export_json_jobs).updateOne(
+          { _id: new ObjectId(jobId) },
+          {
+            $set: {
+              status: 'failed',
+              error: error?.message ?? 'Erreur inconnue',
+              updated_at: new Date().toISOString(),
+            },
+          }
+        );
+      }
+      console.error(`❌ [WORKER] Erreur export JSON job ${jobId}:`, error);
+      return reply.code(500).send({ error: 'Erreur lors de l\'export JSON' });
+    }
+  });
 
   /**
    * POST /workers/translate-json

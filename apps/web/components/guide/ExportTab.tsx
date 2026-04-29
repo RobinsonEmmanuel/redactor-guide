@@ -62,6 +62,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
   const [preview, setPreview] = useState<any>(null);
   const [loadingPreview, setLoadingPreview] = useState(true);
   const [downloading, setDownloading] = useState<Record<string, boolean>>({});
+  const [downloadingPackage, setDownloadingPackage] = useState<Record<string, boolean>>({});
   const [downloadingZip, setDownloadingZip] = useState<Record<string, boolean>>({});
   const [downloadingGeoJson, setDownloadingGeoJson] = useState(false);
   const [downloadedFiles, setDownloadedFiles] = useState<string[]>([]);
@@ -176,19 +177,53 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
   const downloadExport = async (lang: string) => {
     setDownloading(prev => ({ ...prev, [lang]: true }));
     try {
+      // 1) Créer un job asynchrone côté API (anti-timeout)
+      const createRes = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/export/json-jobs`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lang, normalize: true, drop_null_pictos: true }),
+        }
+      );
+      if (!createRes.ok) throw new Error('Erreur lancement job export');
+      const createData = await createRes.json();
+      const jobId = createData.jobId as string;
+      if (!jobId) throw new Error('Job export introuvable');
+
+      // 2) Polling du statut jusqu'à complétion
+      const maxAttempts = 360; // ~12 min à 2s
+      let completed = false;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const statusRes = await fetch(
+          `${apiUrl}/api/v1/guides/${guideId}/export/json-jobs/${jobId}`,
+          { credentials: 'include' }
+        );
+        if (!statusRes.ok) continue;
+        const statusData = await statusRes.json();
+        if (statusData.status === 'completed') {
+          completed = true;
+          break;
+        }
+        if (statusData.status === 'failed') {
+          throw new Error(statusData.error || 'Job export échoué');
+        }
+      }
+      if (!completed) throw new Error('Timeout export JSON');
+
+      // 3) Télécharger le JSON final
       const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/export?lang=${lang}&download=true`,
+        `${apiUrl}/api/v1/guides/${guideId}/export/json-jobs/${jobId}/download`,
         { credentials: 'include' }
       );
-      if (!res.ok) throw new Error('Erreur export');
-      const data = await res.json();
-      const slugifyLocal = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
-      const now = new Date();
-      const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
-      const timePart = now.toISOString().slice(11, 16).replace(':', '');
-      const destination = slugifyLocal(data.meta?.destination || data.meta?.guide_name || 'guide');
-      const filename = `guide_${destination}_${lang}_${datePart}_${timePart}.json`;
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      if (!res.ok) throw new Error('Erreur téléchargement JSON');
+      const blob = await res.blob();
+      const cd = res.headers.get('content-disposition') || '';
+      const cdMatch = cd.match(/filename="([^"]+)"/);
+      const fallbackName = `guide_${lang}.json`;
+      const filename = cdMatch ? cdMatch[1] : fallbackName;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = filename; a.click();
@@ -231,6 +266,38 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
       alert(`Erreur lors du téléchargement du ZIP en ${lang}`);
     } finally {
       setDownloadingZip(prev => ({ ...prev, [lang]: false }));
+    }
+  };
+
+  const downloadPackage = async (lang: string) => {
+    setDownloadingPackage(prev => ({ ...prev, [lang]: true }));
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/export/package?lang=${lang}`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) throw new Error(`Erreur ${res.status}`);
+      const blob = await res.blob();
+
+      const cd = res.headers.get('content-disposition') || '';
+      const cdMatch = cd.match(/filename="([^"]+)"/);
+      const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+      const now = new Date();
+      const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
+      const timePart = now.toISOString().slice(11, 16).replace(':', '');
+      const dest = slugify(preview?.meta?.destination || preview?.meta?.guide_name || 'guide');
+      const fallbackName = `guide_${dest}_${lang}_${datePart}_${timePart}_json_redirections.zip`;
+      const filename = cdMatch ? cdMatch[1] : fallbackName;
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.click();
+      URL.revokeObjectURL(url);
+      setDownloadedFiles(prev => [...prev.filter(f => !f.includes(`_${lang}_`) || !f.includes('_json_redirections.zip')), filename]);
+    } catch (err) {
+      alert(`Erreur lors du téléchargement JSON+redirections en ${lang}`);
+    } finally {
+      setDownloadingPackage(prev => ({ ...prev, [lang]: false }));
     }
   };
 
@@ -352,6 +419,17 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                     ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
                     : <ArrowDownTrayIcon className="w-4 h-4" />}
                   ZIP + images
+                </button>
+                <button
+                  onClick={() => selectedLanguages.forEach(l => downloadPackage(l))}
+                  disabled={Object.values(downloadingPackage).some(Boolean)}
+                  title="Archive légère : JSON + redirections CSV (sans images)"
+                  className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors shadow-sm disabled:opacity-50"
+                >
+                  {Object.values(downloadingPackage).some(Boolean)
+                    ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                    : <DocumentTextIcon className="w-4 h-4" />}
+                  JSON + redirections
                 </button>
               </>
             )}
@@ -498,6 +576,16 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                         {downloadingZip[lang.code]
                           ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
                           : <span className="text-xs font-bold">ZIP</span>}
+                      </button>
+                      <button
+                        onClick={() => downloadPackage(lang.code)}
+                        disabled={downloadingPackage[lang.code]}
+                        className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
+                        title={`JSON + redirections ${lang.label}`}
+                      >
+                        {downloadingPackage[lang.code]
+                          ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                          : <span className="text-[10px] font-bold">CSV</span>}
                       </button>
                     </div>
                   )}

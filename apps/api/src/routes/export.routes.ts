@@ -8,6 +8,7 @@ import { ExportService } from '../services/export.service.js';
 import { normalizeGuideExportV2, type NormalizerOptions } from '../services/normalize-export.service.js';
 import { buildGuideStoryboard, resolveImagesForGuide, type StoryboardInputGuide, type GuideExportJson } from '@redactor-guide/exporters';
 import { COLLECTIONS } from '../config/collections.js';
+import { env } from '../config/env.js';
 
 export async function exportRoutes(fastify: FastifyInstance) {
   const exportService = new ExportService();
@@ -67,6 +68,237 @@ export async function exportRoutes(fastify: FastifyInstance) {
         fastify.log.error(error);
         return reply.status(500).send({ error: 'Erreur lors de la génération de l\'export' });
       }
+    }
+  );
+
+  /**
+   * GET /guides/:guideId/export/package
+   * Génère une archive légère : JSON + redirections.csv (sans images).
+   * Idéal pour le workflow multilingue quand les visuels sont déjà en place dans InDesign.
+   */
+  fastify.get<{
+    Params: { guideId: string };
+    Querystring: { lang?: string; drop_null_pictos?: string };
+  }>(
+    '/guides/:guideId/export/package',
+    async (request, reply) => {
+      const { guideId } = request.params;
+      const { lang = 'fr', drop_null_pictos } = request.query;
+      const db = request.server.container.db;
+
+      if (!ObjectId.isValid(guideId)) {
+        return reply.status(400).send({ error: 'Guide ID invalide' });
+      }
+
+      try {
+        const rawExport = await exportService.buildGuideExport(guideId, db, { language: lang });
+        const normOptions: NormalizerOptions = { dropNullPictos: drop_null_pictos !== 'false' };
+        const normalized = normalizeGuideExportV2(
+          rawExport as unknown as Record<string, unknown>,
+          normOptions
+        );
+
+        const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+        const dest = slugify(rawExport.meta.destination || rawExport.meta.guide_name || 'guide');
+        const now = new Date();
+        const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
+        const timePart = now.toISOString().slice(11, 16).replace(':', '');
+        const jsonName = `guide_${dest}_${lang}_${datePart}_${timePart}.json`;
+        const csvName = `redirections_${dest}_${rawExport.meta.year}_${lang}.csv`;
+        const zipName = `guide_${dest}_${lang}_${datePart}_${timePart}_json_redirections.zip`;
+
+        const requestOrigin = request.headers.origin ?? '';
+        const allowedOriginsPatterns: Array<string | RegExp> = [
+          'http://localhost:3001',
+          'http://localhost:3000',
+          /^https:\/\/.*\.vercel\.app$/,
+        ];
+        const originAllowed = allowedOriginsPatterns.some(p =>
+          typeof p === 'string' ? p === requestOrigin : p.test(requestOrigin)
+        );
+        if (originAllowed) {
+          reply.raw.setHeader('Access-Control-Allow-Origin', requestOrigin);
+          reply.raw.setHeader('Access-Control-Allow-Credentials', 'true');
+          reply.raw.setHeader('Vary', 'Origin');
+        }
+
+        reply.raw.setHeader('Content-Type', 'application/zip');
+        reply.raw.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
+
+        const archive = archiver('zip', { zlib: { level: 6 } });
+        archive.on('error', (err) => {
+          fastify.log.error(err, 'Erreur archiver package JSON+redirections');
+          if (!reply.raw.headersSent) reply.raw.destroy(err);
+        });
+        archive.pipe(reply.raw);
+
+        archive.append(JSON.stringify(normalized, null, 2), { name: jsonName });
+
+        const csvLines: string[] = [];
+        for (const pair of rawExport.redirectPairs ?? []) {
+          const srcPath = (() => { try { return new URL(pair.normalized).pathname; } catch { return pair.normalized; } })();
+          csvLines.push(`${srcPath},${pair.destination}`);
+        }
+        archive.append(csvLines.join('\n'), { name: csvName });
+
+        await archive.finalize();
+        return reply;
+      } catch (error: any) {
+        if (error.message === 'Guide non trouvé') {
+          return reply.status(404).send({ error: 'Guide non trouvé' });
+        }
+        fastify.log.error(error);
+        return reply.status(500).send({ error: 'Erreur lors de la génération du package JSON+redirections' });
+      }
+    }
+  );
+
+  /**
+   * POST /guides/:guideId/export/json-jobs
+   * Lance une génération JSON asynchrone via worker (anti-timeout frontend).
+   */
+  fastify.post<{
+    Params: { guideId: string };
+    Body: { lang?: string; normalize?: boolean; drop_null_pictos?: boolean };
+  }>(
+    '/guides/:guideId/export/json-jobs',
+    async (request, reply) => {
+      const { guideId } = request.params;
+      const { lang = 'fr', normalize = true, drop_null_pictos = true } = request.body ?? {};
+      const db = request.server.container.db;
+
+      if (!ObjectId.isValid(guideId)) {
+        return reply.status(400).send({ error: 'Guide ID invalide' });
+      }
+
+      try {
+        const now = new Date().toISOString();
+        const inserted = await db.collection(COLLECTIONS.export_json_jobs).insertOne({
+          guide_id: guideId,
+          lang,
+          normalize,
+          drop_null_pictos,
+          status: 'pending',
+          output_json: null,
+          error: null,
+          created_at: now,
+          updated_at: now,
+        });
+
+        const jobId = inserted.insertedId.toString();
+        const qstashToken = env.QSTASH_TOKEN;
+        const workerUrl = env.INGEST_WORKER_URL || 'https://redactor-guide-production.up.railway.app';
+
+        if (!qstashToken) {
+          await db.collection(COLLECTIONS.export_json_jobs).updateOne(
+            { _id: inserted.insertedId },
+            { $set: { status: 'failed', error: 'QStash non configuré', updated_at: new Date().toISOString() } }
+          );
+          return reply.status(500).send({ error: 'QStash non configuré' });
+        }
+
+        const fullWorkerUrl = `${workerUrl}/api/v1/workers/generate-export-json`;
+        const qstashRes = await fetch(`https://qstash.upstash.io/v2/publish/${fullWorkerUrl}`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${qstashToken}`,
+            'Content-Type': 'application/json',
+            'Upstash-Retries': '2',
+          },
+          body: JSON.stringify({ jobId }),
+        });
+
+        if (!qstashRes.ok) {
+          const errorText = await qstashRes.text();
+          await db.collection(COLLECTIONS.export_json_jobs).updateOne(
+            { _id: inserted.insertedId },
+            { $set: { status: 'failed', error: `QStash error: ${errorText}`, updated_at: new Date().toISOString() } }
+          );
+          return reply.status(500).send({ error: 'Erreur lors de la planification du worker' });
+        }
+
+        return reply.send({ success: true, jobId, status: 'pending' });
+      } catch (error) {
+        fastify.log.error(error);
+        return reply.status(500).send({ error: 'Erreur lors de la création du job export JSON' });
+      }
+    }
+  );
+
+  /**
+   * GET /guides/:guideId/export/json-jobs/:jobId
+   * Retourne le statut d'un job JSON asynchrone.
+   */
+  fastify.get<{
+    Params: { guideId: string; jobId: string };
+  }>(
+    '/guides/:guideId/export/json-jobs/:jobId',
+    async (request, reply) => {
+      const { guideId, jobId } = request.params;
+      const db = request.server.container.db;
+
+      if (!ObjectId.isValid(guideId) || !ObjectId.isValid(jobId)) {
+        return reply.status(400).send({ error: 'ID invalide' });
+      }
+
+      const job = await db.collection(COLLECTIONS.export_json_jobs).findOne({
+        _id: new ObjectId(jobId),
+        guide_id: guideId,
+      });
+      if (!job) {
+        return reply.status(404).send({ error: 'Job non trouvé' });
+      }
+
+      return reply.send({
+        jobId,
+        status: job.status,
+        lang: job.lang,
+        error: job.error ?? null,
+        created_at: job.created_at,
+        updated_at: job.updated_at,
+      });
+    }
+  );
+
+  /**
+   * GET /guides/:guideId/export/json-jobs/:jobId/download
+   * Télécharge le JSON produit par le job asynchrone.
+   */
+  fastify.get<{
+    Params: { guideId: string; jobId: string };
+  }>(
+    '/guides/:guideId/export/json-jobs/:jobId/download',
+    async (request, reply) => {
+      const { guideId, jobId } = request.params;
+      const db = request.server.container.db;
+
+      if (!ObjectId.isValid(guideId) || !ObjectId.isValid(jobId)) {
+        return reply.status(400).send({ error: 'ID invalide' });
+      }
+
+      const job = await db.collection(COLLECTIONS.export_json_jobs).findOne({
+        _id: new ObjectId(jobId),
+        guide_id: guideId,
+      });
+      if (!job) {
+        return reply.status(404).send({ error: 'Job non trouvé' });
+      }
+      if (job.status !== 'completed' || !job.output_json) {
+        return reply.status(400).send({ error: `Job pas terminé (status: ${job.status})` });
+      }
+
+      const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+      const now = new Date();
+      const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
+      const timePart = now.toISOString().slice(11, 16).replace(':', '');
+      const destination = slugify(
+        job.output_json?.meta?.destination || job.output_json?.meta?.guide_name || 'guide'
+      );
+      const filename = `guide_${destination}_${job.lang}_${datePart}_${timePart}.json`;
+
+      reply.header('Content-Type', 'application/json; charset=utf-8');
+      reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+      return reply.send(job.output_json);
     }
   );
 

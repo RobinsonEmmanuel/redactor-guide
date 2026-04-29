@@ -23,6 +23,7 @@ export const COLLECTIONS = {
   sommaire_proposals:     'sommaire_proposals',
   templates:              'templates',
   translation_jobs:       'translation_jobs',
+  export_json_jobs:       'export_json_jobs',
   settings:               'settings',
 } as const;
 

@@ -62,6 +62,15 @@ export async function ingestRoutes(fastify: FastifyInstance) {
   fastify.post('/ingest/run', (req, reply) => proxyRequest(req, reply, '/ingest/run'));
   fastify.post('/ingest/dedup', (req, reply) => proxyRequest(req, reply, '/ingest/dedup'));
   fastify.get('/ingest/progress', (req, reply) => proxyRequest(req, reply, '/ingest/progress', 'GET'));
+  fastify.get('/ingest/articles-raw-sync/status', (req, reply) =>
+    proxyRequest(req, reply, '/ingest/articles-raw-sync/status', 'GET')
+  );
+  fastify.get('/ingest/articles-raw-sync/runs', (req, reply) =>
+    proxyRequest(req, reply, '/ingest/articles-raw-sync/runs', 'GET')
+  );
+  fastify.post('/ingest/articles-raw-sync/trigger', (req, reply) =>
+    proxyRequest(req, reply, '/ingest/articles-raw-sync/trigger')
+  );
 
   // Routes de gestion des connexions WordPress (credentials)
   fastify.get('/wp-sites', (req, reply) => proxyRequest(req, reply, '/user/sites', 'GET'));

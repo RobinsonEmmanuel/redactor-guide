@@ -61,7 +61,7 @@ export class ExportService {
 
     // ── 4b. Construire le resolver d'URLs par langue ───────────────────────
     // Pour lang !== 'fr' : remplace les URLs françaises par la version cible.
-    // Source : articles_raw.urls_by_lang.{lang} ; fallback sur l'URL française.
+    // Source : articles_raw.urls_by_lang.{lang} depuis la base articles dédiée.
     let urlResolver: (frUrl: string) => string = (u) => u; // identité pour FR
     // Maps étendues pour résoudre les destinations CSV STRICTEMENT depuis la base :
     // - clé URL FR exacte
@@ -72,15 +72,10 @@ export class ExportService {
     if (lang !== 'fr') {
       const articleProjection = { 'urls_by_lang': 1 };
       const articleFilter = { [`urls_by_lang.${lang}`]: { $exists: true } };
-      const [articlesFromConfiguredDb, articlesFromMainDb] = await Promise.all([
-        getArticlesDatabase()
-          .collection(COLLECTIONS.articles_raw)
-          .find(articleFilter, { projection: articleProjection })
-          .toArray(),
-        db.collection(COLLECTIONS.articles_raw)
-          .find(articleFilter, { projection: articleProjection })
-          .toArray(),
-      ]);
+      const articlesFromConfiguredDb = await getArticlesDatabase()
+        .collection(COLLECTIONS.articles_raw)
+        .find(articleFilter, { projection: articleProjection })
+        .toArray();
 
       const urlMap = new Map<string, string>();
       const slugFromUrl = (u: string): string | null => {
@@ -110,17 +105,10 @@ export class ExportService {
         }
       };
 
-      // Base configurée articles_raw + fallback base principale historique,
-      // sans changer la configuration ni déplacer les données.
       for (const art of articlesFromConfiguredDb) registerArticleUrls(art);
-      for (const art of articlesFromMainDb) {
-        const before = urlMap.size;
-        registerArticleUrls(art);
-        if (urlMap.size === before) continue;
-      }
       console.log(
         `🌐 [EXPORT][${lang}] URL resolver : ${urlMap.size} article(s) avec URL en ${lang} `
-        + `(articlesDb=${articlesFromConfiguredDb.length}, mainDb=${articlesFromMainDb.length})`
+        + `(articlesDb=${articlesFromConfiguredDb.length})`
       );
       urlResolver = (frUrl: string) => urlMap.get(frUrl) ?? frUrl;
     }
@@ -270,6 +258,65 @@ export class ExportService {
       }
     }
 
+    // ── 5b-bis. Snapshot des URLs sources de redirection (stable inter-langues)
+    // On capture les URLs avant overlay de traduction pour éviter des écarts
+    // de volumétrie entre langues (la base source reste identique).
+    type RedirectCandidatePage = {
+      template: string;
+      titre: string;
+      entity_meta: { poi_name: string | null };
+    };
+    type RedirectCandidate = { rawUrl: string; page: RedirectCandidatePage };
+    const TRAILING_PUNCTUATION = '.,;:!?)]}';
+    const extractUrlsFromText = (text: string): string[] => {
+      const matches = text.match(/https?:\/\/[^\s"'<>()]+/gi) ?? [];
+      return matches
+        .map((matchedUrl) => {
+          let core = matchedUrl;
+          while (core.length > 0 && TRAILING_PUNCTUATION.includes(core[core.length - 1])) {
+            core = core.slice(0, -1);
+          }
+          return core;
+        })
+        .filter(Boolean);
+    };
+    const baseRedirectCandidates: RedirectCandidate[] = [];
+    for (const page of pages) {
+      const pageRef: RedirectCandidatePage = {
+        template: page.template,
+        titre: page.titre,
+        entity_meta: { poi_name: page.entity_meta.poi_name },
+      };
+
+      if (page.url_source && /^https?:\/\//i.test(page.url_source)) {
+        baseRedirectCandidates.push({ rawUrl: page.url_source, page: pageRef });
+      }
+
+      for (const [fieldKey, fieldValue] of Object.entries(page.content.text)) {
+        if (!fieldValue || typeof fieldValue !== 'string') continue;
+        if (fieldKey.includes('_url_maps_')) continue;
+
+        if (/^https?:\/\//i.test(fieldValue)) {
+          baseRedirectCandidates.push({ rawUrl: fieldValue, page: pageRef });
+          continue;
+        }
+        if (fieldValue.startsWith('{')) {
+          try {
+            const parsed = JSON.parse(fieldValue);
+            if (parsed && typeof parsed.url === 'string' && /^https?:\/\//i.test(parsed.url)) {
+              baseRedirectCandidates.push({ rawUrl: parsed.url, page: pageRef });
+              continue;
+            }
+          } catch { /* JSON invalide */ }
+        }
+        if (fieldValue.includes('http://') || fieldValue.includes('https://')) {
+          for (const embeddedUrl of extractUrlsFromText(fieldValue)) {
+            baseRedirectCandidates.push({ rawUrl: embeddedUrl, page: pageRef });
+          }
+        }
+      }
+    }
+
     // ── 5c. Passe 3 : overlay des traductions ─────────────────────────────────
     // Appliquée APRÈS la passe 2 pour couvrir :
     //  - les champs template classiques (titres, textes…)
@@ -344,7 +391,7 @@ export class ExportService {
       console.log(`🌐 [EXPORT][${lang}] URLs résolues : ${resolvedCount} ✅  |  fallback FR : ${fallbackCount} ⚠️`);
     }
 
-    // ── 5e. Passe 5 : normalisation des URLs d'articles ───────────────────────
+    // ── 5e. Passe 5 : normalisation des URLs internes du site ─────────────────
     // Toutes les URLs d'articles (url_source, champs texte bruts, liens JSON {label,url}
     // et champs _url_article_N) sont remplacées par leur forme normalisée :
     //   https://{host}/guide/{lang}/{slug}/
@@ -361,6 +408,24 @@ export class ExportService {
     // Les paires (normalisée → destination) sont collectées ici pour
     // générer le CSV de redirections à l'export ZIP.
     const redirectMap = new Map<string, string>();
+    const trimHost = (h: string): string => h.toLowerCase().replace(/^www\./, '');
+    const internalHosts = new Set<string>();
+    try {
+      if (guide.wpConfig?.siteUrl) internalHosts.add(trimHost(new URL(guide.wpConfig.siteUrl).host));
+    } catch { /* ignore siteUrl invalide */ }
+    for (const p of pages) {
+      try {
+        if (p.url_source) internalHosts.add(trimHost(new URL(p.url_source).host));
+      } catch { /* ignore */ }
+    }
+    const isInternalSiteUrl = (rawUrl: string): boolean => {
+      try {
+        const u = new URL(rawUrl);
+        return internalHosts.has(trimHost(u.host));
+      } catch {
+        return false;
+      }
+    };
 
     const guideDestination: string = guide.destinations?.[0] ?? guide.destination ?? '';
 
@@ -380,10 +445,10 @@ export class ExportService {
     };
 
     // Normalisation standard (pour les URLs avec un vrai slug d'article).
-    const trackNormalize = (rawUrl: string): string => {
-      if (!rawUrl || isGoogleMapsUrl(rawUrl)) return rawUrl;
+    const trackNormalize = (rawUrl: string, collectRedirect = true): string => {
+      if (!rawUrl || isGoogleMapsUrl(rawUrl) || !isInternalSiteUrl(rawUrl)) return rawUrl;
       const normalized = normalizeArticleUrl(rawUrl, lang);
-      if (normalized !== rawUrl) redirectMap.set(normalized, rawUrl);
+      if (collectRedirect && normalized !== rawUrl) redirectMap.set(normalized, rawUrl);
       return normalized;
     };
 
@@ -392,18 +457,25 @@ export class ExportService {
     // • Pour toutes les autres URLs avec un slug d'article → normalisation standard.
     const trackNormalizePage = (
       rawUrl: string,
-      page: { template: string; titre: string; entity_meta: { poi_name: string | null } }
+      page: { template: string; titre: string; entity_meta: { poi_name: string | null } },
+      collectRedirect = true
     ): string => {
-      if (!rawUrl || isGoogleMapsUrl(rawUrl)) return rawUrl;
+      if (!rawUrl || isGoogleMapsUrl(rawUrl) || !isInternalSiteUrl(rawUrl)) return rawUrl;
       if (page.template.toUpperCase().startsWith('POI') && isRootUrl(rawUrl)) {
         // Préférer entity_meta.poi_name si disponible (plus précis que le titre de la page)
         const name = page.entity_meta.poi_name || page.titre || '';
         const normalized = buildPoiPlaceholderUrl(rawUrl, name);
-        if (normalized !== rawUrl) redirectMap.set(normalized, rawUrl);
+        if (collectRedirect && normalized !== rawUrl) redirectMap.set(normalized, rawUrl);
         return normalized;
       }
-      return trackNormalize(rawUrl);
+      return trackNormalize(rawUrl, collectRedirect);
     };
+
+    // La table de redirections est construite depuis le snapshot source stable
+    // (avant traduction), puis destination traduite par langue.
+    for (const candidate of baseRedirectCandidates) {
+      trackNormalizePage(candidate.rawUrl, candidate.page, true);
+    }
 
     // Résout une URL de destination pour le CSV STRICTEMENT depuis la base.
     // Règle métier demandée:
@@ -441,7 +513,7 @@ export class ExportService {
       // url_source de la page
       if (page.url_source && /^https?:\/\//i.test(page.url_source)) {
         const prev = page.url_source;
-        (page as any).url_source = trackNormalizePage(page.url_source, page);
+        (page as any).url_source = trackNormalizePage(page.url_source, page, false);
         if ((page as any).url_source !== prev) normalizedCount++;
       }
 
@@ -455,7 +527,7 @@ export class ExportService {
 
         if (/^https?:\/\//i.test(v) && !isGoogleMapsUrl(v)) {
           const prev = v;
-          page.content.text[k] = trackNormalizePage(v, page);
+          page.content.text[k] = trackNormalizePage(v, page, false);
           if (page.content.text[k] !== prev) normalizedCount++;
         } else if (v.startsWith('{')) {
           try {
@@ -467,11 +539,28 @@ export class ExportService {
               !isGoogleMapsUrl(parsed.url)
             ) {
               const prev = parsed.url;
-              parsed.url = trackNormalizePage(parsed.url, page);
+              parsed.url = trackNormalizePage(parsed.url, page, false);
               if (parsed.url !== prev) normalizedCount++;
               page.content.text[k] = JSON.stringify(parsed);
             }
           } catch { /* JSON invalide → laisser tel quel */ }
+        } else if (v.includes('http://') || v.includes('https://')) {
+          const prev = v;
+          page.content.text[k] = v.replace(/https?:\/\/[^\s"'<>()]+/gi, (matchedUrl) => {
+            let core = matchedUrl;
+            let suffix = '';
+            while (core.length > 0 && TRAILING_PUNCTUATION.includes(core[core.length - 1])) {
+              suffix = core[core.length - 1] + suffix;
+              core = core.slice(0, -1);
+            }
+            if (!core) return matchedUrl;
+            const normalized = trackNormalizePage(core, page, false);
+            if (normalized !== core) normalizedCount++;
+            return `${normalized}${suffix}`;
+          });
+          if (page.content.text[k] === prev) {
+            // aucune URL interne réécrite dans ce champ texte
+          }
         }
       }
     }

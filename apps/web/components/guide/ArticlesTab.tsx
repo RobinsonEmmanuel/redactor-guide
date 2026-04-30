@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowPathIcon, EyeIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
+import { authFetch } from '@/lib/api-client';
 
 interface Article {
   _id: string;
@@ -29,9 +30,6 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
   const [ingesting, setIngesting] = useState(false);
   const [ingestionStatus, setIngestionStatus] = useState<string | null>(null);
   const [ingestionError, setIngestionError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<{
-    status: string; step: string; processed: number; total: number;
-  } | null>(null);
   const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0, totalPages: 0 });
 
   // Ajout d'un article par URL
@@ -80,10 +78,9 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
   const syncTranslationUrls = async (payload: Record<string, unknown>) => {
     try {
       setIngestionStatus('Synchronisation des URLs traduites...');
-      await fetch(`${apiUrl}/api/v1/ingest/sync-translations`, {
+      await authFetch(`${apiUrl}/api/v1/ingest/sync-translations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify(payload),
       });
     } catch (err) {
@@ -100,26 +97,6 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
     setIngesting(true);
     setIngestionError(null);
     setIngestionStatus('Démarrage de la récupération...');
-    setProgress(null);
-
-    // Polling de la progression (toutes les 1,5 s)
-    let stopPolling = false;
-    const pollProgress = async () => {
-      while (!stopPolling) {
-        await new Promise(r => setTimeout(r, 1500));
-        if (stopPolling) break;
-        try {
-          const res = await fetch(`${apiUrl}/api/v1/ingest/progress`, { credentials: 'include' });
-          if (res.ok) {
-            const p = await res.json();
-            setProgress(p);
-            if (p.status === 'done' || p.status === 'error') break;
-          }
-        } catch { break; }
-      }
-    };
-    pollProgress();
-    const stopPoll = () => { stopPolling = true; };
 
     // siteUrl uniquement si valide (évite les erreurs de validation Zod .url())
     const rawSiteUrl = guide.wpConfig?.siteUrl?.trim() ?? '';
@@ -137,88 +114,75 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
     console.log('[Ingestion] payload →', payload);
 
     try {
-      const enqueueRes = await fetch(`${apiUrl}/api/v1/ingest/enqueue`, {
+      // Nouveau microservice canonique : déclenche la sync globale articles_raw.
+      // Les credentials WordPress sont ceux enregistrés à l'étape 1.
+      const triggerRes = await authFetch(`${apiUrl}/api/v1/ingest/articles-raw-sync/trigger`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ siteId: guide.slug }),
       });
-      const enqueueData = await enqueueRes.json().catch(() => ({}));
-      if (!enqueueRes.ok) console.warn('[Ingestion] enqueue 400 →', JSON.stringify(enqueueData, null, 2));
-
-      if (enqueueRes.status === 202 && enqueueData.jobId) {
-        const jobId = enqueueData.jobId;
-        setIngestionStatus("En file d'attente...");
-        const pollIntervalMs = 2500;
-        const maxPollCount = 240;
-        let pollCount = 0;
-
-        const pollStatus = async () => {
-          try {
-            const statusRes = await fetch(`${apiUrl}/api/v1/ingest/status/${jobId}`, {
-              credentials: 'include',
-            });
-            const statusData = await statusRes.json();
-
-            if (statusData.status === 'completed') {
-              await syncTranslationUrls(payload);
-              setIngestionStatus('Récupération terminée !');
-              setIngesting(false);
-              await loadArticles();
-              onArticlesImported?.();
-              return;
-            } else if (statusData.status === 'failed') {
-              setIngestionError(statusData.error || 'Erreur lors de la récupération');
-              setIngesting(false);
-              return;
-            } else if (statusData.status === 'running') {
-              setIngestionStatus('Récupération en cours...');
-            }
-
-            pollCount++;
-            if (pollCount < maxPollCount) {
-              setTimeout(pollStatus, pollIntervalMs);
-            } else {
-              setIngestionError('Timeout : vérifiez les logs');
-              setIngesting(false);
-            }
-          } catch (err) {
-            console.error('Erreur poll:', err);
-            setIngestionError('Erreur lors du suivi');
-            setIngesting(false);
-          }
-        };
-
-        setTimeout(pollStatus, pollIntervalMs);
-      } else {
-        const ingestRes = await fetch(`${apiUrl}/api/v1/ingest`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(payload),
-        });
-
-        if (ingestRes.ok) {
-          const data = await ingestRes.json();
-          await syncTranslationUrls(payload);
-          setIngestionStatus(`Récupération terminée ! ${data.count ?? data.totalArticles ?? 0} articles traités`);
-          await loadArticles();
-          onArticlesImported?.();
+      const triggerData = await triggerRes.json().catch(() => ({}));
+      if (!triggerRes.ok) {
+        console.warn('[Ingestion] articles-raw-sync/trigger →', JSON.stringify(triggerData, null, 2));
+        if (triggerRes.status === 409) {
+          setIngestionStatus('Une synchronisation est déjà en cours...');
         } else {
-          const errorData = await ingestRes.json().catch(() => ({}));
-          console.warn('[Ingestion] /ingest 400 →', JSON.stringify(errorData, null, 2));
-          const detail = errorData.details
-            ? JSON.stringify(errorData.details).slice(0, 200)
-            : '';
-          setIngestionError(`${errorData.error || 'Erreur lors de la récupération'}${detail ? ` — ${detail}` : ''}`);
-        }
+        const detail = triggerData.details
+          ? JSON.stringify(triggerData.details).slice(0, 200)
+          : triggerData.message || '';
+        setIngestionError(`${triggerData.error || 'Erreur lors de la récupération'}${detail ? ` — ${detail}` : ''}`);
         stopPoll();
         setIngesting(false);
+        return;
+        }
       }
+
+      if (triggerRes.ok) {
+        setIngestionStatus('Synchronisation articles_raw lancée...');
+      }
+      const pollIntervalMs = 2500;
+      const maxPollCount = 240;
+      let pollCount = 0;
+
+      const pollStatus = async () => {
+        try {
+          const statusRes = await authFetch(`${apiUrl}/api/v1/ingest/articles-raw-sync/status`);
+          const statusData = await statusRes.json().catch(() => ({}));
+          const status = statusData.status || statusData.latestRun?.status || statusData.run?.status;
+
+          if (status === 'completed' || status === 'done' || status === 'success') {
+            await syncTranslationUrls(payload);
+            setIngestionStatus('Récupération terminée !');
+            setIngesting(false);
+            await loadArticles();
+            onArticlesImported?.();
+            return;
+          }
+          if (status === 'failed' || status === 'error') {
+            setIngestionError(statusData.error || statusData.latestRun?.error || 'Erreur lors de la récupération');
+            setIngesting(false);
+            return;
+          }
+
+          setIngestionStatus(statusData.progress || statusData.step || 'Synchronisation en cours...');
+          pollCount++;
+          if (pollCount < maxPollCount) {
+            setTimeout(pollStatus, pollIntervalMs);
+          } else {
+            setIngestionError('Timeout : vérifiez les logs');
+            setIngesting(false);
+          }
+        } catch (err) {
+          console.error('Erreur poll:', err);
+          setIngestionError('Erreur lors du suivi');
+          setIngesting(false);
+        }
+      };
+
+      setTimeout(pollStatus, pollIntervalMs);
     } catch (err) {
       console.error('Erreur ingestion:', err);
       setIngestionError('Erreur lors de la récupération');
-      stopPoll();
       setIngesting(false);
     }
   };
@@ -236,10 +200,9 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
     setSingleResult(null);
 
     try {
-      const res = await fetch(`${apiUrl}/api/v1/ingest/single-url`, {
+      const res = await authFetch(`${apiUrl}/api/v1/ingest/single-url`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           siteId:         guide.slug,
           ...(guide.wpConfig?.siteUrl ? { siteUrl: guide.wpConfig.siteUrl } : {}),
@@ -298,34 +261,15 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
           </div>
         </div>
 
-        {/* Barre de progression de l'ingestion */}
+        {/* Statut de synchronisation (le nouveau microservice ne fournit plus de progression détaillée) */}
         {ingesting && (
           <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-3">
+              <ArrowPathIcon className="h-5 w-5 text-blue-600 animate-spin" />
               <span className="text-sm font-medium text-blue-800">
-                {progress?.step || 'Démarrage…'}
+                {ingestionStatus || 'Synchronisation en cours...'}
               </span>
-              {progress && progress.total > 0 && (
-                <span className="text-sm text-blue-600 tabular-nums">
-                  {progress.processed} / {progress.total}
-                </span>
-              )}
             </div>
-            <div className="w-full bg-blue-200 rounded-full h-2.5 overflow-hidden">
-              {progress && progress.total > 0 ? (
-                <div
-                  className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-                  style={{ width: `${Math.round((progress.processed / progress.total) * 100)}%` }}
-                />
-              ) : (
-                <div className="bg-blue-400 h-2.5 rounded-full animate-pulse" style={{ width: '60%' }} />
-              )}
-            </div>
-            {progress && progress.total > 0 && (
-              <p className="mt-1.5 text-xs text-blue-500 text-right">
-                {Math.round((progress.processed / progress.total) * 100)} %
-              </p>
-            )}
           </div>
         )}
 

@@ -535,13 +535,65 @@ const _geocodingService = new GeocodingService();
  *                   (ex: "POI_titre_1" — défaut : poi_name ou titre de la page)
  */
 async function generateMapsLink(ctx: FieldServiceContext): Promise<FieldServiceResult> {
-  const { currentPage, guide } = ctx;
+  const { currentPage, guide, allExportedPages, fieldDef } = ctx;
 
   // Options configurables depuis le template (field.service_options)
   const options: Record<string, string> = (currentPage as any)._serviceOptions ?? {};
   const labelText   = options['label']        ?? 'Voir sur Google Maps';
   const provider    = options['map_provider'] ?? 'google_maps';
   const queryField  = options['query_field']  ?? null;
+  const targetFieldName = String(fieldDef?.name ?? '').trim();
+
+  // Si le lien Google Maps est déjà saisi dans la page, on le conserve
+  // et on évite tout appel Photon.
+  if (targetFieldName) {
+    const extractStructuredLink = (raw: unknown): { label: string; url: string } | null => {
+      if (raw == null) return null;
+      if (typeof raw === 'object') {
+        const obj = raw as { label?: unknown; url?: unknown };
+        const u = typeof obj.url === 'string' ? obj.url.trim() : '';
+        if (/^https?:\/\//i.test(u)) {
+          const l = typeof obj.label === 'string' && obj.label.trim() !== '' ? obj.label.trim() : labelText;
+          return { label: l, url: u };
+        }
+        return null;
+      }
+      const s = String(raw).trim();
+      if (!s) return null;
+      if (s.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(s) as { label?: unknown; url?: unknown };
+          const u = typeof parsed.url === 'string' ? parsed.url.trim() : '';
+          if (/^https?:\/\//i.test(u)) {
+            const l =
+              typeof parsed.label === 'string' && parsed.label.trim() !== ''
+                ? parsed.label.trim()
+                : labelText;
+            return { label: l, url: u };
+          }
+        } catch {
+          return null;
+        }
+      }
+      if (/^https?:\/\//i.test(s)) return { label: labelText, url: s };
+      return null;
+    };
+
+    const currentPageId = String((currentPage as any)._id ?? (currentPage as any).id ?? '');
+    const snapshot = allExportedPages.find((p) => p.id === currentPageId);
+    const candidates: unknown[] = [
+      snapshot?.content?.text?.[targetFieldName],
+      (currentPage as any)?.content?.[targetFieldName],
+      (currentPage as any)?.content?.text?.[targetFieldName],
+      (currentPage as any)?.[targetFieldName],
+    ];
+    for (const c of candidates) {
+      const keep = extractStructuredLink(c);
+      if (keep) {
+        return { value: JSON.stringify(keep) };
+      }
+    }
+  }
 
   // Construire la requête de géocodage
   let query: string =
@@ -570,7 +622,9 @@ async function generateMapsLink(ctx: FieldServiceContext): Promise<FieldServiceR
     : destination                                  ? `${query}, ${destination}`
     :                                                query;
 
-  console.log(`[geocoding_maps_link] Géocodage : "${enrichedQuery}" (${country ?? 'pays inconnu'})`);
+  console.log(
+    `[geocoding_maps_link] Fallback géocodage (lien manquant) : "${enrichedQuery}" (${country ?? 'pays inconnu'})`
+  );
 
   const result = await _geocodingService.resolve(enrichedQuery, country);
 
@@ -745,6 +799,21 @@ function resolveSubField(
  */
 async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<FieldServiceResult> {
   const { currentPage, guide, db, fieldDef } = ctx;
+  const fieldName: string = fieldDef?.name ?? '';
+
+  // Export = contenu figé : si la page contient déjà des cartes sauvegardées
+  // pour ce champ répétitif, on les réutilise telles quelles (pas de régénération).
+  const frozenValue = fieldName ? currentPage.content?.[fieldName] : undefined;
+  if (frozenValue !== undefined && frozenValue !== null) {
+    if (typeof frozenValue === 'string') {
+      return { value: frozenValue };
+    }
+    try {
+      return { value: JSON.stringify(frozenValue) };
+    } catch {
+      // Si valeur non sérialisable (cas anormal), on retombe sur le flux génératif.
+    }
+  }
 
   const inspirationPois: Array<{ poi_id?: string; nom: string; url_source: string | null; image?: string | null; nom_vernaculaire?: string | null; content_text?: string }> =
     currentPage.metadata?.inspiration_pois ?? [];
@@ -846,7 +915,6 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
   }
 
   const destination: string = guide.destinations?.[0] ?? guide.destination ?? '';
-  const country = destination ? _geocodingService.getCountryFromDestination(destination) : undefined;
 
   // Variables de substitution communes à tous les POIs de la page
   const pageVars: Record<string, string> = {
@@ -859,7 +927,6 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
 
   // Lire les cartes déjà sauvegardées manuellement (images choisies par l'utilisateur)
   // pour les préserver lors d'une régénération export, sans les écraser.
-  const fieldName: string = fieldDef?.name ?? '';
   let savedCards: Array<Record<string, string>> = [];
   try {
     const rawSaved = currentPage.content?.[fieldName];
@@ -1002,18 +1069,14 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
     const urlArticle = (urlArticleSaved !== null ? urlArticleSaved : urlArticleAuto).trim();
 
     // ── url_maps (URL brute Google Maps pour picto carte InDesign) ───────────
-    let urlMapsAuto = '';
+    // IMPORTANT: ne pas géocoder automatiquement à l'export (Photon).
+    // On conserve en priorité la valeur sauvegardée en rédaction ; à défaut,
+    // on autorise seulement une valeur par défaut explicite du template.
     const urlMapsResolved = resolveSubField(fieldDef, 'url_maps', '', poiVars);
-    if (urlMapsResolved.mode !== 'skip') {
-      try {
-        const enrichedQuery = destination ? `${poi.nom}, ${destination}` : poi.nom;
-        const geo = await _geocodingService.resolve(enrichedQuery, country);
-        if (geo) {
-          urlMapsAuto = geo.urls.google_maps;
-        }
-      } catch { urlMapsAuto = ''; }
-    }
     const urlMapsSaved = hasSavedKey('url_maps') ? String(savedCard.url_maps ?? '') : null;
+    const urlMapsAuto = urlMapsResolved.mode === 'default'
+      ? (urlMapsResolved.defaultValue ?? '')
+      : '';
     const urlMaps = (urlMapsSaved !== null ? urlMapsSaved : urlMapsAuto).trim();
 
     cards.push({

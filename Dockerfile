@@ -5,7 +5,6 @@ WORKDIR /app
 FROM base AS deps
 COPY package.json package-lock.json ./
 COPY apps/api/package.json ./apps/api/
-COPY apps/ingestion-service/package.json ./apps/ingestion-service/
 COPY apps/web/package.json ./apps/web/
 COPY packages/ai-services/package.json ./packages/ai-services/
 COPY packages/core-model/package.json ./packages/core-model/

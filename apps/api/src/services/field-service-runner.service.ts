@@ -114,6 +114,107 @@ export interface FieldServiceResult {
   value: string;
 }
 
+/** Une entrée du sommaire exporté (schema_version 1). */
+export interface SommaireJsonEntry {
+  title: string;
+  /** null = titre de section (aucun n° de page) */
+  page: string | null;
+  /**
+   * 0 = titre de section (Titre-section)
+   * 1 = entrée dans une section cluster / inspiration / saison (Page-section-sommaire)
+   * 2 = page isolée (Page-unique-sommaire)
+   */
+  level: 0 | 1 | 2;
+  /** 1 = présentations + bloc lieux ; 2 = inspirations + saisons + pages finales */
+  sommaire_page: 1 | 2;
+}
+
+/** JSON sommaire structuré pour InDesign (une ligne par entrée). */
+export interface SommaireJsonV1 {
+  schema_version: 1;
+  /** Liste complète (rétrocompat / filtres côté script). */
+  entries: SommaireJsonEntry[];
+  /**
+   * Découpage explicite par page de sommaire (1 = 1ʳᵉ page, 2 = 2ᵉ).
+   * Les scripts InDesign utilisent cette clé en priorité pour éviter tout mélange
+   * (fil lié, overflow, etc.).
+   * Omis dans le JSON d’export par page (uniquement `entries` + `legacy_text` pour cette spread).
+   */
+  entries_by_sommaire_page?: {
+    '1'?: SommaireJsonEntry[];
+    '2'?: SommaireJsonEntry[];
+  };
+  /** Ancien format tabulé ; les titres de section n’y ont plus de n° de page. */
+  legacy_text: string;
+}
+
+/** Reconstruit `legacy_text` pour un sous-ensemble d’entrées (même règles que le générateur). */
+export function sommaireEntriesToLegacyText(entries: SommaireJsonEntry[]): string {
+  const lines: string[] = [];
+  for (const e of entries) {
+    const title = e.title;
+    const pg = e.page;
+    const lv = e.level;
+    const hasPage =
+      pg != null && String(pg).trim() !== '';
+    if (!hasPage) {
+      lines.push(title);
+    } else if (lv === 1) {
+      lines.push(`\t${title}\t${String(pg).padStart(2, '0')}`);
+    } else {
+      lines.push(`${title}\t${String(pg).padStart(2, '0')}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Réduit la chaîne JSON sommaire pour une page SOMMAIRE d’export (spread 1 ou 2).
+ * Supprime les entrées des autres pages et omet `entries_by_sommaire_page` pour alléger le payload.
+ */
+export function narrowSommaireJsonForPageExport(
+  fullValue: string,
+  spreadPart: number,
+): string {
+  const emptyPayload = (): string =>
+    JSON.stringify({
+      schema_version: 1,
+      entries: [],
+      legacy_text: '',
+    });
+  if (spreadPart < 1 || spreadPart > 2) {
+    return emptyPayload();
+  }
+  try {
+    const parsed = JSON.parse(fullValue) as SommaireJsonV1 | { schema_version?: number };
+    if (
+      !parsed ||
+      (parsed as SommaireJsonV1).schema_version !== 1 ||
+      !Array.isArray((parsed as SommaireJsonV1).entries)
+    ) {
+      return fullValue;
+    }
+    const p = parsed as SommaireJsonV1;
+    const want = spreadPart;
+    let slice: SommaireJsonEntry[];
+    const by = p.entries_by_sommaire_page;
+    const key = want === 2 ? '2' : '1';
+    if (by && Array.isArray(by[key])) {
+      slice = by[key]!;
+    } else {
+      slice = p.entries.filter((e) => e.sommaire_page === want);
+    }
+    const narrow: SommaireJsonV1 = {
+      schema_version: 1,
+      entries: slice,
+      legacy_text: sommaireEntriesToLegacyText(slice),
+    };
+    return JSON.stringify(narrow);
+  } catch {
+    return fullValue;
+  }
+}
+
 type FieldServiceHandler = (ctx: FieldServiceContext) => Promise<FieldServiceResult>;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -123,21 +224,16 @@ type FieldServiceHandler = (ctx: FieldServiceContext) => Promise<FieldServiceRes
 /**
  * Générateur de table des matières (Sommaire).
  *
- * Produit un bloc de texte unique formaté avec des tabulations InDesign :
+ * Produit un JSON `SommaireJsonV1` sérialisé dans `value`, avec :
+ * - `entries[]` : toutes les entrées (sommaire_page sur chaque ligne)
+ * - `entries_by_sommaire_page["1"|"2"]` : listes déjà découpées par page sommaire InDesign
+ * - `legacy_text` : version tabulée pour scripts InDesign non migrés
  *
- *   Titre principal        \t  04          ← entrée de niveau 1
- *   Section groupée        \t  10          ← en-tête de groupe
- *   \t  Cluster / Inspiration \t  10       ← sous-entrée (tab en début de ligne)
- *   \t  Cluster 2           \t  22
+ * Levels : 0 = titre de section sans n° ; 1 = sous-entrée (cluster/inspiration/saison) ;
+ *          2 = page isolée (présentations, Aller plus loin, etc.).
  *
- * Le \t entre le titre et le numéro sert de point de conduite InDesign
- * (tab stop aligné à droite dans le style de paragraphe).
- * Le \t en début de ligne marque une sous-entrée (style indenté).
- *
- * Ce texte est destiné à être placé dans UN cadre texte sur la page SOMMAIRE_1
- * (ou threadé vers SOMMAIRE_2). La mise en page est assurée manuellement.
- *
- * Numéros de page calculés à l'export via allExportedPages (source de vérité).
+ * Pages template SECTION (intro « lieux », « inspirations », « saisons », etc.) : niveau 0,
+ * pas de numéro — ce ne sont pas des entrées de page au sommaire.
  */
 async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldServiceResult> {
   const { allExportedPages } = ctx;
@@ -146,23 +242,75 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
 
   type SubEntry = { name: string; page: number };
 
+  let firstInspirationIdx = -1;
+  let firstSaisonIdx = -1;
+  let firstClusterIdx = -1;
+  for (let ix = 0; ix < allExportedPages.length; ix++) {
+    const p = allExportedPages[ix];
+    const tpl0 = (p.template || '').toUpperCase();
+    const pt0 = (p.entity_meta?.page_type || '').toLowerCase();
+    if (firstClusterIdx < 0 && (pt0 === 'cluster_intro' || tpl0.startsWith('CLUSTER'))) {
+      firstClusterIdx = ix;
+    }
+    if (firstInspirationIdx < 0 && (tpl0.includes('INSPIRATION') || pt0 === 'inspiration')) {
+      firstInspirationIdx = ix;
+    }
+    if (firstSaisonIdx < 0 && (tpl0.includes('SAISON') || pt0 === 'saison')) {
+      firstSaisonIdx = ix;
+    }
+  }
+  let lastClusterIdx = -1;
+  let lastInspirationIdx = -1;
+  for (let ix = 0; ix < allExportedPages.length; ix++) {
+    const p = allExportedPages[ix];
+    const tpl0 = (p.template || '').toUpperCase();
+    const pt0 = (p.entity_meta?.page_type || '').toLowerCase();
+    if (pt0 === 'cluster_intro' || tpl0.startsWith('CLUSTER')) {
+      lastClusterIdx = ix;
+    }
+    if (tpl0.includes('INSPIRATION') || pt0 === 'inspiration') {
+      lastInspirationIdx = ix;
+    }
+  }
+  const splitIdx =
+    firstInspirationIdx >= 0
+      ? firstInspirationIdx
+      : firstSaisonIdx >= 0
+        ? firstSaisonIdx
+        : allExportedPages.length;
+
+  /** True si une page SECTION précède la 1re page du bloc (intro type « Les lieux à voir… »). */
+  const hasSectionBeforeIndex = (firstBlockIdx: number): boolean => {
+    if (firstBlockIdx <= 0) return false;
+    for (let j = 0; j < firstBlockIdx; j++) {
+      const tj = (allExportedPages[j].template || '').toUpperCase();
+      if (tj === 'SECTION' || tj.startsWith('SECTION_')) return true;
+    }
+    return false;
+  };
+  const hasIntroSectionBeforeClusters = hasSectionBeforeIndex(firstClusterIdx);
+  const hasIntroSectionBeforeInspirations = hasSectionBeforeIndex(firstInspirationIdx);
+  const hasIntroSectionBeforeSaisons = hasSectionBeforeIndex(firstSaisonIdx);
+
+  const entries: SommaireJsonEntry[] = [];
+
   // ── Pré-collecte des groupes ───────────────────────────────────────────────
-  const clusterEntries:     SubEntry[] = [];
+  const clusterEntries: SubEntry[] = [];
   const inspirationEntries: SubEntry[] = [];
-  const saisonEntries:      SubEntry[] = [];
-  let clusterFirstPage:     number | null = null;
+  const saisonEntries: SubEntry[] = [];
+  let clusterFirstPage: number | null = null;
   let inspirationFirstPage: number | null = null;
-  let saisonFirstPage:      number | null = null;
-  const clusterSeen     = new Set<string>();
+  let saisonFirstPage: number | null = null;
+  const clusterSeen = new Set<string>();
   const inspirationSeen = new Set<string>();
-  const saisonSeen      = new Set<string>();
-  let clusterSectionTitle     = 'Lieux par zones';
+  const saisonSeen = new Set<string>();
+  let clusterSectionTitle = 'Lieux par zones';
   let inspirationSectionTitle = 'Inspirations';
-  let saisonSectionTitle      = 'Saisons';
+  let saisonSectionTitle = 'Saisons';
 
   for (const page of allExportedPages) {
     const tpl = (page.template || '').toUpperCase();
-    const pt  = (page.entity_meta?.page_type || '').toLowerCase();
+    const pt = (page.entity_meta?.page_type || '').toLowerCase();
 
     if (pt === 'cluster_intro' || tpl.startsWith('CLUSTER')) {
       if (clusterFirstPage === null) {
@@ -199,36 +347,52 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
     }
   }
 
-  // ── Construction du texte formaté ─────────────────────────────────────────
-  const lines: string[] = [];
-  let clusterInserted     = false;
+  const legacySb: string[] = [];
+  let clusterInserted = false;
   let inspirationInserted = false;
-  let saisonInserted      = false;
+  let saisonInserted = false;
 
-  for (const page of allExportedPages) {
+  for (let idx = 0; idx < allExportedPages.length; idx++) {
+    const page = allExportedPages[idx];
     const tpl = (page.template || '').toUpperCase();
-    const pt  = (page.entity_meta?.page_type || '').toLowerCase();
+    const pt = (page.entity_meta?.page_type || '').toLowerCase();
 
-    // Pages exclues du sommaire
     if (
-      pt === 'poi'       || tpl.startsWith('POI')       ||
-      tpl.startsWith('COUVERTURE')                       ||
-      tpl === 'CARTE'                                    ||
-      tpl.startsWith('CARTE_DESTINATION')                ||
-      tpl.startsWith('SOMMAIRE')                         ||
+      pt === 'poi' ||
+      tpl.startsWith('POI') ||
+      tpl.startsWith('COUVERTURE') ||
+      tpl === 'CARTE' ||
+      tpl.startsWith('CARTE_DESTINATION') ||
+      tpl.startsWith('SOMMAIRE') ||
       pt === 'sommaire'
-    ) continue;
+    ) {
+      continue;
+    }
 
-    const isCluster     = pt === 'cluster_intro' || tpl.startsWith('CLUSTER');
+    const isCluster = pt === 'cluster_intro' || tpl.startsWith('CLUSTER');
     const isInspiration = tpl.includes('INSPIRATION') || pt === 'inspiration';
-    const isSaison      = tpl.includes('SAISON')      || pt === 'saison';
+    const isSaison = tpl.includes('SAISON') || pt === 'saison';
 
     if (isCluster) {
       if (!clusterInserted && clusterFirstPage !== null) {
         clusterInserted = true;
-        lines.push(`${clusterSectionTitle}\t${fmt(clusterFirstPage)}`);
+        if (!hasIntroSectionBeforeClusters) {
+          entries.push({
+            title: clusterSectionTitle,
+            page: null,
+            level: 0,
+            sommaire_page: 1,
+          });
+          legacySb.push(clusterSectionTitle);
+        }
         for (const c of clusterEntries) {
-          lines.push(`\t${c.name}\t${fmt(c.page)}`);
+          entries.push({
+            title: c.name,
+            page: fmt(c.page),
+            level: 1,
+            sommaire_page: 1,
+          });
+          legacySb.push(`\t${c.name}\t${fmt(c.page)}`);
         }
       }
       continue;
@@ -236,9 +400,23 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
     if (isInspiration) {
       if (!inspirationInserted && inspirationFirstPage !== null) {
         inspirationInserted = true;
-        lines.push(`${inspirationSectionTitle}\t${fmt(inspirationFirstPage)}`);
-        for (const i of inspirationEntries) {
-          lines.push(`\t${i.name}\t${fmt(i.page)}`);
+        if (!hasIntroSectionBeforeInspirations) {
+          entries.push({
+            title: inspirationSectionTitle,
+            page: null,
+            level: 0,
+            sommaire_page: 2,
+          });
+          legacySb.push(inspirationSectionTitle);
+        }
+        for (const ent of inspirationEntries) {
+          entries.push({
+            title: ent.name,
+            page: fmt(ent.page),
+            level: 1,
+            sommaire_page: 2,
+          });
+          legacySb.push(`\t${ent.name}\t${fmt(ent.page)}`);
         }
       }
       continue;
@@ -246,31 +424,98 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
     if (isSaison) {
       if (!saisonInserted && saisonFirstPage !== null) {
         saisonInserted = true;
-        lines.push(`${saisonSectionTitle}\t${fmt(saisonFirstPage)}`);
+        if (!hasIntroSectionBeforeSaisons) {
+          entries.push({
+            title: saisonSectionTitle,
+            page: null,
+            level: 0,
+            sommaire_page: 2,
+          });
+          legacySb.push(saisonSectionTitle);
+        }
         for (const s of saisonEntries) {
-          lines.push(`\t${s.name}\t${fmt(s.page)}`);
+          entries.push({
+            title: s.name,
+            page: fmt(s.page),
+            level: 1,
+            sommaire_page: 2,
+          });
+          legacySb.push(`\t${s.name}\t${fmt(s.page)}`);
         }
       }
       continue;
     }
 
-    // Entrée individuelle
     const titre =
-      page.content?.text?.['PRESENTATION_GUIDE_titre_1']       ||
+      page.content?.text?.['PRESENTATION_GUIDE_titre_1'] ||
       page.content?.text?.['PRESENTATION_DESTINATION_titre_1'] ||
-      page.content?.text?.['SECTION_titre_1']                  ||
-      page.content?.text?.['SECTION_INTRO_titre_section']      ||
-      page.content?.text?.['ALLER_PLUS_LOIN_titre_1']          ||
-      page.content?.text?.['A_PROPOS_RL_titre_1']              ||
-      page.titre                                                ||
+      page.content?.text?.['SECTION_titre_1'] ||
+      page.content?.text?.['SECTION_INTRO_titre_section'] ||
+      page.content?.text?.['ALLER_PLUS_LOIN_titre_1'] ||
+      page.content?.text?.['A_PROPOS_RL_titre_1'] ||
+      page.titre ||
       `Page ${page.page_number}`;
 
-    lines.push(`${titre}\t${fmt(page.page_number)}`);
+    /** Bandeau d’intro de partie (lieux / inspirations / saisons…) : jamais de n° au sommaire. */
+    const isSectionHeaderPage = tpl === 'SECTION' || tpl.startsWith('SECTION_');
+    /**
+     * La page SECTION « Les inspirations » (etc.) est *avant* le 1er template INSPIRATION dans
+     * `allExportedPages`, donc idx < splitIdx alors qu’elle doit aller sur la 2e page du sommaire.
+     */
+    const isSecondHalfSectionIntro =
+      isSectionHeaderPage &&
+      ((firstInspirationIdx >= 0 &&
+        lastClusterIdx < idx &&
+        idx < firstInspirationIdx) ||
+        (firstSaisonIdx >= 0 &&
+          firstInspirationIdx >= 0 &&
+          lastInspirationIdx < idx &&
+          idx < firstSaisonIdx) ||
+        (firstSaisonIdx >= 0 &&
+          firstInspirationIdx < 0 &&
+          lastClusterIdx < idx &&
+          idx < firstSaisonIdx));
+    const sommairePage: 1 | 2 = isSecondHalfSectionIntro
+      ? 2
+      : idx < splitIdx
+        ? 1
+        : 2;
+
+    if (isSectionHeaderPage) {
+      entries.push({
+        title: titre,
+        page: null,
+        level: 0,
+        sommaire_page: sommairePage,
+      });
+      legacySb.push(titre);
+      continue;
+    }
+
+    entries.push({
+      title: titre,
+      page: fmt(page.page_number),
+      level: 2,
+      sommaire_page: sommairePage,
+    });
+    legacySb.push(`${titre}\t${fmt(page.page_number)}`);
   }
 
-  const text = lines.join('\n');
-  console.log(`[sommaire_generator] ${lines.length} lignes générées`);
-  return { value: text };
+  const legacyText = legacySb.join('\n');
+  const entries_by_sommaire_page = {
+    '1': entries.filter((e) => e.sommaire_page === 1),
+    '2': entries.filter((e) => e.sommaire_page === 2),
+  } as const;
+  const payload: SommaireJsonV1 = {
+    schema_version: 1,
+    entries,
+    entries_by_sommaire_page,
+    legacy_text: legacyText,
+  };
+  console.log(
+    `[sommaire_generator] ${entries.length} entrées structurées | legacy ${legacySb.length} lignes`
+  );
+  return { value: JSON.stringify(payload) };
 }
 
 // Singleton partagé entre les handlers (pas d'état, safe)

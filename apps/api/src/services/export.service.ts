@@ -8,11 +8,22 @@ import {
 import {
   FieldServiceRunner,
   explodeRepetitifField,
+  narrowSommaireJsonForPageExport,
   type ExportedPageSnapshot,
 } from './field-service-runner.service.js';
 import { COLLECTIONS } from '../config/collections.js';
 import { getArticlesDatabase } from '../config/database.js';
-import { parseLinkField, buildLinkField, normalizeArticleUrl, isGoogleMapsUrl, isRootUrl, slugify } from '../utils/link-field.js';
+import {
+  parseLinkField,
+  buildLinkField,
+  normalizeArticleUrl,
+  isGoogleMapsUrl,
+  isRootUrl,
+  slugify,
+  stripUrlFragment,
+  getUrlFragment,
+  parseAnchorLeadingIndex,
+} from '../utils/link-field.js';
 
 const EXPORTED_STATUSES = ['generee_ia', 'relue', 'validee', 'texte_coule', 'visuels_montes'];
 
@@ -67,10 +78,14 @@ export class ExportService {
     // - clé URL FR exacte
     // - clé canonique FR (/guide/fr/slug/)
     // - clé slug FR (dernier segment URL)
+    // Ancres : même indice #N_ entre langues → URL cible complète si présente dans urls_by_lang[lang].
     const urlCanonicalMap = new Map<string, string>();
     const urlSlugMap = new Map<string, string>();
+    const anchorByFrCanonAndIndex = new Map<string, string>();
+    /** Ancres type « Jour_2_… » / « Day_2_… » : même numéro de jour entre langues. */
+    const anchorByFrCanonAndDay = new Map<string, string>();
     if (lang !== 'fr') {
-      const articleProjection = { 'urls_by_lang': 1 };
+      const articleProjection = { 'urls_by_lang': 1, 'heading_anchors_by_lang': 1 };
       const articleFilter = { [`urls_by_lang.${lang}`]: { $exists: true } };
       const articlesFromConfiguredDb = await getArticlesDatabase()
         .collection(COLLECTIONS.articles_raw)
@@ -92,26 +107,172 @@ export class ExportService {
         }
       };
 
+      const extractAnchorIndex = (anchorId: string | null | undefined): string | null => {
+        if (!anchorId) return null;
+        const m = /^(\d+)_/.exec(anchorId);
+        return m ? m[1] : null;
+      };
+
       const registerArticleUrls = (art: any) => {
         const frUrl  = art.urls_by_lang?.fr;
         const tgtUrl = art.urls_by_lang?.[lang];
         if (frUrl && tgtUrl) {
-          if (!urlMap.has(frUrl)) urlMap.set(frUrl, tgtUrl);
+          const frBase = stripUrlFragment(frUrl);
+          const tgtBase = stripUrlFragment(tgtUrl);
+          if (!urlMap.has(frUrl)) urlMap.set(frUrl, tgtBase);
+          if (!urlMap.has(frBase)) urlMap.set(frBase, tgtBase);
+
           // Variante canonique FR (/guide/fr/slug/) -> URL traduite réelle.
-          const canonicalFr = normalizeArticleUrl(frUrl, 'fr');
-          if (!urlCanonicalMap.has(canonicalFr)) urlCanonicalMap.set(canonicalFr, tgtUrl);
-          const frSlug = slugFromUrl(frUrl);
-          if (frSlug && !urlSlugMap.has(frSlug)) urlSlugMap.set(frSlug, tgtUrl);
+          const canonicalFr = normalizeArticleUrl(frBase, 'fr');
+          if (!urlCanonicalMap.has(canonicalFr)) urlCanonicalMap.set(canonicalFr, tgtBase);
+          const frSlug = slugFromUrl(frBase);
+          if (frSlug && !urlSlugMap.has(frSlug)) urlSlugMap.set(frSlug, tgtBase);
+
+          // Nouveau schéma ingestion : heading_anchors_by_lang.{lang}
+          const frAnchorsObj = art.heading_anchors_by_lang?.fr ?? {};
+          const tgtAnchorsObj = art.heading_anchors_by_lang?.[lang] ?? {};
+          const tgtByIndex = new Map<string, string>();
+          for (const val of Object.values(tgtAnchorsObj)) {
+            if (typeof val !== 'string') continue;
+            const idx = extractAnchorIndex(val);
+            if (idx && !tgtByIndex.has(idx)) tgtByIndex.set(idx, val);
+          }
+          for (const key of Object.keys(tgtAnchorsObj)) {
+            const idx = extractAnchorIndex(key);
+            if (idx && !tgtByIndex.has(idx)) tgtByIndex.set(idx, key);
+          }
+
+          for (const val of Object.values(frAnchorsObj)) {
+            if (typeof val !== 'string') continue;
+            const idx = extractAnchorIndex(val);
+            if (!idx) continue;
+            const tgtAnchorId = tgtByIndex.get(idx);
+            if (!tgtAnchorId) continue;
+            anchorByFrCanonAndIndex.set(`${canonicalFr}|${idx}`, `${tgtBase}#${tgtAnchorId}`);
+          }
+          for (const key of Object.keys(frAnchorsObj)) {
+            const idx = extractAnchorIndex(key);
+            if (!idx) continue;
+            const tgtAnchorId = tgtByIndex.get(idx);
+            if (!tgtAnchorId) continue;
+            anchorByFrCanonAndIndex.set(`${canonicalFr}|${idx}`, `${tgtBase}#${tgtAnchorId}`);
+          }
+
+          const dayNumFromAnchorId = (id: string): number | null => {
+            const raw = String(id).replace(/^#/, '');
+            const mJ = /\bJour[_\s]*(\d+)\b/i.exec(raw) ?? /\bDay[_\s]*(\d+)\b/i.exec(raw);
+            if (mJ) return parseInt(mJ[1], 10);
+            const mN = /^(\d+)_/.exec(raw);
+            if (mN) return parseInt(mN[1], 10);
+            return null;
+          };
+          const frByDay = new Map<number, string>();
+          for (const frId of [...Object.keys(frAnchorsObj), ...Object.values(frAnchorsObj)]) {
+            if (typeof frId !== 'string') continue;
+            const d = dayNumFromAnchorId(frId);
+            if (d === null) continue;
+            frByDay.set(d, frId.replace(/^#/, ''));
+          }
+          const enByDay = new Map<number, string>();
+          for (const enId of [...Object.keys(tgtAnchorsObj), ...Object.values(tgtAnchorsObj)]) {
+            if (typeof enId !== 'string') continue;
+            const d = dayNumFromAnchorId(enId);
+            if (d === null) continue;
+            enByDay.set(d, enId.replace(/^#/, ''));
+          }
+          for (const [d, _frAnchor] of frByDay) {
+            const enAnchorId = enByDay.get(d);
+            if (!enAnchorId) continue;
+            anchorByFrCanonAndDay.set(`${canonicalFr}|day:${d}`, `${tgtBase}#${enAnchorId}`);
+          }
         }
       };
 
       for (const art of articlesFromConfiguredDb) registerArticleUrls(art);
       console.log(
         `🌐 [EXPORT][${lang}] URL resolver : ${urlMap.size} article(s) avec URL en ${lang} `
-        + `(articlesDb=${articlesFromConfiguredDb.length})`
+        + `(articlesDb=${articlesFromConfiguredDb.length}, ancres #N_: ${anchorByFrCanonAndIndex.size}, ancres jour: ${anchorByFrCanonAndDay.size})`
       );
-      urlResolver = (frUrl: string) => urlMap.get(frUrl) ?? frUrl;
+      urlResolver = (frUrl: string) => {
+        const hit = urlMap.get(frUrl);
+        if (hit !== undefined) return hit;
+        const stripped = stripUrlFragment(frUrl);
+        if (stripped !== frUrl) {
+          const hitStripped = urlMap.get(stripped);
+          if (hitStripped !== undefined) return hitStripped;
+        }
+        return frUrl;
+      };
     }
+
+    const slugFromUrlForResolve = (u: string): string | null => {
+      try {
+        const p = new URL(u).pathname.replace(/\/+$/, '');
+        const parts = p.split('/').filter(Boolean);
+        if (parts.length === 0) return null;
+        const slug = parts[parts.length - 1];
+        if (!slug || slug === 'guide') return null;
+        return slug.toLowerCase();
+      } catch {
+        return null;
+      }
+    };
+
+    /** FR → URL article dans la langue d'export (base + ancre cible si connue en base). */
+    const resolveCrossLangArticleUrl = (destination: string): string => {
+      if (lang === 'fr') return destination;
+
+      const frag = getUrlFragment(destination);
+      let fragInner = frag.startsWith('#') ? frag.slice(1) : frag;
+      try {
+        fragInner = decodeURIComponent(fragInner);
+      } catch {
+        /* fragment déjà décodé ou invalide */
+      }
+
+      const baseDest = stripUrlFragment(destination);
+      const anchorIdx = parseAnchorLeadingIndex(frag);
+
+      let resolved = urlResolver(baseDest);
+      if (resolved === baseDest) resolved = urlResolver(destination);
+      if (resolved === baseDest) {
+        const fromCanonicalFr = urlCanonicalMap.get(normalizeArticleUrl(baseDest, 'fr'));
+        if (fromCanonicalFr) resolved = fromCanonicalFr;
+      }
+      if (resolved === baseDest) {
+        const slug = slugFromUrlForResolve(baseDest);
+        if (slug && urlSlugMap.has(slug)) resolved = urlSlugMap.get(slug) as string;
+      }
+
+      const canonFr = normalizeArticleUrl(baseDest, 'fr');
+
+      if (anchorIdx) {
+        const anchored = anchorByFrCanonAndIndex.get(`${canonFr}|${anchorIdx}`);
+        if (anchored) return anchored;
+        const fragResolved = getUrlFragment(resolved);
+        if (parseAnchorLeadingIndex(fragResolved) === anchorIdx) return resolved;
+        return stripUrlFragment(resolved);
+      }
+
+      const mDay = /\bJour[_\s]*(\d+)\b/i.exec(fragInner) ?? /\bDay[_\s]*(\d+)\b/i.exec(fragInner);
+      if (mDay) {
+        const dayNum = parseInt(mDay[1], 10);
+        const anchoredDay = anchorByFrCanonAndDay.get(`${canonFr}|day:${dayNum}`);
+        if (anchoredDay) return anchoredDay;
+      }
+
+      if (frag) {
+        const fragNorm = fragInner.replace(/\s+/g, '_').replace(/[^\w_-]/g, '_');
+        for (const [k, fullUrl] of anchorByFrCanonAndIndex) {
+          if (!k.startsWith(`${canonFr}|`)) continue;
+          const tail = k.slice(canonFr.length + 1);
+          if (tail.startsWith('day:')) continue;
+          if (fragNorm.includes(tail) || tail.includes(fragNorm)) return fullUrl;
+        }
+      }
+
+      return resolved === baseDest ? destination : resolved;
+    };
 
     // ── 5. Construire les pages exportées — passe 1 ────────────────────────
     // Les champs avec service_id sont intentionnellement ignorés ici ;
@@ -223,8 +384,19 @@ export class ExportService {
             db,
             fieldDef:         field,
           });
+          // Sommaire : alléger le JSON par page (seules les entrées de cette spread).
+          let injected = result.value;
+          if (field.service_id === 'sommaire_generator') {
+            const tplName = (pages[i].template || '').toUpperCase();
+            if (tplName === 'SOMMAIRE') {
+              const sommaireSpreadIndex = pages
+                .slice(0, i + 1)
+                .filter((p) => (p.template || '').toUpperCase() === 'SOMMAIRE').length;
+              injected = narrowSommaireJsonForPageExport(String(injected), sommaireSpreadIndex);
+            }
+          }
           // Injecter la valeur calculée dans le champ texte de la page
-          pages[i].content.text[field.name] = result.value;
+          pages[i].content.text[field.name] = injected;
 
           // Si le champ est de type repetitif, exploser le tableau JSON en champs plats
           // pour que le script InDesign trouve des calques nommés individuellement.
@@ -268,18 +440,34 @@ export class ExportService {
     };
     type RedirectCandidate = { rawUrl: string; page: RedirectCandidatePage };
     const TRAILING_PUNCTUATION = '.,;:!?)]}';
-    const extractUrlsFromText = (text: string): string[] => {
-      const matches = text.match(/https?:\/\/[^\s"'<>()]+/gi) ?? [];
-      return matches
-        .map((matchedUrl) => {
-          let core = matchedUrl;
+    const isFooterLinkFieldKey = (fieldKey: string): boolean =>
+      /_lien_|_url_article_/i.test(fieldKey) && !fieldKey.includes('_url_maps_');
+    const extractRedirectUrlsFromFieldValue = (value: string): string[] => {
+      const urls = new Set<string>();
+      const pushIfValid = (raw: string) => {
+        const s = raw.trim();
+        if (!s || !/^https?:\/\//i.test(s) || isGoogleMapsUrl(s) || isRootUrl(s)) return;
+        urls.add(s);
+      };
+
+      if (/^https?:\/\//i.test(value)) {
+        pushIfValid(value);
+        return Array.from(urls);
+      }
+      const parsedLink = parseLinkField(value);
+      if (parsedLink?.url) pushIfValid(parsedLink.url);
+      if (value.includes('http://') || value.includes('https://')) {
+        for (const m of value.match(/https?:\/\/[^\s"'<>()]+/gi) ?? []) {
+          let core = m;
           while (core.length > 0 && TRAILING_PUNCTUATION.includes(core[core.length - 1])) {
             core = core.slice(0, -1);
           }
-          return core;
-        })
-        .filter(Boolean);
+          pushIfValid(core);
+        }
+      }
+      return Array.from(urls);
     };
+
     const baseRedirectCandidates: RedirectCandidate[] = [];
     for (const page of pages) {
       const pageRef: RedirectCandidatePage = {
@@ -288,31 +476,11 @@ export class ExportService {
         entity_meta: { poi_name: page.entity_meta.poi_name },
       };
 
-      if (page.url_source && /^https?:\/\//i.test(page.url_source)) {
-        baseRedirectCandidates.push({ rawUrl: page.url_source, page: pageRef });
-      }
-
       for (const [fieldKey, fieldValue] of Object.entries(page.content.text)) {
         if (!fieldValue || typeof fieldValue !== 'string') continue;
-        if (fieldKey.includes('_url_maps_')) continue;
-
-        if (/^https?:\/\//i.test(fieldValue)) {
-          baseRedirectCandidates.push({ rawUrl: fieldValue, page: pageRef });
-          continue;
-        }
-        if (fieldValue.startsWith('{')) {
-          try {
-            const parsed = JSON.parse(fieldValue);
-            if (parsed && typeof parsed.url === 'string' && /^https?:\/\//i.test(parsed.url)) {
-              baseRedirectCandidates.push({ rawUrl: parsed.url, page: pageRef });
-              continue;
-            }
-          } catch { /* JSON invalide */ }
-        }
-        if (fieldValue.includes('http://') || fieldValue.includes('https://')) {
-          for (const embeddedUrl of extractUrlsFromText(fieldValue)) {
-            baseRedirectCandidates.push({ rawUrl: embeddedUrl, page: pageRef });
-          }
+        if (!isFooterLinkFieldKey(fieldKey)) continue;
+        for (const redirectUrl of extractRedirectUrlsFromFieldValue(fieldValue)) {
+          baseRedirectCandidates.push({ rawUrl: redirectUrl, page: pageRef });
         }
       }
     }
@@ -359,7 +527,7 @@ export class ExportService {
           if (!v || typeof v !== 'string') continue;
 
           if (/^https?:\/\//i.test(v)) {
-            const resolved = urlResolver(v);
+            const resolved = resolveCrossLangArticleUrl(v);
             if (resolved !== v) resolvedCount++;
             else fallbackCount++;
             page.content.text[k] = resolved;
@@ -367,7 +535,7 @@ export class ExportService {
             try {
               const parsed = JSON.parse(v);
               if (parsed && typeof parsed.url === 'string' && /^https?:\/\//i.test(parsed.url)) {
-                const resolved = urlResolver(parsed.url);
+                const resolved = resolveCrossLangArticleUrl(parsed.url);
                 if (resolved !== parsed.url) resolvedCount++;
                 else fallbackCount++;
                 parsed.url = resolved;
@@ -381,7 +549,7 @@ export class ExportService {
       // Résolution de url_source sur chaque page
       for (const page of pages) {
         if (page.url_source && /^https?:\/\//i.test(page.url_source)) {
-          const resolved = urlResolver(page.url_source);
+          const resolved = resolveCrossLangArticleUrl(page.url_source);
           if (resolved !== page.url_source) resolvedCount++;
           else fallbackCount++;
           (page as any).url_source = resolved;
@@ -477,37 +645,6 @@ export class ExportService {
       trackNormalizePage(candidate.rawUrl, candidate.page, true);
     }
 
-    // Résout une URL de destination pour le CSV STRICTEMENT depuis la base.
-    // Règle métier demandée:
-    // - pas de reconstruction d'URL
-    // - pas de fallback /guide/{lang}/...
-    // - uniquement lookup FR -> langue cible via articles_raw.urls_by_lang
-    // (avec support de la forme canonique FR comme clé alternative).
-    const resolveDestinationForLang = (destination: string): string => {
-      const slugFromUrl = (u: string): string | null => {
-        try {
-          const p = new URL(u).pathname.replace(/\/+$/, '');
-          const parts = p.split('/').filter(Boolean);
-          if (parts.length === 0) return null;
-          const slug = parts[parts.length - 1];
-          if (!slug || slug === 'guide') return null;
-          return slug.toLowerCase();
-        } catch {
-          return null;
-        }
-      };
-      if (lang === 'fr') return destination;
-      const resolved = urlResolver(destination);
-      if (resolved !== destination) return resolved;
-
-      const fromCanonicalFr = urlCanonicalMap.get(normalizeArticleUrl(destination, 'fr'));
-      if (fromCanonicalFr) return fromCanonicalFr;
-
-      const slug = slugFromUrl(destination);
-      if (slug && urlSlugMap.has(slug)) return urlSlugMap.get(slug) as string;
-      return destination;
-    };
-
     let normalizedCount = 0;
     for (const page of pages) {
       // url_source de la page
@@ -524,6 +661,11 @@ export class ExportService {
 
         const v = page.content.text[k];
         if (!v || typeof v !== 'string') continue;
+
+        // Même en EN/DE/… : réécrire les URLs du site dans content.text vers
+        // https://{host}/guide/{lang}/{slug}/ (+ ancre slugifiée si #) comme url_source,
+        // pour rester aligné avec le CSV de redirections et les hyperliens InDesign.
+        // Les domaines non « site » restent inchangés (trackNormalizePage).
 
         if (/^https?:\/\//i.test(v) && !isGoogleMapsUrl(v)) {
           const prev = v;
@@ -567,10 +709,60 @@ export class ExportService {
 
     console.log(`🔗 [EXPORT][${lang}] URLs normalisées : ${normalizedCount} | redirections uniques : ${redirectMap.size}`);
 
+    /** Suffixe après « + » dans le dernier segment /guide/{lang}/slug+suffix/ (ancre slugifiée). */
+    const parsePlusAnchorSuffixFromNormalized = (normalized: string): string | null => {
+      try {
+        const u = new URL(normalized);
+        const parts = u.pathname.replace(/\/+$/, '').split('/').filter(Boolean);
+        const last = parts[parts.length - 1] ?? '';
+        const plus = last.indexOf('+');
+        if (plus < 0) return null;
+        return last.slice(plus + 1);
+      } catch {
+        return null;
+      }
+    };
+
+    /**
+     * Si la résolution depuis l’URL FR (#…) ne produit pas d’ancre EN, on retente depuis
+     * le suffixe « +… » de l’URL normalisée (même info que le hash, slugifiée pour le CSV).
+     * Cas typique : +jour-2-parc-… vs ancres #9-… qui matchent déjà via parseAnchorLeadingIndex.
+     */
+    const resolveDestinationWithNormalizedPlusFallback = (
+      normalized: string,
+      frDestination: string
+    ): string => {
+      const dest = resolveCrossLangArticleUrl(frDestination);
+      if (lang === 'fr') return dest;
+      if (getUrlFragment(dest)) return dest;
+
+      const plusSuffix = parsePlusAnchorSuffixFromNormalized(normalized);
+      if (!plusSuffix) return dest;
+
+      const baseFr = stripUrlFragment(frDestination);
+      const canonFr = normalizeArticleUrl(baseFr, 'fr');
+
+      const mIdx = /^(\d+)-/.exec(plusSuffix);
+      if (mIdx) {
+        const idx = mIdx[1];
+        const anchored = anchorByFrCanonAndIndex.get(`${canonFr}|${idx}`);
+        if (anchored) return anchored;
+      }
+
+      const mJour = /^jour-(\d+)/i.exec(plusSuffix) ?? /^day-(\d+)/i.exec(plusSuffix);
+      if (mJour) {
+        const d = parseInt(mJour[1], 10);
+        const anchoredDay = anchorByFrCanonAndDay.get(`${canonFr}|day:${d}`);
+        if (anchoredDay) return anchoredDay;
+      }
+
+      return dest;
+    };
+
     const redirectPairs: RedirectPair[] = Array.from(redirectMap.entries()).map(
       ([normalized, destination]) => ({
         normalized,
-        destination: resolveDestinationForLang(destination),
+        destination: resolveDestinationWithNormalizedPlusFallback(normalized, destination),
       })
     );
 

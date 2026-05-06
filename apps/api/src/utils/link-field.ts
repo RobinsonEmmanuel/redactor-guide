@@ -83,10 +83,55 @@ export function normalizeArticleUrl(rawUrl: string, lang: string): string {
     const parsed = new URL(rawUrl);
     const slug = parsed.pathname.split('/').filter(Boolean).pop();
     if (!slug) return rawUrl;
-    return `${parsed.protocol}//${parsed.host}/guide/${lang}/${slug}/`;
+    const rawHash = parsed.hash ? parsed.hash.slice(1) : '';
+    if (!rawHash) {
+      return `${parsed.protocol}//${parsed.host}/guide/${lang}/${slug}/`;
+    }
+
+    // URL normalisée unique par ancre :
+    // /guide/{lang}/{slug}+{anchor-slug}/
+    // Ex: /guide/en/best-things...+9-explore-the-cueva-del-viento/
+    const decodedHash = decodeURIComponent(rawHash);
+    const anchorSlug = slugify(decodedHash.replace(/_/g, ' '));
+    if (!anchorSlug) {
+      return `${parsed.protocol}//${parsed.host}/guide/${lang}/${slug}/`;
+    }
+    return `${parsed.protocol}//${parsed.host}/guide/${lang}/${slug}+${anchorSlug}/`;
   } catch {
     return rawUrl;
   }
+}
+
+/** Retire le fragment (#...) pour les lookups d'articles (clés urls_by_lang souvent sans ancre). */
+export function stripUrlFragment(url: string): string {
+  try {
+    const u = new URL(url);
+    u.hash = '';
+    return u.toString();
+  } catch {
+    const i = url.indexOf('#');
+    return i >= 0 ? url.slice(0, i) : url;
+  }
+}
+
+/** Fragment d'URL incluant le « # », ou chaîne vide. */
+export function getUrlFragment(url: string): string {
+  try {
+    return new URL(url).hash || '';
+  } catch {
+    const i = url.indexOf('#');
+    return i >= 0 ? url.slice(i) : '';
+  }
+}
+
+/**
+ * Extrait l'index numérique d'une ancre type WordPress « #9_Titre_en_snake_case ».
+ * Même indice d'une langue à l'autre pour un même bloc de contenu.
+ */
+export function parseAnchorLeadingIndex(hash: string): string | null {
+  if (!hash || hash === '#') return null;
+  const m = /^#(\d+)_/.exec(hash);
+  return m ? m[1] : null;
 }
 
 /**

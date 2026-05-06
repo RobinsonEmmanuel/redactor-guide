@@ -4,7 +4,7 @@ import { env } from '../config/env.js';
 /**
  * Routes d'ingestion WordPress.
  *
- * Proxy léger vers apps/ingestion-service.
+ * Proxy vers le microservice d'ingestion (déployé hors de ce dépôt).
  * Si INGESTION_SERVICE_URL n'est pas configuré, répond 503.
  */
 export async function ingestRoutes(fastify: FastifyInstance) {
@@ -49,7 +49,7 @@ export async function ingestRoutes(fastify: FastifyInstance) {
       const data = await res.json().catch(() => ({ error: 'Réponse non-JSON du microservice' }));
       return reply.status(res.status).send(data);
     } catch (error: any) {
-      fastify.log.error({ error: error.message, targetUrl }, 'Proxy ingestion-service error');
+      fastify.log.error({ error: error.message, targetUrl }, 'Proxy microservice ingestion error');
       return reply.status(502).send({ error: 'Erreur de communication avec le service d\'ingestion', details: error.message });
     }
   }

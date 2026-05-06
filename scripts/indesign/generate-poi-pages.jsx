@@ -19,6 +19,14 @@
 
 var doc = app.activeDocument;
 
+/** Compteur de pages SOMMAIRE (1 = premiere page sommaire, 2 = deuxieme) pour repartir les entrees JSON. */
+var SOMMAIRE_SPREAD_INDEX = 0;
+
+/** page_number redactionnel (JSON) -> reference Page InDesign (rempli a la generation). */
+var REDACTOR_PAGE_MAP_GLOBAL = {};
+/** Indice JSON -> Page InDesign pour lier le sommaire apres coup. */
+var DOC_PAGE_BY_JSON_INDEX = [];
+
 // --- Configuration -----------------------------------------------------------
 // Mettre a true pour afficher une alerte de diagnostic picto sur chaque page POI.
 // Desactiver (false) en production.
@@ -59,7 +67,9 @@ var BULLET_LIST_FIELDS = BULLET_LIST_FIELDS_FALLBACK;
 var SKIP_IN_TEXT_STEP  = {
     "POI_meta_duree":            true,
     "POI_meta_1":                true,
-    "POI_lien_2":                true
+    "POI_lien_2":                true,
+    // JSON sommaire : les "{" declencheraient applyStyleMarkers / style Orange par erreur
+    "SOMMAIRE_texte_1":          true
 };
 
 // Champs a NE PAS masquer a l'etape A (injectText null ne sait pas masquer les cadres graphiques)
@@ -453,10 +463,17 @@ function injectText(page, label, value) {
             blocks[i].visible = false;
         } else {
             // Detecter un lien structure {"label":"...","url":"..."}
-            var strRaw = String(value).replace(/^\s+|\s+$/, "");
+            var strRaw = String(value).replace(/^\s+|\s+$/g, "");
             var linkLabel = null;
             var linkUrl   = null;
-            if (strRaw.charAt(0) === "{") {
+            if (value && typeof value === "object") {
+                try {
+                    if (value.label !== undefined && value.url !== undefined) {
+                        linkLabel = String(value.label || "");
+                        linkUrl   = String(value.url   || "");
+                    }
+                } catch(e) {}
+            } else if (strRaw.charAt(0) === "{") {
                 try {
                     var parsed = eval("(" + strRaw + ")");
                     if (parsed && parsed.label !== undefined && parsed.url !== undefined) {
@@ -675,7 +692,7 @@ function injectImage(page, label, imageData) {
 // --- 9. Injecter un hyperlien sur un bloc texte ------------------------------
 // Le texte du bloc reste inchange (statique du gabarit), seul le lien est ajoute.
 function injectHyperlink(page, label, url) {
-    if (!url || String(url).replace(/^\s+|\s+$/, "") === "") return;
+    if (!url || String(url).replace(/^\s+|\s+$/g, "") === "") return;
     var blocks = findByLabelOnPage(page, label);
     for (var i = 0; i < blocks.length; i++) {
         if (!(blocks[i] instanceof TextFrame)) continue;
@@ -703,10 +720,19 @@ function injectHyperlink(page, label, url) {
             try { dest = doc.hyperlinkURLDestinations.itemByName(url); } catch(e2) { continue; }
         }
 
-        // Creer la source sur tout le texte du bloc (via parentStory)
+        // Source sur le texte de CE cadre (story filee : parentStory.item(0) peut etre un autre bloc)
+        var rangeText = null;
+        try {
+            if (tf.texts && tf.texts.length > 0) {
+                rangeText = tf.texts.item(0);
+            }
+        } catch(eR) {}
+        if (!rangeText) {
+            try { rangeText = tf.parentStory.texts.item(0); } catch(eS) { continue; }
+        }
         var src;
         try {
-            src = doc.hyperlinkTextSources.add(tf.parentStory.texts.item(0));
+            src = doc.hyperlinkTextSources.add(rangeText);
         } catch(e) { continue; }
 
         try {
@@ -725,15 +751,21 @@ function injectHyperlink(page, label, url) {
 function injectFrameHyperlink(page, label, value) {
     // Extraire l'URL depuis un JSON structure ou une chaine brute
     var url = null;
-    if (value) {
-        var strRaw = String(value).replace(/^\s+|\s+$/, "");
-        if (strRaw.charAt(0) === "{") {
+    if (value !== null && value !== undefined) {
+        if (typeof value === "object") {
             try {
-                var parsed = eval("(" + strRaw + ")");
-                if (parsed && parsed.url) url = String(parsed.url).replace(/^\s+|\s+$/, "");
+                if (value.url) url = String(value.url).replace(/^\s+|\s+$/g, "");
             } catch(e) {}
-        } else if (strRaw !== "") {
+        } else {
+            var strRaw = String(value).replace(/^\s+|\s+$/g, "");
+            if (strRaw.charAt(0) === "{") {
+                try {
+                    var parsed = eval("(" + strRaw + ")");
+                    if (parsed && parsed.url) url = String(parsed.url).replace(/^\s+|\s+$/g, "");
+                } catch(e) {}
+            } else if (strRaw !== "") {
             url = strRaw;
+            }
         }
     }
 
@@ -944,67 +976,671 @@ function injectPictoBar(page, contentData, durationValue) {
 
 // --- 10b. Injection du texte de sommaire -------------------------------------
 //
-// Le champ SOMMAIRE_texte_1 contient le texte brut genere par le backend :
-//   - Lignes separees par \n  → converties en \r (retour chariot InDesign)
-//   - \t entre le titre et le numero de page → tabulation InDesign (tab stop)
-//   - Lignes commencant par \t = sous-entrees (cluster, inspiration, saison)
+// Export actuel : JSON { schema_version: 1, entries: [...], legacy_text } dans SOMMAIRE_texte_1.
+// Chaque entree : title, page (null si titre de section), level (0/1/2), sommaire_page (1 ou 2).
 //
-// Le script injecte le texte dans le cadre SOMMAIRE_texte_1 de la page 1.
-// Si le cadre est threade vers la page 2 (flux lie), InDesign gere le debordement
-// automatiquement : aucune action supplementaire n'est necessaire.
+// level → styles de paragraphe (cadre titres SOMMAIRE_texte_1) :
+//   0 → Titre-section
+//   1 → Page-section-sommaire
+//   2 → Page-unique-sommaire
 //
-// Styles de paragraphe optionnels :
-//   "Sommaire_niveau1" → applique aux lignes principales (ne commencant pas par \t)
-//   "Sommaire_niveau2" → applique aux sous-entrees (commencant par \t)
-// Si ces styles sont absents du document, le texte conserve le style du cadre.
+// Deux dispositions :
+//   A) Un seul cadre (SOMMAIRE_texte_1) : titre + tab + page sur une ligne ; regler un taquet
+//      droit sur les styles niveau 1 et 2 pour la colonne des numeros.
+//   B) Deux cadres : SOMMAIRE_texte_1 (titres) + SOMMAIRE_numeros_1 (numeros). Meme nombre
+//      de paragraphes dans chaque cadre — pas de tabulation entre titre et page : l’alignement
+//      vertical vient des interlignes (styles jumeles entre colonnes). Pas de coordonnees X/Y
+//      dans le script : vous placez le cadre numeros dans la maquette.
+//      Titre > 29 caracteres (espaces inclus) : suppose 2 lignes (15/18 pt) ; espace apres +18 pt
+//      sur le paragraphe numeros aligne pour compenser la hauteur du bloc titre.
+//      Styles numeros (cadre SOMMAIRE_numeros_1), alignes sur level :
+//        Titre-section (0) → Sommaire-numeros-absent
+//        Page-section-sommaire (1) → Sommaire-numeros-page-section
+//        Page-unique-sommaire (2) → Sommaire-numeros-page-seule
+//      Export JSON non-structuré (legacy) : Sommaire-numeros / Sommaire-numeros-absent.
+//      Export JSON : privilegier entries_by_sommaire_page["1"|"2"] (decoupage explicite). Eviter
+//      un fil de texte unique reliant les deux pages sommaire : chaque page = son propre cadre / fil.
 //
-var SOMMAIRE_STYLE_N1 = "Sommaire_niveau1"; // style paragraphe entrees principales
-var SOMMAIRE_STYLE_N2 = "Sommaire_niveau2"; // style paragraphe sous-entrees
+// Premiere page SOMMAIRE du document : sommaire_page === 1 ; deuxieme : === 2.
+//
+// Anciens exports : texte tabule seul → traitement Sommaire_niveau1 / Sommaire_niveau2.
+//
+var SOMMAIRE_STYLE_BY_LEVEL = {
+    0: "Titre-section",
+    1: "Page-section-sommaire",
+    2: "Page-unique-sommaire"
+};
 
-function injectSommaireText(page, pageData) {
+var SOMMAIRE_STYLE_N1 = "Sommaire_niveau1"; // fallback ancien export : entrees principales
+var SOMMAIRE_STYLE_N2 = "Sommaire_niveau2"; // fallback ancien export : sous-entrees (\t en tete)
+
+/** Cadre optionnel : colonne des numeros (un paragraphe par ligne de titres). */
+var SOMMAIRE_NUMEROS_LABEL = "SOMMAIRE_numeros_1";
+/** Noms possibles (InDesign : casse / variante). Le premier qui existe est utilise. */
+var SOMMAIRE_NUMEROS_STYLE_CANDIDATES = ["Sommaire-numeros", "sommaire-numeros", "Sommaire_numeros"];
+var SOMMAIRE_NUMEROS_VIDE_STYLE_CANDIDATES = ["Sommaire-numeros-absent", "sommaire-numeros-absent", "Sommaire_numeros_absent"];
+var SOMMAIRE_NUMEROS_PAGE_SECTION_CANDIDATES = [
+    "Sommaire-numeros-page-section",
+    "sommaire-numeros-page-section",
+    "Sommaire_numeros_page_section"
+];
+var SOMMAIRE_NUMEROS_PAGE_SEULE_CANDIDATES = [
+    "Sommaire-numeros-page-seule",
+    "sommaire-numeros-page-seule",
+    "Sommaire_numeros_page_seule"
+];
+
+/**
+ * Sommaire 2 cadres : si le titre depasse cette longueur (caracteres, espaces inclus),
+ * il occupe 2 lignes avec 15 pt / 18 pt interligne — on ajoute de l'espace apres sur
+ * le paragraphe de la colonne numeros pour aligner les blocs suivants.
+ */
+var SOMMAIRE_TITLE_WRAP_CHAR_MAX = 29;
+var SOMMAIRE_NUMEROS_WRAP_EXTRA_SPACE_PT = 18;
+
+/** @param {string} entryTitle titre JSON brut (sans tabulation niveau 1). */
+function sommaireTitleWrapsTwoLinesByCharCount(entryTitle) {
+    return String(entryTitle || "").length > SOMMAIRE_TITLE_WRAP_CHAR_MAX;
+}
+
+function sommaireWrapFlagsFromSlice(slice) {
+    var flags = [];
+    if (!slice) return flags;
+    for (var i = 0; i < slice.length; i++)
+        flags.push(sommaireTitleWrapsTwoLinesByCharCount(slice[i] && slice[i].title));
+    return flags;
+}
+
+function sommaireWrapFlagsFromTitleLines(titleLines) {
+    var flags = [];
+    if (!titleLines) return flags;
+    for (var i = 0; i < titleLines.length; i++) {
+        var t = String(titleLines[i] || "");
+        if (t.charAt(0) === "\t") t = t.substring(1);
+        flags.push(t.length > SOMMAIRE_TITLE_WRAP_CHAR_MAX);
+    }
+    return flags;
+}
+
+function sommaireApplyDualNumerosWrapSpacing(tfNums, wrapFlags) {
+    if (!tfNums || !wrapFlags || wrapFlags.length === 0) return;
+    try {
+        var paras = tfNums.paragraphs;
+        var n = paras.length;
+        if (wrapFlags.length < n) n = wrapFlags.length;
+        for (var pi = 0; pi < n; pi++) {
+            if (!wrapFlags[pi]) continue;
+            try {
+                var p = paras[pi];
+                var cur = p.spaceAfter;
+                if (cur === undefined || cur === null || isNaN(cur)) cur = 0;
+                p.spaceAfter = Number(cur) + SOMMAIRE_NUMEROS_WRAP_EXTRA_SPACE_PT;
+            } catch (eP) {}
+        }
+    } catch (eAll) {}
+}
+
+/** @param {string[]} names */
+function sommaireFirstValidParagraphStyle(names) {
+    if (!names || !names.length) return null;
+    for (var i = 0; i < names.length; i++) {
+        var pst = doc.paragraphStyles.itemByName(names[i]);
+        if (pst.isValid) return pst;
+    }
+    return null;
+}
+
+/**
+ * Colonne numeros : style de paragraphe + clearOverrides, sans forcer [None] caractere
+ * (sinon graisse / couleur du style Sommaire-numeros peuvent sembler absentes).
+ */
+function sommaireApplyNumerosParagraphOnly(paragraph, pst) {
+    if (!paragraph || !pst || !pst.isValid) return;
+    try {
+        paragraph.appliedParagraphStyle = pst;
+        if (typeof paragraph.clearOverrides === "function") {
+            try {
+                paragraph.clearOverrides(OverrideType.ALL);
+            } catch (eEnum) {
+                paragraph.clearOverrides();
+            }
+        }
+    } catch (e) {}
+}
+var SOMMAIRE_TITRE_PARAGRAPH_STYLE_NAME = "";
+/** Style de caractere sur tout le titre (ex. "Orange"). Vide "" pour desactiver. */
+var SOMMAIRE_TITRE_CHARACTER_STYLE_NAME = "Orange";
+
+function sommaireEntrySommairePage(entry) {
+    var v = entry.sommaire_page;
+    if (v === null || v === undefined) return -1;
+    var n = parseInt(v, 10);
+    return isNaN(n) ? -1 : n;
+}
+
+function sommaireFinalizeTitreAppearance(page, pageData) {
+    var tc = pageData.content && pageData.content.text;
+    if (!tc) return;
+    if (tc["SOMMAIRE_titre_1"] === undefined || tc["SOMMAIRE_titre_1"] === null) return;
+    var rawT = String(tc["SOMMAIRE_titre_1"]).replace(/^\s+|\s+$/g, "");
+    if (rawT === "") return;
+    var labelT = (data.mappings.fields && data.mappings.fields["SOMMAIRE_titre_1"]) || "SOMMAIRE_titre_1";
+
+    var pn = String(SOMMAIRE_TITRE_PARAGRAPH_STYLE_NAME || "").replace(/^\s+|\s+$/g, "");
+    if (pn) {
+        var pst = doc.paragraphStyles.itemByName(pn);
+        var tfp = sommaireGetTextFrame(page, labelT);
+        if (tfp && pst.isValid) {
+            try { tfp.visible = true; } catch (e0) {}
+            try {
+                var ppar = tfp.paragraphs;
+                for (var pi = 0; pi < ppar.length; pi++) {
+                    sommaireApplyParagraphStyleStripOverrides(ppar[pi], pst);
+                }
+            } catch (e1) {}
+        }
+    }
+    var cn = String(SOMMAIRE_TITRE_CHARACTER_STYLE_NAME || "").replace(/^\s+|\s+$/g, "");
+    if (cn) {
+        var chSt = doc.characterStyles.itemByName(cn);
+        var tfc = sommaireGetTextFrame(page, labelT);
+        if (tfc && chSt.isValid) {
+            try { tfc.visible = true; } catch (e2) {}
+            try { tfc.characters.everyItem().appliedCharacterStyle = chSt; } catch (e3) {}
+        }
+    }
+}
+
+function sommaireGetTextFrame(page, label) {
+    var blocks = findByLabelOnPage(page, label);
+    for (var b = 0; b < blocks.length; b++) {
+        if (blocks[b] instanceof TextFrame) return blocks[b];
+    }
+    return null;
+}
+
+/**
+ * Applique un style de paragraphe puis retire les dérogations caractère
+ * (texte issu du gabarit hérite souvent orange / gras / 45 pt du titre « Sommaire »).
+ */
+function sommaireApplyParagraphStyleStripOverrides(paragraph, pst) {
+    if (!paragraph || !pst || !pst.isValid) return;
+    try {
+        paragraph.appliedParagraphStyle = pst;
+        if (typeof paragraph.clearOverrides === "function") {
+            try {
+                paragraph.clearOverrides(OverrideType.ALL);
+            } catch (eEnum) {
+                paragraph.clearOverrides();
+            }
+        }
+        try {
+            var noneCh = doc.characterStyles.itemByName("[None]");
+            if (!noneCh.isValid) noneCh = doc.characterStyles[0];
+            if (noneCh.isValid) paragraph.characters.everyItem().appliedCharacterStyle = noneCh;
+        } catch (eNc) {}
+    } catch (e) {}
+}
+
+function sommaireApplyNumerosStyles(tfNums, numLines, styleLevels) {
+    if (!tfNums || !numLines || numLines.length === 0) return;
+    try {
+        var stGeneric = sommaireFirstValidParagraphStyle(SOMMAIRE_NUMEROS_STYLE_CANDIDATES);
+        var stVide = sommaireFirstValidParagraphStyle(SOMMAIRE_NUMEROS_VIDE_STYLE_CANDIDATES);
+        var stSection = sommaireFirstValidParagraphStyle(SOMMAIRE_NUMEROS_PAGE_SECTION_CANDIDATES);
+        var stSeule = sommaireFirstValidParagraphStyle(SOMMAIRE_NUMEROS_PAGE_SEULE_CANDIDATES);
+        var paras = tfNums.paragraphs;
+        var count = paras.length;
+        var useLevels = styleLevels && styleLevels.length > 0;
+        for (var pn = 0; pn < count; pn++) {
+            var lineVal = pn < numLines.length ? numLines[pn] : "";
+            var hasNum = String(lineVal || "").replace(/^\s+|\s+$/, "") !== "";
+            try {
+                if (useLevels && pn < styleLevels.length) {
+                    var lv = parseInt(styleLevels[pn], 10);
+                    var pstPick = null;
+                    if (isNaN(lv) || lv === 0 || !hasNum) {
+                        pstPick = stVide;
+                    } else if (lv === 1) {
+                        pstPick = stSection || stGeneric;
+                    } else {
+                        pstPick = stSeule || stGeneric;
+                    }
+                    if (pstPick) sommaireApplyNumerosParagraphOnly(paras[pn], pstPick);
+                } else {
+                    if (hasNum && stGeneric) {
+                        sommaireApplyNumerosParagraphOnly(paras[pn], stGeneric);
+                    } else if (!hasNum && stVide) {
+                        sommaireApplyNumerosParagraphOnly(paras[pn], stVide);
+                    } else if (stGeneric) {
+                        sommaireApplyNumerosParagraphOnly(paras[pn], stGeneric);
+                    } else if (stVide) {
+                        sommaireApplyNumerosParagraphOnly(paras[pn], stVide);
+                    }
+                }
+            } catch (eN) {}
+        }
+    } catch (eAll) {}
+}
+
+function sommaireSplitLegacyLineToTitleNum(line) {
+    var t = String(line || "");
+    if (t.charAt(0) === "\t") {
+        var parts = t.split("\t");
+        if (parts.length >= 3) {
+            return { title: "\t" + parts[1], num: String(parts[parts.length - 1] || "").replace(/^\s+|\s+$/, "") };
+        }
+        return { title: t, num: "" };
+    }
+    var idx = t.indexOf("\t");
+    if (idx >= 0) {
+        return {
+            title: t.substring(0, idx),
+            num: t.substring(idx + 1).replace(/^\s+|\s+$/, "")
+        };
+    }
+    return { title: t, num: "" };
+}
+
+/** Utilise entries_by_sommaire_page du JSON si present ; sinon filtre entries. */
+function sommaireBuildSliceForPart(parsed, part) {
+    var slice = [];
+    var explicitByPage = false;
+    var byPage = parsed.entries_by_sommaire_page;
+    if (byPage && typeof byPage === "object") {
+        var pk = String(part);
+        if (byPage[pk] !== undefined && byPage[pk] !== null) {
+            explicitByPage = true;
+            var bag = byPage[pk];
+            if (bag instanceof Array) {
+                for (var si = 0; si < bag.length; si++) slice.push(bag[si]);
+            }
+        }
+    }
+    if (!explicitByPage) {
+        var allE = parsed.entries || [];
+        for (var ei = 0; ei < allE.length; ei++) {
+            if (sommaireEntrySommairePage(allE[ei]) === part) slice.push(allE[ei]);
+        }
+    }
+    return { slice: slice, explicitByPage: explicitByPage };
+}
+
+function injectSommaireText(page, pageData, sommaireSpreadPart) {
     var textContent = pageData.content.text || {};
-    var rawValue    = textContent["SOMMAIRE_texte_1"];
+    var rawValue = textContent["SOMMAIRE_texte_1"];
 
     if (!rawValue || String(rawValue).replace(/^\s+|\s+$/, "") === "") return;
 
-    var blocks = findByLabelOnPage(page, "SOMMAIRE_texte_1");
-    if (blocks.length === 0) return;
+    var tfTitle = sommaireGetTextFrame(page, "SOMMAIRE_texte_1");
+    if (!tfTitle) return;
 
-    var tf = null;
-    for (var b = 0; b < blocks.length; b++) {
-        if (blocks[b] instanceof TextFrame) { tf = blocks[b]; break; }
-    }
-    if (!tf) return;
+    try { tfTitle.visible = true; } catch (eVis0) {}
 
-    // Convertir \n en \r (separateur de paragraphe InDesign)
-    // Conserver \t tel quel (point de conduite InDesign)
-    var indesignText = String(rawValue).replace(/\r\n/g, "\r").replace(/\n/g, "\r");
-    tf.contents = indesignText;
+    var tfNums = sommaireGetTextFrame(page, SOMMAIRE_NUMEROS_LABEL);
+    if (tfNums) { try { tfNums.visible = true; } catch (eVisN) {} }
+    var dualMode = tfNums !== null;
 
-    // Appliquer les styles de paragraphe ligne par ligne
+    var part = parseInt(sommaireSpreadPart, 10);
+    if (isNaN(part) || part < 1) part = 1;
+    var indesignText = "";
+    var styleLevels = null;
+    var useLegacyParaStyles = false;
+    var titleLines = null;
+    var numLines = null;
+    var sommaireDualSliceRef = null;
+
     try {
-        var styleN1 = doc.paragraphStyles.itemByName(SOMMAIRE_STYLE_N1);
-        var styleN2 = doc.paragraphStyles.itemByName(SOMMAIRE_STYLE_N2);
-        var n1Valid = styleN1.isValid;
-        var n2Valid = styleN2.isValid;
-
-        if (n1Valid || n2Valid) {
-            var paras = tf.paragraphs;
-            for (var p = 0; p < paras.length; p++) {
-                try {
-                    var paraText = paras[p].contents;
-                    // Sous-entree : commence par une tabulation
-                    if (paraText.charAt(0) === "\t" && n2Valid) {
-                        paras[p].appliedParagraphStyle = styleN2;
-                    } else if (n1Valid) {
-                        paras[p].appliedParagraphStyle = styleN1;
+        var rawStr = String(rawValue).replace(/^\uFEFF/g, "").replace(/^\s+|\s+$/, "");
+        if (rawStr.charAt(0) === "{") {
+            var parsed = JSON.parse(rawStr);
+            if (parsed.schema_version === 1 && (parsed.entries || parsed.entries_by_sommaire_page)) {
+                var sl = sommaireBuildSliceForPart(parsed, part);
+                var slice = sl.slice;
+                var explicitByPage = sl.explicitByPage;
+                if (slice.length === 0) {
+                    if (explicitByPage) {
+                        try { tfTitle.contents = ""; } catch (eCl0) {}
+                        if (dualMode && tfNums) { try { tfNums.contents = ""; } catch (eCl1) {} }
                     }
-                } catch(e) {}
-            }
-        }
-    } catch(e) {}
+                    return;
+                }
 
-    truncateOverflow(tf);
+                sommaireDualSliceRef = slice;
+
+                styleLevels = [];
+                if (dualMode) {
+                    titleLines = [];
+                    numLines = [];
+                    for (var j = 0; j < slice.length; j++) {
+                        var e = slice[j];
+                        var lv = parseInt(e.level, 10);
+                        if (isNaN(lv)) lv = 2;
+                        styleLevels.push(lv);
+                        var pg = e.page;
+                        var haspg = pg !== null && pg !== undefined && String(pg).replace(/^\s+|\s+$/, "") !== "";
+                        if (!haspg) {
+                            titleLines.push(String(e.title || ""));
+                            numLines.push("");
+                        } else if (lv === 1) {
+                            titleLines.push("\t" + String(e.title || ""));
+                            numLines.push(String(pg));
+                        } else {
+                            titleLines.push(String(e.title || ""));
+                            numLines.push(String(pg));
+                        }
+                    }
+                    indesignText = titleLines.join("\r");
+                } else {
+                    var lines = [];
+                    for (var j2 = 0; j2 < slice.length; j2++) {
+                        var e2 = slice[j2];
+                        var lv2 = parseInt(e2.level, 10);
+                        if (isNaN(lv2)) lv2 = 2;
+                        styleLevels.push(lv2);
+                        var pg2 = e2.page;
+                        var hasPage = pg2 !== null && pg2 !== undefined && String(pg2).replace(/^\s+|\s+$/, "") !== "";
+                        if (!hasPage) {
+                            lines.push(String(e2.title || ""));
+                        } else if (lv2 === 1) {
+                            lines.push("\t" + String(e2.title || "") + "\t" + String(pg2));
+                        } else {
+                            lines.push(String(e2.title || "") + "\t" + String(pg2));
+                        }
+                    }
+                    indesignText = lines.join("\r");
+                }
+            } else {
+                throw new Error("not v1");
+            }
+        } else {
+            throw new Error("not json");
+        }
+    } catch (parseErr) {
+        styleLevels = null;
+        useLegacyParaStyles = true;
+        var rawLegacy = String(rawValue).replace(/\r\n/g, "\r").replace(/\n/g, "\r");
+        if (part > 1) return;
+
+        if (dualMode) {
+            var leg = rawLegacy.split("\r");
+            titleLines = [];
+            numLines = [];
+            for (var li = 0; li < leg.length; li++) {
+                var sp = sommaireSplitLegacyLineToTitleNum(leg[li]);
+                titleLines.push(sp.title);
+                numLines.push(sp.num);
+            }
+            indesignText = titleLines.join("\r");
+        } else {
+            indesignText = rawLegacy;
+        }
+    }
+
+    if (dualMode && titleLines !== null && numLines !== null) {
+        tfTitle.contents = titleLines.join("\r");
+        tfNums.contents = numLines.join("\r");
+    } else {
+        tfTitle.contents = indesignText;
+    }
+
+    try {
+        var paras = tfTitle.paragraphs;
+        if (styleLevels && styleLevels.length > 0) {
+            for (var p = 0; p < paras.length && p < styleLevels.length; p++) {
+                try {
+                    var lvl = styleLevels[p];
+                    var stName = SOMMAIRE_STYLE_BY_LEVEL[lvl];
+                    if (!stName) continue;
+                    var pst = doc.paragraphStyles.itemByName(stName);
+                    if (pst.isValid) sommaireApplyParagraphStyleStripOverrides(paras[p], pst);
+                } catch (ePara) {}
+            }
+            if (dualMode && numLines) sommaireApplyNumerosStyles(tfNums, numLines, styleLevels);
+            if (dualMode && tfNums && sommaireDualSliceRef)
+                sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromSlice(sommaireDualSliceRef));
+        } else if (useLegacyParaStyles) {
+            var styleN1 = doc.paragraphStyles.itemByName(SOMMAIRE_STYLE_N1);
+            var styleN2 = doc.paragraphStyles.itemByName(SOMMAIRE_STYLE_N2);
+            var n1Valid = styleN1.isValid;
+            var n2Valid = styleN2.isValid;
+            if (n1Valid || n2Valid) {
+                for (var p2 = 0; p2 < paras.length; p2++) {
+                    try {
+                        var paraText = paras[p2].contents;
+                        if (paraText.charAt(0) === "\t" && n2Valid) {
+                            sommaireApplyParagraphStyleStripOverrides(paras[p2], styleN2);
+                        } else if (n1Valid) {
+                            sommaireApplyParagraphStyleStripOverrides(paras[p2], styleN1);
+                        }
+                    } catch (e2) {}
+                }
+            }
+            if (dualMode && numLines) sommaireApplyNumerosStyles(tfNums, numLines, null);
+            if (dualMode && tfNums && titleLines)
+                sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromTitleLines(titleLines));
+        }
+    } catch (eSt) {}
+
+    truncateOverflow(tfTitle);
+    if (tfNums) truncateOverflow(tfNums);
+}
+
+/** Associe la page creee a son indice JSON et au numero redactionnel (sommaire cliquable). */
+function docRegisterJsonPage(jsonIndex, pageData, idPage) {
+    if (!idPage) return;
+    try {
+        DOC_PAGE_BY_JSON_INDEX[jsonIndex] = idPage;
+        var pn = pageData.page_number;
+        if (pn === null || pn === undefined) return;
+        var ps = String(pn).replace(/^\s+|\s+$/g, "");
+        if (ps === "") return;
+        var k = parseInt(ps, 10);
+        if (!isNaN(k)) REDACTOR_PAGE_MAP_GLOBAL[k] = idPage;
+    } catch (eReg) {}
+}
+
+/** Complete la carte n° -> Page pour les cles manquantes (offset JSON / PDF, script de mise a jour). */
+function sommaireMergePageMapFromOffset(data, pageOffset) {
+    if (!data || !data.pages) return;
+    var off = pageOffset || 0;
+    for (var i = 0; i < data.pages.length; i++) {
+        var pn = data.pages[i].page_number;
+        if (pn === null || pn === undefined) continue;
+        var k = parseInt(String(pn), 10);
+        if (isNaN(k)) continue;
+        if (REDACTOR_PAGE_MAP_GLOBAL[k]) continue;
+        var idx = k + off - 1;
+        if (idx >= 0 && idx < doc.pages.length)
+            REDACTOR_PAGE_MAP_GLOBAL[k] = doc.pages[idx];
+    }
+}
+
+function sommaireResolveTargetPage(editorialPageNum, data, pageOffset) {
+    var k = parseInt(String(editorialPageNum), 10);
+    if (isNaN(k)) return null;
+    sommaireMergePageMapFromOffset(data, pageOffset);
+    try {
+        var pg = REDACTOR_PAGE_MAP_GLOBAL[k];
+        if (pg) return pg;
+    } catch (e0) {}
+    var off = pageOffset || 0;
+    var idx = k + off - 1;
+    if (idx >= 0 && idx < doc.pages.length) return doc.pages[idx];
+    return null;
+}
+
+function sommaireRemoveInternalHyperlinks(tf) {
+    if (!tf) return;
+    var links = doc.hyperlinks;
+    for (var h = links.length - 1; h >= 0; h--) {
+        try {
+            var hl = links.item(h);
+            var src = hl.source;
+            if (!src) continue;
+            var st = null;
+            try { st = src.sourceText; } catch (eNoSt) {}
+            if (!st) continue;
+            var pfs = st.parentTextFrames;
+            if (pfs && pfs.length > 0 && pfs[0] === tf) hl.remove();
+        } catch (eH) {}
+    }
+}
+
+function sommaireGetOrCreatePageDestination(targetPage) {
+    if (!targetPage) return null;
+    var uid = "RD_pg_";
+    try { uid += String(targetPage.id); } catch (eId) { uid += "0"; }
+    try {
+        var d0 = doc.hyperlinkPageDestinations.itemByName(uid);
+        if (d0.isValid) return d0;
+    } catch (eIt) {}
+    try {
+        return doc.hyperlinkPageDestinations.add(targetPage, { name: uid });
+    } catch (e1) {
+        try { return doc.hyperlinkPageDestinations.add(targetPage); } catch (e2) {}
+    }
+    return null;
+}
+
+function sommaireAddTextToPageHyperlink(textRange, targetPage) {
+    if (!textRange || !targetPage) return;
+    var dest = sommaireGetOrCreatePageDestination(targetPage);
+    if (!dest) return;
+    var src;
+    try { src = doc.hyperlinkTextSources.add(textRange); } catch (eS) { return; }
+    try {
+        doc.hyperlinks.add(src, dest, {
+            visible: false,
+            highlight: HyperlinkAppearanceHighlight.NONE
+        });
+    } catch (eHl) {}
+}
+
+function sommaireWireDualFrameNumbers(tfNums, slice, data, pageOffset) {
+    if (!tfNums || !slice || slice.length === 0) return;
+    sommaireRemoveInternalHyperlinks(tfNums);
+    var numLines = [];
+    var styleLevels = [];
+    for (var s0 = 0; s0 < slice.length; s0++) {
+        var lv0 = parseInt(slice[s0].level, 10);
+        styleLevels.push(isNaN(lv0) ? 2 : lv0);
+        numLines.push("");
+    }
+    for (var j = 0; j < slice.length; j++) {
+        var entry = slice[j];
+        var pg = entry.page;
+        var lv = parseInt(entry.level, 10);
+        if (isNaN(lv)) lv = 2;
+        if (pg === null || pg === undefined || String(pg).replace(/^\s+|\s+$/g, "") === "" || lv === 0)
+            continue;
+        var target = sommaireResolveTargetPage(pg, data, pageOffset);
+        if (!target) continue;
+        if (j >= tfNums.paragraphs.length) break;
+        var para = tfNums.paragraphs[j];
+        var display = String(target.name).replace(/^\s+|\s+$/g, "");
+        try { para.contents = display; } catch (eC) { continue; }
+        numLines[j] = display;
+        try {
+            para = tfNums.paragraphs[j];
+            if (para.characters.length === 0) continue;
+            var st = para.characters.item(0).index;
+            var en = para.characters.item(para.characters.length - 1).index;
+            var story = tfNums.parentStory;
+            var tr = story.characters.itemByRange(st, en);
+            sommaireAddTextToPageHyperlink(tr, target);
+        } catch (eR) {}
+    }
+    sommaireApplyNumerosStyles(tfNums, numLines, styleLevels);
+    sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromSlice(slice));
+}
+
+function sommaireWireSingleFrameNumbers(tfTitle, slice, data, pageOffset) {
+    if (!tfTitle || !slice || slice.length === 0) return;
+    sommaireRemoveInternalHyperlinks(tfTitle);
+    var paras = tfTitle.paragraphs;
+    for (var j = 0; j < slice.length && j < paras.length; j++) {
+        var entry2 = slice[j];
+        var pg2 = entry2.page;
+        var lv2 = parseInt(entry2.level, 10);
+        if (isNaN(lv2)) lv2 = 2;
+        if (pg2 === null || pg2 === undefined || String(pg2).replace(/^\s+|\s+$/g, "") === "" || lv2 === 0)
+            continue;
+        var target2 = sommaireResolveTargetPage(pg2, data, pageOffset);
+        if (!target2) continue;
+        var para2 = paras[j];
+        var line = String(para2.contents || "");
+        var display2 = String(target2.name).replace(/^\s+|\s+$/g, "");
+        var idxTab = line.lastIndexOf("\t");
+        if (idxTab < 0) continue;
+        var newLine = line.substring(0, idxTab + 1) + display2;
+        try { para2.contents = newLine; } catch (eL) { continue; }
+        para2 = tfTitle.paragraphs[j];
+        var lineTrim = String(para2.contents || "").replace(/\r$/, "");
+        var numStart = idxTab + 1;
+        if (numStart >= lineTrim.length) continue;
+        try {
+            var c0 = para2.characters.item(numStart);
+            var c1 = para2.characters.item(lineTrim.length - 1);
+            var story2 = tfTitle.parentStory;
+            var tr2 = story2.characters.itemByRange(c0.index, c1.index);
+            sommaireAddTextToPageHyperlink(tr2, target2);
+        } catch (eT) {}
+    }
+}
+
+/**
+ * Hyperliens page interne sur les numeros du sommaire + libelle = Page.name (pagination active).
+ * @param pageOffset meme convention que update-text-links-from-json (0 en generation standard).
+ * @param titleLabel libelle du cadre titres (ex. mapping SOMMAIRE_texte_1).
+ */
+function sommaireWirePageNumberHyperlinksOnPage(idPage, pageData, spreadPart, data, pageOffset, titleLabel) {
+    if (!idPage || !pageData || !data) return;
+    var tc = pageData.content && pageData.content.text;
+    if (!tc) return;
+    var rawValue = tc["SOMMAIRE_texte_1"];
+    if (!rawValue || String(rawValue).replace(/^\s+|\s+$/g, "") === "") return;
+
+    var labelTitres = titleLabel || "SOMMAIRE_texte_1";
+    if (data.mappings && data.mappings.fields && data.mappings.fields["SOMMAIRE_texte_1"])
+        labelTitres = data.mappings.fields["SOMMAIRE_texte_1"];
+
+    var tfTitle = sommaireGetTextFrame(idPage, labelTitres);
+    if (!tfTitle) return;
+    var tfNums = sommaireGetTextFrame(idPage, SOMMAIRE_NUMEROS_LABEL);
+    var dualMode = tfNums !== null;
+
+    var rawStr = String(rawValue).replace(/^\uFEFF/g, "").replace(/^\s+|\s+$/g, "");
+    if (rawStr.charAt(0) !== "{") return;
+    var parsed;
+    try { parsed = JSON.parse(rawStr); } catch (eP) { return; }
+    if (parsed.schema_version !== 1 || (!parsed.entries && !parsed.entries_by_sommaire_page)) return;
+    var sl = sommaireBuildSliceForPart(parsed, spreadPart);
+    var slice = sl.slice;
+    if (slice.length === 0) return;
+
+    sommaireMergePageMapFromOffset(data, pageOffset);
+
+    if (dualMode) sommaireWireDualFrameNumbers(tfNums, slice, data, pageOffset);
+    else sommaireWireSingleFrameNumbers(tfTitle, slice, data, pageOffset);
+    try {
+        if (dualMode && tfNums) truncateOverflow(tfNums);
+        truncateOverflow(tfTitle);
+    } catch (eTr0) {}
+}
+
+function sommaireWireAllSommairePagesForGenerate(data) {
+    if (!data || !data.pages) return;
+    var somIdx = 0;
+    for (var i = 0; i < data.pages.length; i++) {
+        if (data.pages[i].template !== "SOMMAIRE") continue;
+        somIdx++;
+        var idP = DOC_PAGE_BY_JSON_INDEX[i];
+        if (!idP) continue;
+        try {
+            sommaireWirePageNumberHyperlinksOnPage(idP, data.pages[i], somIdx, data, 0, "SOMMAIRE_texte_1");
+        } catch (eW) {}
+    }
 }
 
 // --- 11. Injection generique textes + images (templates sans pictos) ---------
@@ -1150,6 +1786,8 @@ try {
 } catch(purgeErr) {}
 
 // --- 14. Generation des pages ------------------------------------------------
+REDACTOR_PAGE_MAP_GLOBAL = {};
+DOC_PAGE_BY_JSON_INDEX = [];
 var pagesGenerated = 0;
 
 for (var i = 0; i < data.pages.length; i++) {
@@ -1174,6 +1812,7 @@ for (var i = 0; i < data.pages.length; i++) {
         coverPage.appliedMaster = msCover;
         overrideAllFromMaster(msCover, coverPage);
         injectPageContent(coverPage, pageData);
+        docRegisterJsonPage(i, pageData, coverPage);
         pagesGenerated++;
         continue;
     }
@@ -1185,28 +1824,24 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var presPage = addPageWithMaster(msPresGuide, "PRESENTATION_GUIDE");
         injectPageContent(presPage, pageData);
+        docRegisterJsonPage(i, pageData, presPage);
         pagesGenerated++;
         continue;
     }
 
     // -- SOMMAIRE -------------------------------------------------------------
-    // Le sommaire est genere sur 2 pages consecutives dans le JSON.
-    // Seule la 1re page (SOMMAIRE_texte_1 non vide) declenche l'injection du texte.
-    // La 2e page est vide dans le JSON (le texte deborde depuis la page 1
-    // via le threading InDesign) → on cree quand meme la page pour respecter
-    // la pagination du document, injectPageContent masque simplement les blocs vides.
-    //
-    // Ordre d'injection :
-    //   1. injectPageContent  → titre (SOMMAIRE_titre_1), image (SOMMAIRE_image_1),
-    //                           et premiere passe basique sur SOMMAIRE_texte_1
-    //   2. injectSommaireText → reecrit SOMMAIRE_texte_1 avec \n→\r et styles para
+    // Deux pages SOMMAIRE consecutives dans le JSON : la 1re recoit sommaire_page 1,
+    // la 2e recoit sommaire_page 2 (contenu filtre depuis le meme JSON structuré).
     if (pageData.template === "SOMMAIRE") {
         var msSommaire = loadGabarit("SOMMAIRE", false);
         if (!msSommaire) continue;
 
+        SOMMAIRE_SPREAD_INDEX++;
         var sommairePage = addPageWithMaster(msSommaire, "SOMMAIRE");
-        injectPageContent(sommairePage, pageData);   // titre + image (+ texte brut)
-        injectSommaireText(sommairePage, pageData);  // reecrit le texte avec mise en forme
+        injectPageContent(sommairePage, pageData);
+        injectSommaireText(sommairePage, pageData, SOMMAIRE_SPREAD_INDEX);
+        sommaireFinalizeTitreAppearance(sommairePage, pageData);
+        docRegisterJsonPage(i, pageData, sommairePage);
         pagesGenerated++;
         continue;
     }
@@ -1218,6 +1853,7 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var clusterPage = addPageWithMaster(msCluster, "CLUSTER");
         injectPageContent(clusterPage, pageData);
+        docRegisterJsonPage(i, pageData, clusterPage);
         pagesGenerated++;
         continue;
     }
@@ -1229,6 +1865,7 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var carteDestPage = addPageWithMaster(msCarteDest, "CARTE");
         injectPageContent(carteDestPage, pageData);
+        docRegisterJsonPage(i, pageData, carteDestPage);
         pagesGenerated++;
         continue;
     }
@@ -1240,6 +1877,7 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var presDestPage = addPageWithMaster(msPresDest, "PRESENTATION_DESTINATION");
         injectPageContent(presDestPage, pageData);
+        docRegisterJsonPage(i, pageData, presDestPage);
         pagesGenerated++;
         continue;
     }
@@ -1251,6 +1889,7 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var inspiPage = addPageWithMaster(msInspi, "INSPIRATION");
         injectPageContent(inspiPage, pageData);
+        docRegisterJsonPage(i, pageData, inspiPage);
         pagesGenerated++;
         continue;
     }
@@ -1262,6 +1901,7 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var saisonPage = addPageWithMaster(msSaison, "SAISON");
         injectPageContent(saisonPage, pageData);
+        docRegisterJsonPage(i, pageData, saisonPage);
         pagesGenerated++;
         continue;
     }
@@ -1272,6 +1912,7 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var allerPlusLoinPage = addPageWithMaster(msAllerPlusLoin, "ALLER_PLUS_LOIN");
         injectPageContent(allerPlusLoinPage, pageData);
+        docRegisterJsonPage(i, pageData, allerPlusLoinPage);
         pagesGenerated++;
         continue;
     }
@@ -1283,6 +1924,7 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var aProposRLPage = addPageWithMaster(msAProposRL, "A_PROPOS_RL");
         injectPageContent(aProposRLPage, pageData);
+        docRegisterJsonPage(i, pageData, aProposRLPage);
         pagesGenerated++;
         continue;
     }
@@ -1294,6 +1936,7 @@ for (var i = 0; i < data.pages.length; i++) {
 
         var sectionPage = addPageWithMaster(msSection, "SECTION");
         injectPageContent(sectionPage, pageData);
+        docRegisterJsonPage(i, pageData, sectionPage);
         pagesGenerated++;
         continue;
     }
@@ -1311,8 +1954,14 @@ for (var i = 0; i < data.pages.length; i++) {
                    || null;
     injectPictoBar(newPage, pageData.content, durationVal);
 
+    docRegisterJsonPage(i, pageData, newPage);
+
     pagesGenerated++;
 }
+
+try {
+    sommaireWireAllSommairePagesForGenerate(data);
+} catch (eSomHl) {}
 
 var finalMsg = pagesGenerated + " page(s) générée(s) ✔  |  "
              + doc.pages.length + " page(s) dans le document  |  "

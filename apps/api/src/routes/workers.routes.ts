@@ -871,7 +871,7 @@ export async function workersRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // Old generate-pois implementation (moved to ingestion-service):
+  // Old generate-pois implementation (microservice d'ingestion externe) :
   const _oldGeneratePois = async (request: any, reply: any) => {
     const db = request.server.container.db;
     const { guideId, jobId } = request.body as { guideId: string; jobId: string };
@@ -1380,7 +1380,7 @@ Retourne STRICTEMENT un JSON valide sans texte additionnel :
     }
   });
 
-  // Old deduplicate-pois implementation (moved to ingestion-service):
+  // Old deduplicate-pois implementation (microservice d'ingestion externe) :
   const _oldDeduplicatePois = async (request: any, reply: any) => {
     const db = request.server.container.db;
     const { guideId, jobId } = request.body as { guideId: string; jobId: string };

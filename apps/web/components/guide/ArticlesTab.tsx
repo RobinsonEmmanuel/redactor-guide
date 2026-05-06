@@ -131,7 +131,6 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
           ? JSON.stringify(triggerData.details).slice(0, 200)
           : triggerData.message || '';
         setIngestionError(`${triggerData.error || 'Erreur lors de la récupération'}${detail ? ` — ${detail}` : ''}`);
-        stopPoll();
         setIngesting(false);
         return;
         }

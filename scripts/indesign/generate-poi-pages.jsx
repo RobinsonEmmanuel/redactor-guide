@@ -33,6 +33,15 @@ var DOC_PAGE_BY_JSON_INDEX = [];
 var DEBUG_PICTOS      = false;
 var DEBUG_INSPIRATION = false;
 var DEBUG_PAGES       = false;
+var DEBUG_SOMMAIRE    = false;
+// Mode diagnostic : affiche uniquement les numeros bruts du sommaire, sans liens.
+var SOMMAIRE_NUMBERS_ONLY_NO_LINKS = true;
+// Reprise a zero: injection simple JSON -> SOMMAIRE_numeros_1 avec saut de paragraphe.
+var SOMMAIRE_NUMBERS_STRICT_SIMPLE = true;
+// Log cible: afficher uniquement les 2 premieres lignes injectees dans SOMMAIRE_numeros_1.
+var DEBUG_SOMMAIRE_FIRST_TWO_LINES = false;
+// Log amont garanti: verifier que le bloc numeros est bien trouve et que l'injection passe ici.
+var DEBUG_SOMMAIRE_ENTRY_PROBE = false;
 
 var BOLD_STYLE_NAME        = "Gras";        // Marqueurs **...**
 var ORANGE_STYLE_NAME      = "Orange";      // Marqueurs {...}   - couleur #f39428
@@ -242,7 +251,23 @@ jsonFile.open("r");
 var raw = jsonFile.read();
 jsonFile.close();
 
-var data = JSON.parse(raw);
+var data = null;
+try {
+    data = JSON.parse(String(raw || "").replace(/^\uFEFF/g, ""));
+} catch (eJson) {
+    // Fallback legacy ExtendScript: certains exports peuvent contenir un JSON "presque valide".
+    try {
+        data = eval("(" + String(raw || "") + ")");
+    } catch (eEval) {
+        alert(
+            "JSON invalide : impossible de lire le fichier.\n\n"
+            + "Erreur JSON.parse : " + eJson + "\n"
+            + "Erreur fallback : " + eEval + "\n\n"
+            + "Verifie le JSON exporte (virgule en trop, guillemets, encodage UTF-8)."
+        );
+        exit();
+    }
+}
 
 // Construire BULLET_LIST_FIELDS depuis data.mappings.bullet_fields (export v2.3+)
 // Fallback sur le dictionnaire statique pour les anciens exports.
@@ -252,6 +277,7 @@ if (data.mappings && data.mappings.bullet_fields && data.mappings.bullet_fields.
         BULLET_LIST_FIELDS[data.mappings.bullet_fields[bf]] = true;
     }
 }
+
 
 // --- 2a. Overrider tous les items d'un gabarit sur une page cible -------------
 // Utilise allPageItems pour preserver l'ordre d'empilement (z-order) du gabarit.
@@ -497,10 +523,18 @@ function injectText(page, label, value) {
                 blocks[i].visible = true;
                 blocks[i].contents = "";
                 var strValue = strRaw;
-                var hasMarkers = strValue.indexOf("**") !== -1 ||
+                var sommaireTitreLabel = "SOMMAIRE_titre_1";
+                try {
+                    if (data && data.mappings && data.mappings.fields && data.mappings.fields["SOMMAIRE_titre_1"]) {
+                        sommaireTitreLabel = data.mappings.fields["SOMMAIRE_titre_1"];
+                    }
+                } catch (eLbl) {}
+                var skipMarkersForSommaireTitre = (label === "SOMMAIRE_titre_1" || label === sommaireTitreLabel);
+                var hasMarkers = !skipMarkersForSommaireTitre && (
+                                 strValue.indexOf("**") !== -1 ||
                                  strValue.indexOf("{")  !== -1 ||
                                  strValue.indexOf("^")  !== -1 ||
-                                 strValue.indexOf("~")  !== -1;
+                                 strValue.indexOf("~")  !== -1);
                 if (hasMarkers) {
                     setTextWithStyles(blocks[i], strValue);
                 } else {
@@ -1016,6 +1050,10 @@ var SOMMAIRE_STYLE_N2 = "Sommaire_niveau2"; // fallback ancien export : sous-ent
 
 /** Cadre optionnel : colonne des numeros (un paragraphe par ligne de titres). */
 var SOMMAIRE_NUMEROS_LABEL = "SOMMAIRE_numeros_1";
+var SOMMAIRE_NUMEROS_LABEL_ALIASES = [
+    "SOMMAIRE_numeros_1",
+    "SOMMAIRE-numeros-1"
+];
 /** Noms possibles (InDesign : casse / variante). Le premier qui existe est utilise. */
 var SOMMAIRE_NUMEROS_STYLE_CANDIDATES = ["Sommaire-numeros", "sommaire-numeros", "Sommaire_numeros"];
 var SOMMAIRE_NUMEROS_VIDE_STYLE_CANDIDATES = ["Sommaire-numeros-absent", "sommaire-numeros-absent", "Sommaire_numeros_absent"];
@@ -1037,6 +1075,9 @@ var SOMMAIRE_NUMEROS_PAGE_SEULE_CANDIDATES = [
  */
 var SOMMAIRE_TITLE_WRAP_CHAR_MAX = 29;
 var SOMMAIRE_NUMEROS_WRAP_EXTRA_SPACE_PT = 18;
+// Stabilisation: desactiver temporairement l'ajustement vertical auto des numeros
+// (source de regressions/overflow sur certains documents).
+var SOMMAIRE_ENABLE_WRAP_SPACING = false;
 
 /** @param {string} entryTitle titre JSON brut (sans tabulation niveau 1). */
 function sommaireTitleWrapsTwoLinesByCharCount(entryTitle) {
@@ -1059,6 +1100,24 @@ function sommaireWrapFlagsFromTitleLines(titleLines) {
         if (t.charAt(0) === "\t") t = t.substring(1);
         flags.push(t.length > SOMMAIRE_TITLE_WRAP_CHAR_MAX);
     }
+    return flags;
+}
+
+function sommaireWrapFlagsFromRenderedTitle(tfTitle, expectedCount) {
+    var flags = [];
+    if (!tfTitle) return flags;
+    try {
+        var paras = tfTitle.paragraphs;
+        var n = paras.length;
+        if (expectedCount !== undefined && expectedCount !== null && expectedCount < n) n = expectedCount;
+        for (var i = 0; i < n; i++) {
+            var wraps = false;
+            try {
+                wraps = paras[i].lines.length > 1;
+            } catch (eL) {}
+            flags.push(wraps);
+        }
+    } catch (eAll) {}
     return flags;
 }
 
@@ -1109,13 +1168,25 @@ function sommaireApplyNumerosParagraphOnly(paragraph, pst) {
 }
 var SOMMAIRE_TITRE_PARAGRAPH_STYLE_NAME = "";
 /** Style de caractere sur tout le titre (ex. "Orange"). Vide "" pour desactiver. */
-var SOMMAIRE_TITRE_CHARACTER_STYLE_NAME = "Orange";
+var SOMMAIRE_TITRE_CHARACTER_STYLE_NAME = "";
 
 function sommaireEntrySommairePage(entry) {
     var v = entry.sommaire_page;
     if (v === null || v === undefined) return -1;
     var n = parseInt(v, 10);
     return isNaN(n) ? -1 : n;
+}
+
+function sommaireEntryPageValue(entry) {
+    if (!entry) return "";
+    var candidates = [entry.page, entry.page_number, entry.pageNumber, entry.numero_page];
+    for (var i = 0; i < candidates.length; i++) {
+        var v = candidates[i];
+        if (v === null || v === undefined) continue;
+        var s = String(v).replace(/^\s+|\s+$/g, "");
+        if (s !== "") return s;
+    }
+    return "";
 }
 
 function sommaireFinalizeTitreAppearance(page, pageData) {
@@ -1157,6 +1228,220 @@ function sommaireGetTextFrame(page, label) {
         if (blocks[b] instanceof TextFrame) return blocks[b];
     }
     return null;
+}
+
+function sommaireGetTextFrameByAliases(page, labels) {
+    if (!labels || !labels.length) return null;
+    for (var li = 0; li < labels.length; li++) {
+        var tf = sommaireGetTextFrame(page, labels[li]);
+        if (tf) return tf;
+    }
+    return null;
+}
+
+function sommaireGetNumerosFrame(page, labels) {
+    if (!page || !labels || !labels.length) return null;
+    var all = [];
+    var seen = {};
+    for (var li = 0; li < labels.length; li++) {
+        var items = findByLabelOnPage(page, labels[li]) || [];
+        for (var i = 0; i < items.length; i++) {
+            var it = items[i];
+            if (!(it instanceof TextFrame)) continue;
+            var id = null;
+            try { id = String(it.id); } catch (eId) { id = "x_" + li + "_" + i; }
+            if (seen[id]) continue;
+            seen[id] = true;
+            all.push(it);
+        }
+    }
+    if (all.length === 0) return null;
+    var best = all[0];
+    var bestX = -999999;
+    for (var k = 0; k < all.length; k++) {
+        var x1 = -999999;
+        try { x1 = Number(all[k].geometricBounds[1]); } catch (eGb) {}
+        if (x1 > bestX) {
+            bestX = x1;
+            best = all[k];
+        }
+    }
+    if (DEBUG_SOMMAIRE) {
+        var dbg = "Candidats cadre numeros: " + all.length + "\n";
+        for (var d = 0; d < all.length; d++) {
+            try {
+                var gb = all[d].geometricBounds;
+                dbg += "- id=" + all[d].id + " label=" + String(all[d].label || "")
+                    + " x1=" + gb[1] + " y1=" + gb[0] + "\n";
+            } catch (eDbg) {}
+        }
+        try {
+            dbg += "Choisi id=" + best.id + " label=" + String(best.label || "");
+        } catch (eDbg2) {}
+        sommaireDebugAlert(dbg);
+    }
+    return best;
+}
+
+function sommaireBuildNumerosLabelCandidates() {
+    var out = [];
+    var seen = {};
+    function addLabel(v) {
+        var s = String(v || "").replace(/^\s+|\s+$/g, "");
+        if (!s || seen[s]) return;
+        seen[s] = true;
+        out.push(s);
+    }
+    try {
+        if (data && data.mappings && data.mappings.fields) {
+            addLabel(data.mappings.fields["SOMMAIRE_numeros_1"]);
+        }
+    } catch (eMap) {}
+    addLabel(SOMMAIRE_NUMEROS_LABEL);
+    for (var i = 0; i < SOMMAIRE_NUMEROS_LABEL_ALIASES.length; i++) {
+        addLabel(SOMMAIRE_NUMEROS_LABEL_ALIASES[i]);
+    }
+    return out;
+}
+
+function sommaireDebugAlert(msg) {
+    if (!DEBUG_SOMMAIRE) return;
+    try { alert("[DEBUG SOMMAIRE]\n" + String(msg || "")); } catch (eDbg) {}
+}
+
+function sommaireForceVisibleNumeros(tfNums) {
+    if (!tfNums) return;
+    try {
+        var noneCh = doc.characterStyles.itemByName("[None]");
+        if (!noneCh.isValid) noneCh = doc.characterStyles[0];
+        if (noneCh && noneCh.isValid) {
+            try { tfNums.characters.everyItem().appliedCharacterStyle = noneCh; } catch (eN0) {}
+        }
+        var black = doc.swatches.itemByName("Black");
+        if (!black.isValid) black = doc.swatches.itemByName("Noir");
+        if (!black.isValid && doc.swatches.length > 0) black = doc.swatches[0];
+        try { tfNums.texts.everyItem().fillColor = black; } catch (eN1) {}
+        try { tfNums.texts.everyItem().pointSize = 11; } catch (eN2) {}
+        try { tfNums.texts.everyItem().leading = 13; } catch (eN3) {}
+    } catch (eAll) {}
+}
+
+function sommaireDetachTextFrameThread(tf) {
+    if (!tf) return;
+    try {
+        var prev = tf.previousTextFrame;
+        if (prev && prev.isValid) {
+            try { prev.nextTextFrame = NothingEnum.NOTHING; } catch (ePrev0) { try { prev.nextTextFrame = null; } catch (ePrev1) {} }
+        }
+    } catch (eP) {}
+    try { tf.nextTextFrame = NothingEnum.NOTHING; } catch (eN0) { try { tf.nextTextFrame = null; } catch (eN1) {} }
+}
+
+function sommaireRebuildStandaloneFrame(page, tf) {
+    if (!page || !tf) return tf;
+    var gb = null, lbl = "", layerRef = null, strokeW = null, vis = true;
+    try { gb = tf.geometricBounds; } catch (eGb) {}
+    try { lbl = String(tf.label || ""); } catch (eLbl) {}
+    try { layerRef = tf.itemLayer; } catch (eLy) {}
+    try { strokeW = tf.textFramePreferences.textColumnCount; } catch (eCol) {}
+    try { vis = tf.visible !== false; } catch (eVis) {}
+    if (!gb) return tf;
+    var fresh = null;
+    try {
+        fresh = page.textFrames.add();
+        fresh.geometricBounds = [gb[0], gb[1], gb[2], gb[3]];
+        if (layerRef) fresh.itemLayer = layerRef;
+        if (lbl !== "") fresh.label = lbl;
+        try { if (strokeW) fresh.textFramePreferences.textColumnCount = strokeW; } catch (eColSet) {}
+        try { fresh.visible = vis; } catch (eVisSet) {}
+        try { tf.remove(); } catch (eRm) {}
+        return fresh;
+    } catch (eNew) {
+        return tf;
+    }
+}
+
+function sommairePrepareRuntimeNumerosFrame(page, sourceTf) {
+    if (!page || !sourceTf) return sourceTf;
+    var gb = null, layerRef = null;
+    try { gb = sourceTf.geometricBounds; } catch (eGb) {}
+    try { layerRef = sourceTf.itemLayer; } catch (eLy) {}
+    if (!gb) return sourceTf;
+
+    // Neutraliser completement le cadre source du gabarit pour eviter le debordement
+    // de son story (pages SOMMAIRE vides + texte en exces).
+    try { sourceTf.contents = ""; } catch (eC0) {}
+    try { sourceTf.visible = false; } catch (eV0) {}
+    sommaireDetachTextFrameThread(sourceTf);
+
+    // Reutiliser un cadre runtime deja cree sur la page si present.
+    var rt = sommaireGetTextFrame(page, "SOMMAIRE_numeros_runtime");
+    if (rt) {
+        try { rt.geometricBounds = [gb[0], gb[1], gb[2], gb[3]]; } catch (eRg) {}
+        sommaireDetachTextFrameThread(rt);
+        return rt;
+    }
+
+    try {
+        rt = page.textFrames.add();
+        rt.label = "SOMMAIRE_numeros_runtime";
+        rt.geometricBounds = [gb[0], gb[1], gb[2], gb[3]];
+        if (layerRef) rt.itemLayer = layerRef;
+        try { rt.visible = true; } catch (eV1) {}
+        sommaireDetachTextFrameThread(rt);
+        return rt;
+    } catch (eNew) {
+        return sourceTf;
+    }
+}
+
+function sommaireWriteLinesToFrame(tf, lines) {
+    if (!tf) return;
+    var arr = lines || [];
+    try { tf.contents = ""; } catch (e0) { return; }
+    for (var i = 0; i < arr.length; i++) {
+        var val = String(arr[i] === null || arr[i] === undefined ? "" : arr[i]).replace(/[\r\n]+/g, "");
+        try {
+            if (i > 0) {
+                try {
+                    tf.insertionPoints[-1].contents = SpecialCharacters.PARAGRAPH_BREAK;
+                } catch (ePb) {
+                    tf.insertionPoints[-1].contents = "\r";
+                }
+            }
+            tf.insertionPoints[-1].contents = val;
+        } catch (eW) {}
+    }
+    // Validation defensive: si InDesign n'a pas cree tous les paragraphes attendus,
+    // reconstruire en une passe avec separateur explicite.
+    try {
+        var pc = tf.paragraphs.length;
+        if (arr.length > 1 && pc < arr.length) {
+            tf.contents = arr.join("\r") + "\r";
+        }
+    } catch (eChk) {}
+}
+
+function sommaireInjectNumerosStrictSimple(tfNums, numLines) {
+    if (!tfNums) return;
+    sommaireDetachTextFrameThread(tfNums);
+    try {
+        // Evite l'affichage type "0203 / 149150" quand le cadre est en multi-colonnes.
+        tfNums.textFramePreferences.textColumnCount = 1;
+    } catch (eCol1) {}
+    var arr = numLines || [];
+    var out = [];
+    for (var i = 0; i < arr.length; i++) {
+        var v = String(arr[i] === null || arr[i] === undefined ? "" : arr[i]);
+        // Un numero = une seule ligne, sans retour parasite.
+        v = v.replace(/[\r\n]+/g, "").replace(/^\s+|\s+$/g, "");
+        out.push(v);
+    }
+    try {
+        tfNums.contents = out.join("\r");
+    } catch (eSet) {
+        sommaireWriteLinesToFrame(tfNums, out);
+    }
 }
 
 /**
@@ -1269,17 +1554,43 @@ function sommaireBuildSliceForPart(parsed, part) {
 function injectSommaireText(page, pageData, sommaireSpreadPart) {
     var textContent = pageData.content.text || {};
     var rawValue = textContent["SOMMAIRE_texte_1"];
+    if (DEBUG_SOMMAIRE_ENTRY_PROBE) {
+        var rv = String(rawValue === null || rawValue === undefined ? "" : rawValue);
+        var rvHead = rv.length > 160 ? rv.substring(0, 160) + "..." : rv;
+        alert(
+            "[DEBUG INJECT SOMMAIRE ENTRY]\n"
+            + "Page=" + String(page.name || "?") + "\n"
+            + "part=" + String(sommaireSpreadPart) + "\n"
+            + "raw head=" + rvHead
+        );
+    }
 
     if (!rawValue || String(rawValue).replace(/^\s+|\s+$/, "") === "") return;
 
     var tfTitle = sommaireGetTextFrame(page, "SOMMAIRE_texte_1");
     if (!tfTitle) return;
+    sommaireDetachTextFrameThread(tfTitle);
 
     try { tfTitle.visible = true; } catch (eVis0) {}
 
-    var tfNums = sommaireGetTextFrame(page, SOMMAIRE_NUMEROS_LABEL);
+    var numLabelCandidates = sommaireBuildNumerosLabelCandidates();
+    var tfNums = sommaireGetNumerosFrame(page, numLabelCandidates);
+    if (tfNums) sommaireDetachTextFrameThread(tfNums);
     if (tfNums) { try { tfNums.visible = true; } catch (eVisN) {} }
     var dualMode = tfNums !== null;
+    if (DEBUG_SOMMAIRE_ENTRY_PROBE) {
+        alert(
+            "[DEBUG SOMMAIRE ENTRY]\n"
+            + "Page=" + String(page.name || "?") + "\n"
+            + "dualMode=" + (dualMode ? "true" : "false") + "\n"
+            + "tfNums=" + (tfNums ? "trouve" : "null")
+        );
+    }
+    sommaireDebugAlert(
+        "Page InDesign: " + String(page.name || "?")
+        + "\nCadres numeros cherches: " + numLabelCandidates.join(", ")
+        + "\nCadre numeros trouve: " + (tfNums ? "OUI (" + String(tfNums.label || "sans label") + ")" : "NON")
+    );
 
     var part = parseInt(sommaireSpreadPart, 10);
     if (isNaN(part) || part < 1) part = 1;
@@ -1317,8 +1628,8 @@ function injectSommaireText(page, pageData, sommaireSpreadPart) {
                         var lv = parseInt(e.level, 10);
                         if (isNaN(lv)) lv = 2;
                         styleLevels.push(lv);
-                        var pg = e.page;
-                        var haspg = pg !== null && pg !== undefined && String(pg).replace(/^\s+|\s+$/, "") !== "";
+                        var pg = sommaireEntryPageValue(e);
+                        var haspg = pg !== "";
                         if (!haspg) {
                             titleLines.push(String(e.title || ""));
                             numLines.push("");
@@ -1331,6 +1642,16 @@ function injectSommaireText(page, pageData, sommaireSpreadPart) {
                         }
                     }
                     indesignText = titleLines.join("\r");
+                    if (DEBUG_SOMMAIRE_FIRST_TWO_LINES) {
+                        var d1 = numLines.length > 0 ? numLines[0] : "";
+                        var d2 = numLines.length > 1 ? numLines[1] : "";
+                        alert(
+                            "[DEBUG NUMLINES JSON]\n"
+                            + "count=" + numLines.length + "\n"
+                            + "L1=[" + d1 + "]\n"
+                            + "L2=[" + d2 + "]"
+                        );
+                    }
                 } else {
                     var lines = [];
                     for (var j2 = 0; j2 < slice.length; j2++) {
@@ -1338,8 +1659,8 @@ function injectSommaireText(page, pageData, sommaireSpreadPart) {
                         var lv2 = parseInt(e2.level, 10);
                         if (isNaN(lv2)) lv2 = 2;
                         styleLevels.push(lv2);
-                        var pg2 = e2.page;
-                        var hasPage = pg2 !== null && pg2 !== undefined && String(pg2).replace(/^\s+|\s+$/, "") !== "";
+                        var pg2 = sommaireEntryPageValue(e2);
+                        var hasPage = pg2 !== "";
                         if (!hasPage) {
                             lines.push(String(e2.title || ""));
                         } else if (lv2 === 1) {
@@ -1378,8 +1699,12 @@ function injectSommaireText(page, pageData, sommaireSpreadPart) {
     }
 
     if (dualMode && titleLines !== null && numLines !== null) {
-        tfTitle.contents = titleLines.join("\r");
-        tfNums.contents = numLines.join("\r");
+        sommaireWriteLinesToFrame(tfTitle, titleLines);
+        if (SOMMAIRE_NUMBERS_STRICT_SIMPLE) {
+            sommaireInjectNumerosStrictSimple(tfNums, numLines);
+        } else {
+            sommaireWriteLinesToFrame(tfNums, numLines);
+        }
     } else {
         tfTitle.contents = indesignText;
     }
@@ -1396,9 +1721,23 @@ function injectSommaireText(page, pageData, sommaireSpreadPart) {
                     if (pst.isValid) sommaireApplyParagraphStyleStripOverrides(paras[p], pst);
                 } catch (ePara) {}
             }
-            if (dualMode && numLines) sommaireApplyNumerosStyles(tfNums, numLines, styleLevels);
-            if (dualMode && tfNums && sommaireDualSliceRef)
-                sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromSlice(sommaireDualSliceRef));
+            if (dualMode && numLines) {
+                if (SOMMAIRE_NUMBERS_ONLY_NO_LINKS) {
+                    if (SOMMAIRE_NUMBERS_STRICT_SIMPLE) {
+                        sommaireInjectNumerosStrictSimple(tfNums, numLines);
+                    } else {
+                        try { tfNums.contents = numLines.join("\r"); } catch (eNoLink0) {}
+                        sommaireWriteLinesToFrame(tfNums, numLines);
+                    }
+                    sommaireApplyNumerosStyles(tfNums, numLines, styleLevels);
+                    if (SOMMAIRE_ENABLE_WRAP_SPACING && tfNums && sommaireDualSliceRef)
+                        sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromRenderedTitle(tfTitle, numLines.length));
+                } else {
+                    sommaireApplyNumerosStyles(tfNums, numLines, styleLevels);
+                    if (SOMMAIRE_ENABLE_WRAP_SPACING && tfNums && sommaireDualSliceRef)
+                        sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromRenderedTitle(tfTitle, numLines.length));
+                }
+            }
         } else if (useLegacyParaStyles) {
             var styleN1 = doc.paragraphStyles.itemByName(SOMMAIRE_STYLE_N1);
             var styleN2 = doc.paragraphStyles.itemByName(SOMMAIRE_STYLE_N2);
@@ -1416,14 +1755,27 @@ function injectSommaireText(page, pageData, sommaireSpreadPart) {
                     } catch (e2) {}
                 }
             }
-            if (dualMode && numLines) sommaireApplyNumerosStyles(tfNums, numLines, null);
-            if (dualMode && tfNums && titleLines)
-                sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromTitleLines(titleLines));
+            if (dualMode && numLines) {
+                if (SOMMAIRE_NUMBERS_ONLY_NO_LINKS) {
+                    if (SOMMAIRE_NUMBERS_STRICT_SIMPLE) {
+                        sommaireInjectNumerosStrictSimple(tfNums, numLines);
+                    } else {
+                        try { tfNums.contents = numLines.join("\r"); } catch (eNoLink1) {}
+                        sommaireWriteLinesToFrame(tfNums, numLines);
+                    }
+                    sommaireApplyNumerosStyles(tfNums, numLines, null);
+                    if (SOMMAIRE_ENABLE_WRAP_SPACING && tfNums && titleLines)
+                        sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromRenderedTitle(tfTitle, numLines.length));
+                } else {
+                    sommaireApplyNumerosStyles(tfNums, numLines, null);
+                    if (SOMMAIRE_ENABLE_WRAP_SPACING && tfNums && titleLines)
+                        sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromRenderedTitle(tfTitle, numLines.length));
+                }
+            }
         }
     } catch (eSt) {}
 
     truncateOverflow(tfTitle);
-    if (tfNums) truncateOverflow(tfNums);
 }
 
 /** Associe la page creee a son indice JSON et au numero redactionnel (sommaire cliquable). */
@@ -1457,8 +1809,28 @@ function sommaireMergePageMapFromOffset(data, pageOffset) {
 }
 
 function sommaireResolveTargetPage(editorialPageNum, data, pageOffset) {
-    var k = parseInt(String(editorialPageNum), 10);
+    var raw = String(editorialPageNum === null || editorialPageNum === undefined ? "" : editorialPageNum)
+        .replace(/^\s+|\s+$/g, "");
+    if (raw === "") return null;
+
+    // Priorite : lier a la page qui porte exactement ce numero dans InDesign.
+    try {
+        for (var p = 0; p < doc.pages.length; p++) {
+            var pgName = String(doc.pages[p].name || "").replace(/^\s+|\s+$/g, "");
+            if (pgName === raw) return doc.pages[p];
+        }
+    } catch (eEx) {}
+
+    // Fallback tolerant : "02" cote JSON peut correspondre a "2" cote InDesign.
+    var k = parseInt(raw, 10);
     if (isNaN(k)) return null;
+    try {
+        for (var p2 = 0; p2 < doc.pages.length; p2++) {
+            var pgName2 = String(doc.pages[p2].name || "").replace(/^\s+|\s+$/g, "");
+            var n2 = parseInt(pgName2, 10);
+            if (!isNaN(n2) && n2 === k) return doc.pages[p2];
+        }
+    } catch (eNum) {}
     sommaireMergePageMapFromOffset(data, pageOffset);
     try {
         var pg = REDACTOR_PAGE_MAP_GLOBAL[k];
@@ -1522,24 +1894,38 @@ function sommaireWireDualFrameNumbers(tfNums, slice, data, pageOffset) {
     sommaireRemoveInternalHyperlinks(tfNums);
     var numLines = [];
     var styleLevels = [];
+    var linksCreated = 0;
+    var targetsMissing = 0;
+    var writeFailures = 0;
+    var rangeFailures = 0;
+    var paraCountAtStart = 0;
+    var lastWriteError = "";
+    var lastRangeError = "";
+    try { paraCountAtStart = tfNums.paragraphs.length; } catch (ePc) {}
     for (var s0 = 0; s0 < slice.length; s0++) {
         var lv0 = parseInt(slice[s0].level, 10);
-        styleLevels.push(isNaN(lv0) ? 2 : lv0);
-        numLines.push("");
+        if (isNaN(lv0)) lv0 = 2;
+        styleLevels.push(lv0);
+        var pg0 = sommaireEntryPageValue(slice[s0]);
+        var hasPg0 = pg0 !== "";
+        numLines.push((lv0 === 0 || !hasPg0) ? "" : String(pg0));
     }
+    // Important: reconstruire toutes les lignes du cadre numeros ici,
+    // pour ne pas dependre d'un etat amont (ex: cadre avec 1 seul paragraphe).
+    sommaireWriteLinesToFrame(tfNums, numLines);
     for (var j = 0; j < slice.length; j++) {
         var entry = slice[j];
-        var pg = entry.page;
+        var pg = sommaireEntryPageValue(entry);
         var lv = parseInt(entry.level, 10);
         if (isNaN(lv)) lv = 2;
-        if (pg === null || pg === undefined || String(pg).replace(/^\s+|\s+$/g, "") === "" || lv === 0)
+        if (pg === "" || lv === 0)
             continue;
         var target = sommaireResolveTargetPage(pg, data, pageOffset);
-        if (!target) continue;
+        if (!target) { targetsMissing++; continue; }
         if (j >= tfNums.paragraphs.length) break;
         var para = tfNums.paragraphs[j];
-        var display = String(target.name).replace(/^\s+|\s+$/g, "");
-        try { para.contents = display; } catch (eC) { continue; }
+        var display = String(pg).replace(/^\s+|\s+$/g, "");
+        try { para.contents = display; } catch (eC) { writeFailures++; lastWriteError = String(eC); continue; }
         numLines[j] = display;
         try {
             para = tfNums.paragraphs[j];
@@ -1549,10 +1935,22 @@ function sommaireWireDualFrameNumbers(tfNums, slice, data, pageOffset) {
             var story = tfNums.parentStory;
             var tr = story.characters.itemByRange(st, en);
             sommaireAddTextToPageHyperlink(tr, target);
-        } catch (eR) {}
+            linksCreated++;
+        } catch (eR) { rangeFailures++; lastRangeError = String(eR); }
     }
     sommaireApplyNumerosStyles(tfNums, numLines, styleLevels);
     sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromSlice(slice));
+    sommaireDebugAlert(
+        "Colonne numeros: " + String(tfNums.label || "sans label")
+        + "\nLignes traitees: " + slice.length
+        + "\nParagraphes au depart: " + paraCountAtStart
+        + "\nLiens crees: " + linksCreated
+        + "\nCibles introuvables: " + targetsMissing
+        + "\nEchecs ecriture numero: " + writeFailures
+        + "\nEchecs creation range/lien: " + rangeFailures
+        + (lastWriteError ? ("\nDerniere erreur ecriture: " + lastWriteError) : "")
+        + (lastRangeError ? ("\nDerniere erreur range/lien: " + lastRangeError) : "")
+    );
 }
 
 function sommaireWireSingleFrameNumbers(tfTitle, slice, data, pageOffset) {
@@ -1561,16 +1959,16 @@ function sommaireWireSingleFrameNumbers(tfTitle, slice, data, pageOffset) {
     var paras = tfTitle.paragraphs;
     for (var j = 0; j < slice.length && j < paras.length; j++) {
         var entry2 = slice[j];
-        var pg2 = entry2.page;
+        var pg2 = sommaireEntryPageValue(entry2);
         var lv2 = parseInt(entry2.level, 10);
         if (isNaN(lv2)) lv2 = 2;
-        if (pg2 === null || pg2 === undefined || String(pg2).replace(/^\s+|\s+$/g, "") === "" || lv2 === 0)
+        if (pg2 === "" || lv2 === 0)
             continue;
         var target2 = sommaireResolveTargetPage(pg2, data, pageOffset);
         if (!target2) continue;
         var para2 = paras[j];
         var line = String(para2.contents || "");
-        var display2 = String(target2.name).replace(/^\s+|\s+$/g, "");
+        var display2 = String(pg2).replace(/^\s+|\s+$/g, "");
         var idxTab = line.lastIndexOf("\t");
         if (idxTab < 0) continue;
         var newLine = line.substring(0, idxTab + 1) + display2;
@@ -1607,7 +2005,7 @@ function sommaireWirePageNumberHyperlinksOnPage(idPage, pageData, spreadPart, da
 
     var tfTitle = sommaireGetTextFrame(idPage, labelTitres);
     if (!tfTitle) return;
-    var tfNums = sommaireGetTextFrame(idPage, SOMMAIRE_NUMEROS_LABEL);
+    var tfNums = sommaireGetTextFrameByAliases(idPage, sommaireBuildNumerosLabelCandidates());
     var dualMode = tfNums !== null;
 
     var rawStr = String(rawValue).replace(/^\uFEFF/g, "").replace(/^\s+|\s+$/g, "");
@@ -1630,6 +2028,7 @@ function sommaireWirePageNumberHyperlinksOnPage(idPage, pageData, spreadPart, da
 }
 
 function sommaireWireAllSommairePagesForGenerate(data) {
+    if (SOMMAIRE_NUMBERS_ONLY_NO_LINKS) return;
     if (!data || !data.pages) return;
     var somIdx = 0;
     for (var i = 0; i < data.pages.length; i++) {

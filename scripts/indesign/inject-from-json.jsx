@@ -1,0 +1,1392 @@
+/**
+ * inject-from-json.jsx
+ * Script InDesign ExtendScript — Injection textes et liens depuis JSON
+ *
+ * Ce script lit un fichier JSON exporte depuis l'application et injecte
+ * dans le document courant :
+ *   - Les textes (champs simples, listes a puces, noms+hashtags)
+ *   - Les labels des liens (intitule visible dans le cadre)
+ *   - Les hyperliens cliquables (actifs apres export PDF depuis InDesign)
+ *
+ * Ce script ne touche PAS :
+ *   - Les images (blocs graphiques sans label lien)
+ *   - Les liens de type Google Maps (_url_maps_)
+ *
+ * Prerequis InDesign :
+ *   - Styles de caractere "Gras", "Orange", "Chiffre", "Gras-orange"
+ *   - Blocs etiquetes (label) correspondant aux cles du JSON
+ *
+ * Usage :
+ *   Fichier > Scripts > Parcourir... -> selectionner ce fichier
+ *   Choisir le JSON dans la boite de dialogue
+ */
+
+#target indesign
+#include "json2.js"
+
+// ---------------------------------------------------------------------------
+// Document courant
+// ---------------------------------------------------------------------------
+
+var doc = app.activeDocument;
+
+// ---------------------------------------------------------------------------
+// Noms des styles de caractere utilises par les marqueurs inline
+// ---------------------------------------------------------------------------
+
+var STYLE_GRAS        = "Gras";        // **texte**
+var STYLE_ORANGE      = "Orange";      // {texte}
+var STYLE_CHIFFRE     = "Chiffre";     // ^texte^
+var STYLE_GRAS_ORANGE = "Gras-orange"; // ~texte~
+
+// Styles de paragraphe pour les blocs nom+hashtag (pages Inspiration)
+var STYLE_PARA_NOM     = "Inspiration_nom";
+var STYLE_PARA_HASHTAG = "Hashtag";
+
+// ---------------------------------------------------------------------------
+// Champs ignores lors de l'injection texte standard
+// ---------------------------------------------------------------------------
+
+// Ces champs sont traites par des fonctions dediees (pas par injectText).
+// POI_meta_1 / POI_meta_duree : blocs picto geres separement
+// POI_lien_2 : cadre graphique — traite par injectFrameHyperlink
+// SOMMAIRE_texte_1 : JSON structure — traite par injectSommaire (evite style Orange sur "{")
+var SKIP_TEXT = {
+    "POI_meta_duree":   true,
+    "POI_meta_1":       true,
+    "POI_lien_2":       true,
+    "SOMMAIRE_texte_1": true
+};
+
+// ---------------------------------------------------------------------------
+// Configuration sommaire — valeurs identiques a generate-poi-pages.jsx
+// ---------------------------------------------------------------------------
+
+// Styles paragraphe — cadre titres
+var SOMMAIRE_STYLE_BY_LEVEL = {
+    0: "Titre-section",
+    1: "Page-section-sommaire",
+    2: "Page-unique-sommaire"
+};
+// Fallback anciens exports
+var SOMMAIRE_STYLE_N1 = "Sommaire_niveau1";
+var SOMMAIRE_STYLE_N2 = "Sommaire_niveau2";
+
+// Styles paragraphe — cadre numeros (candidats par ordre de priorite)
+var SOMMAIRE_NUMEROS_STYLE_CANDIDATES      = ["Sommaire-numeros",              "sommaire-numeros",              "Sommaire_numeros"];
+var SOMMAIRE_NUMEROS_VIDE_STYLE_CANDIDATES = ["Sommaire-numeros-absent",       "sommaire-numeros-absent",       "Sommaire_numeros_absent"];
+var SOMMAIRE_NUMEROS_PAGE_SECTION_CANDIDATES = ["Sommaire-numeros-page-section","sommaire-numeros-page-section", "Sommaire_numeros_page_section"];
+var SOMMAIRE_NUMEROS_PAGE_SEULE_CANDIDATES = ["Sommaire-numeros-page-seule",   "sommaire-numeros-page-seule",   "Sommaire_numeros_page_seule"];
+
+// Seuils wrap (estimation 2 lignes par comptage de caracteres)
+var SOMMAIRE_TITLE_WRAP_CHAR_MAX_SECTION = 31;
+var SOMMAIRE_TITLE_WRAP_CHAR_MAX_DEFAULT = 36;
+
+// spaceAfter colonne numeros (level 1 uniquement)
+var SOMMAIRE_NUMEROS_SPACE_AFTER_ONE_LINE_PT = 17;
+var SOMMAIRE_NUMEROS_SPACE_AFTER_TWO_LINES_PT = 36;
+var SOMMAIRE_NUMEROS_ABSENT_SPACE_AFTER_TOP_PT     = 20;
+var SOMMAIRE_NUMEROS_ABSENT_SPACE_AFTER_DEFAULT_PT = 40;
+
+// Compteur de pages sommaire (1re page traitee = partie 1, 2e = partie 2, …)
+var sommairePageIndex = 0;
+
+// Champs dont la valeur est un lien {label, url} a poser sur un cadre GRAPHIQUE
+var FRAME_LINK_FIELDS = {
+    "POI_lien_2":             true,
+    "ALLER_PLUS_LOIN_lien_1": true,
+    "ALLER_PLUS_LOIN_lien_2": true,
+    "ALLER_PLUS_LOIN_lien_3": true,
+    "ALLER_PLUS_LOIN_lien_4": true,
+    "ALLER_PLUS_LOIN_lien_5": true,
+    "ALLER_PLUS_LOIN_lien_6": true
+};
+
+// ---------------------------------------------------------------------------
+// 1. Chargement du JSON
+// ---------------------------------------------------------------------------
+
+var jsonFile = File.openDialog("Choisir le fichier JSON a injecter");
+if (!jsonFile) { alert("Annule."); exit(); }
+
+jsonFile.encoding = "UTF-8";
+jsonFile.open("r");
+var rawJson = jsonFile.read();
+jsonFile.close();
+
+// Retirer le BOM UTF-8 eventuel
+rawJson = rawJson.replace(/^\uFEFF/, "");
+
+var data;
+try {
+    data = JSON.parse(rawJson);
+} catch (eJson) {
+    // Fallback : certains exports contiennent un JSON "presque valide"
+    try {
+        data = eval("(" + rawJson + ")");
+    } catch (eEval) {
+        alert(
+            "Impossible de lire le JSON.\n\n" +
+            "Erreur JSON.parse : " + eJson + "\n" +
+            "Erreur fallback   : " + eEval + "\n\n" +
+            "Verifiez l'encodage (UTF-8) et la syntaxe du fichier."
+        );
+        exit();
+    }
+}
+
+if (!data || !data.pages || !data.pages.length) {
+    alert("JSON invalide ou sans pages. Verifiez le fichier exporte.");
+    exit();
+}
+
+// ---------------------------------------------------------------------------
+// 2. Construire les dictionnaires de configuration depuis le JSON
+// ---------------------------------------------------------------------------
+
+// Champs de type liste a puces (depuis data.mappings.bullet_fields ou data.bullet_fields)
+var bulletFields = {};
+var bfSource = null;
+try {
+    if (data.mappings && data.mappings.bullet_fields && data.mappings.bullet_fields.length) {
+        bfSource = data.mappings.bullet_fields;
+    } else if (data.bullet_fields && data.bullet_fields.length) {
+        bfSource = data.bullet_fields;
+    }
+} catch(eBf) {}
+
+if (bfSource) {
+    for (var bf = 0; bf < bfSource.length; bf++) {
+        bulletFields[bfSource[bf]] = true;
+    }
+}
+// Valeurs de secours pour les anciens exports
+bulletFields["POI_texte_2"]                     = true;
+bulletFields["PRESENTATION_GUIDE_liste_sections"] = true;
+
+// Mapping cle JSON -> label InDesign (data.mappings.fields)
+// Si absent, la cle JSON est utilisee directement comme label.
+var fieldMappings = {};
+try {
+    if (data.mappings && data.mappings.fields) {
+        fieldMappings = data.mappings.fields;
+    }
+} catch(eFm) {}
+
+function resolveLabel(key) {
+    return (fieldMappings[key]) ? String(fieldMappings[key]) : key;
+}
+
+// ---------------------------------------------------------------------------
+// 3. Offset de page
+// ---------------------------------------------------------------------------
+
+var pageOffsetStr = prompt(
+    "Offset de page (0 = page 1 du JSON -> page 1 du document).\n" +
+    "Exemple : saisir 2 si la page 1 du JSON correspond a la page 3 du document.",
+    "0"
+);
+var pageOffset = parseInt(pageOffsetStr, 10);
+if (isNaN(pageOffset)) pageOffset = 0;
+
+// ---------------------------------------------------------------------------
+// 4. Utilitaires
+// ---------------------------------------------------------------------------
+
+// Retourne tous les objets d'une page portant le label donne.
+function findByLabel(page, label) {
+    var result = [];
+    var items = page.allPageItems;
+    for (var i = 0; i < items.length; i++) {
+        try {
+            if (items[i].label === label) result.push(items[i]);
+        } catch(e) {}
+    }
+    return result;
+}
+
+// Extrait une URL depuis une valeur qui peut etre :
+//   - un objet {label, url}
+//   - une chaine JSON "{...}"
+//   - une URL brute
+// Retourne null si rien de valide.
+function extractUrl(value) {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "object") {
+        try { return (value.url && String(value.url).replace(/^\s+|\s+$/g, "")) || null; } catch(e) {}
+        return null;
+    }
+    var str = String(value).replace(/^\s+|\s+$/g, "");
+    if (str === "") return null;
+    if (str.charAt(0) === "{") {
+        try {
+            var parsed = eval("(" + str + ")");
+            if (parsed && parsed.url) return String(parsed.url).replace(/^\s+|\s+$/g, "") || null;
+        } catch(e) {}
+    }
+    return str;
+}
+
+// Extrait le label et l'URL depuis un objet lien structure {label, url}
+// Retourne {label: string|null, url: string|null} ou null si non-structure.
+function extractLinkObject(value) {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "object") {
+        if (value.label !== undefined && value.url !== undefined) {
+            return { label: String(value.label || ""), url: String(value.url || "") };
+        }
+        return null;
+    }
+    var str = String(value).replace(/^\s+|\s+$/g, "");
+    if (str.charAt(0) === "{") {
+        try {
+            var p = eval("(" + str + ")");
+            if (p && p.label !== undefined && p.url !== undefined) {
+                return { label: String(p.label || ""), url: String(p.url || "") };
+            }
+        } catch(e) {}
+    }
+    return null;
+}
+
+// ---------------------------------------------------------------------------
+// 5. Application des styles de caractere via GREP
+//
+// Marqueurs supportes :
+//   **texte**  -> style "Gras"
+//   {texte}    -> style "Orange"
+//   ^texte^    -> style "Chiffre"
+//   ~texte~    -> style "Gras-orange"
+// ---------------------------------------------------------------------------
+
+function applyStyleMarkers(tf) {
+    try {
+        var story       = tf.parentStory;
+        var sGras       = doc.characterStyles.itemByName(STYLE_GRAS);
+        var sOrange     = doc.characterStyles.itemByName(STYLE_ORANGE);
+        var sChiffre    = doc.characterStyles.itemByName(STYLE_CHIFFRE);
+        var sGrasOrange = doc.characterStyles.itemByName(STYLE_GRAS_ORANGE);
+
+        // ** Gras **
+        app.findGrepPreferences = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+        app.findGrepPreferences.findWhat = "(?s)\\*\\*.+?\\*\\*";
+        var boldMatches = story.findGrep();
+        app.findGrepPreferences = NothingEnum.NOTHING;
+        if (sGras.isValid) {
+            for (var m = 0; m < boldMatches.length; m++) {
+                try { boldMatches[m].appliedCharacterStyle = sGras; } catch(e) {}
+            }
+        }
+        app.findGrepPreferences = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+        app.findGrepPreferences.findWhat   = "\\*\\*";
+        app.changeGrepPreferences.changeTo = "";
+        story.changeGrep();
+        app.findGrepPreferences   = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+
+        // { Orange }
+        app.findGrepPreferences = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+        app.findGrepPreferences.findWhat = "(?s)\\{.+?\\}";
+        var orangeMatches = story.findGrep();
+        app.findGrepPreferences = NothingEnum.NOTHING;
+        if (sOrange.isValid) {
+            for (var o = 0; o < orangeMatches.length; o++) {
+                try { orangeMatches[o].appliedCharacterStyle = sOrange; } catch(e) {}
+            }
+        }
+        app.findGrepPreferences = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+        app.findGrepPreferences.findWhat   = "[{}]";
+        app.changeGrepPreferences.changeTo = "";
+        story.changeGrep();
+        app.findGrepPreferences   = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+
+        // ^ Chiffre ^
+        app.findGrepPreferences = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+        app.findGrepPreferences.findWhat = "(?s)\\^.+?\\^";
+        var chiffreMatches = story.findGrep();
+        app.findGrepPreferences = NothingEnum.NOTHING;
+        if (sChiffre.isValid) {
+            for (var c = 0; c < chiffreMatches.length; c++) {
+                try { chiffreMatches[c].appliedCharacterStyle = sChiffre; } catch(e) {}
+            }
+        }
+        app.findGrepPreferences = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+        app.findGrepPreferences.findWhat   = "\\^";
+        app.changeGrepPreferences.changeTo = "";
+        story.changeGrep();
+        app.findGrepPreferences   = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+
+        // ~ Gras-orange ~
+        // \x7E = code hex du tilde : evite l'interpretation speciale de "~" en GREP InDesign
+        app.findGrepPreferences = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+        app.findGrepPreferences.findWhat = "(?s)\\x7E.+?\\x7E";
+        var goMatches = story.findGrep();
+        app.findGrepPreferences = NothingEnum.NOTHING;
+        if (sGrasOrange.isValid) {
+            for (var g = 0; g < goMatches.length; g++) {
+                try { goMatches[g].appliedCharacterStyle = sGrasOrange; } catch(e) {}
+            }
+        }
+        app.findGrepPreferences = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+        app.findGrepPreferences.findWhat   = "~";
+        app.changeGrepPreferences.changeTo = "";
+        story.changeGrep();
+        app.findGrepPreferences   = NothingEnum.NOTHING;
+        app.changeGrepPreferences = NothingEnum.NOTHING;
+
+    } catch(e) {}
+}
+
+// Verifie si une chaine contient des marqueurs de style
+function hasMarkers(str) {
+    return (str.indexOf("**") !== -1 ||
+            str.indexOf("{")  !== -1 ||
+            str.indexOf("^")  !== -1 ||
+            str.indexOf("~")  !== -1);
+}
+
+// Tronque le surplus si le cadre deborde (evite la creation de pages supplementaires)
+function truncateOverflow(tf) {
+    try {
+        if (!tf.overflows) return;
+        var story    = tf.parentStory;
+        var visCount = tf.characters.length;
+        var total    = story.characters.length;
+        if (total > visCount && visCount > 0) {
+            story.characters.itemByRange(visCount, total - 1).remove();
+        }
+    } catch(e) {}
+}
+
+// ---------------------------------------------------------------------------
+// 6. Injection texte dans un cadre TextFrame
+// ---------------------------------------------------------------------------
+
+// Injecte un texte simple ou un lien structure {label, url} dans un cadre texte.
+// Si la valeur est vide/null, le cadre est masque.
+function injectText(page, label, value) {
+    var blocks = findByLabel(page, label);
+    for (var i = 0; i < blocks.length; i++) {
+        if (!(blocks[i] instanceof TextFrame)) continue;
+        var tf = blocks[i];
+
+        var isEmpty = (value === null || value === undefined ||
+                       String(value).replace(/^\s+|\s+$/, "") === "");
+        if (isEmpty) {
+            tf.visible = false;
+            continue;
+        }
+
+        // Detecter un objet lien {label, url}
+        var linkObj = extractLinkObject(value);
+        if (linkObj !== null) {
+            var show = linkObj.label !== "" || linkObj.url !== "";
+            tf.visible = show;
+            if (show) {
+                tf.contents = linkObj.label;
+                truncateOverflow(tf);
+                if (linkObj.url !== "") {
+                    injectHyperlink(page, label, linkObj.url);
+                }
+            }
+            continue;
+        }
+
+        // Texte simple
+        tf.visible = true;
+        var str = String(value).replace(/^\s+|\s+$/g, "");
+        if (hasMarkers(str)) {
+            tf.contents = str;
+            applyStyleMarkers(tf);
+        } else {
+            tf.contents = str;
+        }
+        truncateOverflow(tf);
+    }
+}
+
+// Injecte une liste a puces : une ligne = un item, separateur \n -> \r (InDesign).
+// Le style de puce est porte par le cadre InDesign ; le script n'envoie que le texte brut.
+function injectBulletText(page, label, value) {
+    var blocks = findByLabel(page, label);
+    for (var i = 0; i < blocks.length; i++) {
+        if (!(blocks[i] instanceof TextFrame)) continue;
+        var tf = blocks[i];
+        if (!value) { tf.visible = false; continue; }
+
+        var lines = String(value).split("\n");
+        var items = [];
+        for (var l = 0; l < lines.length; l++) {
+            var line = lines[l].replace(/^\s+|\s+$/, "");
+            if (line !== "") items.push(line);
+        }
+        if (items.length === 0) { tf.visible = false; continue; }
+
+        tf.visible = true;
+        var fullText = items.join("\r");
+        tf.contents = fullText;
+        if (hasMarkers(fullText)) applyStyleMarkers(tf);
+        truncateOverflow(tf);
+    }
+}
+
+// Injecte un champ "Nom\rHashtag" (style paragraphe different pour chaque partie).
+// Utilise pour les cartes Inspiration : 1er para = Inspiration_nom, 2eme = Hashtag.
+function injectNomHashtag(page, label, value) {
+    var blocks = findByLabel(page, label);
+    for (var i = 0; i < blocks.length; i++) {
+        if (!(blocks[i] instanceof TextFrame)) continue;
+        var tf = blocks[i];
+        if (!value || String(value).replace(/^\s+|\s+$/, "") === "") {
+            tf.visible = false;
+            continue;
+        }
+        tf.visible = true;
+        var strVal = String(value).replace(/\r\n/g, "\r").replace(/\n/g, "\r");
+        tf.contents = strVal;
+        try {
+            var nomStyle  = doc.paragraphStyles.itemByName(STYLE_PARA_NOM);
+            var hashStyle = doc.paragraphStyles.itemByName(STYLE_PARA_HASHTAG);
+            var paras = tf.paragraphs;
+            if (paras.length >= 1 && nomStyle.isValid)  paras[0].appliedParagraphStyle = nomStyle;
+            if (paras.length >= 2 && hashStyle.isValid) paras[1].appliedParagraphStyle = hashStyle;
+        } catch(e) {}
+        if (hasMarkers(strVal)) applyStyleMarkers(tf);
+        truncateOverflow(tf);
+    }
+}
+
+// Affiche ou masque un objet quelconque (Group, Rectangle…) selon la presence d'une valeur.
+// Utilise pour les slots repetes (_card_N) dont la visibilite depend du contenu.
+function injectVisibility(page, label, value) {
+    var show = (value !== null && value !== undefined &&
+                String(value).replace(/^\s+|\s+$/, "") !== "");
+    var blocks = findByLabel(page, label);
+    for (var i = 0; i < blocks.length; i++) {
+        try { blocks[i].visible = show; } catch(e) {}
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 7. Injection hyperlien sur un cadre TEXTE (cliquable apres export PDF)
+//
+// Ordre critique pour un document existant (pages deja remplies) :
+//
+//   1. Capturer rangeText = tf.texts.item(0) EN PREMIER, avant tout nettoyage.
+//      src.remove() invalide la reference tf dans ExtendScript ;
+//      rangeText (objet Text) survit a src.remove() et reste utilisable.
+//
+//   2. Supprimer les Hyperlinks sur CE cadre (comparaison par cadre,
+//      pas par story — evite de toucher des cadres lies dans le meme flux).
+//
+//   3. Supprimer les HyperlinkTextSources orphelines sur CE cadre.
+//      Apres hl.remove(), la source peut rester orpheline.
+//      hyperlinkTextSources.add() echoue si une source orpheline existe deja
+//      sur la meme plage de texte → le lien n'est jamais cree.
+//      Note : hts.remove() invalide tf, mais rangeText est deja capture (etape 1).
+//
+//   4. Creer destination + source (sur rangeText) + hyperlien.
+// ---------------------------------------------------------------------------
+
+function injectHyperlink(page, label, url) {
+    if (!url || String(url).replace(/^\s+|\s+$/g, "") === "") return;
+    var cleanUrl = String(url).replace(/^\s+|\s+$/g, "");
+
+    var blocks = findByLabel(page, label);
+    for (var i = 0; i < blocks.length; i++) {
+        if (!(blocks[i] instanceof TextFrame)) continue;
+        var tf = blocks[i];
+
+        // Etape 1 : capturer rangeText AVANT tout nettoyage
+        var rangeText = null;
+        try {
+            if (tf.texts && tf.texts.length > 0) rangeText = tf.texts.item(0);
+        } catch(eR) {}
+        if (!rangeText) {
+            try { rangeText = tf.parentStory.texts.item(0); } catch(eS) { continue; }
+        }
+
+        // Etape 2 : supprimer les Hyperlinks sur CE cadre (comparaison par cadre)
+        var hlList = doc.hyperlinks;
+        for (var h = hlList.length - 1; h >= 0; h--) {
+            try {
+                var hl  = hlList.item(h);
+                var src = hl.source;
+                if (src && src.sourceText &&
+                    src.sourceText.parentTextFrames &&
+                    src.sourceText.parentTextFrames.length > 0 &&
+                    src.sourceText.parentTextFrames[0] === tf) {
+                    hl.remove();
+                }
+            } catch(eH) {}
+        }
+
+        // Etape 3 : supprimer les HyperlinkTextSources orphelines sur CE cadre
+        // (hl.remove() ne supprime pas toujours la source associee)
+        // Apres hts.remove(), tf peut etre invalide — rangeText reste utilisable.
+        var htsList = doc.hyperlinkTextSources;
+        for (var s = htsList.length - 1; s >= 0; s--) {
+            try {
+                var hts = htsList.item(s);
+                if (hts.sourceText &&
+                    hts.sourceText.parentTextFrames &&
+                    hts.sourceText.parentTextFrames.length > 0 &&
+                    hts.sourceText.parentTextFrames[0] === tf) {
+                    hts.remove();
+                }
+            } catch(eS2) {}
+        }
+        // tf potentiellement invalide a partir d'ici — on utilise uniquement rangeText
+
+        // Etape 4 : destination URL
+        var dest;
+        try {
+            dest = doc.hyperlinkURLDestinations.add(cleanUrl);
+        } catch(eDest) {
+            try { dest = doc.hyperlinkURLDestinations.itemByName(cleanUrl); } catch(eDest2) { continue; }
+        }
+
+        // Etape 5 : source texte sur rangeText (capture a l'etape 1)
+        var srcNew;
+        try {
+            srcNew = doc.hyperlinkTextSources.add(rangeText);
+        } catch(eSrcNew) { continue; }
+
+        // Etape 6 : hyperlien (invisible dans le document, actif au PDF)
+        try {
+            doc.hyperlinks.add(srcNew, dest, {
+                visible:   false,
+                highlight: HyperlinkAppearanceHighlight.NONE
+            });
+        } catch(eNew) {}
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 8. Injection hyperlien sur un cadre GRAPHIQUE (Rectangle, Oval, Group…)
+//    Rend le cadre entier cliquable apres export PDF (HyperlinkPageItemSource).
+//
+//    Meme probleme que pour les cadres texte :
+//    hl.remove() ne supprime pas toujours la HyperlinkPageItemSource associee.
+//    Si la source orpheline reste, hyperlinkPageItemSources.add(block) echoue
+//    et aucun hyperlien n'est cree. On doit donc nettoyer explicitement
+//    les sources orphelines apres la suppression des hyperlinks.
+// ---------------------------------------------------------------------------
+
+function injectFrameHyperlink(page, label, value) {
+    var url = extractUrl(value);
+    var blocks = findByLabel(page, label);
+
+    for (var i = 0; i < blocks.length; i++) {
+        var block = blocks[i];
+        if (!url) {
+            try { block.visible = false; } catch(e) {}
+            continue;
+        }
+        try { block.visible = true; } catch(e) {}
+
+        // Etape 1 : supprimer les Hyperlinks sur ce cadre
+        var hlList = doc.hyperlinks;
+        for (var h = hlList.length - 1; h >= 0; h--) {
+            try {
+                var hs = hlList.item(h).source;
+                if (hs && hs.sourcePageItem && hs.sourcePageItem === block) {
+                    hlList.item(h).remove();
+                }
+            } catch(e) {}
+        }
+
+        // Etape 2 : supprimer les HyperlinkPageItemSources orphelines sur ce cadre
+        var pisList = doc.hyperlinkPageItemSources;
+        for (var ps = pisList.length - 1; ps >= 0; ps--) {
+            try {
+                if (pisList.item(ps).sourcePageItem === block) {
+                    pisList.item(ps).remove();
+                }
+            } catch(e) {}
+        }
+
+        // Etape 3 : destination URL
+        var dest;
+        try {
+            dest = doc.hyperlinkURLDestinations.add(url);
+        } catch(eDest) {
+            try { dest = doc.hyperlinkURLDestinations.itemByName(url); } catch(eDest2) { continue; }
+        }
+
+        // Etape 4 : source page-item et hyperlien
+        var srcPi;
+        try { srcPi = doc.hyperlinkPageItemSources.add(block); } catch(eSrcPi) { continue; }
+        try {
+            doc.hyperlinks.add(srcPi, dest, {
+                visible:   false,
+                highlight: HyperlinkAppearanceHighlight.NONE
+            });
+        } catch(eHl) {}
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 9. Sommaire — helpers (portage rigoureux de generate-poi-pages.jsx)
+// ---------------------------------------------------------------------------
+
+// Paragraphes depuis la story complete (cadres files inclus) ou depuis le cadre seul.
+function sommaireStoryParas(tf) {
+    if (!tf) return null;
+    try {
+        var st = tf.parentStory;
+        if (st && st.paragraphs && st.paragraphs.length > 0) return st.paragraphs;
+    } catch(e) {}
+    try { return tf.paragraphs; } catch(e2) {}
+    return null;
+}
+
+// Detache le cadre de tout fil (thread) precedent et suivant.
+function sommaireDetachThread(tf) {
+    if (!tf) return;
+    try {
+        var prev = tf.previousTextFrame;
+        if (prev && prev.isValid) {
+            try { prev.nextTextFrame = NothingEnum.NOTHING; } catch(e) { try { prev.nextTextFrame = null; } catch(e2) {} }
+        }
+    } catch(eP) {}
+    try { tf.nextTextFrame = NothingEnum.NOTHING; } catch(e0) { try { tf.nextTextFrame = null; } catch(e1) {} }
+}
+
+// Retourne la valeur de page d'une entree (supporte page / page_number / numero_page).
+function sommaireEntryPage(entry) {
+    if (!entry) return "";
+    var candidates = [entry.page, entry.page_number, entry.pageNumber, entry.numero_page];
+    for (var i = 0; i < candidates.length; i++) {
+        var v = candidates[i];
+        if (v === null || v === undefined) continue;
+        var s = String(v).replace(/^\s+|\s+$/g, "");
+        if (s !== "") return s;
+    }
+    return "";
+}
+
+// Construit la slice pour une partie du sommaire depuis les entries ou entries_by_sommaire_page.
+function sommaireSliceForPart(parsed, part) {
+    var slice = [];
+    if (parsed.entries_by_sommaire_page) {
+        var bag = parsed.entries_by_sommaire_page[String(part)];
+        if (bag instanceof Array) {
+            for (var si = 0; si < bag.length; si++) slice.push(bag[si]);
+            return slice;
+        }
+    }
+    var allE = parsed.entries || [];
+    for (var ei = 0; ei < allE.length; ei++) {
+        var sp = parseInt(allE[ei].sommaire_page, 10);
+        if (isNaN(sp)) sp = 1;
+        if (sp === part) slice.push(allE[ei]);
+    }
+    return slice;
+}
+
+// Resout un numero de page JSON (ex "08") en page InDesign.
+// Priorite : nom exact → nom numerique equivalent → fallback offset.
+function sommaireResolvePage(pgStr) {
+    var raw = String(pgStr === null || pgStr === undefined ? "" : pgStr).replace(/^\s+|\s+$/g, "");
+    if (raw === "") return null;
+    // Recherche par nom exact
+    try {
+        for (var p = 0; p < doc.pages.length; p++) {
+            if (String(doc.pages[p].name || "").replace(/^\s+|\s+$/g, "") === raw) return doc.pages[p];
+        }
+    } catch(e) {}
+    // Recherche par valeur numerique (tolerant "02" vs "2")
+    var k = parseInt(raw, 10);
+    if (isNaN(k)) return null;
+    try {
+        for (var p2 = 0; p2 < doc.pages.length; p2++) {
+            var n2 = parseInt(String(doc.pages[p2].name || ""), 10);
+            if (!isNaN(n2) && n2 === k) return doc.pages[p2];
+        }
+    } catch(e2) {}
+    // Fallback offset (pageOffset est defini au niveau module)
+    var idx = k + pageOffset - 1;
+    if (idx >= 0 && idx < doc.pages.length) return doc.pages[idx];
+    return null;
+}
+
+// Cree ou recupere une HyperlinkPageDestination pour une page InDesign.
+// Nom unique "RD_pg_<id>" pour eviter les doublons entre executions.
+function sommaireGetOrCreatePageDest(targetPage) {
+    if (!targetPage) return null;
+    var uid = "RD_pg_";
+    try { uid += String(targetPage.id); } catch(eId) { uid += "0"; }
+    try {
+        var d0 = doc.hyperlinkPageDestinations.itemByName(uid);
+        if (d0.isValid) return d0;
+    } catch(eIt) {}
+    try { return doc.hyperlinkPageDestinations.add(targetPage, { name: uid }); } catch(e1) {
+        try { return doc.hyperlinkPageDestinations.add(targetPage); } catch(e2) {}
+    }
+    return null;
+}
+
+// Retourne le style de caractere [None] pour eviter que InDesign applique
+// automatiquement le style "Hyperlien" (qui ecrase couleur / graisse).
+function sommaireNoneCharStyle() {
+    var candidates = ["[None]", "[Aucun style de caractere]", "[Aucun style de caractère]", "None"];
+    for (var i = 0; i < candidates.length; i++) {
+        try {
+            var s = doc.characterStyles.itemByName(candidates[i]);
+            if (s.isValid) return s;
+        } catch(e) {}
+    }
+    try { if (doc.characterStyles.length > 0) return doc.characterStyles[0]; } catch(e2) {}
+    return null;
+}
+
+// Cree un hyperlien texte -> page interne sur une plage de texte.
+function sommaireAddPageHyperlink(textRange, targetPage) {
+    if (!textRange || !targetPage) return;
+    var dest = sommaireGetOrCreatePageDest(targetPage);
+    if (!dest) return;
+    var src;
+    try { src = doc.hyperlinkTextSources.add(textRange); } catch(eS) { return; }
+    try {
+        var hl = doc.hyperlinks.add(src, dest, {
+            visible: false,
+            highlight: HyperlinkAppearanceHighlight.NONE
+        });
+        // Appliquer [None] sur le lien pour ne pas ecraser la mise en forme du texte
+        try {
+            var noneCh = sommaireNoneCharStyle();
+            if (noneCh && noneCh.isValid) hl.appliedCharacterStyle = noneCh;
+        } catch(eApp) {}
+    } catch(eHl) {}
+}
+
+// Supprime tous les hyperliens texte ET les HyperlinkTextSources orphelines
+// dont la source est dans CE cadre (mode mono-cadre — sommaireWireTitres).
+function sommaireRemoveHyperlinksOnFrame(tf) {
+    if (!tf) return;
+    // Etape 1 : supprimer les Hyperlink sur ce cadre
+    var links = doc.hyperlinks;
+    for (var h = links.length - 1; h >= 0; h--) {
+        try {
+            var hl  = links.item(h);
+            var src = hl.source;
+            if (!src) continue;
+            var st = null;
+            try { st = src.sourceText; } catch(eNoSt) {}
+            if (!st) continue;
+            var pfs = st.parentTextFrames;
+            if (pfs && pfs.length > 0 && pfs[0] === tf) hl.remove();
+        } catch(eH) {}
+    }
+    // Etape 2 : supprimer les HyperlinkTextSources orphelines sur ce cadre
+    var htsList = doc.hyperlinkTextSources;
+    for (var s = htsList.length - 1; s >= 0; s--) {
+        try {
+            var hts = htsList.item(s);
+            var stHts = null;
+            try { stHts = hts.sourceText; } catch(eNoSt2) {}
+            if (!stHts) continue;
+            var pfs2 = stHts.parentTextFrames;
+            if (pfs2 && pfs2.length > 0 && pfs2[0] === tf) hts.remove();
+        } catch(eH2) {}
+    }
+}
+
+// Supprime tous les hyperliens texte ET les HyperlinkTextSources orphelines
+// dont la source appartient a la story du cadre numeros.
+// hl.remove() ne supprime pas toujours la source — si elle reste orpheline,
+// doc.hyperlinkTextSources.add() echoue silencieusement sur la meme plage.
+function sommaireRemoveHyperlinksOnStory(tf) {
+    if (!tf) return;
+    var story = null;
+    try { story = tf.parentStory; } catch(e0) { return; }
+    if (!story) return;
+    // Etape 1 : supprimer les Hyperlink dont la source texte est dans cette story
+    var links = doc.hyperlinks;
+    for (var h = links.length - 1; h >= 0; h--) {
+        try {
+            var hl  = links.item(h);
+            var src = hl.source;
+            if (!src) continue;
+            var st = null;
+            try { st = src.sourceText; } catch(eNoSt) {}
+            if (!st) continue;
+            try { if (st.parentStory === story) hl.remove(); } catch(ePs) {}
+        } catch(eH) {}
+    }
+    // Etape 2 : supprimer les HyperlinkTextSources orphelines dans cette story
+    var htsList = doc.hyperlinkTextSources;
+    for (var s = htsList.length - 1; s >= 0; s--) {
+        try {
+            var hts = htsList.item(s);
+            var stHts = null;
+            try { stHts = hts.sourceText; } catch(eNoSt2) {}
+            if (!stHts) continue;
+            try { if (stHts.parentStory === story) hts.remove(); } catch(ePs2) {}
+        } catch(eH2) {}
+    }
+}
+
+// Retourne le premier style paragraphe valide d'une liste de candidats.
+function sommaireFirstStyle(candidates) {
+    for (var i = 0; i < candidates.length; i++) {
+        try {
+            var s = doc.paragraphStyles.itemByName(candidates[i]);
+            if (s.isValid) return s;
+        } catch(e) {}
+    }
+    return null;
+}
+
+// Applique un style paragraphe sur un titre et strip les overrides + style caractere [None].
+// Identique a sommaireApplyParagraphStyleStripOverrides dans generate-poi-pages.jsx.
+function sommaireApplyTitleStyle(paragraph, pst) {
+    if (!paragraph || !pst || !pst.isValid) return;
+    try {
+        paragraph.appliedParagraphStyle = pst;
+        if (typeof paragraph.clearOverrides === "function") {
+            try { paragraph.clearOverrides(OverrideType.ALL); } catch(e) { paragraph.clearOverrides(); }
+        }
+        try {
+            var noneCh = sommaireNoneCharStyle();
+            if (noneCh && noneCh.isValid) paragraph.characters.everyItem().appliedCharacterStyle = noneCh;
+        } catch(eNc) {}
+    } catch(e) {}
+}
+
+// Applique un style paragraphe sur un numero sans toucher au style caractere
+// (clearOverrides seulement — identique a sommaireApplyNumerosParagraphOnly).
+function sommaireApplyNumStyle(paragraph, pst) {
+    if (!paragraph || !pst || !pst.isValid) return;
+    try {
+        paragraph.appliedParagraphStyle = pst;
+        if (typeof paragraph.clearOverrides === "function") {
+            try { paragraph.clearOverrides(OverrideType.ALL); } catch(e) { paragraph.clearOverrides(); }
+        }
+    } catch(e) {}
+}
+
+// Retourne true si le paragraphe est le premier de son cadre direct (pas de la story).
+// Identique a sommaireParagraphStartsAtFrameTop dans generate-poi-pages.jsx.
+function sommaireParaAtFrameTop(paragraph) {
+    if (!paragraph) return false;
+    try {
+        var pfs = paragraph.parentTextFrames;
+        if (!pfs || pfs.length === 0) return false;
+        var tf = pfs[0];
+        var tfParas = tf.paragraphs;
+        if (!tfParas || tfParas.length === 0) return false;
+        return tfParas[0] === paragraph;
+    } catch(e) {}
+    return false;
+}
+
+// Applique spaceAfter sur un paragraphe numero absent de page.
+// Utilise la detection frame-top (identique a sommaireApplyAbsentSpacing).
+function sommaireAbsentSpacing(paragraph) {
+    try {
+        paragraph.spaceAfter = sommaireParaAtFrameTop(paragraph)
+            ? SOMMAIRE_NUMEROS_ABSENT_SPACE_AFTER_TOP_PT
+            : SOMMAIRE_NUMEROS_ABSENT_SPACE_AFTER_DEFAULT_PT;
+    } catch(e) {}
+}
+
+// (Re-)applique les styles paragraphe sur la colonne numeros apres injection ou apres
+// création des hyperliens (qui appliquent souvent le style "Hyperlien" par defaut).
+// Identique a sommaireApplyNumerosStyles dans generate-poi-pages.jsx.
+function sommaireApplyNumStyles(tfNums, slice) {
+    if (!tfNums || !slice || slice.length === 0) return;
+    var stGeneric = sommaireFirstStyle(SOMMAIRE_NUMEROS_STYLE_CANDIDATES);
+    var stVide    = sommaireFirstStyle(SOMMAIRE_NUMEROS_VIDE_STYLE_CANDIDATES);
+    var stSection = sommaireFirstStyle(SOMMAIRE_NUMEROS_PAGE_SECTION_CANDIDATES);
+    var stSeule   = sommaireFirstStyle(SOMMAIRE_NUMEROS_PAGE_SEULE_CANDIDATES);
+    var paras = sommaireStoryParas(tfNums);
+    if (!paras) return;
+    for (var pn = 0; pn < paras.length && pn < slice.length; pn++) {
+        var lv   = parseInt(slice[pn].level, 10);
+        if (isNaN(lv)) lv = 2;
+        var pg   = sommaireEntryPage(slice[pn]);
+        var hasNum = pg !== "" && lv !== 0;
+        var pstPick = null;
+        if (!hasNum || lv === 0) {
+            pstPick = stVide;
+        } else if (lv === 1) {
+            pstPick = stSection || stGeneric;
+        } else {
+            pstPick = stSeule || stGeneric;
+        }
+        if (pstPick) {
+            sommaireApplyNumStyle(paras[pn], pstPick);
+            if (!hasNum || lv === 0) sommaireAbsentSpacing(paras[pn]);
+        }
+    }
+}
+
+// Compensation spaceAfter pour les numeros de page dont le titre associe est sur 2 lignes.
+// Identique a sommaireApplyDualNumerosWrapSpacing dans generate-poi-pages.jsx.
+// Retourne true si le cadre numeros est la colonne 1 (label SOMMAIRE_numeros_1).
+// Identique a sommaireIsNumerosColumnOne dans generate-poi-pages.jsx.
+function sommaireIsNumerosColumnOne(tfNums) {
+    if (!tfNums) return false;
+    try {
+        var lbl = String(tfNums.label || "").replace(/^\s+|\s+$/g, "");
+        if (lbl === "SOMMAIRE_numeros_1" || lbl === "SOMMAIRE-numeros-1") return true;
+    } catch(eLbl) {}
+    return false;
+}
+
+function sommaireApplyWrapSpacing(tfNums, slice) {
+    if (!tfNums || !slice || slice.length === 0) return;
+    // Regle wrap reservee a la premiere colonne numeros (label SOMMAIRE_numeros_1).
+    if (!sommaireIsNumerosColumnOne(tfNums)) return;
+    var paras = sommaireStoryParas(tfNums);
+    if (!paras) return;
+    // Remettre spaceBefore a 0 (residus de generation precedente)
+    for (var rz = 0; rz < paras.length; rz++) {
+        try { paras[rz].spaceBefore = 0; } catch(eZ) {}
+    }
+    var n = Math.min(paras.length, slice.length);
+    for (var i = 0; i < n; i++) {
+        var lv = parseInt(slice[i].level, 10);
+        if (isNaN(lv)) lv = 2;
+        if (lv !== 1) continue;
+        var pg = sommaireEntryPage(slice[i]);
+        if (pg === "") continue;
+        var title   = String(slice[i].title || "");
+        var wraps   = title.length > SOMMAIRE_TITLE_WRAP_CHAR_MAX_SECTION;
+        try {
+            paras[i].spaceAfter = wraps
+                ? SOMMAIRE_NUMEROS_SPACE_AFTER_TWO_LINES_PT
+                : SOMMAIRE_NUMEROS_SPACE_AFTER_ONE_LINE_PT;
+        } catch(eSp) {}
+    }
+}
+
+// Injection stricte de la colonne numeros (1 colonne, lignes nettoyees).
+// Identique a sommaireInjectNumerosStrictSimple dans generate-poi-pages.jsx.
+function sommaireInjectNumeros(tfNums, numLines) {
+    if (!tfNums) return;
+    sommaireDetachThread(tfNums);
+    try { tfNums.textFramePreferences.textColumnCount = 1; } catch(eCol) {}
+    var out = [];
+    for (var i = 0; i < numLines.length; i++) {
+        out.push(String(numLines[i] === null || numLines[i] === undefined ? "" : numLines[i])
+            .replace(/[\r\n]+/g, "").replace(/^\s+|\s+$/g, ""));
+    }
+    try {
+        tfNums.contents = out.join("\r");
+    } catch(eSet) {
+        try { tfNums.contents = ""; } catch(e0) {}
+        for (var j = 0; j < out.length; j++) {
+            try {
+                if (j > 0) tfNums.insertionPoints[-1].contents = "\r";
+                tfNums.insertionPoints[-1].contents = out[j];
+            } catch(eIp) {}
+        }
+    }
+}
+
+// Pose les hyperliens page sur la colonne numeros (mode 2 cadres).
+// Identique a sommaireWireDualFrameNumbers dans generate-poi-pages.jsx.
+function sommaireWireNumeros(tfNums, slice) {
+    if (!tfNums || !slice || slice.length === 0) return;
+    // Capturer story et paragraphes AVANT le nettoyage.
+    // sommaireRemoveHyperlinksOnStory appelle hts.remove() qui peut invalider tfNums.
+    // La story et ses paragraphes restent accessibles via la reference capturee.
+    var story = null;
+    var storyParas = null;
+    try { story = tfNums.parentStory; } catch(eStory) {}
+    try { storyParas = story ? story.paragraphs : null; } catch(eSp) {}
+    sommaireRemoveHyperlinksOnStory(tfNums);
+    for (var j = 0; j < slice.length; j++) {
+        var pg = sommaireEntryPage(slice[j]);
+        var lv = parseInt(slice[j].level, 10);
+        if (isNaN(lv)) lv = 2;
+        if (pg === "" || lv === 0) continue;
+        var targetPage = sommaireResolvePage(pg);
+        if (!targetPage) continue;
+        if (!storyParas || j >= storyParas.length) break;
+        var para = storyParas[j];
+        var display = pg.replace(/^\s+|\s+$/g, "");
+        // Remplir le paragraphe s'il est vide (peut arriver apres injection stricte)
+        var curText = "";
+        try { curText = String(para.contents || "").replace(/\r/g, "").replace(/^\s+|\s+$/g, ""); } catch(eTxt) {}
+        if (curText === "") {
+            try { para.contents = display; } catch(eC) { continue; }
+        }
+        // Creer le lien sur l'integralite du paragraphe — utiliser story deja capturee
+        try {
+            para = storyParas[j];
+            if (para.characters.length === 0) continue;
+            var st  = para.characters.item(0).index;
+            var en  = para.characters.item(para.characters.length - 1).index;
+            var tr  = story.characters.itemByRange(st, en);
+            sommaireAddPageHyperlink(tr, targetPage);
+        } catch(eR) {}
+    }
+    // Re-appliquer styles + wrap apres les hyperliens (qui imposent le style "Hyperlien")
+    sommaireApplyNumStyles(tfNums, slice);
+    sommaireApplyWrapSpacing(tfNums, slice);
+}
+
+// Pose les hyperliens page sur les numeros en fin de ligne (mode 1 cadre).
+// Identique a sommaireWireSingleFrameNumbers dans generate-poi-pages.jsx.
+function sommaireWireTitres(tfTitle, slice) {
+    if (!tfTitle || !slice || slice.length === 0) return;
+    // Capturer story et paragraphes AVANT le nettoyage (hts.remove() peut invalider tfTitle).
+    var story2 = null;
+    var paras = null;
+    try { story2 = tfTitle.parentStory; } catch(eStory2) {}
+    try { paras = tfTitle.paragraphs; } catch(ePar) {}
+    sommaireRemoveHyperlinksOnFrame(tfTitle);
+    for (var j = 0; j < slice.length && paras && j < paras.length; j++) {
+        var pg = sommaireEntryPage(slice[j]);
+        var lv = parseInt(slice[j].level, 10);
+        if (isNaN(lv)) lv = 2;
+        if (pg === "" || lv === 0) continue;
+        var targetPage = sommaireResolvePage(pg);
+        if (!targetPage) continue;
+        var para    = paras[j];
+        var line    = String(para.contents || "");
+        var display = pg.replace(/^\s+|\s+$/g, "");
+        var idxTab  = line.lastIndexOf("\t");
+        if (idxTab < 0) continue;
+        // S'assurer que le numero affiche correspond au JSON
+        var newLine = line.substring(0, idxTab + 1) + display;
+        try { para.contents = newLine; } catch(eL) { continue; }
+        // Creer le lien uniquement sur la partie numero (apres le dernier tab)
+        // Utiliser story2 deja capturee (tfTitle potentiellement invalide apres cleanup)
+        para = paras[j];
+        var lineTrim = String(para.contents || "").replace(/\r$/, "");
+        var numStart = idxTab + 1;
+        if (numStart >= lineTrim.length) continue;
+        try {
+            var c0 = para.characters.item(numStart);
+            var c1 = para.characters.item(lineTrim.length - 1);
+            var tr = story2.characters.itemByRange(c0.index, c1.index);
+            sommaireAddPageHyperlink(tr, targetPage);
+        } catch(eT) {}
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 10. injectSommaire — point d'entree (appelé depuis processPage)
+//
+// Portage rigoureux de injectSommaireText + sommaireWirePageNumberHyperlinksOnPage
+// de generate-poi-pages.jsx.
+// ---------------------------------------------------------------------------
+
+function injectSommaire(page, rawValue) {
+    sommairePageIndex++;
+    var currentPart = sommairePageIndex;
+
+    var titreLabel   = resolveLabel("SOMMAIRE_texte_1");
+    var numerosLabel = resolveLabel("SOMMAIRE_numeros_1");
+
+    // --- Cadre titres (obligatoire) ---
+    var tfTitre = null;
+    var titreBlocks = findByLabel(page, titreLabel);
+    for (var tb = 0; tb < titreBlocks.length; tb++) {
+        if (titreBlocks[tb] instanceof TextFrame) { tfTitre = titreBlocks[tb]; break; }
+    }
+    if (!tfTitre) return;
+    sommaireDetachThread(tfTitre);
+    try { tfTitre.visible = true; } catch(eVisT) {}
+
+    // --- Cadre numeros (optionnel — cadre le plus a droite, convention generate-poi-pages) ---
+    var tfNums = null;
+    var numBlocks = findByLabel(page, numerosLabel);
+    var bestX = -999999;
+    for (var nb = 0; nb < numBlocks.length; nb++) {
+        if (!(numBlocks[nb] instanceof TextFrame)) continue;
+        var x1 = -999999;
+        try { x1 = Number(numBlocks[nb].geometricBounds[1]); } catch(eGb) {}
+        if (x1 > bestX) { bestX = x1; tfNums = numBlocks[nb]; }
+    }
+    if (tfNums) {
+        sommaireDetachThread(tfNums);
+        try { tfNums.visible = true; } catch(eVisN) {}
+    }
+    var dualMode = (tfNums !== null);
+
+    // --- Parser le JSON ---
+    var rawStr = String(rawValue).replace(/^\uFEFF/g, "").replace(/^\s+|\s+$/g, "");
+    var parsed = null;
+    if (rawStr.charAt(0) === "{") {
+        try { parsed = JSON.parse(rawStr); } catch(eJ) {
+            try { parsed = eval("(" + rawStr + ")"); } catch(eE) {}
+        }
+    }
+
+    // --- Fallback legacy (texte tabule sans schema JSON) ---
+    if (!parsed || !parsed.entries) {
+        if (currentPart > 1) return;
+        var legacyText = rawStr.replace(/\r\n/g, "\r").replace(/\n/g, "\r");
+        if (dualMode) {
+            var legLines = legacyText.split("\r");
+            var legTitles = [], legNums = [];
+            for (var li = 0; li < legLines.length; li++) {
+                var legLine = legLines[li];
+                var tabIdx  = legLine.lastIndexOf("\t");
+                if (tabIdx >= 0) {
+                    legTitles.push(legLine.substring(0, tabIdx));
+                    legNums.push(legLine.substring(tabIdx + 1).replace(/^\s+|\s+$/g, ""));
+                } else {
+                    legTitles.push(legLine);
+                    legNums.push("");
+                }
+            }
+            tfTitre.contents = legTitles.join("\r");
+            sommaireInjectNumeros(tfNums, legNums);
+            // Styles legacy : paragraphe commence par \t -> N2, sinon N1
+            try {
+                var styleN1 = doc.paragraphStyles.itemByName(SOMMAIRE_STYLE_N1);
+                var styleN2 = doc.paragraphStyles.itemByName(SOMMAIRE_STYLE_N2);
+                var lParas  = tfTitre.paragraphs;
+                for (var lp = 0; lp < lParas.length; lp++) {
+                    var lTxt = String(lParas[lp].contents || "");
+                    if (lTxt.charAt(0) === "\t" && styleN2.isValid) sommaireApplyTitleStyle(lParas[lp], styleN2);
+                    else if (styleN1.isValid) sommaireApplyTitleStyle(lParas[lp], styleN1);
+                }
+            } catch(eLs) {}
+        } else {
+            tfTitre.contents = legacyText;
+            try {
+                var styleN1b = doc.paragraphStyles.itemByName(SOMMAIRE_STYLE_N1);
+                var styleN2b = doc.paragraphStyles.itemByName(SOMMAIRE_STYLE_N2);
+                var lParasB  = tfTitre.paragraphs;
+                for (var lp2 = 0; lp2 < lParasB.length; lp2++) {
+                    var lTxtB = String(lParasB[lp2].contents || "");
+                    if (lTxtB.charAt(0) === "\t" && styleN2b.isValid) sommaireApplyTitleStyle(lParasB[lp2], styleN2b);
+                    else if (styleN1b.isValid) sommaireApplyTitleStyle(lParasB[lp2], styleN1b);
+                }
+            } catch(eLs2) {}
+        }
+        truncateOverflow(tfTitre);
+        return;
+    }
+
+    // --- Slice pour cette partie du sommaire ---
+    var slice = sommaireSliceForPart(parsed, currentPart);
+    // Fallback : si aucune entree filtree et qu'on est sur la partie 1, tout afficher
+    if (slice.length === 0 && currentPart === 1) slice = parsed.entries || [];
+    if (slice.length === 0) {
+        try { tfTitre.contents = ""; } catch(eCl) {}
+        if (dualMode && tfNums) { try { tfNums.contents = ""; } catch(eCl2) {} }
+        return;
+    }
+
+    // --- Construire les lignes ---
+    var titleLines = [];
+    var numLines   = [];
+
+    for (var j = 0; j < slice.length; j++) {
+        var ent   = slice[j];
+        var title = String(ent.title || "");
+        var pgVal = sommaireEntryPage(ent);
+        var lv    = parseInt(ent.level, 10);
+        if (isNaN(lv)) lv = 2;
+
+        numLines.push((lv === 0 || pgVal === "") ? "" : pgVal);
+
+        if (dualMode) {
+            // Deux cadres : tab de tete pour les level 1 avec page (indentation visuelle)
+            titleLines.push((lv === 1 && pgVal !== "") ? "\t" + title : title);
+        } else {
+            // Un seul cadre : titre + tab + page en fin de ligne
+            if (lv === 0 || pgVal === "") {
+                titleLines.push(title);
+            } else if (lv === 1) {
+                titleLines.push("\t" + title + "\t" + pgVal);
+            } else {
+                titleLines.push(title + "\t" + pgVal);
+            }
+        }
+    }
+
+    // --- Injecter les titres ---
+    tfTitre.contents = titleLines.join("\r");
+    try {
+        var tParas = tfTitre.paragraphs;
+        for (var tp = 0; tp < tParas.length && tp < slice.length; tp++) {
+            var lv2 = parseInt(slice[tp].level, 10);
+            if (isNaN(lv2)) lv2 = 2;
+            var stName = SOMMAIRE_STYLE_BY_LEVEL[lv2];
+            if (!stName) continue;
+            var pst = doc.paragraphStyles.itemByName(stName);
+            if (pst.isValid) sommaireApplyTitleStyle(tParas[tp], pst);
+        }
+    } catch(eTp) {}
+    truncateOverflow(tfTitre);
+
+    // --- Injecter les numeros (mode 2 cadres) ---
+    if (dualMode) {
+        sommaireInjectNumeros(tfNums, numLines);
+        sommaireApplyNumStyles(tfNums, slice);
+        sommaireApplyWrapSpacing(tfNums, slice);
+        truncateOverflow(tfNums);
+    }
+
+    // --- Poser les hyperliens vers les pages internes ---
+    // Identique a sommaireWirePageNumberHyperlinksOnPage dans generate-poi-pages.jsx.
+    if (dualMode) {
+        sommaireWireNumeros(tfNums, slice);
+        // Re-appliquer wrap apres hyperliens (deja fait dans sommaireWireNumeros,
+        // mais on le refait ici pour etre sur — generate-poi-pages le fait aussi)
+        sommaireApplyWrapSpacing(tfNums, slice);
+        try { truncateOverflow(tfNums); } catch(eTr0) {}
+    } else {
+        sommaireWireTitres(tfTitre, slice);
+    }
+    try { truncateOverflow(tfTitre); } catch(eTr1) {}
+}
+
+// ---------------------------------------------------------------------------
+// 11. Traitement d'une page
+// ---------------------------------------------------------------------------
+
+function processPage(idPage, pageData) {
+    var textContent = (pageData.content && pageData.content.text) || {};
+
+    // --- Cas special : sommaire ---
+    // SOMMAIRE_texte_1 est un JSON structure qui ne doit pas passer par injectText.
+    // On le traite ici avant la boucle generale, et il reste dans SKIP_TEXT.
+    var sommaireKey = null;
+    if (textContent.hasOwnProperty("SOMMAIRE_texte_1")) {
+        sommaireKey = "SOMMAIRE_texte_1";
+    } else {
+        // Recherche via le mapping (cle JSON non standard)
+        for (var sk in textContent) {
+            if (textContent.hasOwnProperty(sk) &&
+                resolveLabel(sk) === resolveLabel("SOMMAIRE_texte_1")) {
+                sommaireKey = sk;
+                break;
+            }
+        }
+    }
+    if (sommaireKey !== null && textContent[sommaireKey]) {
+        injectSommaire(idPage, String(textContent[sommaireKey]));
+    }
+
+    // --- Etape A : injection des textes et liens structures ---
+    for (var key in textContent) {
+        if (!textContent.hasOwnProperty(key)) continue;
+
+        // Ignorer les images (ne pas toucher aux blocs image)
+        if (key.indexOf("_image_") !== -1) continue;
+
+        // Ignorer les liens Google Maps
+        if (key.indexOf("_url_maps_") !== -1) continue;
+
+        // Ignorer les champs traites separement (dont SOMMAIRE_texte_1)
+        if (SKIP_TEXT[key]) continue;
+
+        var value   = textContent[key];
+        var label   = resolveLabel(key);
+
+        if (value === null || value === undefined) continue;
+        var strVal = String(value).replace(/^\s+|\s+$/, "");
+
+        // Slots de visibilite (_card_N)
+        if (key.indexOf("_card_") !== -1) {
+            injectVisibility(idPage, label, strVal);
+            continue;
+        }
+
+        if (strVal === "") continue;
+
+        // Champs nom+hashtag (Inspiration)
+        if (key.indexOf("_nom_hashtag_") !== -1) {
+            injectNomHashtag(idPage, label, strVal);
+            continue;
+        }
+
+        // Listes a puces
+        if (bulletFields[key]) {
+            injectBulletText(idPage, label, strVal);
+            continue;
+        }
+
+        // Texte simple ou lien structure {label, url}
+        injectText(idPage, label, value);
+    }
+
+    // --- Etape B : hyperliens sur cadres graphiques (FRAME_LINK_FIELDS) ---
+    for (var flKey in FRAME_LINK_FIELDS) {
+        if (!FRAME_LINK_FIELDS.hasOwnProperty(flKey)) continue;
+        if (!textContent.hasOwnProperty(flKey)) continue;
+        var flVal = textContent[flKey];
+        if (flVal === null || flVal === undefined) continue;
+        if (String(flVal).replace(/^\s+|\s+$/, "") === "") continue;
+        injectFrameHyperlink(idPage, resolveLabel(flKey), flVal);
+    }
+
+    // --- Etape C : hyperliens pictos articles (_url_article_*, Google Maps ignores) ---
+    for (var lKey in textContent) {
+        if (!textContent.hasOwnProperty(lKey)) continue;
+        if (lKey.indexOf("_url_article_") === -1) continue;
+        var lVal = textContent[lKey];
+        if (!lVal) continue;
+        var lTrim = String(lVal).replace(/^\s+|\s+$/, "");
+        if (lTrim === "") continue;
+        injectFrameHyperlink(idPage, resolveLabel(lKey), lVal);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 10. Boucle principale
+// ---------------------------------------------------------------------------
+
+var pages   = data.pages;
+var updated = 0;
+var skipped = 0;
+var errors  = [];
+
+for (var i = 0; i < pages.length; i++) {
+    var p      = pages[i];
+    var pNum   = (p.page_number !== undefined && p.page_number !== null) ? p.page_number : (i + 1);
+    var tgtIdx = pNum + pageOffset - 1;
+
+    if (tgtIdx < 0 || tgtIdx >= doc.pages.length) {
+        skipped++;
+        continue;
+    }
+
+    try {
+        processPage(doc.pages[tgtIdx], p);
+        updated++;
+    } catch(eProc) {
+        skipped++;
+        errors.push("Page " + pNum + " : " + String(eProc));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 11. Rapport final
+// ---------------------------------------------------------------------------
+
+var report =
+    "Injection terminee.\n\n" +
+    "Pages JSON traitees : " + pages.length + "\n" +
+    "Pages mises a jour  : " + updated + "\n" +
+    "Pages ignorees      : " + skipped + "\n\n" +
+    "Images non modifiees.\n" +
+    "Liens Google Maps non modifies.";
+
+if (errors.length > 0) {
+    report += "\n\nErreurs (" + errors.length + ") :\n" + errors.slice(0, 5).join("\n");
+    if (errors.length > 5) report += "\n... et " + (errors.length - 5) + " autre(s).";
+}
+
+alert(report);

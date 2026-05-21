@@ -21,7 +21,7 @@ const DEFAULT_GUIDE_TEMPLATES = [
       { type: 'fixed_page', template_name: 'COUVERTURE', ordre: 1 },
       { type: 'fixed_page', template_name: 'PRESENTATION_GUIDE', ordre: 2 },
       { type: 'fixed_page', template_name: 'PRESENTATION_DESTINATION', ordre: 3 },
-      { type: 'fixed_page', template_name: 'CARTE_DESTINATION', ordre: 4 },
+      { type: 'fixed_page', template_name: 'CARTE', ordre: 4 },
       
       // Section dynamique : Lieux par zones (clusters)
       {

@@ -1170,6 +1170,14 @@ export default function ContentEditorModal({
           handleFieldChange(field.name, next);
         };
 
+        /** Même règle que l'API inspiration_poi_cards (cadre InDesign = nom + paragraphe hashtag). */
+        const withSyncedNomHashtag = (row: Record<string, string>): Record<string, string> => {
+          const nom = String(row.nom ?? '').trim();
+          const hashtag = String(row.hashtag ?? '').trim();
+          const nom_hashtag = hashtag ? `${nom}\r${hashtag}` : nom;
+          return { ...row, nom_hashtag };
+        };
+
         return (
           <div key={field.name} className="mb-4">
             <div className="flex items-center justify-between mb-2">
@@ -1317,7 +1325,11 @@ export default function ContentEditorModal({
                               value={item[sf.name] || ''}
                               onChange={(e) => {
                                 const next = [...items];
-                                next[idx] = { ...item, [sf.name]: e.target.value };
+                                let row: Record<string, string> = { ...item, [sf.name]: e.target.value };
+                                if (field.service_id === 'inspiration_poi_cards' && (sf.name === 'nom' || sf.name === 'hashtag')) {
+                                  row = withSyncedNomHashtag(row);
+                                }
+                                next[idx] = row;
                                 updateItems(next);
                               }}
                               placeholder={sf.type === 'lien' ? 'https://…' : `${sf.label || sf.name}…`}

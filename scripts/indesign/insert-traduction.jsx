@@ -1,5 +1,5 @@
 /**
- * inject-from-json.jsx
+ * insert-traduction.jsx
  * Script InDesign ExtendScript — Injection textes et liens depuis JSON
  *
  * Ce script lit un fichier JSON exporte depuis l'application et injecte
@@ -30,6 +30,11 @@
 
 var doc = app.activeDocument;
 
+// Debordements texte — rapport overflow-report.txt (meme logique que insert-fr.jsx)
+var overflowWarnings = [];
+var currentPageNum   = 0;
+var currentPageTitre = "";
+
 // ---------------------------------------------------------------------------
 // Noms des styles de caractere utilises par les marqueurs inline
 // ---------------------------------------------------------------------------
@@ -59,7 +64,7 @@ var SKIP_TEXT = {
 };
 
 // ---------------------------------------------------------------------------
-// Configuration sommaire — valeurs identiques a generate-poi-pages.jsx
+// Configuration sommaire — valeurs identiques a insert-fr.jsx
 // ---------------------------------------------------------------------------
 
 // Styles paragraphe — cadre titres
@@ -93,6 +98,9 @@ var sommairePageIndex = 0;
 
 // Champs dont la valeur est un lien {label, url} a poser sur un cadre GRAPHIQUE
 var FRAME_LINK_FIELDS = {
+    // Le label visible reste injecte dans POI_lien_1 (TextFrame).
+    // La zone graphique POI_lien_1_zone rend toute la pastille cliquable.
+    "POI_lien_1":             "POI_lien_1_zone",
     "POI_lien_2":             true,
     "ALLER_PLUS_LOIN_lien_1": true,
     "ALLER_PLUS_LOIN_lien_2": true,
@@ -108,6 +116,8 @@ var FRAME_LINK_FIELDS = {
 
 var jsonFile = File.openDialog("Choisir le fichier JSON a injecter");
 if (!jsonFile) { alert("Annule."); exit(); }
+
+var rootFolder = jsonFile.parent;
 
 jsonFile.encoding = "UTF-8";
 jsonFile.open("r");
@@ -163,6 +173,15 @@ if (bfSource) {
 // Valeurs de secours pour les anciens exports
 bulletFields["POI_texte_2"]                     = true;
 bulletFields["PRESENTATION_GUIDE_liste_sections"] = true;
+// Page PRESENTATION_DESTINATION : ces champs sont des textes multilignes
+// stylés comme listes dans InDesign, même lorsqu'ils ne viennent pas
+// d'un champ template `type: liste` dans certains exports.
+bulletFields["PRESENTATION_DESTINATION_texte_2"] = true;
+bulletFields["PRESENTATION_DESTINATION_texte_3"] = true;
+bulletFields["PRESENTATION_DESTINATION_texte_4"] = true;
+bulletFields["PRESENTATION_DESTINATION_liste_1"] = true;
+bulletFields["PRESENTATION_DESTINATION_liste_2"] = true;
+bulletFields["PRESENTATION_DESTINATION_liste_3"] = true;
 
 // Mapping cle JSON -> label InDesign (data.mappings.fields)
 // Si absent, la cle JSON est utilisee directement comme label.
@@ -178,16 +197,11 @@ function resolveLabel(key) {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Offset de page
+// 3. Offset de page (fixe)
 // ---------------------------------------------------------------------------
 
-var pageOffsetStr = prompt(
-    "Offset de page (0 = page 1 du JSON -> page 1 du document).\n" +
-    "Exemple : saisir 2 si la page 1 du JSON correspond a la page 3 du document.",
-    "0"
-);
-var pageOffset = parseInt(pageOffsetStr, 10);
-if (isNaN(pageOffset)) pageOffset = 0;
+// Dans insert-traduction, l'offset est force a 0 (pas de modale).
+var pageOffset = 0;
 
 // ---------------------------------------------------------------------------
 // 4. Utilitaires
@@ -202,6 +216,47 @@ function findByLabel(page, label) {
             if (items[i].label === label) result.push(items[i]);
         } catch(e) {}
     }
+    return result;
+}
+
+function findByLabelOrOverrideMaster(page, label) {
+    var result = findByLabel(page, label);
+    if (result.length > 0) return result;
+
+    // Les zones cliquables ajoutees au template peuvent rester sur le gabarit.
+    // page.allPageItems ne les voit pas tant qu'elles ne sont pas overridées sur
+    // la page courante ; or l'URL est propre a chaque page, donc on doit créer
+    // une instance locale avant d'ajouter le HyperlinkPageItemSource.
+    try {
+        var master = page.appliedMaster;
+        if (!master || !master.isValid) return result;
+        var masterItems = [];
+        try {
+            for (var ai = 0; ai < master.allPageItems.length; ai++) {
+                masterItems.push(master.allPageItems[ai]);
+            }
+        } catch (eAllMasterItems) {}
+        if (masterItems.length === 0) {
+            try {
+                for (var mp = 0; mp < master.pages.length; mp++) {
+                    var masterPageItems = master.pages[mp].allPageItems;
+                    for (var mpi = 0; mpi < masterPageItems.length; mpi++) {
+                        masterItems.push(masterPageItems[mpi]);
+                    }
+                }
+            } catch (eMasterPages) {}
+        }
+        for (var m = 0; m < masterItems.length; m++) {
+            try {
+                var masterItem = masterItems[m];
+                var miLabel = String(masterItem.label || "");
+                if (miLabel !== label) continue;
+                var overridden = masterItem.override(page);
+                try { overridden.label = label; } catch (eLabel) {}
+                result.push(overridden);
+            } catch (eOverride) {}
+        }
+    } catch (eMaster) {}
     return result;
 }
 
@@ -257,94 +312,343 @@ function extractLinkObject(value) {
 //   {texte}    -> style "Orange"
 //   ^texte^    -> style "Chiffre"
 //   ~texte~    -> style "Gras-orange"
+//
+// IMPORTANT : ne pas utiliser parentStory seul pour findGrep — si le cadre est
+// filete, la story contient d'autres blocs et les ** d'un autre cadre faussent
+// les plages de style. On limite au texte visible dans CE cadre (tf.texts.item(0)).
+// Les styles sont appliques via story.characters.itemByRange(index, index) (indices
+// story absolus), du dernier match au premier, pour eviter references invalides.
 // ---------------------------------------------------------------------------
 
-function applyStyleMarkers(tf) {
+/** Texte du cadre (hors fil avec d'autres champs) ; fallback story si indispo. */
+function grepScopeForTextFrame(tf) {
     try {
-        var story       = tf.parentStory;
+        if (tf.texts != null && tf.texts.length > 0) {
+            return tf.texts.item(0);
+        }
+    } catch (e1) {}
+    return tf.parentStory;
+}
+
+function findGrepOnScope(scope, findWhat) {
+    app.findGrepPreferences = NothingEnum.NOTHING;
+    app.changeGrepPreferences = NothingEnum.NOTHING;
+    app.findGrepPreferences.findWhat = findWhat;
+    var arr;
+    try {
+        arr = scope.findGrep();
+    } catch (eFG) {
+        arr = [];
+    }
+    app.findGrepPreferences = NothingEnum.NOTHING;
+    return arr;
+}
+
+/** Applique un style de caractere sur le contenu interne de chaque match (sans marqueurs).
+ *  Utilise r.characters.length (fiable) et non r.length (non documente sur Text).
+ *  Passe les indices story absolus (entiers) a itemByRange — les objets Character comme
+ *  arguments de itemByRange peuvent invalider le scope dans certaines versions d'InDesign. */
+function applyInnerStyledMatches(scope, story, findWhat, charStyle, headSkip, tailSkip) {
+    if (!charStyle || !charStyle.isValid) return;
+    var matches = findGrepOnScope(scope, findWhat);
+    var i, r, nChars, stIdx, enIdx;
+    for (i = matches.length - 1; i >= 0; i--) {
+        try {
+            r = matches[i];
+            nChars = r.characters.length;
+            if (nChars <= headSkip + tailSkip) continue;
+            stIdx = r.characters.item(headSkip).index;
+            enIdx = r.characters.item(nChars - tailSkip - 1).index;
+            if (enIdx < stIdx) continue;
+            story.characters.itemByRange(stIdx, enIdx).appliedCharacterStyle = charStyle;
+        } catch (eA) {}
+    }
+}
+
+function changeGrepOnScope(scope, story, findWhat, changeTo) {
+    app.findGrepPreferences = NothingEnum.NOTHING;
+    app.changeGrepPreferences = NothingEnum.NOTHING;
+    app.findGrepPreferences.findWhat = findWhat;
+    app.changeGrepPreferences.changeTo = changeTo;
+    try {
+        scope.changeGrep();
+    } catch (eC) {
+        try { story.changeGrep(); } catch (e2) {}
+    }
+    app.findGrepPreferences = NothingEnum.NOTHING;
+    app.changeGrepPreferences = NothingEnum.NOTHING;
+}
+
+function applyStyleMarkers(tf, clearAllCharacterInheritance) {
+    try {
         var sGras       = doc.characterStyles.itemByName(STYLE_GRAS);
         var sOrange     = doc.characterStyles.itemByName(STYLE_ORANGE);
         var sChiffre    = doc.characterStyles.itemByName(STYLE_CHIFFRE);
         var sGrasOrange = doc.characterStyles.itemByName(STYLE_GRAS_ORANGE);
+        var raw = String(tf.contents || "");
+        var plain = "";
+        var runs = [];
+        var bold = false;
+        var orange = false;
+        var chiffre = false;
+        var grasOrange = false;
+        var activeName = null;
+        var runStart = -1;
 
-        // ** Gras **
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "(?s)\\*\\*.+?\\*\\*";
-        var boldMatches = story.findGrep();
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        if (sGras.isValid) {
-            for (var m = 0; m < boldMatches.length; m++) {
-                try { boldMatches[m].appliedCharacterStyle = sGras; } catch(e) {}
-            }
+        function currentStyleName() {
+            if (grasOrange) return STYLE_GRAS_ORANGE;
+            if (bold && orange) return STYLE_GRAS_ORANGE;
+            if (chiffre) return STYLE_CHIFFRE;
+            if (orange) return STYLE_ORANGE;
+            if (bold) return STYLE_GRAS;
+            return null;
         }
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat   = "\\*\\*";
-        app.changeGrepPreferences.changeTo = "";
-        story.changeGrep();
-        app.findGrepPreferences   = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
 
-        // { Orange }
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "(?s)\\{.+?\\}";
-        var orangeMatches = story.findGrep();
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        if (sOrange.isValid) {
-            for (var o = 0; o < orangeMatches.length; o++) {
-                try { orangeMatches[o].appliedCharacterStyle = sOrange; } catch(e) {}
+        function flushRun(nextName) {
+            if (activeName !== null && runStart >= 0 && plain.length - 1 >= runStart) {
+                runs.push({ start: runStart, end: plain.length - 1, styleName: activeName });
             }
+            activeName = nextName;
+            runStart = (nextName !== null) ? plain.length : -1;
         }
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat   = "[{}]";
-        app.changeGrepPreferences.changeTo = "";
-        story.changeGrep();
-        app.findGrepPreferences   = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
 
-        // ^ Chiffre ^
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "(?s)\\^.+?\\^";
-        var chiffreMatches = story.findGrep();
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        if (sChiffre.isValid) {
-            for (var c = 0; c < chiffreMatches.length; c++) {
-                try { chiffreMatches[c].appliedCharacterStyle = sChiffre; } catch(e) {}
-            }
+        function toggleStyle(name) {
+            var before = currentStyleName();
+            if (name === STYLE_GRAS) bold = !bold;
+            else if (name === STYLE_ORANGE) orange = !orange;
+            else if (name === STYLE_CHIFFRE) chiffre = !chiffre;
+            else if (name === STYLE_GRAS_ORANGE) grasOrange = !grasOrange;
+            var after = currentStyleName();
+            if (before !== after) flushRun(after);
         }
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat   = "\\^";
-        app.changeGrepPreferences.changeTo = "";
-        story.changeGrep();
-        app.findGrepPreferences   = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
 
-        // ~ Gras-orange ~
-        // \x7E = code hex du tilde : evite l'interpretation speciale de "~" en GREP InDesign
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "(?s)\\x7E.+?\\x7E";
-        var goMatches = story.findGrep();
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        if (sGrasOrange.isValid) {
-            for (var g = 0; g < goMatches.length; g++) {
-                try { goMatches[g].appliedCharacterStyle = sGrasOrange; } catch(e) {}
+        for (var i = 0; i < raw.length; i++) {
+            if (raw.substr(i, 2) === "**") {
+                toggleStyle(STYLE_GRAS);
+                i++;
+                continue;
             }
+            var ch = raw.charAt(i);
+            if (ch === "{") {
+                toggleStyle(STYLE_ORANGE);
+                continue;
+            }
+            if (ch === "}") {
+                toggleStyle(STYLE_ORANGE);
+                continue;
+            }
+            if (ch === "^") {
+                toggleStyle(STYLE_CHIFFRE);
+                continue;
+            }
+            if (ch === "~") {
+                toggleStyle(STYLE_GRAS_ORANGE);
+                continue;
+            }
+            plain += ch;
         }
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat   = "~";
-        app.changeGrepPreferences.changeTo = "";
-        story.changeGrep();
-        app.findGrepPreferences   = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
+        flushRun(null);
+
+        // On remplace par le texte final sans marqueurs, puis on applique les styles
+        // par indices. Cela evite les scopes GREP obsoletes apres modification du texte.
+        if (clearAllCharacterInheritance === true) {
+            setCleanTextFrameContents(tf, plain, true);
+        } else {
+            tf.contents = plain;
+        }
+        resetMarkerCharStyles(tf);
+
+        var story = tf.parentStory;
+        var stylesByName = {};
+        stylesByName[STYLE_GRAS] = sGras;
+        stylesByName[STYLE_ORANGE] = sOrange;
+        stylesByName[STYLE_CHIFFRE] = sChiffre;
+        stylesByName[STYLE_GRAS_ORANGE] = sGrasOrange;
+
+        for (var r = 0; r < runs.length; r++) {
+            try {
+                var run = runs[r];
+                var charStyle = stylesByName[run.styleName];
+                if (!charStyle || !charStyle.isValid) continue;
+                if (run.end < run.start) continue;
+                var cStart = tf.characters.item(run.start);
+                var cEnd = tf.characters.item(run.end);
+                if (!cStart.isValid || !cEnd.isValid) continue;
+                story.characters.itemByRange(cStart.index, cEnd.index).appliedCharacterStyle = charStyle;
+            } catch (eRun) {}
+        }
 
     } catch(e) {}
+}
+
+/**
+ * Reinitialise UNIQUEMENT les styles de caractere poses par applyStyleMarkers
+ * (Gras, Orange, Chiffre, Gras-orange) sur la portee du cadre.
+ * Ne touche a AUCUN autre style de caractere ni aux styles de paragraphe
+ * du gabarit (titres, chapô, boutons...).
+ *
+ * Principe : apres un aller-retour FR->EN, InDesign peut heriter ces 4 styles
+ * sur le nouveau texte injecte via tf.contents. Ce nettoyage cible est la seule
+ * operation necessaire et suffisante — pas de clearOverrides, pas de [None] global.
+ */
+function getNoneCharacterStyle() {
+    var cand = ["[None]", "[Aucun style de caractere]", "[Aucun style de caractère]", "None"];
+    for (var k = 0; k < cand.length; k++) {
+        try {
+            var t = doc.characterStyles.itemByName(cand[k]);
+            if (t.isValid) return t;
+        } catch (e0) {}
+    }
+    return null;
+}
+
+function resetMarkerCharStyles(tf) {
+    var noneCh = getNoneCharacterStyle();
+    if (!noneCh || !noneCh.isValid) return;
+
+    var scope = grepScopeForTextFrame(tf);
+    var markerStyles = {};
+    markerStyles[STYLE_GRAS] = true;
+    markerStyles[STYLE_ORANGE] = true;
+    markerStyles[STYLE_CHIFFRE] = true;
+    markerStyles[STYLE_GRAS_ORANGE] = true;
+
+    // Quand on remplace le contenu d'un master FR par une nouvelle langue,
+    // InDesign conserve parfois les styles de caractere par position. Le GREP
+    // rate certains morceaux dans les textes mixtes ; le parcours caractère par
+    // caractère est plus fiable et ne touche qu'aux styles issus des marqueurs.
+    try {
+        var chars = scope.characters;
+        for (var c = 0; c < chars.length; c++) {
+            try {
+                var ch = chars.item(c);
+                var applied = ch.appliedCharacterStyle;
+                if (applied && applied.isValid && markerStyles[applied.name] === true) {
+                    ch.appliedCharacterStyle = noneCh;
+                }
+            } catch (eChar) {}
+        }
+    } catch (eScope) {
+        try {
+            var storyChars = tf.parentStory.characters;
+            for (var sc = 0; sc < storyChars.length; sc++) {
+                try {
+                    var sch = storyChars.item(sc);
+                    var sapplied = sch.appliedCharacterStyle;
+                    if (sapplied && sapplied.isValid && markerStyles[sapplied.name] === true) {
+                        sch.appliedCharacterStyle = noneCh;
+                    }
+                } catch (eStoryChar) {}
+            }
+        } catch (e) {}
+    }
+    app.findGrepPreferences = NothingEnum.NOTHING;
+    app.changeGrepPreferences = NothingEnum.NOTHING;
+}
+
+function clearCharacterOnlyOverrides(tf) {
+    try {
+        var scope = grepScopeForTextFrame(tf);
+        if (scope && typeof scope.clearOverrides === "function") {
+            scope.clearOverrides(OverrideType.CHARACTER_ONLY);
+            return;
+        }
+    } catch (eScopeClear) {}
+    try {
+        if (tf.texts && tf.texts.length > 0 &&
+            typeof tf.texts.item(0).clearOverrides === "function") {
+            tf.texts.item(0).clearOverrides(OverrideType.CHARACTER_ONLY);
+        }
+    } catch (eTextClear) {}
+}
+
+function clearAllOverridesForText(tf) {
+    try {
+        var scope = grepScopeForTextFrame(tf);
+        if (scope && typeof scope.clearOverrides === "function") {
+            try { scope.clearOverrides(OverrideType.ALL); } catch (eScopeAll) { scope.clearOverrides(); }
+            return;
+        }
+    } catch (eScopeClear) {}
+    try {
+        if (tf.texts && tf.texts.length > 0 &&
+            typeof tf.texts.item(0).clearOverrides === "function") {
+            try { tf.texts.item(0).clearOverrides(OverrideType.ALL); } catch (eTextAll) { tf.texts.item(0).clearOverrides(); }
+        }
+    } catch (eTextClear) {}
+}
+
+function setCleanTextFrameContents(tf, text, clearAllOverrides) {
+    var paraStyles = [];
+    try {
+        for (var p = 0; p < tf.paragraphs.length; p++) {
+            try {
+                var ps = tf.paragraphs[p].appliedParagraphStyle;
+                paraStyles.push((ps && ps.isValid) ? ps : null);
+            } catch (ePara) { paraStyles.push(null); }
+        }
+    } catch (eReadPara) {}
+
+    // Vider vraiment le bloc avant d'ecrire la nouvelle langue. Sinon InDesign
+    // conserve des styles de caractere par position depuis le master FR.
+    try { tf.contents = ""; } catch (eEmpty) {}
+    try {
+        if (tf.insertionPoints && tf.insertionPoints.length > 0) {
+            var ip = tf.insertionPoints.item(0);
+            var noneCh = getNoneCharacterStyle();
+            if (noneCh && noneCh.isValid) ip.appliedCharacterStyle = noneCh;
+            if (typeof ip.clearOverrides === "function") {
+                try { ip.clearOverrides(OverrideType.ALL); } catch (eIpAll) { ip.clearOverrides(); }
+            }
+        }
+    } catch (eIp) {}
+
+    tf.contents = text;
+
+    if (clearAllOverrides === true) {
+        clearAllOverridesForText(tf);
+    } else {
+        clearCharacterOnlyOverrides(tf);
+    }
+
+    try {
+        var lastStyle = null;
+        for (var np = 0; np < tf.paragraphs.length; np++) {
+            var styleToApply = paraStyles[np] || lastStyle || paraStyles[0];
+            if (styleToApply && styleToApply.isValid) {
+                tf.paragraphs[np].appliedParagraphStyle = styleToApply;
+                lastStyle = styleToApply;
+            }
+        }
+    } catch (eApplyPara) {}
+}
+
+function setBulletTextWithCapturedParagraphStyle(tf, text) {
+    var bulletStyle = null;
+    try {
+        if (tf.paragraphs && tf.paragraphs.length > 0) {
+            var ps = tf.paragraphs[0].appliedParagraphStyle;
+            if (ps && ps.isValid) bulletStyle = ps;
+        }
+    } catch (eStyle) {}
+
+    try { tf.contents = ""; } catch (eEmpty) {}
+    tf.contents = text;
+
+    try {
+        for (var p = 0; p < tf.paragraphs.length; p++) {
+            try {
+                if (bulletStyle && bulletStyle.isValid) {
+                    tf.paragraphs[p].appliedParagraphStyle = bulletStyle;
+                }
+                if (typeof tf.paragraphs[p].clearOverrides === "function") {
+                    try { tf.paragraphs[p].clearOverrides(OverrideType.ALL); } catch (eAll) { tf.paragraphs[p].clearOverrides(); }
+                }
+            } catch (ePara) {}
+        }
+    } catch (eParas) {}
+
+    clearCharacterOnlyOverrides(tf);
 }
 
 // Verifie si une chaine contient des marqueurs de style
@@ -355,7 +659,35 @@ function hasMarkers(str) {
             str.indexOf("~")  !== -1);
 }
 
-// Tronque le surplus si le cadre deborde (evite la creation de pages supplementaires)
+// Repare les ** mal places (traduction LLM) — aligne apps/api/src/utils/repair-style-markers.ts
+function repairBoldMarkersInJsonContent(s) {
+    if (!s || s.indexOf("**") === -1) return s;
+    function innerStartsVowel(inner) {
+        if (!inner || inner.length < 3) return false;
+        var c = inner.charAt(0);
+        return /[aeiouyAEIOUY\u00E0-\u00FC\u00F2-\u00F6\u00E8-\u00EB\u00EC-\u00EF\u00F9-\u00FC\u00E6\u0153]/i.test(c);
+    }
+    var out = s;
+    var iter, prev;
+    for (iter = 0; iter < 12; iter++) {
+        prev = out;
+        // 1. "a**nd" → "** and"
+        out = out.replace(/\*\*([^*]+?)\s+a\*\*(nd)\b/gi, "**$1** and");
+        // 2. Lettre orpheline avant ouverture : "t**o choose**" → "**to choose**"
+        out = out.replace(/(^|[\s\n\r"'"\u00AB\u00BB().,;:!?\-])([a-z\u00E0-\u00FF])\*\*([^*\r\n]+?)\*\*/gim,
+            function(all, sep, letter, inner) {
+                if (!innerStartsVowel(inner)) return all;
+                return sep + "**" + letter + inner + "**";
+            });
+        // 3. Fermeture prématurée coupe un mot : "**Mudejar st**yle" → "**Mudejar style**"
+        out = out.replace(/\*\*([^*\r\n]+?)\*\*([a-z\u00C0-\u00FF]+)/g, "**$1$2**");
+        if (out === prev) break;
+    }
+    return out;
+}
+
+// Tronque le surplus si le cadre deborde (evite la creation de pages supplementaires).
+// Meme comportement que insert-fr.jsx : enregistrement pour overflow-report.txt.
 function truncateOverflow(tf) {
     try {
         if (!tf.overflows) return;
@@ -363,6 +695,14 @@ function truncateOverflow(tf) {
         var visCount = tf.characters.length;
         var total    = story.characters.length;
         if (total > visCount && visCount > 0) {
+            var texteComplet = "";
+            try { texteComplet = String(story.contents); } catch (eCap) { texteComplet = ""; }
+            overflowWarnings.push({
+                page:           currentPageNum,
+                titre:          currentPageTitre,
+                label:          tf.label || "(sans label)",
+                texteComplet:   texteComplet
+            });
             story.characters.itemByRange(visCount, total - 1).remove();
         }
     } catch(e) {}
@@ -393,7 +733,9 @@ function injectText(page, label, value) {
             var show = linkObj.label !== "" || linkObj.url !== "";
             tf.visible = show;
             if (show) {
-                tf.contents = linkObj.label;
+                tf.contents = repairBoldMarkersInJsonContent(linkObj.label);
+                resetMarkerCharStyles(tf);
+                if (hasMarkers(tf.contents)) applyStyleMarkers(tf);
                 truncateOverflow(tf);
                 if (linkObj.url !== "") {
                     injectHyperlink(page, label, linkObj.url);
@@ -404,13 +746,10 @@ function injectText(page, label, value) {
 
         // Texte simple
         tf.visible = true;
-        var str = String(value).replace(/^\s+|\s+$/g, "");
-        if (hasMarkers(str)) {
-            tf.contents = str;
-            applyStyleMarkers(tf);
-        } else {
-            tf.contents = str;
-        }
+        var str = repairBoldMarkersInJsonContent(String(value).replace(/^\s+|\s+$/g, ""));
+        tf.contents = str;
+        resetMarkerCharStyles(tf);
+        if (hasMarkers(str)) applyStyleMarkers(tf);
         truncateOverflow(tf);
     }
 }
@@ -433,9 +772,18 @@ function injectBulletText(page, label, value) {
         if (items.length === 0) { tf.visible = false; continue; }
 
         tf.visible = true;
-        var fullText = items.join("\r");
-        tf.contents = fullText;
-        if (hasMarkers(fullText)) applyStyleMarkers(tf);
+        var fullText = repairBoldMarkersInJsonContent(items.join("\r"));
+        // Le nettoyage profond est nécessaire sur les listes POI pour supprimer
+        // le gras hérité du master FR. Les autres listes repartent du style
+        // paragraphe porté par le gabarit (puces définies dans le template).
+        var deepCleanBullet = (String(label).indexOf("POI_") === 0);
+        if (deepCleanBullet) {
+            setCleanTextFrameContents(tf, fullText, true);
+        } else {
+            setBulletTextWithCapturedParagraphStyle(tf, fullText);
+        }
+        resetMarkerCharStyles(tf);
+        if (hasMarkers(fullText)) applyStyleMarkers(tf, deepCleanBullet);
         truncateOverflow(tf);
     }
 }
@@ -452,7 +800,7 @@ function injectNomHashtag(page, label, value) {
             continue;
         }
         tf.visible = true;
-        var strVal = String(value).replace(/\r\n/g, "\r").replace(/\n/g, "\r");
+        var strVal = repairBoldMarkersInJsonContent(String(value).replace(/\r\n/g, "\r").replace(/\n/g, "\r"));
         tf.contents = strVal;
         try {
             var nomStyle  = doc.paragraphStyles.itemByName(STYLE_PARA_NOM);
@@ -461,6 +809,7 @@ function injectNomHashtag(page, label, value) {
             if (paras.length >= 1 && nomStyle.isValid)  paras[0].appliedParagraphStyle = nomStyle;
             if (paras.length >= 2 && hashStyle.isValid) paras[1].appliedParagraphStyle = hashStyle;
         } catch(e) {}
+        resetMarkerCharStyles(tf);
         if (hasMarkers(strVal)) applyStyleMarkers(tf);
         truncateOverflow(tf);
     }
@@ -585,7 +934,7 @@ function injectHyperlink(page, label, url) {
 
 function injectFrameHyperlink(page, label, value) {
     var url = extractUrl(value);
-    var blocks = findByLabel(page, label);
+    var blocks = findByLabelOrOverrideMaster(page, label);
 
     for (var i = 0; i < blocks.length; i++) {
         var block = blocks[i];
@@ -621,12 +970,20 @@ function injectFrameHyperlink(page, label, value) {
         try {
             dest = doc.hyperlinkURLDestinations.add(url);
         } catch(eDest) {
-            try { dest = doc.hyperlinkURLDestinations.itemByName(url); } catch(eDest2) { continue; }
+            try {
+                dest = doc.hyperlinkURLDestinations.itemByName(url);
+            } catch(eDest2) {
+                continue;
+            }
         }
 
         // Etape 4 : source page-item et hyperlien
         var srcPi;
-        try { srcPi = doc.hyperlinkPageItemSources.add(block); } catch(eSrcPi) { continue; }
+        try {
+            srcPi = doc.hyperlinkPageItemSources.add(block);
+        } catch(eSrcPi) {
+            continue;
+        }
         try {
             doc.hyperlinks.add(srcPi, dest, {
                 visible:   false,
@@ -637,7 +994,7 @@ function injectFrameHyperlink(page, label, value) {
 }
 
 // ---------------------------------------------------------------------------
-// 9. Sommaire — helpers (portage rigoureux de generate-poi-pages.jsx)
+// 9. Sommaire — helpers (portage rigoureux de insert-fr.jsx)
 // ---------------------------------------------------------------------------
 
 // Paragraphes depuis la story complete (cadres files inclus) ou depuis le cadre seul.
@@ -850,7 +1207,7 @@ function sommaireFirstStyle(candidates) {
 }
 
 // Applique un style paragraphe sur un titre et strip les overrides + style caractere [None].
-// Identique a sommaireApplyParagraphStyleStripOverrides dans generate-poi-pages.jsx.
+// Identique a sommaireApplyParagraphStyleStripOverrides dans insert-fr.jsx.
 function sommaireApplyTitleStyle(paragraph, pst) {
     if (!paragraph || !pst || !pst.isValid) return;
     try {
@@ -878,7 +1235,7 @@ function sommaireApplyNumStyle(paragraph, pst) {
 }
 
 // Retourne true si le paragraphe est le premier de son cadre direct (pas de la story).
-// Identique a sommaireParagraphStartsAtFrameTop dans generate-poi-pages.jsx.
+// Identique a sommaireParagraphStartsAtFrameTop dans insert-fr.jsx.
 function sommaireParaAtFrameTop(paragraph) {
     if (!paragraph) return false;
     try {
@@ -904,7 +1261,7 @@ function sommaireAbsentSpacing(paragraph) {
 
 // (Re-)applique les styles paragraphe sur la colonne numeros apres injection ou apres
 // création des hyperliens (qui appliquent souvent le style "Hyperlien" par defaut).
-// Identique a sommaireApplyNumerosStyles dans generate-poi-pages.jsx.
+// Identique a sommaireApplyNumerosStyles dans insert-fr.jsx.
 function sommaireApplyNumStyles(tfNums, slice) {
     if (!tfNums || !slice || slice.length === 0) return;
     var stGeneric = sommaireFirstStyle(SOMMAIRE_NUMEROS_STYLE_CANDIDATES);
@@ -934,9 +1291,9 @@ function sommaireApplyNumStyles(tfNums, slice) {
 }
 
 // Compensation spaceAfter pour les numeros de page dont le titre associe est sur 2 lignes.
-// Identique a sommaireApplyDualNumerosWrapSpacing dans generate-poi-pages.jsx.
+// Identique a sommaireApplyDualNumerosWrapSpacing dans insert-fr.jsx.
 // Retourne true si le cadre numeros est la colonne 1 (label SOMMAIRE_numeros_1).
-// Identique a sommaireIsNumerosColumnOne dans generate-poi-pages.jsx.
+// Identique a sommaireIsNumerosColumnOne dans insert-fr.jsx.
 function sommaireIsNumerosColumnOne(tfNums) {
     if (!tfNums) return false;
     try {
@@ -974,7 +1331,7 @@ function sommaireApplyWrapSpacing(tfNums, slice) {
 }
 
 // Injection stricte de la colonne numeros (1 colonne, lignes nettoyees).
-// Identique a sommaireInjectNumerosStrictSimple dans generate-poi-pages.jsx.
+// Identique a sommaireInjectNumerosStrictSimple dans insert-fr.jsx.
 function sommaireInjectNumeros(tfNums, numLines) {
     if (!tfNums) return;
     sommaireDetachThread(tfNums);
@@ -998,7 +1355,7 @@ function sommaireInjectNumeros(tfNums, numLines) {
 }
 
 // Pose les hyperliens page sur la colonne numeros (mode 2 cadres).
-// Identique a sommaireWireDualFrameNumbers dans generate-poi-pages.jsx.
+// Identique a sommaireWireDualFrameNumbers dans insert-fr.jsx.
 function sommaireWireNumeros(tfNums, slice) {
     if (!tfNums || !slice || slice.length === 0) return;
     // Capturer story et paragraphes AVANT le nettoyage.
@@ -1041,7 +1398,7 @@ function sommaireWireNumeros(tfNums, slice) {
 }
 
 // Pose les hyperliens page sur les numeros en fin de ligne (mode 1 cadre).
-// Identique a sommaireWireSingleFrameNumbers dans generate-poi-pages.jsx.
+// Identique a sommaireWireSingleFrameNumbers dans insert-fr.jsx.
 function sommaireWireTitres(tfTitle, slice) {
     if (!tfTitle || !slice || slice.length === 0) return;
     // Capturer story et paragraphes AVANT le nettoyage (hts.remove() peut invalider tfTitle).
@@ -1084,7 +1441,7 @@ function sommaireWireTitres(tfTitle, slice) {
 // 10. injectSommaire — point d'entree (appelé depuis processPage)
 //
 // Portage rigoureux de injectSommaireText + sommaireWirePageNumberHyperlinksOnPage
-// de generate-poi-pages.jsx.
+// de insert-fr.jsx.
 // ---------------------------------------------------------------------------
 
 function injectSommaire(page, rawValue) {
@@ -1104,7 +1461,7 @@ function injectSommaire(page, rawValue) {
     sommaireDetachThread(tfTitre);
     try { tfTitre.visible = true; } catch(eVisT) {}
 
-    // --- Cadre numeros (optionnel — cadre le plus a droite, convention generate-poi-pages) ---
+    // --- Cadre numeros (optionnel — cadre le plus a droite, convention insert-fr) ---
     var tfNums = null;
     var numBlocks = findByLabel(page, numerosLabel);
     var bestX = -999999;
@@ -1239,11 +1596,11 @@ function injectSommaire(page, rawValue) {
     }
 
     // --- Poser les hyperliens vers les pages internes ---
-    // Identique a sommaireWirePageNumberHyperlinksOnPage dans generate-poi-pages.jsx.
+    // Identique a sommaireWirePageNumberHyperlinksOnPage dans insert-fr.jsx.
     if (dualMode) {
         sommaireWireNumeros(tfNums, slice);
         // Re-appliquer wrap apres hyperliens (deja fait dans sommaireWireNumeros,
-        // mais on le refait ici pour etre sur — generate-poi-pages le fait aussi)
+        // mais on le refait ici pour etre sur — insert-fr le fait aussi)
         sommaireApplyWrapSpacing(tfNums, slice);
         try { truncateOverflow(tfNums); } catch(eTr0) {}
     } else {
@@ -1329,7 +1686,11 @@ function processPage(idPage, pageData) {
         var flVal = textContent[flKey];
         if (flVal === null || flVal === undefined) continue;
         if (String(flVal).replace(/^\s+|\s+$/, "") === "") continue;
-        injectFrameHyperlink(idPage, resolveLabel(flKey), flVal);
+        var frameTarget = FRAME_LINK_FIELDS[flKey];
+        var frameLabel = (typeof frameTarget === "string")
+            ? resolveLabel(frameTarget)
+            : resolveLabel(flKey);
+        injectFrameHyperlink(idPage, frameLabel, flVal);
     }
 
     // --- Etape C : hyperliens pictos articles (_url_article_*, Google Maps ignores) ---
@@ -1364,6 +1725,8 @@ for (var i = 0; i < pages.length; i++) {
     }
 
     try {
+        currentPageNum   = pNum;
+        currentPageTitre = (p.titre || p.title || "");
         processPage(doc.pages[tgtIdx], p);
         updated++;
     } catch(eProc) {
@@ -1387,6 +1750,45 @@ var report =
 if (errors.length > 0) {
     report += "\n\nErreurs (" + errors.length + ") :\n" + errors.slice(0, 5).join("\n");
     if (errors.length > 5) report += "\n... et " + (errors.length - 5) + " autre(s).";
+}
+
+// --- Rapport debordement texte (fichier a cote du JSON, comme insert-fr.jsx) ---
+if (overflowWarnings.length > 0) {
+    var overflowReportPath = rootFolder + "/overflow-report.txt";
+    var overflowWritten    = false;
+    try {
+        var now        = new Date();
+        var nowStr     = now.getFullYear() + "-"
+                       + (now.getMonth() + 1 < 10 ? "0" : "") + (now.getMonth() + 1) + "-"
+                       + (now.getDate()         < 10 ? "0" : "") + now.getDate()      + " "
+                       + (now.getHours()        < 10 ? "0" : "") + now.getHours()     + ":"
+                       + (now.getMinutes()      < 10 ? "0" : "") + now.getMinutes();
+        var rf = new File(overflowReportPath);
+        rf.encoding = "UTF-8";
+        rf.open("w");
+        rf.writeln("TEXTE TROP LONG - " + nowStr);
+        rf.writeln("Blocs tronques : " + overflowWarnings.length);
+        rf.writeln("----------------------------------------------------");
+        for (var ow = 0; ow < overflowWarnings.length; ow++) {
+            var owRec = overflowWarnings[ow];
+            rf.writeln("p." + owRec.page
+                     + "  [" + owRec.label + "]"
+                     + (owRec.titre ? "  " + owRec.titre : ""));
+            rf.writeln("Texte complet avant troncature :");
+            rf.writeln("---8<---");
+            rf.writeln(owRec.texteComplet !== undefined && owRec.texteComplet !== null
+                ? String(owRec.texteComplet) : "(indisponible)");
+            rf.writeln("---8<---");
+            rf.writeln("");
+        }
+        rf.writeln("----------------------------------------------------");
+        rf.writeln("Reduisez le texte de ces champs dans l editeur de contenu.");
+        rf.close();
+        overflowWritten = true;
+    } catch (eOv) {}
+
+    report += "\n\n[!] " + overflowWarnings.length + " bloc(s) tronque(s)"
+              + (overflowWritten ? " -> voir overflow-report.txt" : " (impossible d ecrire le fichier rapport)");
 }
 
 alert(report);

@@ -13,6 +13,7 @@
 import OpenAI from 'openai';
 import { Db, ObjectId } from 'mongodb';
 import { parseLinkField } from '../utils/link-field.js';
+import { repairStrandedBoldMarkers } from '../utils/repair-style-markers.js';
 import { COLLECTIONS } from '../config/collections.js';
 import { DEFAULT_SETTINGS } from '../routes/settings.routes.js';
 
@@ -270,8 +271,28 @@ export class GuideTranslationService {
       // Exclure les URLs directes
       if (/^https?:\/\//i.test(str)) continue;
 
-      // Exclure les strings JSON qui ne sont pas des liens (objets autres)
-      if (str.startsWith('{')) continue;
+      // Champ sommaire JSON (SommaireJsonV1) → extraire les titres uniques comme champs plats.
+      // La clé utilise le nom du champ source pour éviter toute collision avec les champs
+      // content existants (ex. SOMMAIRE_titre_1 = "Sommaire" est un champ template distinct).
+      // Exemple : SOMMAIRE_texte_1 → SOMMAIRE_texte_1_entry_1, SOMMAIRE_texte_1_entry_2, …
+      if (str.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(str) as { schema_version?: number; entries?: Array<{ title?: string }> };
+          if (parsed?.schema_version === 1 && Array.isArray(parsed.entries)) {
+            const seen = new Set<string>();
+            let idx = 0;
+            for (const entry of parsed.entries) {
+              const title = entry.title?.trim();
+              if (title && !seen.has(title)) {
+                seen.add(title);
+                idx++;
+                result[`${key}_entry_${idx}`] = title;
+              }
+            }
+          }
+        } catch { /* JSON invalide → ignorer */ }
+        continue;
+      }
 
       // ── Champ répétitif (array JSON) → extraire tous les sous-champs textuels ──
       // ex: "INSPIRATION_repetitif_1" → "INSPIRATION_1_nom_1", "INSPIRATION_1_hashtag_1", …
@@ -347,7 +368,7 @@ export class GuideTranslationService {
    */
   private async translateBatch(
     fields: Record<string, string>,
-    _targetLang: string,
+    targetLang: string,
     langName: string,
     pass: number = 1,
     fieldLimits: Record<string, number> = {}
@@ -372,17 +393,57 @@ export class GuideTranslationService {
       pass === 2 ? '- CRITICAL: The fields below EXCEED their character limits. Rewrite them more concisely. Remove secondary details while keeping the core meaning. You MUST stay under the limit.' :
                    '- ULTRA-CONDENSED MODE: Each field must be as short as possible while remaining meaningful. Cut all non-essential words. Strict compliance with character limits is mandatory.';
 
-    const systemPrompt = `You are a professional travel guide translator.
-Translate the JSON values from French to ${langName}.
+    const englishLocalizationInstruction = targetLang === 'en'
+      ? `
+English localization rules:
+- You are a professional travel content localizer working for Region Lovers
+- Do NOT translate literally from French to English
+- Produce natural, fluent, native-level English travel content that feels written originally for an English-speaking traveler
+- Prioritize clarity, usefulness, and natural English over literal fidelity
+- Use conventions, vocabulary, and tone commonly found in premium English-language travel guides
+- Avoid French sentence structures translated word-for-word
+- Avoid awkward, overly formal, overly poetic, or promotional phrasing
+- Prefer concise, immediately understandable wording
+- Tone: clear, practical, warm but professional, easy to scan, informative without sounding promotional
+- When translating labels, icons, UI elements, categories, badges, or practical information, prioritize standard tourism UX vocabulary
+- Keep icon labels compact and intuitive
+- Prefer wording commonly used in travel apps, guidebooks, and tourism websites
+- Use sentence case unless the original design clearly requires title case
+- Avoid unnecessary capitalization
+- Do not keep French wording unless it is a proper noun, place name, brand name, or explicitly intended
+
+Preferred English UX/localization examples:
+- "Family" -> "Family-friendly"
+- "Accessible for disabled" -> "Accessible"
+- "Dining" -> "Food"
+- "Paid" -> "For a fee"
+- "Must see" -> "Nice to see"`
+      : `
+Localization rules:
+- Do NOT translate literally if the result sounds unnatural in ${langName}
+- Produce natural, fluent travel content that feels written originally for a traveler reading ${langName}
+- Prioritize clarity, usefulness, and idiomatic wording over word-for-word fidelity
+- Use standard travel-guide and tourism UX vocabulary in ${langName}
+- Keep labels, icons, categories, badges, and practical information short, clear, and intuitive
+- Avoid awkward, overly formal, overly poetic, or promotional phrasing
+- Preserve the meaning, practical value, facts, structure, and hierarchy of the original content`;
+
+    const systemPrompt = `You are a professional travel content localizer.
+Translate/localize the JSON values from French to ${langName}.
 
 Rules:
 - Return ONLY a valid JSON object with the same keys
 - Translate only the values, never the keys
 - Preserve ALL formatting markers exactly as-is: **bold**, {orange}, ^number^, ~gras-orange~
+- Bold markers must wrap COMPLETE words only (e.g. **to choose**), never split the first letter outside (never t**o choose** or h**elps**)
 - Preserve line breaks (\\n) in their exact positions
 - Do NOT translate or modify URLs (starting with http)
 - Keep proper nouns, brand names, and place names as appropriate for the target language
 - Be natural and idiomatic, not literal
+- Do not add explanations, comments, or extra fields
+- Preserve all factual information accurately
+- Preserve lists, structure, and hierarchy
+${englishLocalizationInstruction}
 ${condensationInstruction}${limitBlock}`;
 
     const userPrompt = `Translate to ${langName} (pass ${pass}):\n${inputJson}`;
@@ -419,6 +480,11 @@ ${condensationInstruction}${limitBlock}`;
           for (const k of missingKeys) parsed[k] = fields[k];
         } else {
           console.log(`✅ [TRANSLATE] Batch OK: toutes les ${outputKeys.length} clés présentes`);
+        }
+
+        for (const k of Object.keys(parsed)) {
+          const val = (parsed as Record<string, unknown>)[k];
+          if (typeof val === 'string') (parsed as Record<string, string>)[k] = repairStrandedBoldMarkers(val);
         }
 
         return parsed as Record<string, string>;

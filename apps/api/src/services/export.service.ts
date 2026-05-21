@@ -24,6 +24,7 @@ import {
   getUrlFragment,
   parseAnchorLeadingIndex,
 } from '../utils/link-field.js';
+import { repairStrandedBoldMarkers } from '../utils/repair-style-markers.js';
 
 const EXPORTED_STATUSES = ['generee_ia', 'relue', 'validee', 'texte_coule', 'visuels_montes'];
 
@@ -485,6 +486,48 @@ export class ExportService {
       }
     }
 
+    // ── 5b. Dictionnaire FR→traduit pour le sommaire (avant la passe 5c) ────────
+    // Doit être construit ICI, avant que la passe 5c écrase pages[i].content.text.
+    // Le snapshot FR (après passe 2) contient TOUS les champs, y compris les champs
+    // générés à l'export (INSPIRATION_TITRE, SECTION_titre_1, etc.) qui ne sont pas
+    // dans page.content de MongoDB mais sont bien dans pages[i].content.text à ce stade.
+    const frToTranslatedTitle = new Map<string, string>();
+    if (lang !== 'fr') {
+      for (let i = 0; i < exportablePages.length; i++) {
+        const rawPage = exportablePages[i];
+        const translatedText: Record<string, string> =
+          (rawPage as any).content_translations?.[lang]?.text || {};
+        // Snapshot FR AVANT overlay — source de vérité pour la correspondance
+        const frSnap = pages[i].content.text;
+        for (const [k, trVal] of Object.entries(translatedText)) {
+          if (typeof trVal !== 'string' || !trVal.trim()) continue;
+          const frVal = frSnap[k];
+          if (typeof frVal !== 'string' || !frVal.trim()) continue;
+          if (frVal.trim() === trVal.trim()) continue;
+          if (frVal.startsWith('{') || frVal.startsWith('[')) continue;
+          frToTranslatedTitle.set(frVal.trim(), trVal.trim());
+        }
+        // Métadonnées non traduits par le LLM (cluster_name, inspiration_title, saison)
+        const rawMeta = (rawPage as any).metadata ?? {};
+        const entityNames = [
+          rawMeta.cluster_name,
+          rawMeta.inspiration_title,
+          rawMeta.saison,
+        ].filter((n): n is string => typeof n === 'string' && n.trim().length > 0);
+        for (const frName of entityNames) {
+          if (frToTranslatedTitle.has(frName.trim())) continue;
+          // Chercher un champ snapshot FR qui correspond à ce nom pour trouver sa traduction
+          for (const [k, frVal] of Object.entries(frSnap)) {
+            if (typeof frVal !== 'string') continue;
+            if (frVal.trim() === frName.trim() && translatedText[k]?.trim()) {
+              frToTranslatedTitle.set(frName.trim(), translatedText[k].trim());
+              break;
+            }
+          }
+        }
+      }
+    }
+
     // ── 5c. Passe 3 : overlay des traductions ─────────────────────────────────
     // Appliquée APRÈS la passe 2 pour couvrir :
     //  - les champs template classiques (titres, textes…)
@@ -504,11 +547,11 @@ export class ExportService {
           // Lien JSON {label, url} → reconstruction avec label traduit
           const originalLink = parseLinkField(originalVal);
           if (originalLink && !v.startsWith('{')) {
-            pages[i].content.text[k] = buildLinkField(v, originalLink.url);
+            pages[i].content.text[k] = buildLinkField(repairStrandedBoldMarkers(v), originalLink.url);
             continue;
           }
 
-          pages[i].content.text[k] = v;
+          pages[i].content.text[k] = repairStrandedBoldMarkers(v);
         }
       }
     }
@@ -709,15 +752,15 @@ export class ExportService {
 
     console.log(`🔗 [EXPORT][${lang}] URLs normalisées : ${normalizedCount} | redirections uniques : ${redirectMap.size}`);
 
-    /** Suffixe après « + » dans le dernier segment /guide/{lang}/slug+suffix/ (ancre slugifiée). */
-    const parsePlusAnchorSuffixFromNormalized = (normalized: string): string | null => {
+    /** Suffixe après « -- » dans le dernier segment /guide/{lang}/slug--suffix/ (ancre slugifiée). */
+    const parseAnchorSuffixFromNormalized = (normalized: string): string | null => {
       try {
         const u = new URL(normalized);
         const parts = u.pathname.replace(/\/+$/, '').split('/').filter(Boolean);
         const last = parts[parts.length - 1] ?? '';
-        const plus = last.indexOf('+');
-        if (plus < 0) return null;
-        return last.slice(plus + 1);
+        const sep = last.indexOf('--');
+        if (sep < 0) return null;
+        return last.slice(sep + 2);
       } catch {
         return null;
       }
@@ -725,10 +768,10 @@ export class ExportService {
 
     /**
      * Si la résolution depuis l’URL FR (#…) ne produit pas d’ancre EN, on retente depuis
-     * le suffixe « +… » de l’URL normalisée (même info que le hash, slugifiée pour le CSV).
-     * Cas typique : +jour-2-parc-… vs ancres #9-… qui matchent déjà via parseAnchorLeadingIndex.
+     * le suffixe « --… » de l’URL normalisée (même info que le hash, slugifiée pour le CSV).
+     * Cas typique : --jour-2-parc-… vs ancres #9-… qui matchent déjà via parseAnchorLeadingIndex.
      */
-    const resolveDestinationWithNormalizedPlusFallback = (
+    const resolveDestinationWithNormalizedAnchorFallback = (
       normalized: string,
       frDestination: string
     ): string => {
@@ -736,20 +779,20 @@ export class ExportService {
       if (lang === 'fr') return dest;
       if (getUrlFragment(dest)) return dest;
 
-      const plusSuffix = parsePlusAnchorSuffixFromNormalized(normalized);
-      if (!plusSuffix) return dest;
+      const anchorSuffix = parseAnchorSuffixFromNormalized(normalized);
+      if (!anchorSuffix) return dest;
 
       const baseFr = stripUrlFragment(frDestination);
       const canonFr = normalizeArticleUrl(baseFr, 'fr');
 
-      const mIdx = /^(\d+)-/.exec(plusSuffix);
+      const mIdx = /^(\d+)-/.exec(anchorSuffix);
       if (mIdx) {
         const idx = mIdx[1];
         const anchored = anchorByFrCanonAndIndex.get(`${canonFr}|${idx}`);
         if (anchored) return anchored;
       }
 
-      const mJour = /^jour-(\d+)/i.exec(plusSuffix) ?? /^day-(\d+)/i.exec(plusSuffix);
+      const mJour = /^jour-(\d+)/i.exec(anchorSuffix) ?? /^day-(\d+)/i.exec(anchorSuffix);
       if (mJour) {
         const d = parseInt(mJour[1], 10);
         const anchoredDay = anchorByFrCanonAndDay.get(`${canonFr}|day:${d}`);
@@ -762,9 +805,184 @@ export class ExportService {
     const redirectPairs: RedirectPair[] = Array.from(redirectMap.entries()).map(
       ([normalized, destination]) => ({
         normalized,
-        destination: resolveDestinationWithNormalizedPlusFallback(normalized, destination),
+        destination: resolveDestinationWithNormalizedAnchorFallback(normalized, destination),
       })
     );
+
+    // ── 5f. Aligner les liens JSON sur les clés de redirection ───────────────
+    // Le JSON exporté doit pointer vers l'URL normalisée (source de redirection),
+    // pas vers la destination finale. Ainsi, InDesign/PDF et le CSV restent cohérents.
+    if (lang !== 'fr' && redirectPairs.length > 0) {
+      const normalizedByDestination = new Map<string, string>();
+      const putNormalized = (destinationUrl: string, normalizedUrl: string) => {
+        normalizedByDestination.set(destinationUrl, normalizedUrl);
+        const destinationNoHash = stripUrlFragment(destinationUrl);
+        const normalizedNoHash = stripUrlFragment(normalizedUrl);
+        if (destinationNoHash) {
+          normalizedByDestination.set(destinationNoHash, normalizedNoHash || normalizedUrl);
+        }
+      };
+
+      for (const pair of redirectPairs) {
+        putNormalized(pair.destination, pair.normalized);
+        // Après résolution cross-langue, la passe 5e appelle normalizeArticleUrl() sur
+        // l'URL destination (ex. /en/national-park-teide-.../), ce qui produit un
+        // /guide/{lang}/{slug-dernier-segment}/ qui ne suit pas la nomenclature FR
+        // du CSV. Indexer aussi cette forme pour la réécrire vers pair.normalized.
+        try {
+          if (
+            pair.destination &&
+            /^https?:\/\//i.test(pair.destination) &&
+            isInternalSiteUrl(pair.destination)
+          ) {
+            const wrongGuideGuess = normalizeArticleUrl(pair.destination, lang);
+            if (wrongGuideGuess && wrongGuideGuess !== pair.normalized) {
+              putNormalized(wrongGuideGuess, pair.normalized);
+            }
+          }
+        } catch { /* URL invalide */ }
+      }
+
+      const mapToNormalizedIfKnown = (rawUrl: string): string => {
+        if (!rawUrl || !/^https?:\/\//i.test(rawUrl) || isGoogleMapsUrl(rawUrl)) return rawUrl;
+        return normalizedByDestination.get(rawUrl)
+          ?? normalizedByDestination.get(stripUrlFragment(rawUrl))
+          ?? rawUrl;
+      };
+
+      for (const page of pages) {
+        if (page.url_source && /^https?:\/\//i.test(page.url_source)) {
+          (page as any).url_source = mapToNormalizedIfKnown(page.url_source);
+        }
+
+        for (const k of Object.keys(page.content.text)) {
+          if (k.includes('_url_maps_')) continue;
+          const v = page.content.text[k];
+          if (!v || typeof v !== 'string') continue;
+
+          if (/^https?:\/\//i.test(v)) {
+            page.content.text[k] = mapToNormalizedIfKnown(v);
+          } else if (v.startsWith('{')) {
+            try {
+              const parsed = JSON.parse(v);
+              if (parsed && typeof parsed.url === 'string' && /^https?:\/\//i.test(parsed.url)) {
+                parsed.url = mapToNormalizedIfKnown(parsed.url);
+                page.content.text[k] = JSON.stringify(parsed);
+              }
+            } catch { /* JSON invalide -> laisser tel quel */ }
+          } else if (v.includes('http://') || v.includes('https://')) {
+            page.content.text[k] = v.replace(/https?:\/\/[^\s"'<>()]+/gi, (matchedUrl) => {
+              let core = matchedUrl;
+              let suffix = '';
+              while (core.length > 0 && TRAILING_PUNCTUATION.includes(core[core.length - 1])) {
+                suffix = core[core.length - 1] + suffix;
+                core = core.slice(0, -1);
+              }
+              if (!core) return matchedUrl;
+              const mapped = mapToNormalizedIfKnown(core);
+              return `${mapped}${suffix}`;
+            });
+          }
+        }
+      }
+    }
+
+    // ── 5g. Sommaire : mise à jour des titres vers la langue cible ───────────
+    // Les titres du sommaire sont traduits via le LLM (SOMMAIRE_titre_N dans content_translations)
+    // et complétés par le dictionnaire frToTranslatedTitle de la passe 5b pour les champs content.
+    if (lang !== 'fr') {
+      // Construire un dictionnaire FR→traduit spécifique au sommaire depuis les pages SOMMAIRE
+      // en lisant les SOMMAIRE_titre_N stockés par guide-translation.service lors de la traduction.
+      const sommaireSpecificMap = new Map<string, string>();
+      for (let i = 0; i < exportablePages.length; i++) {
+        const rawPage = exportablePages[i];
+        const tpl = (pages[i]?.template ?? '').toUpperCase();
+        if (!tpl.startsWith('SOMMAIRE')) continue;
+
+        const translatedText: Record<string, string> =
+          (rawPage as any).content_translations?.[lang]?.text || {};
+        const rawSommaireJson: string | undefined = (rawPage as any).content?.['SOMMAIRE_texte_1'];
+        if (!rawSommaireJson) continue;
+
+        try {
+          const fullJson = JSON.parse(rawSommaireJson) as {
+            schema_version?: number;
+            entries?: Array<{ title?: string }>;
+          };
+          if (fullJson?.schema_version !== 1 || !Array.isArray(fullJson.entries)) continue;
+
+          // Reconstituer la correspondance positionnelle construite par extractTranslatableFields.
+          // La clé est `SOMMAIRE_texte_1_entry_N` (même logique que extractTranslatableFields)
+          // pour éviter la collision avec le champ template SOMMAIRE_titre_1 = "Sommaire".
+          const seen = new Set<string>();
+          let idx = 0;
+          for (const entry of fullJson.entries) {
+            const frTitle = entry.title?.trim();
+            if (frTitle && !seen.has(frTitle)) {
+              seen.add(frTitle);
+              idx++;
+              const trTitle = translatedText[`SOMMAIRE_texte_1_entry_${idx}`]?.trim();
+              if (trTitle && trTitle !== frTitle) {
+                sommaireSpecificMap.set(frTitle, trTitle);
+              }
+            }
+          }
+        } catch { /* JSON invalide → ignorer */ }
+      }
+
+      // Mettre à jour le JSON sommaire de chaque page SOMMAIRE
+      // Priorité : sommaireSpecificMap (LLM) > frToTranslatedTitle (snapshot contenu)
+      for (const page of pages) {
+        const tpl = page.template.toUpperCase();
+        if (!tpl.startsWith('SOMMAIRE')) continue;
+        const raw = page.content.text['SOMMAIRE_texte_1'];
+        if (!raw) continue;
+        try {
+          const parsed = JSON.parse(raw) as import('./field-service-runner.service.js').SommaireJsonV1;
+          if (!parsed || parsed.schema_version !== 1 || !Array.isArray(parsed.entries)) continue;
+          let changed = false;
+          for (const entry of parsed.entries) {
+            const frTitle = entry.title?.trim() ?? '';
+            const translated =
+              sommaireSpecificMap.get(frTitle) ??
+              frToTranslatedTitle.get(frTitle) ??
+              null;
+            if (translated && translated !== frTitle) {
+              entry.title = translated;
+              changed = true;
+            }
+          }
+          if (changed) {
+            parsed.entries_by_sommaire_page = {
+              '1': parsed.entries.filter((e) => e.sommaire_page === 1),
+              '2': parsed.entries.filter((e) => e.sommaire_page === 2),
+            } as any;
+            parsed.legacy_text = (await import('./field-service-runner.service.js')).sommaireEntriesToLegacyText(parsed.entries);
+            page.content.text['SOMMAIRE_texte_1'] = JSON.stringify(parsed);
+          }
+        } catch { /* JSON sommaire invalide → conserver tel quel */ }
+      }
+    }
+
+    // ── 5h. Marqueurs ** (traduction / LLM) sur tout le texte exporté ─────────
+    // Dernière passe : tous les champs (toutes langues), y compris liens {label}.
+    for (const page of pages) {
+      for (const k of Object.keys(page.content.text)) {
+        if (k.includes('_url_maps_')) continue;
+        const v = page.content.text[k];
+        if (!v || typeof v !== 'string' || !v.includes('**')) continue;
+        const link = parseLinkField(v);
+        if (link) {
+          const fixedLabel = repairStrandedBoldMarkers(link.label);
+          if (fixedLabel !== link.label) {
+            page.content.text[k] = buildLinkField(fixedLabel, link.url);
+          }
+          continue;
+        }
+        const fixed = repairStrandedBoldMarkers(v);
+        if (fixed !== v) page.content.text[k] = fixed;
+      }
+    }
 
     // ── 6. Construire le mapping field→calque depuis les templates réels ──────
     const dynamicFieldLayers: Record<string, string> = {};

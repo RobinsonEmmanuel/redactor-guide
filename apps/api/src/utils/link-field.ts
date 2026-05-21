@@ -89,14 +89,14 @@ export function normalizeArticleUrl(rawUrl: string, lang: string): string {
     }
 
     // URL normalisée unique par ancre :
-    // /guide/{lang}/{slug}+{anchor-slug}/
-    // Ex: /guide/en/best-things...+9-explore-the-cueva-del-viento/
+    // /guide/{lang}/{slug}--{anchor-slug}/
+    // Ex: /guide/en/best-things...--9-explore-the-cueva-del-viento/
     const decodedHash = decodeURIComponent(rawHash);
     const anchorSlug = slugify(decodedHash.replace(/_/g, ' '));
     if (!anchorSlug) {
       return `${parsed.protocol}//${parsed.host}/guide/${lang}/${slug}/`;
     }
-    return `${parsed.protocol}//${parsed.host}/guide/${lang}/${slug}+${anchorSlug}/`;
+    return `${parsed.protocol}//${parsed.host}/guide/${lang}/${slug}--${anchorSlug}/`;
   } catch {
     return rawUrl;
   }

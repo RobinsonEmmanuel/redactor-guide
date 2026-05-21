@@ -51,6 +51,16 @@ interface ClusterMetadata {
   place_count: number;
 }
 
+interface ReusePoiCandidate {
+  guideId: string;
+  name: string;
+  year?: number;
+  version?: string;
+  poiCount: number;
+  hasMatching: boolean;
+  canCopyMatching: boolean;
+}
+
 interface LieuxEtClustersTabProps {
   guideId: string;
   apiUrl: string;
@@ -677,6 +687,10 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   const [deduplicating, setDeduplicating] = useState(false);
   const [dedupPois, setDedupPois] = useState<any[]>([]);
   const [confirming, setConfirming] = useState(false);
+  const [reuseCandidates, setReuseCandidates] = useState<ReusePoiCandidate[]>([]);
+  const [selectedReuseGuideId, setSelectedReuseGuideId] = useState('');
+  const [loadingReuseCandidates, setLoadingReuseCandidates] = useState(false);
+  const [reusingPois, setReusingPois] = useState(false);
 
   // États validation humaine (après dedup_complete)
   const [showValidationModal, setShowValidationModal] = useState(false);
@@ -713,6 +727,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     loadPois();
     loadMatching();
     checkForPendingJob();
+    loadReuseCandidates();
   }, [guideId]);
 
   const loadPois = async () => {
@@ -741,6 +756,27 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
       }
     } catch (err) {
       console.error('Erreur chargement matching:', err);
+    }
+  };
+
+  const loadReuseCandidates = async () => {
+    setLoadingReuseCandidates(true);
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/reuse-candidates`);
+      if (res.ok) {
+        const data = await res.json();
+        const candidates = data.candidates || [];
+        setReuseCandidates(candidates);
+        setSelectedReuseGuideId((current) => (
+          current && candidates.some((candidate: ReusePoiCandidate) => candidate.guideId === current)
+            ? current
+            : candidates[0]?.guideId || ''
+        ));
+      }
+    } catch (err) {
+      console.error('Erreur chargement guides POI réutilisables:', err);
+    } finally {
+      setLoadingReuseCandidates(false);
     }
   };
 
@@ -802,7 +838,8 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(`❌ Erreur: ${err.error || 'Erreur inconnue'}`);
+        const details = [err.message, err.details].filter(Boolean).join('\n');
+        alert(`❌ Erreur: ${err.error || 'Erreur inconnue'}${details ? `\n${details}` : ''}`);
         setGenerating(false);
         setGeneratingProgress(null);
         setShowPreviewModal(false);
@@ -875,6 +912,47 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
       setGenerating(false);
       setGeneratingProgress(null);
       setShowPreviewModal(false);
+    }
+  };
+
+  const reusePoisFromGuide = async () => {
+    if (!selectedReuseGuideId) return;
+    const candidate = reuseCandidates.find(c => c.guideId === selectedReuseGuideId);
+    const label = candidate ? `${candidate.name} (${candidate.poiCount} POI)` : 'ce guide';
+    if (!confirm(`Réutiliser les POI de ${label} ?\n\nCela remplacera la sélection POI actuelle et copiera aussi le matching/clusters si compatible.`)) {
+      return;
+    }
+
+    setReusingPois(true);
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/reuse-from`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceGuideId: selectedReuseGuideId, includeMatching: true }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        await Promise.all([loadPois(), loadMatching()]);
+        setPendingJobRawCount(null);
+        setCurrentJobId(null);
+        setJobStatus(null);
+        const matchingText = data.matchingCopied
+          ? ' Matching/clusters copiés.'
+          : data.matchingSkippedReason
+          ? ` Matching non copié (${data.matchingSkippedReason}).`
+          : '';
+        alert(`✅ ${data.count} POI réutilisés.${matchingText}`);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        const details = [err.message, err.details].filter(Boolean).join('\n');
+        alert(`❌ Erreur: ${err.error || 'Erreur inconnue'}${details ? `\n${details}` : ''}`);
+      }
+    } catch (err) {
+      console.error('Erreur réutilisation POI:', err);
+      alert('❌ Erreur lors de la réutilisation des POI');
+    } finally {
+      setReusingPois(false);
     }
   };
 
@@ -1423,6 +1501,39 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                 </>
               )}
             </div>
+
+            {reuseCandidates.length > 0 && (
+              <>
+                <div className="w-px h-5 bg-gray-200" />
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={selectedReuseGuideId}
+                    onChange={(e) => setSelectedReuseGuideId(e.target.value)}
+                    disabled={reusingPois || loadingReuseCandidates}
+                    className="h-8 max-w-56 rounded-md border border-gray-300 bg-white px-2 text-xs text-gray-700 disabled:bg-gray-100"
+                    title="Guide source avec le même site source"
+                  >
+                    {reuseCandidates.map((candidate) => (
+                      <option key={candidate.guideId} value={candidate.guideId}>
+                        {candidate.name} - {candidate.poiCount} POI{candidate.canCopyMatching ? ' + clusters' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={reusePoisFromGuide}
+                    disabled={reusingPois || !selectedReuseGuideId}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 text-white rounded-md hover:bg-slate-800 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+                    title="Copier les POI et le matching depuis un guide du même site source"
+                  >
+                    {reusingPois ? (
+                      <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Réutilisation...</>
+                    ) : (
+                      <>Réutiliser POI + clusters</>
+                    )}
+                  </button>
+                </div>
+              </>
+            )}
 
             {/* Séparateur */}
             <div className="w-px h-5 bg-gray-200" />

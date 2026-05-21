@@ -1,5 +1,5 @@
 /**
- * generate-poi-pages.jsx
+ * insert-fr.jsx
  * Script InDesign ExtendScript - generation automatique des pages POI
  *
  * Prerequis InDesign :
@@ -35,7 +35,7 @@ var DEBUG_INSPIRATION = false;
 var DEBUG_PAGES       = false;
 var DEBUG_SOMMAIRE    = false;
 // Mode diagnostic : affiche uniquement les numeros bruts du sommaire, sans liens.
-var SOMMAIRE_NUMBERS_ONLY_NO_LINKS = true;
+var SOMMAIRE_NUMBERS_ONLY_NO_LINKS = false;
 // Reprise a zero: injection simple JSON -> SOMMAIRE_numeros_1 avec saut de paragraphe.
 var SOMMAIRE_NUMBERS_STRICT_SIMPLE = true;
 // Log cible: afficher uniquement les 2 premieres lignes injectees dans SOMMAIRE_numeros_1.
@@ -62,7 +62,15 @@ var DURATION_GAP       = 3;     // mm - espace entre dernier picto et clock/dure
 // Fallback statique conserve pour compatibilite avec d'anciens exports JSON.
 var BULLET_LIST_FIELDS_FALLBACK = {
     "POI_texte_2": true,
-    "PRESENTATION_GUIDE_liste_sections": true
+    "PRESENTATION_GUIDE_liste_sections": true,
+    // Page PRESENTATION_DESTINATION : textes multilignes stylés comme listes
+    // dans InDesign, même si certains exports ne les déclarent pas `type: liste`.
+    "PRESENTATION_DESTINATION_texte_2": true,
+    "PRESENTATION_DESTINATION_texte_3": true,
+    "PRESENTATION_DESTINATION_texte_4": true,
+    "PRESENTATION_DESTINATION_liste_1": true,
+    "PRESENTATION_DESTINATION_liste_2": true,
+    "PRESENTATION_DESTINATION_liste_3": true
 };
 var BULLET_LIST_FIELDS = BULLET_LIST_FIELDS_FALLBACK;
 
@@ -94,8 +102,11 @@ var SKIP_IN_MASK_STEP  = {
 
 // Champs dont la valeur est un lien {label, url} ou une URL brute a appliquer
 // sur un cadre GRAPHIQUE (non-TextFrame) via HyperlinkPageItemSource.
-// Cle = nom du champ JSON, valeur = true.
+// Cle = nom du champ JSON, valeur = true ou label cible.
 var FRAME_LINK_FIELDS  = {
+    // Le label visible reste injecte dans POI_lien_1 (TextFrame).
+    // La zone graphique POI_lien_1_zone rend toute la pastille cliquable.
+    "POI_lien_1":                "POI_lien_1_zone",
     "POI_lien_2":                true,
     "ALLER_PLUS_LOIN_lien_1":    true,
     "ALLER_PLUS_LOIN_lien_2":    true,
@@ -330,6 +341,45 @@ function findByLabelOnPage(page, label) {
     return res;
 }
 
+function findByLabelOrOverrideMaster(page, label) {
+    var res = findByLabelOnPage(page, label);
+    if (res.length > 0) return res;
+
+    try {
+        var master = page.appliedMaster;
+        if (!master || !master.isValid) return res;
+
+        var masterItems = [];
+        try {
+            for (var ai = 0; ai < master.allPageItems.length; ai++) {
+                masterItems.push(master.allPageItems[ai]);
+            }
+        } catch (eAllMasterItems) {}
+        if (masterItems.length === 0) {
+            try {
+                for (var mp = 0; mp < master.pages.length; mp++) {
+                    var masterPageItems = master.pages[mp].allPageItems;
+                    for (var mpi = 0; mpi < masterPageItems.length; mpi++) {
+                        masterItems.push(masterPageItems[mpi]);
+                    }
+                }
+            } catch (eMasterPages) {}
+        }
+
+        for (var m = 0; m < masterItems.length; m++) {
+            try {
+                var masterItem = masterItems[m];
+                if (String(masterItem.label || "") !== label) continue;
+                var overridden = masterItem.override(page);
+                try { overridden.label = label; } catch (eLabel) {}
+                res.push(overridden);
+            } catch (eOverride) {}
+        }
+    } catch (eMaster) {}
+
+    return res;
+}
+
 // --- 3. Deplacer un objet sans toucher au contenu interieur ------------------
 // Utilise move() au lieu de geometricBounds = pour preserver le ratio image
 function moveItem(item, targetX, targetY) {
@@ -348,98 +398,84 @@ function moveItem(item, targetX, targetY) {
 //   ~text~    -> style "Gras-orange" (gras + couleur #f39428)
 //
 // Prerequis InDesign : styles de caractere "Gras", "Orange", "Chiffre", "Gras-orange".
-// Utilise tf.parentStory car findGrep/changeGrep ne sont pas disponibles
-// sur TextFrame directement.
+// GREP limite a tf.texts.item(0) pour ne pas melanger les ** avec un fil filete ;
+// styles appliques via indices story absolus (du dernier au premier match).
+
+function grepScopeForTextFrame(tf) {
+    try {
+        if (tf.texts != null && tf.texts.length > 0) {
+            return tf.texts.item(0);
+        }
+    } catch (e1) {}
+    return tf.parentStory;
+}
+
+function findGrepOnScope(scope, findWhat) {
+    app.findGrepPreferences   = NothingEnum.NOTHING;
+    app.changeGrepPreferences = NothingEnum.NOTHING;
+    app.findGrepPreferences.findWhat = findWhat;
+    var arr;
+    try {
+        arr = scope.findGrep();
+    } catch (eFG) {
+        arr = [];
+    }
+    app.findGrepPreferences = NothingEnum.NOTHING;
+    return arr;
+}
+
+function applyInnerStyledMatches(scope, story, findWhat, charStyle, headSkip, tailSkip) {
+    if (!charStyle || !charStyle.isValid) return;
+    var matches = findGrepOnScope(scope, findWhat);
+    var i, r, nChars, stIdx, enIdx;
+    for (i = matches.length - 1; i >= 0; i--) {
+        try {
+            r = matches[i];
+            nChars = r.characters.length;
+            if (nChars <= headSkip + tailSkip) continue;
+            stIdx = r.characters.item(headSkip).index;
+            enIdx = r.characters.item(nChars - tailSkip - 1).index;
+            if (enIdx < stIdx) continue;
+            story.characters.itemByRange(stIdx, enIdx).appliedCharacterStyle = charStyle;
+        } catch (eA) {}
+    }
+}
+
+function changeGrepOnScope(scope, story, findWhat, changeTo) {
+    app.findGrepPreferences   = NothingEnum.NOTHING;
+    app.changeGrepPreferences = NothingEnum.NOTHING;
+    app.findGrepPreferences.findWhat   = findWhat;
+    app.changeGrepPreferences.changeTo = changeTo;
+    try {
+        scope.changeGrep();
+    } catch (eC) {
+        try { story.changeGrep(); } catch (e2) {}
+    }
+    app.findGrepPreferences   = NothingEnum.NOTHING;
+    app.changeGrepPreferences = NothingEnum.NOTHING;
+}
 
 function applyStyleMarkers(tf) {
     try {
         var story = tf.parentStory;
+        var scope = grepScopeForTextFrame(tf);
 
         var boldStyle       = doc.characterStyles.itemByName(BOLD_STYLE_NAME);
         var orangeStyle     = doc.characterStyles.itemByName(ORANGE_STYLE_NAME);
         var chiffreStyle    = doc.characterStyles.itemByName(CHIFFRE_STYLE_NAME);
         var grasOrangeStyle = doc.characterStyles.itemByName(GRAS_ORANGE_STYLE_NAME);
 
-        // -- Gras : **text** --------------------------------------------------
-        app.findGrepPreferences   = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "(?s)\\*\\*.+?\\*\\*";
-        var boldMatches = story.findGrep();
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        if (boldStyle.isValid) {
-            for (var m = 0; m < boldMatches.length; m++) {
-                try { boldMatches[m].appliedCharacterStyle = boldStyle; } catch(e) {}
-            }
-        }
-        app.findGrepPreferences   = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat   = "\\*\\*";
-        app.changeGrepPreferences.changeTo = "";
-        story.changeGrep();
-        app.findGrepPreferences   = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
+        applyInnerStyledMatches(scope, story, "(?s)\\*\\*[^*]+?\\*\\*", boldStyle, 2, 2);
+        changeGrepOnScope(scope, story, "\\*\\*", "");
 
-        // -- Orange : {text} --------------------------------------------------
-        app.findGrepPreferences   = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "(?s)\\{.+?\\}";
-        var orangeMatches = story.findGrep();
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        if (orangeStyle.isValid) {
-            for (var o = 0; o < orangeMatches.length; o++) {
-                try { orangeMatches[o].appliedCharacterStyle = orangeStyle; } catch(e) {}
-            }
-        }
-        app.findGrepPreferences   = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat   = "[{}]";
-        app.changeGrepPreferences.changeTo = "";
-        story.changeGrep();
-        app.findGrepPreferences   = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
+        applyInnerStyledMatches(scope, story, "(?s)\\{[^}]+?\\}", orangeStyle, 1, 1);
+        changeGrepOnScope(scope, story, "[{}]", "");
 
-        // -- Chiffre : ^text^ -------------------------------------------------
-        app.findGrepPreferences   = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "(?s)\\^.+?\\^";
-        var chiffreMatches = story.findGrep();
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        if (chiffreStyle.isValid) {
-            for (var c = 0; c < chiffreMatches.length; c++) {
-                try { chiffreMatches[c].appliedCharacterStyle = chiffreStyle; } catch(e) {}
-            }
-        }
-        app.findGrepPreferences   = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat   = "\\^";
-        app.changeGrepPreferences.changeTo = "";
-        story.changeGrep();
-        app.findGrepPreferences   = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
+        applyInnerStyledMatches(scope, story, "(?s)\\^[^\\^]+?\\^", chiffreStyle, 1, 1);
+        changeGrepOnScope(scope, story, "\\^", "");
 
-        // -- Gras-orange : ~text~ ---------------------------------------------
-        // \x7E = code hex du caractere tilde (ASCII 126).
-        // En GREP InDesign, "~" est un prefixe de codes speciaux (ex: ~n, ~S…),
-        // et meme [~] peut etre mal interprete. \x7E bypass toute interpretation.
-        // (?s) = dotall, +? = non-greedy.
-        app.findGrepPreferences   = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "(?s)\\x7E.+?\\x7E";
-        var grasOrangeMatches = story.findGrep();
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        if (grasOrangeStyle.isValid) {
-            for (var g = 0; g < grasOrangeMatches.length; g++) {
-                try { grasOrangeMatches[g].appliedCharacterStyle = grasOrangeStyle; } catch(e) {}
-            }
-        }
-        // Suppression des marqueurs ~  ("~" seul fonctionne pour la suppression)
-        app.findGrepPreferences   = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat   = "~";
-        app.changeGrepPreferences.changeTo = "";
-        story.changeGrep();
-        app.findGrepPreferences   = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
+        applyInnerStyledMatches(scope, story, "(?s)\\x7E[^\\x7E]+?\\x7E", grasOrangeStyle, 1, 1);
+        changeGrepOnScope(scope, story, "~", "");
 
     } catch(e) {
         // Ne pas bloquer le reste du script si l'application de styles echoue
@@ -474,6 +510,29 @@ function truncateOverflow(tf) {
             story.characters.itemByRange(visCount, total - 1).remove();
         }
     } catch(e) {}
+}
+
+// Repare les ** mal places (traduction LLM) — aligne apps/api/src/utils/repair-style-markers.ts
+function repairBoldMarkersInJsonContent(s) {
+    if (!s || s.indexOf("**") === -1) return s;
+    function innerStartsVowel(inner) {
+        if (!inner || inner.length < 3) return false;
+        var c = inner.charAt(0);
+        return /[aeiouyAEIOUY\u00E0-\u00FC\u00F2-\u00F6\u00E8-\u00EB\u00EC-\u00EF\u00F9-\u00FC\u00E6\u0153]/i.test(c);
+    }
+    var out = s;
+    var iter, prev;
+    for (iter = 0; iter < 12; iter++) {
+        prev = out;
+        out = out.replace(/\*\*([^*]+?)\s+a\*\*(nd)\b/gi, "**$1** and");
+        out = out.replace(/(^|[\s\n\r"'"\u00AB\u00BB().,;:!?\-])([a-z\u00E0-\u00FF])\*\*([^*\r\n]+?)\*\*/gim,
+            function(all, sep, letter, inner) {
+                if (!innerStartsVowel(inner)) return all;
+                return sep + "**" + letter + inner + "**";
+            });
+        if (out === prev) break;
+    }
+    return out;
 }
 
 // --- 6. Injecter texte (masque le bloc si vide / absent) ---------------------
@@ -511,6 +570,7 @@ function injectText(page, label, value) {
 
             if (linkLabel !== null) {
                 // Champ lien structure : injecter l'intitule puis ajouter l'hyperlien
+                linkLabel = repairBoldMarkersInJsonContent(linkLabel);
                 blocks[i].visible = linkLabel !== "" || linkUrl !== "";
                 if (blocks[i].visible) {
                     blocks[i].contents = linkLabel;
@@ -522,7 +582,7 @@ function injectText(page, label, value) {
             } else {
                 blocks[i].visible = true;
                 blocks[i].contents = "";
-                var strValue = strRaw;
+                var strValue = repairBoldMarkersInJsonContent(strRaw);
                 var sommaireTitreLabel = "SOMMAIRE_titre_1";
                 try {
                     if (data && data.mappings && data.mappings.fields && data.mappings.fields["SOMMAIRE_titre_1"]) {
@@ -557,6 +617,13 @@ function injectBulletText(page, label, value) {
         if (!value) { blocks[i].visible = false; continue; }
         blocks[i].visible = true;
         var tf = blocks[i];
+        var bulletStyle = null;
+        try {
+            if (tf.paragraphs && tf.paragraphs.length > 0) {
+                var ps = tf.paragraphs[0].appliedParagraphStyle;
+                if (ps && ps.isValid) bulletStyle = ps;
+            }
+        } catch (eBulletStyle) {}
         tf.contents = "";
 
         var rawLines = value.split("\n");
@@ -567,8 +634,15 @@ function injectBulletText(page, label, value) {
         }
         if (items.length === 0) { blocks[i].visible = false; continue; }
 
-        var fullText = items.join("\r");
+        var fullText = repairBoldMarkersInJsonContent(items.join("\r"));
         tf.contents = fullText;
+        try {
+            if (bulletStyle && bulletStyle.isValid) {
+                for (var bp = 0; bp < tf.paragraphs.length; bp++) {
+                    try { tf.paragraphs[bp].appliedParagraphStyle = bulletStyle; } catch (eBp) {}
+                }
+            }
+        } catch (eApplyBulletStyle) {}
 
         // Appliquer les styles via GREP si des marqueurs sont presents
         var hasMarkers = fullText.indexOf("**") !== -1 ||
@@ -612,7 +686,7 @@ function injectNomHashtag(page, label, value) {
         var tf = blocks[i];
         tf.visible = true;
         // Normaliser les separateurs de paragraphe (\n ou \r) en \r (InDesign)
-        var strVal = String(value).replace(/\r\n/g, "\r").replace(/\n/g, "\r");
+        var strVal = repairBoldMarkersInJsonContent(String(value).replace(/\r\n/g, "\r").replace(/\n/g, "\r"));
         tf.contents = strVal;
 
         // Appliquer les styles de paragraphe :
@@ -803,7 +877,7 @@ function injectFrameHyperlink(page, label, value) {
         }
     }
 
-    var blocks = findByLabelOnPage(page, label);
+    var blocks = findByLabelOrOverrideMaster(page, label);
     for (var i = 0; i < blocks.length; i++) {
         var block = blocks[i];
         if (!url) {
@@ -1057,6 +1131,8 @@ var SOMMAIRE_NUMEROS_LABEL_ALIASES = [
 /** Noms possibles (InDesign : casse / variante). Le premier qui existe est utilise. */
 var SOMMAIRE_NUMEROS_STYLE_CANDIDATES = ["Sommaire-numeros", "sommaire-numeros", "Sommaire_numeros"];
 var SOMMAIRE_NUMEROS_VIDE_STYLE_CANDIDATES = ["Sommaire-numeros-absent", "sommaire-numeros-absent", "Sommaire_numeros_absent"];
+var SOMMAIRE_NUMEROS_ABSENT_SPACE_AFTER_TOP_PT = 20;
+var SOMMAIRE_NUMEROS_ABSENT_SPACE_AFTER_DEFAULT_PT = 40;
 var SOMMAIRE_NUMEROS_PAGE_SECTION_CANDIDATES = [
     "Sommaire-numeros-page-section",
     "sommaire-numeros-page-section",
@@ -1073,32 +1149,63 @@ var SOMMAIRE_NUMEROS_PAGE_SEULE_CANDIDATES = [
  * il occupe 2 lignes avec 15 pt / 18 pt interligne — on ajoute de l'espace apres sur
  * le paragraphe de la colonne numeros pour aligner les blocs suivants.
  */
-var SOMMAIRE_TITLE_WRAP_CHAR_MAX = 29;
-var SOMMAIRE_NUMEROS_WRAP_EXTRA_SPACE_PT = 18;
-// Stabilisation: desactiver temporairement l'ajustement vertical auto des numeros
-// (source de regressions/overflow sur certains documents).
-var SOMMAIRE_ENABLE_WRAP_SPACING = false;
+var SOMMAIRE_TITLE_WRAP_CHAR_MAX_SECTION = 31;
+var SOMMAIRE_TITLE_WRAP_CHAR_MAX_DEFAULT = 36;
+/** Colonne numeros : espace apres du numero si titre sur 1 ligne. */
+var SOMMAIRE_NUMEROS_SPACE_AFTER_ONE_LINE_PT = 17;
+/** Colonne numeros : espace apres du numero si titre sur 2 lignes. */
+var SOMMAIRE_NUMEROS_SPACE_AFTER_TWO_LINES_PT = 36;
+var SOMMAIRE_ENABLE_WRAP_SPACING = true;
 
 /** @param {string} entryTitle titre JSON brut (sans tabulation niveau 1). */
-function sommaireTitleWrapsTwoLinesByCharCount(entryTitle) {
-    return String(entryTitle || "").length > SOMMAIRE_TITLE_WRAP_CHAR_MAX;
+function sommaireTitleWrapsTwoLinesByCharCount(entryTitle, maxChars) {
+    return String(entryTitle || "").length > maxChars;
+}
+
+function sommaireIsNumerosColumnOne(tfNums) {
+    if (!tfNums) return false;
+    try {
+        var lbl = String(tfNums.label || "").replace(/^\s+|\s+$/g, "");
+        if (lbl === "SOMMAIRE_numeros_1" || lbl === "SOMMAIRE-numeros-1") return true;
+    } catch (eLbl) {}
+    return false;
+}
+
+function sommaireEntryWrapCharMax(entry, titleText) {
+    var lv = entry && entry.level !== undefined && entry.level !== null ? parseInt(entry.level, 10) : NaN;
+    if (!isNaN(lv) && lv === 1) return SOMMAIRE_TITLE_WRAP_CHAR_MAX_SECTION;
+    // Fallback legacy: ligne avec tab = sous-entree type page-section.
+    var t = String(titleText || "");
+    if (t.charAt(0) === "\t") return SOMMAIRE_TITLE_WRAP_CHAR_MAX_SECTION;
+    return SOMMAIRE_TITLE_WRAP_CHAR_MAX_DEFAULT;
+}
+
+function sommaireEntryNeedsNumerosExtraSpacing(entry, titleText, hasNumber) {
+    if (!hasNumber) return false;
+    var maxChars = sommaireEntryWrapCharMax(entry, titleText);
+    return sommaireTitleWrapsTwoLinesByCharCount(titleText, maxChars);
 }
 
 function sommaireWrapFlagsFromSlice(slice) {
     var flags = [];
     if (!slice) return flags;
-    for (var i = 0; i < slice.length; i++)
-        flags.push(sommaireTitleWrapsTwoLinesByCharCount(slice[i] && slice[i].title));
+    for (var i = 0; i < slice.length; i++) {
+        var e = slice[i] || null;
+        var pg = sommaireEntryPageValue(e);
+        var hasNum = pg !== "";
+        flags.push(sommaireEntryNeedsNumerosExtraSpacing(e, e && e.title, hasNum));
+    }
     return flags;
 }
 
-function sommaireWrapFlagsFromTitleLines(titleLines) {
+function sommaireWrapFlagsFromTitleLines(titleLines, numLines) {
     var flags = [];
     if (!titleLines) return flags;
     for (var i = 0; i < titleLines.length; i++) {
         var t = String(titleLines[i] || "");
-        if (t.charAt(0) === "\t") t = t.substring(1);
-        flags.push(t.length > SOMMAIRE_TITLE_WRAP_CHAR_MAX);
+        var hasNum = numLines && i < numLines.length && String(numLines[i] || "").replace(/^\s+|\s+$/g, "") !== "";
+        var clean = t.charAt(0) === "\t" ? t.substring(1) : t;
+        flags.push(sommaireEntryNeedsNumerosExtraSpacing(null, clean, hasNum));
     }
     return flags;
 }
@@ -1121,22 +1228,127 @@ function sommaireWrapFlagsFromRenderedTitle(tfTitle, expectedCount) {
     return flags;
 }
 
-function sommaireApplyDualNumerosWrapSpacing(tfNums, wrapFlags) {
+/**
+ * Ne pas mettre de spaceBefore "compensation" sur la ligne numeros du titre-section (level 0)
+ * ni sur la premiere ligne de contenu qui suit un titre-section (evite le trou sous "Les inspirations").
+ * sliceOrNull : entrees JSON ; numLinesOrNull : repli legacy (ligne precedente sans numero).
+ */
+function sommaireShouldSkipWrapSpaceBeforeTarget(sliceOrNull, numLinesOrNull, targetIdx) {
+    if (targetIdx < 0) return true;
+    if (sliceOrNull && targetIdx < sliceOrNull.length) {
+        var cur = sliceOrNull[targetIdx];
+        if (cur) {
+            var lvC = parseInt(cur.level, 10);
+            if (isNaN(lvC)) lvC = 2;
+            if (lvC === 0) return true;
+        }
+        if (targetIdx > 0) {
+            var prev = sliceOrNull[targetIdx - 1];
+            if (prev) {
+                var lvP = parseInt(prev.level, 10);
+                if (isNaN(lvP)) lvP = 2;
+                if (lvP === 0) return true;
+            }
+        }
+        return false;
+    }
+    if (numLinesOrNull && targetIdx > 0) {
+        var prevNum = String(numLinesOrNull[targetIdx - 1] || "").replace(/^\s+|\s+$/g, "");
+        if (prevNum === "") return true;
+    }
+    return false;
+}
+
+function sommaireEntryHasNumberAt(sliceOrNull, numLinesOrNull, idx) {
+    if (idx < 0) return false;
+    if (sliceOrNull && idx < sliceOrNull.length) {
+        var e = sliceOrNull[idx];
+        if (!e) return false;
+        var lv = parseInt(e.level, 10);
+        if (isNaN(lv)) lv = 2;
+        if (lv === 0) return false;
+        return sommaireEntryPageValue(e) !== "";
+    }
+    if (numLinesOrNull && idx < numLinesOrNull.length) {
+        return String(numLinesOrNull[idx] || "").replace(/^\s+|\s+$/g, "") !== "";
+    }
+    return false;
+}
+
+function sommaireEntryIsPageSectionAt(sliceOrNull, idx) {
+    if (!sliceOrNull || idx < 0 || idx >= sliceOrNull.length) return false;
+    var e = sliceOrNull[idx];
+    if (!e) return false;
+    var lv = parseInt(e.level, 10);
+    if (isNaN(lv)) lv = 2;
+    return lv === 1;
+}
+
+/** @param {Array|null} sliceOrNull entrees sommaire JSON
+ *  @param {Array|null} numLinesOrNull numeros par ligne (legacy si pas de slice) */
+function sommaireApplyDualNumerosWrapSpacing(tfNums, wrapFlags, sliceOrNull, numLinesOrNull) {
     if (!tfNums || !wrapFlags || wrapFlags.length === 0) return;
     try {
-        var paras = tfNums.paragraphs;
+        var paras = sommaireNumerosStoryParagraphs(tfNums);
+        if (!paras) return;
+        // Repartir de zero : supprime les residus de generations precedentes.
+        for (var rz = 0; rz < paras.length; rz++) {
+            try { paras[rz].spaceBefore = 0; } catch (eZ) {}
+            // Ne pas toucher spaceAfter des lignes sans numero (style absent gere ailleurs).
+        }
         var n = paras.length;
         if (wrapFlags.length < n) n = wrapFlags.length;
-        for (var pi = 0; pi < n; pi++) {
-            if (!wrapFlags[pi]) continue;
+        for (var i = 0; i < n; i++) {
+            if (!sommaireEntryHasNumberAt(sliceOrNull, numLinesOrNull, i)) continue;
+            // Regle 18/36 pt reservee au style numeros "page-section" (level 1).
+            if (!sommaireEntryIsPageSectionAt(sliceOrNull, i)) continue;
             try {
-                var p = paras[pi];
-                var cur = p.spaceAfter;
-                if (cur === undefined || cur === null || isNaN(cur)) cur = 0;
-                p.spaceAfter = Number(cur) + SOMMAIRE_NUMEROS_WRAP_EXTRA_SPACE_PT;
+                paras[i].spaceAfter = wrapFlags[i]
+                    ? SOMMAIRE_NUMEROS_SPACE_AFTER_TWO_LINES_PT
+                    : SOMMAIRE_NUMEROS_SPACE_AFTER_ONE_LINE_PT;
             } catch (eP) {}
         }
     } catch (eAll) {}
+}
+
+/**
+ * Paragraphes de la colonne numeros sur toute la story (cadre + enchainements).
+ * Sinon seuls les paragraphes commencant dans le 1er cadre sont exposes — les derniers
+ * numeros restent en police par defaut (effet "2 dernieres lignes").
+ */
+function sommaireNumerosStoryParagraphs(tfNums) {
+    if (!tfNums) return null;
+    try {
+        var story = tfNums.parentStory;
+        if (story && story.paragraphs && story.paragraphs.length > 0)
+            return story.paragraphs;
+    } catch (eS) {}
+    try {
+        return tfNums.paragraphs;
+    } catch (eF) {}
+    return null;
+}
+
+/** Retire les hyperliens texte dont la source appartient a la meme story que la colonne numeros (y compris cadres files). */
+function sommaireRemoveInternalHyperlinksForNumerosStory(tfNums) {
+    if (!tfNums) return;
+    var story = null;
+    try { story = tfNums.parentStory; } catch (e0) { return; }
+    if (!story) return;
+    var links = doc.hyperlinks;
+    for (var h = links.length - 1; h >= 0; h--) {
+        try {
+            var hl = links.item(h);
+            var src = hl.source;
+            if (!src) continue;
+            var st = null;
+            try { st = src.sourceText; } catch (eNoSt) {}
+            if (!st) continue;
+            try {
+                if (st.parentStory === story) hl.remove();
+            } catch (ePs) {}
+        } catch (eH) {}
+    }
 }
 
 /** @param {string[]} names */
@@ -1164,6 +1376,28 @@ function sommaireApplyNumerosParagraphOnly(paragraph, pst) {
                 paragraph.clearOverrides();
             }
         }
+    } catch (e) {}
+}
+
+function sommaireParagraphStartsAtFrameTop(paragraph) {
+    if (!paragraph) return false;
+    try {
+        var pfs = paragraph.parentTextFrames;
+        if (!pfs || pfs.length === 0) return false;
+        var tf = pfs[0];
+        var tfParas = tf.paragraphs;
+        if (!tfParas || tfParas.length === 0) return false;
+        return tfParas[0] === paragraph;
+    } catch (e) {}
+    return false;
+}
+
+function sommaireApplyAbsentSpacing(paragraph) {
+    if (!paragraph) return;
+    try {
+        paragraph.spaceAfter = sommaireParagraphStartsAtFrameTop(paragraph)
+            ? SOMMAIRE_NUMEROS_ABSENT_SPACE_AFTER_TOP_PT
+            : SOMMAIRE_NUMEROS_ABSENT_SPACE_AFTER_DEFAULT_PT;
     } catch (e) {}
 }
 var SOMMAIRE_TITRE_PARAGRAPH_STYLE_NAME = "";
@@ -1474,7 +1708,8 @@ function sommaireApplyNumerosStyles(tfNums, numLines, styleLevels) {
         var stVide = sommaireFirstValidParagraphStyle(SOMMAIRE_NUMEROS_VIDE_STYLE_CANDIDATES);
         var stSection = sommaireFirstValidParagraphStyle(SOMMAIRE_NUMEROS_PAGE_SECTION_CANDIDATES);
         var stSeule = sommaireFirstValidParagraphStyle(SOMMAIRE_NUMEROS_PAGE_SEULE_CANDIDATES);
-        var paras = tfNums.paragraphs;
+        var paras = sommaireNumerosStoryParagraphs(tfNums);
+        if (!paras) return;
         var count = paras.length;
         var useLevels = styleLevels && styleLevels.length > 0;
         for (var pn = 0; pn < count; pn++) {
@@ -1491,16 +1726,21 @@ function sommaireApplyNumerosStyles(tfNums, numLines, styleLevels) {
                     } else {
                         pstPick = stSeule || stGeneric;
                     }
-                    if (pstPick) sommaireApplyNumerosParagraphOnly(paras[pn], pstPick);
+                    if (pstPick) {
+                        sommaireApplyNumerosParagraphOnly(paras[pn], pstPick);
+                        if (!hasNum && pstPick === stVide) sommaireApplyAbsentSpacing(paras[pn]);
+                    }
                 } else {
                     if (hasNum && stGeneric) {
                         sommaireApplyNumerosParagraphOnly(paras[pn], stGeneric);
                     } else if (!hasNum && stVide) {
                         sommaireApplyNumerosParagraphOnly(paras[pn], stVide);
+                        sommaireApplyAbsentSpacing(paras[pn]);
                     } else if (stGeneric) {
                         sommaireApplyNumerosParagraphOnly(paras[pn], stGeneric);
                     } else if (stVide) {
                         sommaireApplyNumerosParagraphOnly(paras[pn], stVide);
+                        sommaireApplyAbsentSpacing(paras[pn]);
                     }
                 }
             } catch (eN) {}
@@ -1730,12 +1970,12 @@ function injectSommaireText(page, pageData, sommaireSpreadPart) {
                         sommaireWriteLinesToFrame(tfNums, numLines);
                     }
                     sommaireApplyNumerosStyles(tfNums, numLines, styleLevels);
-                    if (SOMMAIRE_ENABLE_WRAP_SPACING && tfNums && sommaireDualSliceRef)
-                        sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromRenderedTitle(tfTitle, numLines.length));
+                    if (SOMMAIRE_ENABLE_WRAP_SPACING && tfNums && sommaireDualSliceRef && sommaireIsNumerosColumnOne(tfNums))
+                        sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromSlice(sommaireDualSliceRef), sommaireDualSliceRef, null);
                 } else {
                     sommaireApplyNumerosStyles(tfNums, numLines, styleLevels);
-                    if (SOMMAIRE_ENABLE_WRAP_SPACING && tfNums && sommaireDualSliceRef)
-                        sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromRenderedTitle(tfTitle, numLines.length));
+                    if (SOMMAIRE_ENABLE_WRAP_SPACING && tfNums && sommaireDualSliceRef && sommaireIsNumerosColumnOne(tfNums))
+                        sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromSlice(sommaireDualSliceRef), sommaireDualSliceRef, null);
                 }
             }
         } else if (useLegacyParaStyles) {
@@ -1764,12 +2004,12 @@ function injectSommaireText(page, pageData, sommaireSpreadPart) {
                         sommaireWriteLinesToFrame(tfNums, numLines);
                     }
                     sommaireApplyNumerosStyles(tfNums, numLines, null);
-                    if (SOMMAIRE_ENABLE_WRAP_SPACING && tfNums && titleLines)
-                        sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromRenderedTitle(tfTitle, numLines.length));
+                    if (SOMMAIRE_ENABLE_WRAP_SPACING && tfNums && titleLines && sommaireIsNumerosColumnOne(tfNums))
+                        sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromTitleLines(titleLines, numLines), null, numLines);
                 } else {
                     sommaireApplyNumerosStyles(tfNums, numLines, null);
-                    if (SOMMAIRE_ENABLE_WRAP_SPACING && tfNums && titleLines)
-                        sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromRenderedTitle(tfTitle, numLines.length));
+                    if (SOMMAIRE_ENABLE_WRAP_SPACING && tfNums && titleLines && sommaireIsNumerosColumnOne(tfNums))
+                        sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromTitleLines(titleLines, numLines), null, numLines);
                 }
             }
         }
@@ -1875,6 +2115,26 @@ function sommaireGetOrCreatePageDestination(targetPage) {
     return null;
 }
 
+/** Style caractere a appliquer au texte du lien (evite le style "Hyperlien" du doc qui casse graisse/couleur). */
+function sommaireHyperlinkNoneCharacterStyle() {
+    try {
+        var noneCh = doc.characterStyles.itemByName("[None]");
+        if (noneCh.isValid) return noneCh;
+    } catch (e0) {}
+    try {
+        var noneFr = doc.characterStyles.itemByName("[Aucun style de caractère]");
+        if (noneFr.isValid) return noneFr;
+    } catch (eFr) {}
+    try {
+        var none2 = doc.characterStyles.itemByName("None");
+        if (none2.isValid) return none2;
+    } catch (e1) {}
+    try {
+        if (doc.characterStyles.length > 0) return doc.characterStyles[0];
+    } catch (e2) {}
+    return null;
+}
+
 function sommaireAddTextToPageHyperlink(textRange, targetPage) {
     if (!textRange || !targetPage) return;
     var dest = sommaireGetOrCreatePageDestination(targetPage);
@@ -1882,26 +2142,22 @@ function sommaireAddTextToPageHyperlink(textRange, targetPage) {
     var src;
     try { src = doc.hyperlinkTextSources.add(textRange); } catch (eS) { return; }
     try {
-        doc.hyperlinks.add(src, dest, {
+        var hl = doc.hyperlinks.add(src, dest, {
             visible: false,
             highlight: HyperlinkAppearanceHighlight.NONE
         });
+        try {
+            var noneCh = sommaireHyperlinkNoneCharacterStyle();
+            if (noneCh && noneCh.isValid) hl.appliedCharacterStyle = noneCh;
+        } catch (eApp) {}
     } catch (eHl) {}
 }
 
-function sommaireWireDualFrameNumbers(tfNums, slice, data, pageOffset) {
-    if (!tfNums || !slice || slice.length === 0) return;
-    sommaireRemoveInternalHyperlinks(tfNums);
+/** Reconstruit les lignes de numeros + niveaux a partir du slice (apres liens : reappliquer styles paragraphe). */
+function sommaireBuildNumerosLinesAndLevelsFromSlice(slice) {
     var numLines = [];
     var styleLevels = [];
-    var linksCreated = 0;
-    var targetsMissing = 0;
-    var writeFailures = 0;
-    var rangeFailures = 0;
-    var paraCountAtStart = 0;
-    var lastWriteError = "";
-    var lastRangeError = "";
-    try { paraCountAtStart = tfNums.paragraphs.length; } catch (ePc) {}
+    if (!slice) return { numLines: numLines, styleLevels: styleLevels };
     for (var s0 = 0; s0 < slice.length; s0++) {
         var lv0 = parseInt(slice[s0].level, 10);
         if (isNaN(lv0)) lv0 = 2;
@@ -1910,9 +2166,19 @@ function sommaireWireDualFrameNumbers(tfNums, slice, data, pageOffset) {
         var hasPg0 = pg0 !== "";
         numLines.push((lv0 === 0 || !hasPg0) ? "" : String(pg0));
     }
-    // Important: reconstruire toutes les lignes du cadre numeros ici,
-    // pour ne pas dependre d'un etat amont (ex: cadre avec 1 seul paragraphe).
-    sommaireWriteLinesToFrame(tfNums, numLines);
+    return { numLines: numLines, styleLevels: styleLevels };
+}
+
+function sommaireWireDualFrameNumbers(tfNums, slice, data, pageOffset) {
+    if (!tfNums || !slice || slice.length === 0) return;
+    sommaireRemoveInternalHyperlinksForNumerosStory(tfNums);
+    var linksCreated = 0;
+    var targetsMissing = 0;
+    var rangeFailures = 0;
+    var paraCountAtStart = 0;
+    var lastRangeError = "";
+    var storyParas = sommaireNumerosStoryParagraphs(tfNums);
+    try { paraCountAtStart = storyParas ? storyParas.length : 0; } catch (ePc) {}
     for (var j = 0; j < slice.length; j++) {
         var entry = slice[j];
         var pg = sommaireEntryPageValue(entry);
@@ -1922,13 +2188,18 @@ function sommaireWireDualFrameNumbers(tfNums, slice, data, pageOffset) {
             continue;
         var target = sommaireResolveTargetPage(pg, data, pageOffset);
         if (!target) { targetsMissing++; continue; }
-        if (j >= tfNums.paragraphs.length) break;
-        var para = tfNums.paragraphs[j];
+        if (!storyParas || j >= storyParas.length) break;
+        var para = storyParas[j];
         var display = String(pg).replace(/^\s+|\s+$/g, "");
-        try { para.contents = display; } catch (eC) { writeFailures++; lastWriteError = String(eC); continue; }
-        numLines[j] = display;
+        var curText = "";
+        try { curText = String(para.contents || "").replace(/\r/g, "").replace(/^\s+|\s+$/g, ""); } catch (eTxt) {}
+        // Ne pas reconstruire la colonne numeros ici : on preserve l'affichage deja injecte.
+        // On ne remplit que les paragraphes vides pour conserver une base cliquable.
+        if (curText === "") {
+            try { para.contents = display; } catch (eC) { continue; }
+        }
         try {
-            para = tfNums.paragraphs[j];
+            para = storyParas[j];
             if (para.characters.length === 0) continue;
             var st = para.characters.item(0).index;
             var en = para.characters.item(para.characters.length - 1).index;
@@ -1938,17 +2209,22 @@ function sommaireWireDualFrameNumbers(tfNums, slice, data, pageOffset) {
             linksCreated++;
         } catch (eR) { rangeFailures++; lastRangeError = String(eR); }
     }
-    sommaireApplyNumerosStyles(tfNums, numLines, styleLevels);
-    sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromSlice(slice));
+    // Les hyperliens appliquent souvent le style caractere "Hyperlien" du document,
+    // ce qui ecrase graisse / couleur des numeros. On reapplique les styles paragraphe
+    // puis l'ajustement wrap (spaceBefore) calcule apres injection.
+    try {
+        var metaNums = sommaireBuildNumerosLinesAndLevelsFromSlice(slice);
+        sommaireApplyNumerosStyles(tfNums, metaNums.numLines, metaNums.styleLevels);
+        if (SOMMAIRE_ENABLE_WRAP_SPACING && sommaireIsNumerosColumnOne(tfNums))
+            sommaireApplyDualNumerosWrapSpacing(tfNums, sommaireWrapFlagsFromSlice(slice), slice, null);
+    } catch (eRestyle) {}
     sommaireDebugAlert(
         "Colonne numeros: " + String(tfNums.label || "sans label")
         + "\nLignes traitees: " + slice.length
         + "\nParagraphes au depart: " + paraCountAtStart
         + "\nLiens crees: " + linksCreated
         + "\nCibles introuvables: " + targetsMissing
-        + "\nEchecs ecriture numero: " + writeFailures
         + "\nEchecs creation range/lien: " + rangeFailures
-        + (lastWriteError ? ("\nDerniere erreur ecriture: " + lastWriteError) : "")
         + (lastRangeError ? ("\nDerniere erreur range/lien: " + lastRangeError) : "")
     );
 }
@@ -2005,7 +2281,7 @@ function sommaireWirePageNumberHyperlinksOnPage(idPage, pageData, spreadPart, da
 
     var tfTitle = sommaireGetTextFrame(idPage, labelTitres);
     if (!tfTitle) return;
-    var tfNums = sommaireGetTextFrameByAliases(idPage, sommaireBuildNumerosLabelCandidates());
+    var tfNums = sommaireGetNumerosFrame(idPage, sommaireBuildNumerosLabelCandidates());
     var dualMode = tfNums !== null;
 
     var rawStr = String(rawValue).replace(/^\uFEFF/g, "").replace(/^\s+|\s+$/g, "");
@@ -2137,7 +2413,9 @@ function injectPageContent(page, pageData) {
     // Etape B2 : liens sur cadres graphiques (FRAME_LINK_FIELDS)
     for (var flKey in FRAME_LINK_FIELDS) {
         if (!FRAME_LINK_FIELDS.hasOwnProperty(flKey)) continue;
-        var flMapping = data.mappings.fields[flKey] || flKey;
+        var flTarget = FRAME_LINK_FIELDS[flKey];
+        var flTargetKey = (typeof flTarget === "string") ? flTarget : flKey;
+        var flMapping = data.mappings.fields[flTargetKey] || flTargetKey;
         injectFrameHyperlink(page, flMapping, textContent[flKey] || null);
     }
 
@@ -2362,7 +2640,7 @@ try {
     sommaireWireAllSommairePagesForGenerate(data);
 } catch (eSomHl) {}
 
-var finalMsg = pagesGenerated + " page(s) générée(s) ✔  |  "
+var finalMsg = pagesGenerated + " page(s) g\u00e9n\u00e9r\u00e9e(s) \u2714  |  "
              + doc.pages.length + " page(s) dans le document  |  "
              + "JSON : " + data.pages.length + " page(s)";
 
@@ -2414,7 +2692,7 @@ if (overflowWarnings.length > 0) {
 }
 
 if (imagePlacementWarnings.length > 0) {
-    finalMsg += "\n\n[!] " + imagePlacementWarnings.length + " image(s) non placée(s)";
+    finalMsg += "\n\n[!] " + imagePlacementWarnings.length + " image(s) non plac\u00e9e(s)";
     // Ecrire un rapport dédié pour diagnostic précis
     try {
         var imgReport = new File(rootFolder + "/image-placement-report.txt");

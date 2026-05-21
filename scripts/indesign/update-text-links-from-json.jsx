@@ -55,50 +55,75 @@ function findByLabelOnPage(page, label) {
     return res;
 }
 
+function grepScopeForTextFrame(tf) {
+    try {
+        if (tf.texts != null && tf.texts.length > 0) return tf.texts.item(0);
+    } catch (e1) {}
+    return tf.parentStory;
+}
+
+function findGrepOnScope(scope, findWhat) {
+    app.findGrepPreferences = NothingEnum.NOTHING;
+    app.changeGrepPreferences = NothingEnum.NOTHING;
+    app.findGrepPreferences.findWhat = findWhat;
+    var arr;
+    try {
+        arr = scope.findGrep();
+    } catch (eFG) {
+        arr = [];
+    }
+    app.findGrepPreferences = NothingEnum.NOTHING;
+    return arr;
+}
+
+function applyInnerStyledMatches(scope, story, findWhat, charStyle, headSkip, tailSkip) {
+    if (!charStyle || !charStyle.isValid) return;
+    var matches = findGrepOnScope(scope, findWhat);
+    var i, r, nChars, stIdx, enIdx;
+    for (i = matches.length - 1; i >= 0; i--) {
+        try {
+            r = matches[i];
+            nChars = r.characters.length;
+            if (nChars <= headSkip + tailSkip) continue;
+            stIdx = r.characters.item(headSkip).index;
+            enIdx = r.characters.item(nChars - tailSkip - 1).index;
+            if (enIdx < stIdx) continue;
+            story.characters.itemByRange(stIdx, enIdx).appliedCharacterStyle = charStyle;
+        } catch (eA) {}
+    }
+}
+
+function changeGrepOnScope(scope, story, findWhat, changeTo) {
+    app.findGrepPreferences = NothingEnum.NOTHING;
+    app.changeGrepPreferences = NothingEnum.NOTHING;
+    app.findGrepPreferences.findWhat = findWhat;
+    app.changeGrepPreferences.changeTo = changeTo;
+    try {
+        scope.changeGrep();
+    } catch (eC) {
+        try { story.changeGrep(); } catch (e2) {}
+    }
+    app.findGrepPreferences = NothingEnum.NOTHING;
+    app.changeGrepPreferences = NothingEnum.NOTHING;
+}
+
 function applyStyleMarkers(tf) {
     try {
         var story = tf.parentStory;
+        var scope = grepScopeForTextFrame(tf);
         var boldStyle       = doc.characterStyles.itemByName(BOLD_STYLE_NAME);
         var orangeStyle     = doc.characterStyles.itemByName(ORANGE_STYLE_NAME);
         var chiffreStyle    = doc.characterStyles.itemByName(CHIFFRE_STYLE_NAME);
         var grasOrangeStyle = doc.characterStyles.itemByName(GRAS_ORANGE_STYLE_NAME);
 
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "(?s)\\*\\*.+?\\*\\*";
-        var boldMatches = story.findGrep();
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        if (boldStyle.isValid) for (var b = 0; b < boldMatches.length; b++) { try { boldMatches[b].appliedCharacterStyle = boldStyle; } catch(e) {} }
-        app.findGrepPreferences = NothingEnum.NOTHING; app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "\\*\\*"; app.changeGrepPreferences.changeTo = "";
-        story.changeGrep();
-
-        app.findGrepPreferences = NothingEnum.NOTHING; app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "(?s)\\{.+?\\}";
-        var orangeMatches = story.findGrep();
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        if (orangeStyle.isValid) for (var o = 0; o < orangeMatches.length; o++) { try { orangeMatches[o].appliedCharacterStyle = orangeStyle; } catch(e2) {} }
-        app.findGrepPreferences = NothingEnum.NOTHING; app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "[{}]"; app.changeGrepPreferences.changeTo = "";
-        story.changeGrep();
-
-        app.findGrepPreferences = NothingEnum.NOTHING; app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "(?s)\\^.+?\\^";
-        var chiffreMatches = story.findGrep();
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        if (chiffreStyle.isValid) for (var c = 0; c < chiffreMatches.length; c++) { try { chiffreMatches[c].appliedCharacterStyle = chiffreStyle; } catch(e3) {} }
-        app.findGrepPreferences = NothingEnum.NOTHING; app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "\\^"; app.changeGrepPreferences.changeTo = "";
-        story.changeGrep();
-
-        app.findGrepPreferences = NothingEnum.NOTHING; app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "(?s)\\x7E.+?\\x7E";
-        var grasOrangeMatches = story.findGrep();
-        app.findGrepPreferences = NothingEnum.NOTHING;
-        if (grasOrangeStyle.isValid) for (var g = 0; g < grasOrangeMatches.length; g++) { try { grasOrangeMatches[g].appliedCharacterStyle = grasOrangeStyle; } catch(e4) {} }
-        app.findGrepPreferences = NothingEnum.NOTHING; app.changeGrepPreferences = NothingEnum.NOTHING;
-        app.findGrepPreferences.findWhat = "~"; app.changeGrepPreferences.changeTo = "";
-        story.changeGrep();
+        applyInnerStyledMatches(scope, story, "(?s)\\*\\*[^*]+?\\*\\*", boldStyle, 2, 2);
+        changeGrepOnScope(scope, story, "\\*\\*", "");
+        applyInnerStyledMatches(scope, story, "(?s)\\{[^}]+?\\}", orangeStyle, 1, 1);
+        changeGrepOnScope(scope, story, "[{}]", "");
+        applyInnerStyledMatches(scope, story, "(?s)\\^[^\\^]+?\\^", chiffreStyle, 1, 1);
+        changeGrepOnScope(scope, story, "\\^", "");
+        applyInnerStyledMatches(scope, story, "(?s)\\x7E[^\\x7E]+?\\x7E", grasOrangeStyle, 1, 1);
+        changeGrepOnScope(scope, story, "~", "");
 
         app.findGrepPreferences = NothingEnum.NOTHING;
         app.changeGrepPreferences = NothingEnum.NOTHING;
@@ -351,10 +376,10 @@ function injectBulletText(page, label, value) {
     }
 }
 
-// --- Sommaire (aligne sur generate-poi-pages.jsx) -----------------------------
+// --- Sommaire (aligne sur insert-fr.jsx) -----------------------------
 //
 // Deux cadres optionnels : libelle titres (mapping, ex. SOMMAIRE_texte_1) + SOMMAIRE_numeros_1.
-// Voir entete generate-poi-pages.jsx section 10b : styles numeros par level (section / page seule / absent).
+// Voir entete insert-fr.jsx section 10b : styles numeros par level (section / page seule / absent).
 //
 var SOMMAIRE_STYLE_BY_LEVEL = {
     0: "Titre-section",
@@ -982,7 +1007,7 @@ function updatePageFromJson(page, pageData, bulletFields, sommaireSpreadPart) {
         var mapping = (data.mappings && data.mappings.fields && data.mappings.fields[tKey]) || tKey;
         var tVal = textContent[tKey];
         // Jamais injectText ici : le JSON contient des "{" qui declencheraient applyStyleMarkers (Orange).
-        // Meme logique que SKIP_IN_TEXT_STEP.SOMMAIRE_texte_1 dans generate-poi-pages.jsx.
+        // Meme logique que SKIP_IN_TEXT_STEP.SOMMAIRE_texte_1 dans insert-fr.jsx.
         if (tKey === "SOMMAIRE_texte_1") {
             injectSommaireText(page, pageData, sommaireSpreadPart || 1, mapping);
             continue;

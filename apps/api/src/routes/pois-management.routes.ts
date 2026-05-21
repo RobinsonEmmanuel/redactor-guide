@@ -9,6 +9,78 @@ const ManualPOISchema = z.object({
   url_source: z.string().optional(),
 });
 
+const ReusePoisSchema = z.object({
+  sourceGuideId: z.string().min(1),
+  includeMatching: z.boolean().optional().default(true),
+});
+
+function normalizeGuideSiteUrl(guide: any): string | null {
+  const siteUrl = guide?.wpConfig?.siteUrl;
+  if (!siteUrl || typeof siteUrl !== 'string') return null;
+  try {
+    const url = new URL(siteUrl);
+    return `${url.protocol}//${url.hostname.replace(/^www\./, '').toLowerCase()}`;
+  } catch {
+    return siteUrl.trim().replace(/\/$/, '').replace(/^https?:\/\/www\./i, '').toLowerCase() || null;
+  }
+}
+
+function canReuseClusterMatching(targetGuide: any, sourceGuide: any): boolean {
+  const targetDestination = targetGuide?.destination_rl_id;
+  const sourceDestination = sourceGuide?.destination_rl_id;
+  return !targetDestination || !sourceDestination || targetDestination === sourceDestination;
+}
+
+function copyClusterAssignmentsToPois(sourcePois: any[], sourceAssignment: any | null): any[] {
+  if (!sourceAssignment) return sourcePois.map((poi: any) => ({ ...poi }));
+
+  const clusterNames = new Map<string, string>();
+  for (const cluster of sourceAssignment.clusters_metadata || []) {
+    if (cluster.cluster_id) clusterNames.set(cluster.cluster_id, cluster.cluster_name);
+  }
+
+  const assignedByPoiId = new Map<string, any>();
+  const clusters = sourceAssignment.assignment?.clusters || sourceAssignment.clusters || {};
+  for (const [clusterId, items] of Object.entries(clusters)) {
+    if (!Array.isArray(items)) continue;
+    for (const item of items) {
+      const poiId = item?.poi?.poi_id || item?.poi_id;
+      if (!poiId) continue;
+      assignedByPoiId.set(poiId, {
+        ...item,
+        cluster_id: clusterId,
+        cluster_name: item?.poi?.cluster_name || item?.cluster_name || clusterNames.get(clusterId),
+      });
+    }
+  }
+
+  const unassignedItems = sourceAssignment.assignment?.unassigned || sourceAssignment.unassigned || [];
+  if (Array.isArray(unassignedItems)) {
+    for (const item of unassignedItems) {
+      const poiId = item?.poi?.poi_id || item?.poi_id;
+      if (!poiId || assignedByPoiId.has(poiId)) continue;
+      assignedByPoiId.set(poiId, { ...item, cluster_id: null, cluster_name: null });
+    }
+  }
+
+  return sourcePois.map((poi: any) => {
+    const assignment = assignedByPoiId.get(poi.poi_id);
+    if (!assignment) return { ...poi };
+
+    const suggestion = assignment.suggested_match;
+    return {
+      ...poi,
+      cluster_id: assignment.cluster_id || null,
+      cluster_name: assignment.cluster_name || undefined,
+      place_instance_id: assignment.place_instance_id,
+      matched_automatically: assignment.matched_automatically ?? poi.matched_automatically,
+      confidence: suggestion?.confidence || poi.confidence,
+      score: suggestion?.score ?? poi.score,
+      validated: poi.validated,
+    };
+  });
+}
+
 export default async function poisManagementRoutes(fastify: FastifyInstance) {
   const db: Db = fastify.mongo.db!;
 
@@ -73,6 +145,180 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
   fastify.post<{ Params: { guideId: string; jobId: string } }>(
     '/guides/:guideId/pois/jobs/:jobId/deduplicate',
     (request, reply) => proxyToPoiService(request, reply, `/guides/${(request.params as any).guideId}/pois/jobs/${(request.params as any).jobId}/deduplicate`)
+  );
+
+  /**
+   * GET /guides/:guideId/pois/reuse-candidates
+   * Liste les guides ayant le même site source et une sélection POI exploitable.
+   */
+  fastify.get<{ Params: { guideId: string } }>(
+    '/guides/:guideId/pois/reuse-candidates',
+    async (request, reply) => {
+      const { guideId } = request.params;
+
+      try {
+        if (!ObjectId.isValid(guideId)) return reply.code(400).send({ error: 'guideId invalide' });
+
+        const targetGuide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
+        if (!targetGuide) return reply.code(404).send({ error: 'Guide cible non trouvé' });
+
+        const targetSiteUrl = normalizeGuideSiteUrl(targetGuide);
+        if (!targetSiteUrl) return reply.send({ candidates: [], siteUrl: null });
+
+        const guides = await db.collection(COLLECTIONS.guides)
+          .find(
+            { _id: { $ne: new ObjectId(guideId) } },
+            { projection: { name: 1, slug: 1, year: 1, version: 1, wpConfig: 1, destination_rl_id: 1, updatedAt: 1 } }
+          )
+          .toArray();
+
+        const sameSiteGuides = guides.filter((guide) => normalizeGuideSiteUrl(guide) === targetSiteUrl);
+        if (sameSiteGuides.length === 0) return reply.send({ candidates: [], siteUrl: targetSiteUrl });
+
+        const sourceGuideIds = sameSiteGuides.map((guide) => guide._id.toString());
+        const [selections, assignments] = await Promise.all([
+          db.collection(COLLECTIONS.pois_selection).find({ guide_id: { $in: sourceGuideIds } }).toArray(),
+          db.collection(COLLECTIONS.cluster_assignments).find({ guide_id: { $in: sourceGuideIds } }).toArray(),
+        ]);
+
+        const selectionsByGuide = new Map(selections.map((selection: any) => [selection.guide_id, selection]));
+        const assignmentsByGuide = new Map(assignments.map((assignment: any) => [assignment.guide_id, assignment]));
+
+        const candidates = sameSiteGuides
+          .map((guide: any) => {
+            const id = guide._id.toString();
+            const selection = selectionsByGuide.get(id);
+            const assignment = assignmentsByGuide.get(id);
+            const matchingReusable = canReuseClusterMatching(targetGuide, guide);
+
+            return {
+              guideId: id,
+              name: guide.name,
+              slug: guide.slug,
+              year: guide.year,
+              version: guide.version,
+              poiCount: selection?.pois?.length || 0,
+              hasMatching: Boolean(assignment),
+              canCopyMatching: Boolean(matchingReusable && assignment),
+              updatedAt: selection?.updated_at || guide.updatedAt || null,
+            };
+          })
+          .filter((candidate) => candidate.poiCount > 0)
+          .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+
+        return reply.send({ candidates, siteUrl: targetSiteUrl });
+      } catch (error: any) {
+        console.error('❌ [POIs Reuse Candidates] Erreur:', error);
+        return reply.code(500).send({ error: error.message });
+      }
+    }
+  );
+
+  /**
+   * POST /guides/:guideId/pois/reuse-from
+   * Copie la sélection POI depuis un guide du même site source.
+   */
+  fastify.post<{ Params: { guideId: string }; Body: { sourceGuideId: string; includeMatching?: boolean } }>(
+    '/guides/:guideId/pois/reuse-from',
+    async (request, reply) => {
+      const { guideId } = request.params;
+
+      try {
+        if (!ObjectId.isValid(guideId)) return reply.code(400).send({ error: 'guideId invalide' });
+
+        const { sourceGuideId, includeMatching } = ReusePoisSchema.parse(request.body);
+        if (!ObjectId.isValid(sourceGuideId)) return reply.code(400).send({ error: 'sourceGuideId invalide' });
+        if (sourceGuideId === guideId) return reply.code(400).send({ error: 'Le guide source doit être différent du guide cible' });
+
+        const [targetGuide, sourceGuide] = await Promise.all([
+          db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) }),
+          db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(sourceGuideId) }),
+        ]);
+
+        if (!targetGuide) return reply.code(404).send({ error: 'Guide cible non trouvé' });
+        if (!sourceGuide) return reply.code(404).send({ error: 'Guide source non trouvé' });
+
+        const targetSiteUrl = normalizeGuideSiteUrl(targetGuide);
+        const sourceSiteUrl = normalizeGuideSiteUrl(sourceGuide);
+        if (!targetSiteUrl || !sourceSiteUrl || targetSiteUrl !== sourceSiteUrl) {
+          return reply.code(400).send({
+            error: 'Site source différent',
+            message: 'La réutilisation des POI est autorisée uniquement entre guides ayant le même site source.',
+          });
+        }
+
+        const sourceSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: sourceGuideId });
+        const sourcePois = sourceSelection?.pois || [];
+        if (sourcePois.length === 0) {
+          return reply.code(404).send({ error: 'Aucune sélection POI trouvée sur le guide source' });
+        }
+
+        const now = new Date();
+        let matchingCopied = false;
+        let matchingSkippedReason: string | undefined;
+        let sourceAssignment: any | null = null;
+
+        if (includeMatching) {
+          const matchingReusable = canReuseClusterMatching(targetGuide, sourceGuide);
+
+          if (!matchingReusable) {
+            matchingSkippedReason = 'destination_rl_id différent ou manquant';
+          } else {
+            sourceAssignment = await db.collection(COLLECTIONS.cluster_assignments).findOne({ guide_id: sourceGuideId });
+            if (!sourceAssignment) {
+              matchingSkippedReason = 'aucun matching trouvé sur le guide source';
+            } else {
+              const { _id, ...assignmentCopy } = sourceAssignment;
+              await db.collection(COLLECTIONS.cluster_assignments).updateOne(
+                { guide_id: guideId },
+                {
+                  $set: {
+                    ...assignmentCopy,
+                    guide_id: guideId,
+                    copied_from_guide_id: sourceGuideId,
+                    copied_from_guide_name: sourceGuide.name,
+                    updated_at: now,
+                  },
+                  $setOnInsert: { created_at: now },
+                },
+                { upsert: true }
+              );
+              matchingCopied = true;
+            }
+          }
+        }
+
+        const copiedPois = copyClusterAssignmentsToPois(sourcePois, sourceAssignment);
+        await db.collection(COLLECTIONS.pois_selection).updateOne(
+          { guide_id: guideId },
+          {
+            $set: {
+              guide_id: guideId,
+              pois: copiedPois,
+              copied_from_guide_id: sourceGuideId,
+              copied_from_guide_name: sourceGuide.name,
+              updated_at: now,
+            },
+            $setOnInsert: { created_at: now },
+          },
+          { upsert: true }
+        );
+
+        console.log(`♻️ [POIs Reuse] ${copiedPois.length} POI(s) copiés de ${sourceGuideId} vers ${guideId}`);
+        return reply.send({
+          success: true,
+          count: copiedPois.length,
+          matchingCopied,
+          matchingSkippedReason,
+        });
+      } catch (error: any) {
+        if (error instanceof z.ZodError) {
+          return reply.code(400).send({ error: 'Données invalides', details: error.errors });
+        }
+        console.error('❌ [POIs Reuse] Erreur:', error);
+        return reply.code(500).send({ error: error.message });
+      }
+    }
   );
 
   /**

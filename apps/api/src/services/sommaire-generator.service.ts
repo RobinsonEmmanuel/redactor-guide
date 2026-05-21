@@ -80,9 +80,13 @@ export class SommaireGeneratorService {
     const destination = guide.destination || guide.name;
     const siteUrl = guide.wpConfig?.siteUrl || 'WordPress';
 
-    // 2. Charger les articles WordPress
-    const articles = await this.loadArticles(guideId, destination);
-    console.log(`📚 ${articles.length} articles chargés`);
+    // 2. Articles WP requis uniquement pour sections / POIs (pas pour inspirations seules — étape 4)
+    const needsArticles = parts.some((p) => p === 'sections' || p === 'pois');
+    let articles: ArticleForSommaire[] = [];
+    if (needsArticles) {
+      articles = await this.loadArticles(guideId, destination);
+      console.log(`📚 ${articles.length} articles chargés`);
+    }
 
     const proposal: Partial<SommaireProposal> = {};
 
@@ -177,12 +181,12 @@ export class SommaireGeneratorService {
       throw new Error('Site WordPress non trouvé');
     }
 
-    // Charger les articles du site, filtrés par destination
+    // Charger les articles du site, filtrés par destination (regex — aligné sur GET /guides/:id/articles)
     const articles = await getArticlesDatabase()
       .collection(COLLECTIONS.articles_raw)
-      .find({ 
+      .find({
         site_id: site._id.toString(),
-        categories: { $in: [destination] },
+        categories: { $regex: destination, $options: 'i' },
       })
       .toArray();
 

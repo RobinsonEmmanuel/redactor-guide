@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { env } from '../config/env.js';
+import { COLLECTIONS } from '../config/collections.js';
 
 /**
  * Routes de matching clusters.
@@ -10,6 +11,44 @@ import { env } from '../config/env.js';
 export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
   const serviceUrl = env.POI_SERVICE_URL;
   const apiKey = env.POI_SERVICE_API_KEY;
+
+  async function sendLocalMatchingIfAvailable(request: any, reply: any): Promise<boolean> {
+    const guideId = request.params?.guideId;
+    if (!guideId) return false;
+
+    const db = request.server.container.db;
+    const localMatching = await db.collection(COLLECTIONS.cluster_assignments).findOne({ guide_id: guideId });
+    if (!localMatching) return false;
+
+    const hasAssignment = Boolean(localMatching.assignment || localMatching.clusters || localMatching.unassigned);
+    const hasClusters = Array.isArray(localMatching.clusters_metadata) && localMatching.clusters_metadata.length > 0;
+    if (!hasAssignment && !hasClusters) return false;
+
+    const assignment = localMatching.assignment || {
+      clusters: localMatching.clusters || {},
+      unassigned: localMatching.unassigned || [],
+    };
+    const clustersMetadata = [...(localMatching.clusters_metadata || [])];
+    const knownClusterIds = new Set(clustersMetadata.map((cluster: any) => cluster.cluster_id));
+    for (const [clusterId, items] of Object.entries(assignment.clusters || {})) {
+      if (knownClusterIds.has(clusterId)) continue;
+      const clusterPois = Array.isArray(items) ? items : [];
+      const firstPoi = clusterPois[0]?.poi || clusterPois[0] || {};
+      clustersMetadata.push({
+        cluster_id: clusterId,
+        cluster_name: firstPoi.cluster_name || clusterId,
+        place_count: clusterPois.length,
+      });
+    }
+
+    return reply.send({
+      assignment,
+      stats: localMatching.stats || null,
+      clusters_metadata: clustersMetadata,
+      created_at: localMatching.created_at || null,
+      updated_at: localMatching.updated_at || null,
+    }), true;
+  }
 
   async function proxyRequest(request: any, reply: any, targetPath: string, method?: string) {
     if (!serviceUrl) {
@@ -52,7 +91,10 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
 
   fastify.post(`${guideParam}/matching/generate`, (req, reply) => proxyRequest(req, reply, `/guides/${(req.params as any).guideId}/matching/generate`));
   fastify.post(`${guideParam}/matching`, (req, reply) => proxyRequest(req, reply, `/guides/${(req.params as any).guideId}/matching`));
-  fastify.get(`${guideParam}/matching`, (req, reply) => proxyRequest(req, reply, `/guides/${(req.params as any).guideId}/matching`, 'GET'));
+  fastify.get(`${guideParam}/matching`, async (req, reply) => {
+    if (await sendLocalMatchingIfAvailable(req, reply)) return;
+    return proxyRequest(req, reply, `/guides/${(req.params as any).guideId}/matching`, 'GET');
+  });
   fastify.post(`${guideParam}/matching/save`, (req, reply) => proxyRequest(req, reply, `/guides/${(req.params as any).guideId}/matching/save`));
   fastify.post(`${guideParam}/clusters`, (req, reply) => proxyRequest(req, reply, `/guides/${(req.params as any).guideId}/clusters`));
   fastify.delete(`${guideParam}/clusters/:clusterId`, (req, reply) => proxyRequest(req, reply, `/guides/${(req.params as any).guideId}/clusters/${(req.params as any).clusterId}`, 'DELETE'));

@@ -44,6 +44,39 @@ function extractTextFromServiceContent(content: Record<string, any> | null | und
   }
   return parts.slice(0, 6).join('\n').substring(0, 1200);
 }
+
+/**
+ * Recalcule `nom_hashtag` à partir de `nom` et `hashtag` pour chaque carte
+ * (aligné sur le push final de generateInspirationPoiCards).
+ * Permet de corriger les contenus figés où seul le nom a été édité en UI.
+ */
+function recomputeNomHashtagOnInspirationCardsJson(stored: unknown): string | null {
+  let entries: Array<Record<string, string>>;
+  try {
+    if (typeof stored === 'string') {
+      const parsed = JSON.parse(stored) as unknown;
+      if (!Array.isArray(parsed)) return null;
+      entries = parsed as Array<Record<string, string>>;
+    } else if (Array.isArray(stored)) {
+      entries = stored as Array<Record<string, string>>;
+    } else {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  const fixed = entries.map((e) => {
+    const nom = String(e?.nom ?? '').trim();
+    const hashtag = String(e?.hashtag ?? '').trim();
+    const nom_hashtag = hashtag ? `${nom}\r${hashtag}` : nom;
+    return { ...e, nom_hashtag };
+  });
+  try {
+    return JSON.stringify(fixed);
+  } catch {
+    return null;
+  }
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -802,9 +835,14 @@ async function generateInspirationPoiCards(ctx: FieldServiceContext): Promise<Fi
   const fieldName: string = fieldDef?.name ?? '';
 
   // Export = contenu figé : si la page contient déjà des cartes sauvegardées
-  // pour ce champ répétitif, on les réutilise telles quelles (pas de régénération).
+  // pour ce champ répétitif, on les réutilise sans régénération complète,
+  // mais on recalcule toujours `nom_hashtag` depuis `nom` + `hashtag` (champs édités en modale).
   const frozenValue = fieldName ? currentPage.content?.[fieldName] : undefined;
   if (frozenValue !== undefined && frozenValue !== null) {
+    const reconciled = recomputeNomHashtagOnInspirationCardsJson(frozenValue);
+    if (reconciled !== null) {
+      return { value: reconciled };
+    }
     if (typeof frozenValue === 'string') {
       return { value: frozenValue };
     }

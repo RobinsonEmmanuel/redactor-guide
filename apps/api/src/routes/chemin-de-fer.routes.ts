@@ -1297,16 +1297,31 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: 'Site WordPress non trouvé dans la base' });
     }
 
-    // Vérifier qu'il y a des articles pour ce site avec cette destination
-    const articlesCount = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).countDocuments({ 
-      site_id: site._id.toString(),
-      categories: { $in: [guide.destination] }, // Catégories contient la destination
-    });
-    
-    if (articlesCount === 0) {
-      return reply.code(400).send({ 
-        error: `Aucun article WordPress trouvé pour la destination "${guide.destination}"` 
+    const partsOnlyInspirations =
+      partsToGenerate.length === 1 && partsToGenerate[0] === 'inspirations';
+
+    if (partsOnlyInspirations) {
+      // Étape 4 : les inspirations s'appuient sur les POIs confirmés (étape 3), pas sur les articles WP
+      const poisSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
+      const poiCount = poisSelection?.pois?.length ?? 0;
+      if (poiCount === 0) {
+        return reply.code(400).send({
+          error: 'Aucun POI confirmé',
+          message: 'Identifiez et validez les lieux à l\'étape 3 avant de générer les inspirations.',
+        });
+      }
+    } else {
+      // Sections / POIs : articles WP du site, filtre souple sur les catégories (comme l'onglet Articles)
+      const articlesCount = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).countDocuments({
+        site_id: site._id.toString(),
+        categories: { $regex: guide.destination, $options: 'i' },
       });
+
+      if (articlesCount === 0) {
+        return reply.code(400).send({
+          error: `Aucun article WordPress trouvé pour la destination "${guide.destination}"`,
+        });
+      }
     }
 
     try {

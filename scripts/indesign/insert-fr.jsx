@@ -1099,7 +1099,7 @@ function injectPictoBar(page, contentData, durationValue) {
 //      de paragraphes dans chaque cadre — pas de tabulation entre titre et page : l’alignement
 //      vertical vient des interlignes (styles jumeles entre colonnes). Pas de coordonnees X/Y
 //      dans le script : vous placez le cadre numeros dans la maquette.
-//      Titre > 29 caracteres (espaces inclus) : suppose 2 lignes (15/18 pt) ; espace apres +18 pt
+//      Titre > 31 (section) ou > 38 (page unique) caracteres : suppose 2 lignes ; espace apres numeros ajuste
 //      sur le paragraphe numeros aligne pour compenser la hauteur du bloc titre.
 //      Styles numeros (cadre SOMMAIRE_numeros_1), alignes sur level :
 //        Titre-section (0) → Sommaire-numeros-absent
@@ -1150,7 +1150,7 @@ var SOMMAIRE_NUMEROS_PAGE_SEULE_CANDIDATES = [
  * le paragraphe de la colonne numeros pour aligner les blocs suivants.
  */
 var SOMMAIRE_TITLE_WRAP_CHAR_MAX_SECTION = 31;
-var SOMMAIRE_TITLE_WRAP_CHAR_MAX_DEFAULT = 36;
+var SOMMAIRE_TITLE_WRAP_CHAR_MAX_DEFAULT = 38;
 /** Colonne numeros : espace apres du numero si titre sur 1 ligne. */
 var SOMMAIRE_NUMEROS_SPACE_AFTER_ONE_LINE_PT = 17;
 /** Colonne numeros : espace apres du numero si titre sur 2 lignes. */

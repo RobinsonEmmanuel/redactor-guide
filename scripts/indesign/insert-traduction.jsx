@@ -85,7 +85,7 @@ var SOMMAIRE_NUMEROS_PAGE_SEULE_CANDIDATES = ["Sommaire-numeros-page-seule",   "
 
 // Seuils wrap (estimation 2 lignes par comptage de caracteres)
 var SOMMAIRE_TITLE_WRAP_CHAR_MAX_SECTION = 31;
-var SOMMAIRE_TITLE_WRAP_CHAR_MAX_DEFAULT = 36;
+var SOMMAIRE_TITLE_WRAP_CHAR_MAX_DEFAULT = 38;
 
 // spaceAfter colonne numeros (level 1 uniquement)
 var SOMMAIRE_NUMEROS_SPACE_AFTER_ONE_LINE_PT = 17;

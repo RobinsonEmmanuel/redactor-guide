@@ -34,6 +34,8 @@ var doc = app.activeDocument;
 var overflowWarnings = [];
 var currentPageNum   = 0;
 var currentPageTitre = "";
+var DEBUG_SOMMAIRE_FILE = true;
+var SOMMAIRE_DEBUG_LOGS = [];
 
 // ---------------------------------------------------------------------------
 // Noms des styles de caractere utilises par les marqueurs inline
@@ -86,12 +88,18 @@ var SOMMAIRE_NUMEROS_PAGE_SEULE_CANDIDATES = ["Sommaire-numeros-page-seule",   "
 // Seuils wrap (estimation 2 lignes par comptage de caracteres)
 var SOMMAIRE_TITLE_WRAP_CHAR_MAX_SECTION = 31;
 var SOMMAIRE_TITLE_WRAP_CHAR_MAX_DEFAULT = 38;
+var SOMMAIRE_FORCE_TWO_LINES_ENABLED = true;
+var SOMMAIRE_FORCE_TWO_LINES_CHAR_THRESHOLD = 35;
+var SOMMAIRE_SECTION_TITLE_LEADING_PT = 18;
+var SOMMAIRE_SECTION_TITLE_SPACE_BEFORE_PT = 22;
+var SOMMAIRE_PAGE_SECTION_LEADING_PT = 18;
+var SOMMAIRE_PAGE_UNIQUE_LEADING_PT = 45;
 
 // spaceAfter colonne numeros (level 1 uniquement)
 var SOMMAIRE_NUMEROS_SPACE_AFTER_ONE_LINE_PT = 17;
 var SOMMAIRE_NUMEROS_SPACE_AFTER_TWO_LINES_PT = 36;
-var SOMMAIRE_NUMEROS_ABSENT_SPACE_AFTER_TOP_PT     = 20;
-var SOMMAIRE_NUMEROS_ABSENT_SPACE_AFTER_DEFAULT_PT = 40;
+var SOMMAIRE_NUMEROS_ABSENT_SPACE_AFTER_TOP_PT     = 18;
+var SOMMAIRE_NUMEROS_ABSENT_SPACE_AFTER_DEFAULT_PT = 18;
 
 // Compteur de pages sommaire (1re page traitee = partie 1, 2e = partie 2, …)
 var sommairePageIndex = 0;
@@ -1222,6 +1230,69 @@ function sommaireApplyTitleStyle(paragraph, pst) {
     } catch(e) {}
 }
 
+function sommaireSafeStr(v) {
+    return String(v === undefined || v === null ? "" : v).replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+}
+
+function sommaireCollectDebugForPage(page, part, slice, tfTitre, tfNums, dualMode) {
+    if (!DEBUG_SOMMAIRE_FILE) return;
+    try {
+        var lines = [];
+        lines.push("=== PAGE SOMMAIRE p." + String(page && page.name ? page.name : "?") + " | part=" + String(part) + " | dualMode=" + (dualMode ? "true" : "false") + " ===");
+        lines.push("entries=" + (slice ? slice.length : 0));
+        var titleParas = null;
+        var numParas = null;
+        try { titleParas = tfTitre ? tfTitre.paragraphs : null; } catch(eTp) {}
+        try { numParas = tfNums ? sommaireStoryParas(tfNums) : null; } catch(eNp) {}
+
+        var n = 0;
+        if (slice && slice.length > n) n = slice.length;
+        try { if (titleParas && titleParas.length > n) n = titleParas.length; } catch(eTl) {}
+        try { if (numParas && numParas.length > n) n = numParas.length; } catch(eNl) {}
+
+        for (var i = 0; i < n; i++) {
+            var e = (slice && i < slice.length) ? slice[i] : null;
+            var lv = e ? parseInt(e.level, 10) : NaN;
+            if (isNaN(lv)) lv = -1;
+            var entryTitle = e ? sommaireSafeStr(e.title) : "";
+            var entryPage = e ? sommaireSafeStr(sommaireEntryPage(e)) : "";
+
+            var tp = (titleParas && i < titleParas.length) ? titleParas[i] : null;
+            var np = (numParas && i < numParas.length) ? numParas[i] : null;
+
+            var tpTxt = "", tpLines = -1, tpSb = 0, tpSa = 0, tpLd = 0;
+            var npTxt = "", npLines = -1, npSb = 0, npSa = 0, npLd = 0;
+            try { if (tp) tpTxt = sommaireSafeStr(tp.contents).replace(/\\r$/g, ""); } catch(eT0) {}
+            try { if (tp) tpLines = tp.lines.length; } catch(eT1) {}
+            try { if (tp) tpSb = Number(tp.spaceBefore || 0); } catch(eT2) {}
+            try { if (tp) tpSa = Number(tp.spaceAfter || 0); } catch(eT3) {}
+            try { if (tp) tpLd = Number(tp.leading || 0); } catch(eT4) {}
+
+            try { if (np) npTxt = sommaireSafeStr(np.contents).replace(/\\r$/g, ""); } catch(eN0) {}
+            try { if (np) npLines = np.lines.length; } catch(eN1) {}
+            try { if (np) npSb = Number(np.spaceBefore || 0); } catch(eN2) {}
+            try { if (np) npSa = Number(np.spaceAfter || 0); } catch(eN3) {}
+            try { if (np) npLd = Number(np.leading || 0); } catch(eN4) {}
+
+            var effLd = sommaireIsAutoLeading(tpLd) ? sommaireLeadingForLevel(lv) : tpLd;
+            var titleBlockH = tpSb + ((tpLines > 0 ? tpLines : 1) * effLd) + tpSa;
+            var expectedNumSa = titleBlockH - tpSb - effLd;
+            if (expectedNumSa < 0) expectedNumSa = 0;
+
+            lines.push(
+                "#" + i
+                + " | lv=" + lv
+                + " | entryTitle=\"" + entryTitle + "\""
+                + " | entryPage=\"" + entryPage + "\""
+                + " | titleTxt=\"" + tpTxt + "\" lines=" + tpLines + " sb=" + tpSb + " sa=" + tpSa + " ld=" + tpLd
+                + " | numTxt=\"" + npTxt + "\" lines=" + npLines + " sb=" + npSb + " sa=" + npSa + " ld=" + npLd
+                + " | titleBlockH=" + titleBlockH + " expectedNumSa=" + expectedNumSa
+            );
+        }
+        SOMMAIRE_DEBUG_LOGS.push(lines.join("\n"));
+    } catch(eAll) {}
+}
+
 // Applique un style paragraphe sur un numero sans toucher au style caractere
 // (clearOverrides seulement — identique a sommaireApplyNumerosParagraphOnly).
 function sommaireApplyNumStyle(paragraph, pst) {
@@ -1285,6 +1356,9 @@ function sommaireApplyNumStyles(tfNums, slice) {
         }
         if (pstPick) {
             sommaireApplyNumStyle(paras[pn], pstPick);
+            if (lv === 0) {
+                try { paras[pn].spaceBefore = sommaireSectionTitleSpaceBeforePt(pn); } catch(eSb0) {}
+            }
             if (!hasNum || lv === 0) sommaireAbsentSpacing(paras[pn]);
         }
     }
@@ -1303,31 +1377,204 @@ function sommaireIsNumerosColumnOne(tfNums) {
     return false;
 }
 
-function sommaireApplyWrapSpacing(tfNums, slice) {
-    if (!tfNums || !slice || slice.length === 0) return;
-    // Regle wrap reservee a la premiere colonne numeros (label SOMMAIRE_numeros_1).
-    if (!sommaireIsNumerosColumnOne(tfNums)) return;
-    var paras = sommaireStoryParas(tfNums);
-    if (!paras) return;
-    // Remettre spaceBefore a 0 (residus de generation precedente)
-    for (var rz = 0; rz < paras.length; rz++) {
-        try { paras[rz].spaceBefore = 0; } catch(eZ) {}
+function sommaireTitleWrapsTwoLinesByCharCount(entryTitle, maxChars) {
+    return String(entryTitle || "").length > maxChars;
+}
+
+function sommaireEntryWrapCharMax(entry, titleText) {
+    var lv = entry && entry.level !== undefined && entry.level !== null ? parseInt(entry.level, 10) : NaN;
+    if (!isNaN(lv) && lv === 1) return SOMMAIRE_TITLE_WRAP_CHAR_MAX_SECTION;
+    var t = String(titleText || "");
+    if (t.charAt(0) === "\t") return SOMMAIRE_TITLE_WRAP_CHAR_MAX_SECTION;
+    return SOMMAIRE_TITLE_WRAP_CHAR_MAX_DEFAULT;
+}
+
+function sommaireEntryNeedsNumerosExtraSpacing(entry, titleText, hasNumber) {
+    if (!hasNumber) return false;
+    return sommaireTitleWrapsTwoLinesByCharCount(titleText, sommaireEntryWrapCharMax(entry, titleText));
+}
+
+function sommaireForceLastWordLineBreak(titleText) {
+    var txt = String(titleText || "").replace(/\s+/g, " ").replace(/^\s+|\s+$/g, "");
+    if (txt === "") return txt;
+    if (txt.indexOf("\n") >= 0 || txt.indexOf("\r") >= 0) return txt;
+    var lastSpace = txt.lastIndexOf(" ");
+    if (lastSpace <= 0 || lastSpace >= txt.length - 1) return txt;
+    var first = txt.substring(0, lastSpace).replace(/\s+$/g, "");
+    var last = txt.substring(lastSpace + 1).replace(/^\s+/g, "");
+    if (!first || !last) return txt;
+    return first + "\n" + last;
+}
+
+function sommaireNormalizeTitleText(titleText) {
+    return String(titleText || "")
+        .replace(/[\r\n]+/g, " ")
+        .replace(/\s+/g, " ")
+        .replace(/^\s+|\s+$/g, "");
+}
+
+function sommaireMaybeForceTwoLinesTitle(entry, titleText, hasNumber) {
+    var txt = sommaireNormalizeTitleText(titleText);
+    if (!SOMMAIRE_FORCE_TWO_LINES_ENABLED || !hasNumber) return txt;
+    if (txt.length <= SOMMAIRE_FORCE_TWO_LINES_CHAR_THRESHOLD) return txt;
+    return sommaireForceLastWordLineBreak(txt);
+}
+
+function sommaireWrapFlagsFromSlice(slice) {
+    var flags = [];
+    if (!slice) return flags;
+    for (var i = 0; i < slice.length; i++) {
+        var e = slice[i] || null;
+        var pg = sommaireEntryPage(e);
+        var hasNum = pg !== "";
+        if (e) {
+            var lv = parseInt(e.level, 10);
+            if (isNaN(lv)) lv = 2;
+            if (lv === 0) hasNum = false;
+        }
+        flags.push(sommaireEntryNeedsNumerosExtraSpacing(e, e && e.title, hasNum));
     }
-    var n = Math.min(paras.length, slice.length);
+    return flags;
+}
+
+function sommaireWrapFlagsFromRenderedTitle(tfTitle, expectedCount) {
+    var flags = [];
+    if (!tfTitle) return flags;
+    try {
+        var paras = tfTitle.paragraphs;
+        var n = paras.length;
+        if (expectedCount !== undefined && expectedCount !== null && expectedCount < n) n = expectedCount;
+        for (var i = 0; i < n; i++) {
+            var wraps = false;
+            try { wraps = paras[i].lines.length > 1; } catch(eL) {}
+            flags.push(wraps);
+        }
+    } catch(eAll) {}
+    return flags;
+}
+
+function sommaireResolveWrapFlags(tfTitle, sliceOrNull) {
+    var charFlags = sommaireWrapFlagsFromSlice(sliceOrNull);
+    var renderedFlags = sommaireWrapFlagsFromRenderedTitle(tfTitle, charFlags.length || (sliceOrNull ? sliceOrNull.length : 0));
+    if (renderedFlags.length === 0) return charFlags;
+    if (charFlags.length === 0) return renderedFlags;
+    if (renderedFlags.length === charFlags.length) return renderedFlags;
+    var n = charFlags.length > renderedFlags.length ? charFlags.length : renderedFlags.length;
+    var merged = [];
     for (var i = 0; i < n; i++) {
-        var lv = parseInt(slice[i].level, 10);
-        if (isNaN(lv)) lv = 2;
-        if (lv !== 1) continue;
-        var pg = sommaireEntryPage(slice[i]);
-        if (pg === "") continue;
-        var title   = String(slice[i].title || "");
-        var wraps   = title.length > SOMMAIRE_TITLE_WRAP_CHAR_MAX_SECTION;
-        try {
-            paras[i].spaceAfter = wraps
-                ? SOMMAIRE_NUMEROS_SPACE_AFTER_TWO_LINES_PT
-                : SOMMAIRE_NUMEROS_SPACE_AFTER_ONE_LINE_PT;
-        } catch(eSp) {}
+        merged.push((i < charFlags.length && charFlags[i]) || (i < renderedFlags.length && renderedFlags[i]));
     }
+    return merged;
+}
+
+function sommaireEntryIsPaginatedContentAt(sliceOrNull, idx) {
+    if (!sliceOrNull || idx < 0 || idx >= sliceOrNull.length) return true;
+    var e = sliceOrNull[idx];
+    if (!e) return false;
+    var lv = parseInt(e.level, 10);
+    if (isNaN(lv)) lv = 2;
+    return lv === 1 || lv === 2;
+}
+
+function sommaireSectionTitleSpaceBeforePt(indexInSlice) {
+    return indexInSlice > 0 ? SOMMAIRE_SECTION_TITLE_SPACE_BEFORE_PT : 0;
+}
+
+function sommaireIsAutoLeading(leadingVal) {
+    var n = Number(leadingVal);
+    return !isFinite(n) || n <= 0 || n > 1000;
+}
+
+function sommaireLeadingForLevel(level) {
+    var lv = parseInt(level, 10);
+    if (isNaN(lv)) lv = 2;
+    if (lv === 0) return SOMMAIRE_SECTION_TITLE_LEADING_PT;
+    if (lv === 1) return SOMMAIRE_PAGE_SECTION_LEADING_PT;
+    return SOMMAIRE_PAGE_UNIQUE_LEADING_PT;
+}
+
+function sommaireEntryHasNumberAt(sliceOrNull, idx) {
+    if (!sliceOrNull || idx < 0 || idx >= sliceOrNull.length) return false;
+    var e = sliceOrNull[idx];
+    if (!e) return false;
+    var lv = parseInt(e.level, 10);
+    if (isNaN(lv)) lv = 2;
+    if (lv === 0) return false;
+    return sommaireEntryPage(e) !== "";
+}
+
+function sommaireResolveEntryLevel(sliceOrNull, idx, titlePara) {
+    if (sliceOrNull && idx >= 0 && idx < sliceOrNull.length) {
+        var lv = parseInt(sliceOrNull[idx].level, 10);
+        if (!isNaN(lv)) return lv;
+    }
+    var hasNum = sommaireEntryHasNumberAt(sliceOrNull, idx);
+    if (!hasNum) return 0;
+    try {
+        var t0 = String(titlePara && titlePara.contents ? titlePara.contents : "");
+        if (t0.charAt(0) === "\t") return 1;
+    } catch (eInf) {}
+    return 2;
+}
+
+function sommaireTitleBlockMetrics(titlePara, level) {
+    var lines = 1;
+    var sb = 0;
+    var sa = 0;
+    var ld = sommaireLeadingForLevel(level);
+    if (!titlePara) return { lines: lines, spaceBefore: sb, spaceAfter: sa, leading: ld, blockHeight: ld };
+    try { lines = titlePara.lines.length; } catch(eLines) {}
+    if (lines < 1) lines = 1;
+    try { sb = Number(titlePara.spaceBefore || 0); } catch(eSb) {}
+    try { sa = Number(titlePara.spaceAfter || 0); } catch(eSa) {}
+    try {
+        var curLd = Number(titlePara.leading);
+        if (!sommaireIsAutoLeading(curLd)) ld = curLd;
+    } catch(eLd) {}
+    return {
+        lines: lines,
+        spaceBefore: sb,
+        spaceAfter: sa,
+        leading: ld,
+        blockHeight: sb + (lines * ld) + sa
+    };
+}
+
+function sommaireExpectedNumerosSpaceAfter(titleMetrics) {
+    if (!titleMetrics) return 0;
+    var sb = titleMetrics.spaceBefore;
+    var ld = titleMetrics.leading;
+    var blockH = titleMetrics.blockHeight;
+    var expected = blockH - sb - ld;
+    return expected < 0 ? 0 : expected;
+}
+
+function sommaireSyncVerticalAlignment(tfTitle, tfNums, sliceOrNull) {
+    if (!tfTitle || !tfNums || !sommaireIsNumerosColumnOne(tfNums)) return;
+    var titleParas = null;
+    var numParas = null;
+    try { titleParas = tfTitle.paragraphs; } catch(e0) { return; }
+    try { numParas = sommaireStoryParas(tfNums); } catch(e1) { return; }
+    if (!titleParas || !numParas) return;
+    var n = titleParas.length;
+    if (numParas.length < n) n = numParas.length;
+
+    for (var i = 0; i < n; i++) {
+        var tp = titleParas[i];
+        var np = numParas[i];
+        var lv = sommaireResolveEntryLevel(sliceOrNull, i, tp);
+        try { tp.leading = sommaireLeadingForLevel(lv); } catch(eTl) {}
+        var tm = sommaireTitleBlockMetrics(tp, lv);
+        var expectedNumSa = sommaireExpectedNumerosSpaceAfter(tm);
+        try { np.spaceBefore = tm.spaceBefore; } catch(eNSb) {}
+        try { np.leading = tm.leading; } catch(eNLd) {}
+        try { np.spaceAfter = expectedNumSa; } catch(eNSa) {}
+    }
+}
+
+function sommaireApplyWrapSpacing(tfNums, tfTitle, slice) {
+    if (!tfNums || !slice || slice.length === 0) return;
+    sommaireSyncVerticalAlignment(tfTitle, tfNums, slice);
 }
 
 // Injection stricte de la colonne numeros (1 colonne, lignes nettoyees).
@@ -1356,7 +1603,7 @@ function sommaireInjectNumeros(tfNums, numLines) {
 
 // Pose les hyperliens page sur la colonne numeros (mode 2 cadres).
 // Identique a sommaireWireDualFrameNumbers dans insert-fr.jsx.
-function sommaireWireNumeros(tfNums, slice) {
+function sommaireWireNumeros(tfNums, tfTitre, slice) {
     if (!tfNums || !slice || slice.length === 0) return;
     // Capturer story et paragraphes AVANT le nettoyage.
     // sommaireRemoveHyperlinksOnStory appelle hts.remove() qui peut invalider tfNums.
@@ -1394,7 +1641,7 @@ function sommaireWireNumeros(tfNums, slice) {
     }
     // Re-appliquer styles + wrap apres les hyperliens (qui imposent le style "Hyperlien")
     sommaireApplyNumStyles(tfNums, slice);
-    sommaireApplyWrapSpacing(tfNums, slice);
+    sommaireApplyWrapSpacing(tfNums, tfTitre, slice);
 }
 
 // Pose les hyperliens page sur les numeros en fin de ligne (mode 1 cadre).
@@ -1554,20 +1801,22 @@ function injectSommaire(page, rawValue) {
         var pgVal = sommaireEntryPage(ent);
         var lv    = parseInt(ent.level, 10);
         if (isNaN(lv)) lv = 2;
+        var hasPageNumber = (lv !== 0 && pgVal !== "");
+        var forcedTitle = sommaireMaybeForceTwoLinesTitle(ent, title, hasPageNumber);
 
         numLines.push((lv === 0 || pgVal === "") ? "" : pgVal);
 
         if (dualMode) {
-            // Deux cadres : tab de tete pour les level 1 avec page (indentation visuelle)
-            titleLines.push((lv === 1 && pgVal !== "") ? "\t" + title : title);
+            // Deux cadres : pas de tab d'indentation, le style de paragraphe s'en charge.
+            titleLines.push(forcedTitle);
         } else {
             // Un seul cadre : titre + tab + page en fin de ligne
             if (lv === 0 || pgVal === "") {
-                titleLines.push(title);
+                titleLines.push(forcedTitle);
             } else if (lv === 1) {
-                titleLines.push("\t" + title + "\t" + pgVal);
+                titleLines.push("\t" + forcedTitle + "\t" + pgVal);
             } else {
-                titleLines.push(title + "\t" + pgVal);
+                titleLines.push(forcedTitle + "\t" + pgVal);
             }
         }
     }
@@ -1582,7 +1831,17 @@ function injectSommaire(page, rawValue) {
             var stName = SOMMAIRE_STYLE_BY_LEVEL[lv2];
             if (!stName) continue;
             var pst = doc.paragraphStyles.itemByName(stName);
-            if (pst.isValid) sommaireApplyTitleStyle(tParas[tp], pst);
+            if (pst.isValid) {
+                sommaireApplyTitleStyle(tParas[tp], pst);
+                if (lv2 === 0) {
+                    try { tParas[tp].leading = SOMMAIRE_SECTION_TITLE_LEADING_PT; } catch(eLead0) {}
+                    try { tParas[tp].spaceBefore = sommaireSectionTitleSpaceBeforePt(tp); } catch(eSb0) {}
+                } else if (lv2 === 1) {
+                    try { tParas[tp].leading = SOMMAIRE_PAGE_SECTION_LEADING_PT; } catch(eLead1) {}
+                } else if (lv2 === 2) {
+                    try { tParas[tp].leading = SOMMAIRE_PAGE_UNIQUE_LEADING_PT; } catch(eLead2) {}
+                }
+            }
         }
     } catch(eTp) {}
     truncateOverflow(tfTitre);
@@ -1591,22 +1850,23 @@ function injectSommaire(page, rawValue) {
     if (dualMode) {
         sommaireInjectNumeros(tfNums, numLines);
         sommaireApplyNumStyles(tfNums, slice);
-        sommaireApplyWrapSpacing(tfNums, slice);
+        sommaireApplyWrapSpacing(tfNums, tfTitre, slice);
         truncateOverflow(tfNums);
     }
 
     // --- Poser les hyperliens vers les pages internes ---
     // Identique a sommaireWirePageNumberHyperlinksOnPage dans insert-fr.jsx.
     if (dualMode) {
-        sommaireWireNumeros(tfNums, slice);
+        sommaireWireNumeros(tfNums, tfTitre, slice);
         // Re-appliquer wrap apres hyperliens (deja fait dans sommaireWireNumeros,
         // mais on le refait ici pour etre sur — insert-fr le fait aussi)
-        sommaireApplyWrapSpacing(tfNums, slice);
+        sommaireApplyWrapSpacing(tfNums, tfTitre, slice);
         try { truncateOverflow(tfNums); } catch(eTr0) {}
     } else {
         sommaireWireTitres(tfTitre, slice);
     }
     try { truncateOverflow(tfTitre); } catch(eTr1) {}
+    sommaireCollectDebugForPage(page, currentPart, slice, tfTitre, tfNums, dualMode);
 }
 
 // ---------------------------------------------------------------------------
@@ -1789,6 +2049,26 @@ if (overflowWarnings.length > 0) {
 
     report += "\n\n[!] " + overflowWarnings.length + " bloc(s) tronque(s)"
               + (overflowWritten ? " -> voir overflow-report.txt" : " (impossible d ecrire le fichier rapport)");
+}
+
+if (DEBUG_SOMMAIRE_FILE && SOMMAIRE_DEBUG_LOGS.length > 0) {
+    var sommaireDebugWritten = false;
+    try {
+        var srf = new File(rootFolder + "/sommaire-debug-report.txt");
+        srf.encoding = "UTF-8";
+        srf.open("w");
+        srf.writeln("SOMMAIRE DEBUG REPORT");
+        srf.writeln("Pages sommaire loggees : " + SOMMAIRE_DEBUG_LOGS.length);
+        srf.writeln("====================================================");
+        for (var sd = 0; sd < SOMMAIRE_DEBUG_LOGS.length; sd++) {
+            srf.writeln(SOMMAIRE_DEBUG_LOGS[sd]);
+            srf.writeln("----------------------------------------------------");
+        }
+        srf.close();
+        sommaireDebugWritten = true;
+    } catch(eSd) {}
+    report += "\n\n[DEBUG SOMMAIRE] " + SOMMAIRE_DEBUG_LOGS.length + " page(s) loggee(s)"
+           + (sommaireDebugWritten ? " -> voir sommaire-debug-report.txt" : " (impossible d ecrire sommaire-debug-report.txt)");
 }
 
 alert(report);

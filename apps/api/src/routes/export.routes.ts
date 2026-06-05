@@ -9,6 +9,120 @@ import { normalizeGuideExportV2, type NormalizerOptions } from '../services/norm
 import { buildGuideStoryboard, resolveImagesForGuide, type StoryboardInputGuide, type GuideExportJson } from '@redactor-guide/exporters';
 import { COLLECTIONS } from '../config/collections.js';
 import { env } from '../config/env.js';
+import type { Db } from 'mongodb';
+
+function slugifyDest(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+}
+
+/** Nom affiché d'un POI dans le GeoJSON (titre traduit si disponible). */
+function resolvePoiDisplayName(page: any, lang: string): string {
+  const master = String(page.titre || '').trim();
+  if (lang === 'fr') return master;
+  const translated = page.content_translations?.[lang]?.text?.POI_titre_1;
+  const t = translated != null ? String(translated).trim() : '';
+  return t || master;
+}
+
+async function buildPoiGeoJson(
+  db: Db,
+  guideId: string,
+  options: { lang?: string; statut?: string } = {}
+) {
+  const lang = options.lang || 'fr';
+  const statut = options.statut || 'validee';
+
+  const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
+  if (!guide) throw new Error('Guide non trouvé');
+
+  const cheminDeFer = await db.collection(COLLECTIONS.chemins_de_fer).findOne({ guide_id: guideId });
+  if (!cheminDeFer) throw new Error('Chemin de fer non trouvé pour ce guide');
+  const cheminDeFerId = cheminDeFer._id.toString();
+
+  const statutFilter: Record<string, any> =
+    statut === 'all'
+      ? {}
+      : Array.isArray(statut)
+        ? { statut_editorial: { $in: statut } }
+        : { statut_editorial: statut };
+
+  const pages = await db.collection(COLLECTIONS.pages)
+    .find({
+      chemin_de_fer_id: cheminDeFerId,
+      $or: [{ type_de_page: 'poi' }, { 'metadata.page_type': 'poi' }],
+      ...statutFilter,
+    })
+    .sort({ ordre: 1 })
+    .toArray();
+
+  const destination = guide.destination || guide.nom || 'guide';
+  const slugDest = slugifyDest(destination);
+  const now = new Date();
+  const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
+  const timePart = now.toISOString().slice(11, 16).replace(':', '');
+  const filename = lang === 'fr'
+    ? `pois_${slugDest}_${datePart}_${timePart}.geojson`
+    : `pois_${slugDest}_${lang}_${datePart}_${timePart}.geojson`;
+
+  const features = pages.map((page: any) => {
+    const coords = page.coordinates;
+    const displayName = resolvePoiDisplayName(page, lang);
+    const geometry =
+      coords?.lat != null && coords?.lon != null
+        ? { type: 'Point' as const, coordinates: [coords.lon, coords.lat] }
+        : null;
+
+    return {
+      type: 'Feature' as const,
+      geometry,
+      properties: {
+        name:           displayName,
+        nom:            displayName,
+        name_fr:        page.titre || null,
+        lang,
+        page_id:        page.page_id || page._id?.toString() || null,
+        poi_id:         page.metadata?.poi_id || null,
+        type_de_page:   page.type_de_page || 'poi',
+        section_name:   page.section_name || null,
+        cluster_id:     page.metadata?.cluster_id || null,
+        cluster_name:   page.metadata?.cluster_name || page.section_name || null,
+        ordre:          page.ordre || null,
+        statut:         page.statut_editorial || 'draft',
+        url_source:     page.url_source || null,
+        display_name:   coords?.display_name || null,
+      },
+    };
+  });
+
+  const clusterMap: Record<string, { name: string; count: number }> = {};
+  for (const page of pages) {
+    const cid = page.metadata?.cluster_id || page.section_id || 'non_affecte';
+    const cname = page.metadata?.cluster_name || page.section_name || cid;
+    if (!clusterMap[cid]) clusterMap[cid] = { name: cname, count: 0 };
+    clusterMap[cid].count++;
+  }
+
+  const geojson = {
+    type: 'FeatureCollection',
+    name: `POIs – ${destination}${lang !== 'fr' ? ` (${lang})` : ''}`,
+    metadata: {
+      guide:               destination,
+      guide_id:            guideId,
+      lang,
+      generated_at:        now.toISOString(),
+      filtre_statut:       statut,
+      total:               features.length,
+      with_coordinates:    features.filter(f => f.geometry !== null).length,
+      without_coordinates: features.filter(f => f.geometry === null).length,
+      clusters: Object.entries(clusterMap)
+        .map(([cluster_id, { name, count }]) => ({ cluster_id, cluster_name: name, count }))
+        .sort((a, b) => (a.cluster_name > b.cluster_name ? 1 : -1)),
+    },
+    features,
+  };
+
+  return { geojson, filename, destination };
+}
 
 export async function exportRoutes(fastify: FastifyInstance) {
   const exportService = new ExportService();
@@ -140,6 +254,13 @@ export async function exportRoutes(fastify: FastifyInstance) {
           csvLines.push(`${srcPath},${pair.destination}`);
         }
         archive.append(csvLines.join('\n'), { name: csvName });
+
+        try {
+          const { geojson, filename: geoName } = await buildPoiGeoJson(db, guideId, { lang });
+          archive.append(JSON.stringify(geojson, null, 2), { name: geoName });
+        } catch (geoErr: any) {
+          fastify.log.warn(geoErr, 'GeoJSON non inclus dans le package (génération échouée)');
+        }
 
         await archive.finalize();
         return reply;
@@ -484,6 +605,14 @@ export async function exportRoutes(fastify: FastifyInstance) {
           archive.directory(imagesDir, 'images');
         }
 
+        try {
+          const { geojson, filename: geoName } = await buildPoiGeoJson(db, guideId, { lang });
+          archive.append(JSON.stringify(geojson, null, 2), { name: geoName });
+          fastify.log.info(`🗺️ GeoJSON inclus → ${geoName}`);
+        } catch (geoErr: any) {
+          fastify.log.warn(geoErr, 'GeoJSON non inclus dans le ZIP (génération échouée)');
+        }
+
         await archive.finalize();
 
         // Fastify ne doit pas gérer la réponse — on a streamé via reply.raw
@@ -553,24 +682,20 @@ export async function exportRoutes(fastify: FastifyInstance) {
 
   /**
    * GET /guides/:guideId/export/geojson
-   * Génère un GeoJSON des pages POI validées du chemin de fer, groupées par cluster.
-   *
-   * Source de vérité unique : collection `pages` (type_de_page = 'poi').
-   * Les coordonnées GPS viennent de pages.coordinates (éditables dans la modale de rédaction).
+   * GeoJSON des POI validés. Labels traduits via POI_titre_1 si lang ≠ fr.
    *
    * Query params :
-   *   statut  — filtre sur statut_editorial (défaut : "validee").
-   *             Valeurs possibles : validee | relue | generee_ia | all
-   *             "all" retourne toutes les pages POI sans filtre de statut.
+   *   lang    — code langue (défaut : fr)
+   *   statut  — filtre statut_editorial (défaut : validee)
    */
   fastify.get<{
     Params: { guideId: string };
-    Querystring: { statut?: string };
+    Querystring: { lang?: string; statut?: string };
   }>(
     '/guides/:guideId/export/geojson',
     async (request, reply) => {
       const { guideId } = request.params;
-      const { statut = 'validee' } = request.query;
+      const { lang = 'fr', statut = 'validee' } = request.query;
       const db = request.server.container.db;
 
       if (!ObjectId.isValid(guideId)) {
@@ -578,105 +703,14 @@ export async function exportRoutes(fastify: FastifyInstance) {
       }
 
       try {
-        const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
-        if (!guide) return reply.status(404).send({ error: 'Guide non trouvé' });
-
-        // Chemin de fer du guide → permet d'identifier les pages
-        const cheminDeFer = await db.collection(COLLECTIONS.chemins_de_fer).findOne({ guide_id: guideId });
-        if (!cheminDeFer) {
-          return reply.status(404).send({ error: 'Chemin de fer non trouvé pour ce guide' });
-        }
-        const cheminDeFerId = cheminDeFer._id.toString();
-
-        // Filtre statut éditorial (défaut : validee seulement)
-        const statutFilter: Record<string, any> =
-          statut === 'all'
-            ? {}
-            : Array.isArray(statut)
-              ? { statut_editorial: { $in: statut } }
-              : { statut_editorial: statut };
-
-        // Pages POI du chemin de fer (source de vérité unique)
-        const pages = await db.collection(COLLECTIONS.pages)
-          .find({
-            chemin_de_fer_id: cheminDeFerId,
-            $or: [
-              { type_de_page: 'poi' },
-              { 'metadata.page_type': 'poi' },
-            ],
-            ...statutFilter,
-          })
-          .sort({ ordre: 1 })
-          .toArray();
-
-        const destination = guide.destination || guide.nom || 'guide';
-        const slugDest = destination.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
-        const now = new Date();
-        const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
-        const timePart = now.toISOString().slice(11, 16).replace(':', '');
-        const filename = `pois_${slugDest}_${datePart}_${timePart}.geojson`;
-
-        // Construire les features à partir des pages — géométrie null si coords absentes (GeoJSON valide)
-        const features = pages.map((page: any) => {
-          const coords = page.coordinates;
-          const geometry =
-            coords?.lat != null && coords?.lon != null
-              ? { type: 'Point' as const, coordinates: [coords.lon, coords.lat] }
-              : null;
-
-          return {
-            type: 'Feature' as const,
-            geometry,
-            properties: {
-              // "name" est la clé standard reconnue par les outils carto (QGIS, Leaflet, uMap…)
-              name:           page.titre,
-              nom:            page.titre,
-              page_id:        page.page_id          || page._id?.toString() || null,
-              poi_id:         page.metadata?.poi_id || null,
-              type_de_page:   page.type_de_page     || 'poi',
-              section_name:   page.section_name     || null,
-              cluster_id:     page.metadata?.cluster_id   || null,
-              cluster_name:   page.metadata?.cluster_name || page.section_name || null,
-              ordre:          page.ordre            || null,
-              statut:         page.statut_editorial || 'draft',
-              url_source:     page.url_source       || null,
-              display_name:   coords?.display_name  || null,
-            },
-          };
-        });
-
-        // Agrégation par cluster pour les métadonnées récapitulatives
-        const clusterMap: Record<string, { name: string; count: number }> = {};
-        for (const page of pages) {
-          const cid  = page.metadata?.cluster_id   || page.section_id  || 'non_affecte';
-          const cname = page.metadata?.cluster_name || page.section_name || cid;
-          if (!clusterMap[cid]) clusterMap[cid] = { name: cname, count: 0 };
-          clusterMap[cid].count++;
-        }
-
-        const geojson = {
-          type: 'FeatureCollection',
-          name: `POIs – ${destination}`,
-          metadata: {
-            guide:               destination,
-            guide_id:            guideId,
-            generated_at:        now.toISOString(),
-            filtre_statut:       statut,
-            total:               features.length,
-            with_coordinates:    features.filter(f => f.geometry !== null).length,
-            without_coordinates: features.filter(f => f.geometry === null).length,
-            clusters: Object.entries(clusterMap)
-              .map(([cluster_id, { name, count }]) => ({ cluster_id, cluster_name: name, count }))
-              .sort((a, b) => (a.cluster_name > b.cluster_name ? 1 : -1)),
-          },
-          features,
-        };
-
+        const { geojson, filename } = await buildPoiGeoJson(db, guideId, { lang, statut });
         reply.header('Content-Type', 'application/geo+json; charset=utf-8');
         reply.header('Content-Disposition', `attachment; filename="${filename}"`);
         return reply.send(geojson);
-
       } catch (error: any) {
+        if (error.message === 'Guide non trouvé' || error.message === 'Chemin de fer non trouvé pour ce guide') {
+          return reply.status(404).send({ error: error.message });
+        }
         fastify.log.error(error);
         return reply.status(500).send({ error: 'Erreur lors de la génération du GeoJSON' });
       }

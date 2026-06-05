@@ -4,14 +4,14 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ArrowDownTrayIcon,
   ArrowPathIcon,
+  ArchiveBoxIcon,
+  ArrowsRightLeftIcon,
   CheckCircleIcon,
   DocumentTextIcon,
   MapPinIcon,
   PhotoIcon,
-  SwatchIcon,
   LanguageIcon,
   ExclamationTriangleIcon,
-  ClockIcon,
   PencilSquareIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
@@ -34,21 +34,53 @@ const LANGUAGES = [
   { code: 'sv',    label: 'Suédois',     flag: '🇸🇪', native: false },
 ];
 
-const TEMPLATE_COLORS: Record<string, string> = {
-  COUVERTURE:                'bg-purple-100 text-purple-700',
-  PRESENTATION_GUIDE:        'bg-blue-100 text-blue-700',
-  PRESENTATION_DESTINATION:  'bg-blue-100 text-blue-700',
-  CARTE_DESTINATION:         'bg-cyan-100 text-cyan-700',
-  CLUSTER:                   'bg-orange-100 text-orange-700',
-  SECTION_INTRO:             'bg-orange-100 text-orange-700',
-  POI:                       'bg-green-100 text-green-700',
-  INSPIRATION:               'bg-pink-100 text-pink-700',
-  SAISON:                    'bg-yellow-100 text-yellow-700',
-  ALLER_PLUS_LOIN:           'bg-gray-100 text-gray-700',
-  A_PROPOS_RL:               'bg-gray-100 text-gray-700',
-};
-
 type TranslationStatus = 'idle' | 'processing' | 'completed' | 'failed';
+
+interface OverflowWarning {
+  page_id:        string;
+  page_titre:     string;
+  field_key:      string;
+  lang:           string;
+  current_length: number;
+  max_chars:      number;
+  current_value?: string | null;
+}
+
+function ExportIconButton({
+  icon,
+  label,
+  title,
+  onClick,
+  loading = false,
+  accent = 'gray',
+}: {
+  icon: React.ReactNode;
+  label: string;
+  title: string;
+  onClick: () => void;
+  loading?: boolean;
+  accent?: 'gray' | 'blue' | 'indigo' | 'emerald' | 'violet';
+}) {
+  const accentClasses: Record<string, string> = {
+    gray:   'text-gray-600 hover:bg-gray-100 border-gray-200',
+    blue:   'text-blue-700 hover:bg-blue-50 border-blue-200',
+    indigo: 'text-indigo-700 hover:bg-indigo-50 border-indigo-200',
+    emerald:'text-emerald-700 hover:bg-emerald-50 border-emerald-200',
+    violet: 'text-violet-700 hover:bg-violet-50 border-violet-200',
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={loading}
+      title={title}
+      className={`flex flex-col items-center gap-1 min-w-[4.5rem] px-2 py-2 rounded-lg border transition-colors disabled:opacity-50 ${accentClasses[accent]}`}
+    >
+      {loading ? <ArrowPathIcon className="w-5 h-5 animate-spin" /> : icon}
+      <span className="text-[10px] font-medium leading-tight text-center">{label}</span>
+    </button>
+  );
+}
 
 interface TranslationState {
   status: TranslationStatus;
@@ -58,13 +90,13 @@ interface TranslationState {
 }
 
 export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
-  const [selectedLanguages, setSelectedLanguages] = useState<string[]>(['fr']);
   const [preview, setPreview] = useState<any>(null);
-  const [loadingPreview, setLoadingPreview] = useState(true);
   const [downloading, setDownloading] = useState<Record<string, boolean>>({});
+  const [overflowsByLang, setOverflowsByLang] = useState<Record<string, OverflowWarning[]>>({});
   const [downloadingPackage, setDownloadingPackage] = useState<Record<string, boolean>>({});
   const [downloadingZip, setDownloadingZip] = useState<Record<string, boolean>>({});
-  const [downloadingGeoJson, setDownloadingGeoJson] = useState(false);
+  const [downloadingRedirections, setDownloadingRedirections] = useState<Record<string, boolean>>({});
+  const [downloadingGeoJson, setDownloadingGeoJson] = useState<Record<string, boolean>>({});
   const [downloadedFiles, setDownloadedFiles] = useState<string[]>([]);
   const [translationStates, setTranslationStates] = useState<Record<string, TranslationState>>({});
   const [translating, setTranslating] = useState<Record<string, boolean>>({});
@@ -73,16 +105,14 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
 
   useEffect(() => {
     loadPreview();
-    // Charger le statut de traduction pour toutes les langues non-FR
+    loadAllOverflows();
     LANGUAGES.filter(l => !l.native).forEach(l => loadTranslationStatus(l.code));
     return () => {
-      // Nettoyer les intervalles de polling au démontage
       Object.values(pollingRefs.current).forEach(clearInterval);
     };
   }, []);
 
   const loadPreview = async () => {
-    setLoadingPreview(true);
     try {
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/export/preview`, {
         credentials: 'include',
@@ -90,10 +120,45 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
       if (res.ok) setPreview(await res.json());
     } catch (err) {
       console.error('Erreur chargement preview:', err);
-    } finally {
-      setLoadingPreview(false);
     }
   };
+
+  const fetchOverflowsForLang = useCallback(async (lang: string): Promise<OverflowWarning[]> => {
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/translation-overflows`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) return [];
+      const data = await res.json();
+      return (data.warnings ?? []).filter((w: OverflowWarning) => w.lang === lang);
+    } catch {
+      return [];
+    }
+  }, [apiUrl, guideId]);
+
+  const loadAllOverflows = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/translation-overflows`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      const byLang: Record<string, OverflowWarning[]> = {};
+      for (const w of (data.warnings ?? []) as OverflowWarning[]) {
+        (byLang[w.lang] = byLang[w.lang] ?? []).push(w);
+      }
+      setOverflowsByLang(byLang);
+    } catch (err) {
+      console.error('Erreur chargement overflows:', err);
+    }
+  }, [apiUrl, guideId]);
+
+  const refreshOverflowsForLang = useCallback(async (lang: string) => {
+    const overflows = await fetchOverflowsForLang(lang);
+    setOverflowsByLang(prev => ({ ...prev, [lang]: overflows }));
+  }, [fetchOverflowsForLang]);
 
   const loadTranslationStatus = useCallback(async (lang: string) => {
     try {
@@ -110,20 +175,6 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     }
   }, [apiUrl, guideId]);
 
-  const fetchOverflowsForLang = useCallback(async (lang: string): Promise<OverflowWarning[]> => {
-    try {
-      const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/translation-overflows`,
-        { credentials: 'include' }
-      );
-      if (!res.ok) return [];
-      const data = await res.json();
-      return (data.warnings ?? []).filter((w: OverflowWarning) => w.lang === lang);
-    } catch {
-      return [];
-    }
-  }, [apiUrl, guideId]);
-
   const startPolling = useCallback((lang: string) => {
     if (pollingRefs.current[lang]) clearInterval(pollingRefs.current[lang]);
     pollingRefs.current[lang] = setInterval(async () => {
@@ -132,19 +183,16 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
         clearInterval(pollingRefs.current[lang]);
         delete pollingRefs.current[lang];
         setTranslating(prev => ({ ...prev, [lang]: false }));
-        // Si traduction terminée avec succès, ouvrir la modale si overflows
         if (data?.status === 'completed') {
-          const overflows = await fetchOverflowsForLang(lang);
-          if (overflows.length > 0) {
-            setOverflowModal({ lang, warnings: overflows });
-          }
+          await refreshOverflowsForLang(lang);
         }
       }
     }, 3000);
-  }, [loadTranslationStatus, fetchOverflowsForLang]);
+  }, [loadTranslationStatus, refreshOverflowsForLang]);
 
   const translateLanguage = async (lang: string) => {
     setTranslating(prev => ({ ...prev, [lang]: true }));
+    setOverflowsByLang(prev => ({ ...prev, [lang]: [] }));
     setTranslationStates(prev => ({
       ...prev,
       [lang]: { status: 'processing', progress: { done: 0, total: 0 }, translated_at: null, error: null },
@@ -168,10 +216,20 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     }
   };
 
-  const toggleLanguage = (code: string) => {
-    setSelectedLanguages(prev =>
-      prev.includes(code) ? prev.filter(l => l !== code) : [...prev, code]
-    );
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    setDownloadedFiles(prev => [...prev.filter(f => f !== filename), filename]);
+  };
+
+  const parseFilename = (res: Response, fallback: string) => {
+    const cd = res.headers.get('content-disposition') || '';
+    const cdMatch = cd.match(/filename="([^"]+)"/);
+    return cdMatch ? cdMatch[1] : fallback;
   };
 
   const downloadExport = async (lang: string) => {
@@ -220,15 +278,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
       );
       if (!res.ok) throw new Error('Erreur téléchargement JSON');
       const blob = await res.blob();
-      const cd = res.headers.get('content-disposition') || '';
-      const cdMatch = cd.match(/filename="([^"]+)"/);
-      const fallbackName = `guide_${lang}.json`;
-      const filename = cdMatch ? cdMatch[1] : fallbackName;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = filename; a.click();
-      URL.revokeObjectURL(url);
-      setDownloadedFiles(prev => [...prev.filter(f => !f.includes(`_${lang}.json`)), filename]);
+      downloadBlob(blob, parseFilename(res, `guide_${lang}.json`));
     } catch (err) {
       alert(`Erreur lors de l'export en ${lang}`);
     } finally {
@@ -245,23 +295,12 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
       );
       if (!res.ok) throw new Error(`Erreur ${res.status}`);
       const blob = await res.blob();
-
-      // Lire le nom depuis Content-Disposition du serveur (inclut date+heure)
-      const cd = res.headers.get('content-disposition') || '';
-      const cdMatch = cd.match(/filename="([^"]+)"/);
       const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
       const now = new Date();
       const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
       const timePart = now.toISOString().slice(11, 16).replace(':', '');
       const dest = slugify(preview?.meta?.destination || preview?.meta?.guide_name || 'guide');
-      const fallbackName = `guide_${dest}_${lang}_${datePart}_${timePart}.zip`;
-      const filename = cdMatch ? cdMatch[1] : fallbackName;
-
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = filename; a.click();
-      URL.revokeObjectURL(url);
-      setDownloadedFiles(prev => [...prev.filter(f => !f.endsWith(`_${lang}.zip`)), filename]);
+      downloadBlob(blob, parseFilename(res, `guide_${dest}_${lang}_${datePart}_${timePart}.zip`));
     } catch (err) {
       alert(`Erreur lors du téléchargement du ZIP en ${lang}`);
     } finally {
@@ -278,22 +317,12 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
       );
       if (!res.ok) throw new Error(`Erreur ${res.status}`);
       const blob = await res.blob();
-
-      const cd = res.headers.get('content-disposition') || '';
-      const cdMatch = cd.match(/filename="([^"]+)"/);
       const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
       const now = new Date();
       const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
       const timePart = now.toISOString().slice(11, 16).replace(':', '');
       const dest = slugify(preview?.meta?.destination || preview?.meta?.guide_name || 'guide');
-      const fallbackName = `guide_${dest}_${lang}_${datePart}_${timePart}_json_redirections.zip`;
-      const filename = cdMatch ? cdMatch[1] : fallbackName;
-
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = filename; a.click();
-      URL.revokeObjectURL(url);
-      setDownloadedFiles(prev => [...prev.filter(f => !f.includes(`_${lang}_`) || !f.includes('_json_redirections.zip')), filename]);
+      downloadBlob(blob, parseFilename(res, `guide_${dest}_${lang}_${datePart}_${timePart}_json_redirections.zip`));
     } catch (err) {
       alert(`Erreur lors du téléchargement JSON+redirections en ${lang}`);
     } finally {
@@ -301,39 +330,48 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     }
   };
 
-  const downloadAllSelected = async () => {
-    for (const lang of selectedLanguages) await downloadExport(lang);
-  };
-
-  const downloadGeoJson = async () => {
-    setDownloadingGeoJson(true);
+  const downloadRedirections = async (lang: string) => {
+    setDownloadingRedirections(prev => ({ ...prev, [lang]: true }));
     try {
       const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/export/geojson`,
+        `${apiUrl}/api/v1/guides/${guideId}/export/redirections.csv?lang=${lang}`,
         { credentials: 'include' }
       );
       if (!res.ok) throw new Error(`Erreur ${res.status}`);
       const blob = await res.blob();
+      const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+      const dest = slugify(preview?.meta?.destination || preview?.meta?.guide_name || 'guide');
+      const year = preview?.meta?.year || new Date().getFullYear();
+      downloadBlob(blob, parseFilename(res, `redirections_${dest}_${year}_${lang}.csv`));
+    } catch {
+      alert(`Erreur lors du téléchargement des redirections (${lang})`);
+    } finally {
+      setDownloadingRedirections(prev => ({ ...prev, [lang]: false }));
+    }
+  };
 
-      const cd = res.headers.get('content-disposition') || '';
-      const cdMatch = cd.match(/filename="([^"]+)"/);
+  const downloadGeoJson = async (lang: string) => {
+    setDownloadingGeoJson(prev => ({ ...prev, [lang]: true }));
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/export/geojson?lang=${lang}`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) throw new Error(`Erreur ${res.status}`);
+      const blob = await res.blob();
       const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
       const now = new Date();
       const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
       const timePart = now.toISOString().slice(11, 16).replace(':', '');
       const dest = slugify(preview?.meta?.destination || preview?.meta?.guide_name || 'guide');
-      const fallbackName = `pois_${dest}_${datePart}_${timePart}.geojson`;
-      const filename = cdMatch ? cdMatch[1] : fallbackName;
-
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = filename; a.click();
-      URL.revokeObjectURL(url);
-      setDownloadedFiles(prev => [...prev.filter(f => !f.endsWith('.geojson')), filename]);
-    } catch (err) {
-      alert('Erreur lors du téléchargement du GeoJSON');
+      const fallback = lang === 'fr'
+        ? `pois_${dest}_${datePart}_${timePart}.geojson`
+        : `pois_${dest}_${lang}_${datePart}_${timePart}.geojson`;
+      downloadBlob(blob, parseFilename(res, fallback));
+    } catch {
+      alert(`Erreur lors du téléchargement du GeoJSON (${lang})`);
     } finally {
-      setDownloadingGeoJson(false);
+      setDownloadingGeoJson(prev => ({ ...prev, [lang]: false }));
     }
   };
 
@@ -380,297 +418,195 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
       <div className="max-w-4xl mx-auto p-6 space-y-6">
 
         {/* Header */}
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">📦 Export InDesign</h2>
-            <p className="text-sm text-gray-500 mt-1">JSON normalisé layout-ready pour data merge</p>
-          </div>
-          <div className="flex gap-2">
-            {/* GeoJSON — indépendant de la sélection de langue */}
-            <button
-              onClick={downloadGeoJson}
-              disabled={downloadingGeoJson}
-              title="GeoJSON de tous les POIs groupés par cluster (pour cartographie)"
-              className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors shadow-sm disabled:opacity-50"
-            >
-              {downloadingGeoJson
-                ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                : <MapPinIcon className="w-4 h-4" />}
-              GeoJSON
-            </button>
-            {selectedLanguages.length > 0 && (
-              <>
-                <button
-                  onClick={downloadAllSelected}
-                  disabled={Object.values(downloading).some(Boolean)}
-                  title="JSON seul (sans images)"
-                  className="flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-gray-50 text-gray-700 font-medium rounded-lg transition-colors shadow-sm border border-gray-300 disabled:opacity-50"
-                >
-                  <ArrowDownTrayIcon className="w-4 h-4" />
-                  JSON
-                </button>
-                <button
-                  onClick={() => selectedLanguages.forEach(l => downloadZip(l))}
-                  disabled={Object.values(downloadingZip).some(Boolean)}
-                  title="ZIP complet : JSON + toutes les images téléchargées (opération longue)"
-                  className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors shadow-sm disabled:opacity-50"
-                >
-                  {Object.values(downloadingZip).some(Boolean)
-                    ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                    : <ArrowDownTrayIcon className="w-4 h-4" />}
-                  ZIP + images
-                </button>
-                <button
-                  onClick={() => selectedLanguages.forEach(l => downloadPackage(l))}
-                  disabled={Object.values(downloadingPackage).some(Boolean)}
-                  title="Archive légère : JSON + redirections CSV (sans images)"
-                  className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors shadow-sm disabled:opacity-50"
-                >
-                  {Object.values(downloadingPackage).some(Boolean)
-                    ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                    : <DocumentTextIcon className="w-4 h-4" />}
-                  JSON + redirections
-                </button>
-              </>
-            )}
-          </div>
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Export InDesign</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Téléchargez le package complet ou chaque livrable séparément, par langue.
+          </p>
         </div>
 
-        {/* Stats */}
-        {loadingPreview ? (
-          <div className="bg-white rounded-xl border border-gray-200 p-6 flex items-center gap-3">
-            <ArrowPathIcon className="w-5 h-5 text-gray-400 animate-spin" />
-            <span className="text-gray-500 text-sm">Chargement des statistiques...</span>
-          </div>
-        ) : preview ? (
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h3 className="text-sm font-semibold text-gray-700 mb-4 pb-2 border-b border-gray-100">
-              Contenu disponible à l'export
-            </h3>
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              <div className="text-center p-3 bg-blue-50 rounded-lg">
-                <div className="text-2xl font-bold text-blue-700">{preview.meta.stats.exported}</div>
-                <div className="text-xs text-blue-600 mt-1">Pages exportables</div>
+        {/* Français — langue source */}
+        {(() => {
+          const fr = LANGUAGES.find(l => l.native)!;
+          return (
+            <div className="bg-white rounded-xl border-2 border-blue-200 p-5">
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">{fr.flag}</span>
+                    <h3 className="text-sm font-semibold text-gray-900">{fr.label}</h3>
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
+                      Langue source
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1.5">
+                    Package complet : JSON, images, redirections et GeoJSON (labels français).
+                  </p>
+                </div>
               </div>
-              <div className="text-center p-3 bg-amber-50 rounded-lg">
-                <div className="text-2xl font-bold text-amber-700">{preview.meta.stats.excluded_draft}</div>
-                <div className="text-xs text-amber-600 mt-1">Brouillons exclus</div>
-              </div>
-              <div className="text-center p-3 bg-green-50 rounded-lg">
-                <div className="text-2xl font-bold text-green-700">{preview.meta.stats.total_pages}</div>
-                <div className="text-xs text-green-600 mt-1">Pages totales</div>
+              <div className="flex flex-wrap gap-2">
+                <ExportIconButton
+                  accent="blue"
+                  icon={<ArchiveBoxIcon className="w-5 h-5" />}
+                  label="Package complet"
+                  title="ZIP : JSON + images + redirections + GeoJSON (30–60 s)"
+                  loading={downloadingZip[fr.code]}
+                  onClick={() => downloadZip(fr.code)}
+                />
+                <ExportIconButton
+                  icon={<DocumentTextIcon className="w-5 h-5" />}
+                  label="JSON texte"
+                  title="JSON normalisé layout-ready (sans images)"
+                  loading={downloading[fr.code]}
+                  onClick={() => downloadExport(fr.code)}
+                />
+                <ExportIconButton
+                  accent="indigo"
+                  icon={<ArrowsRightLeftIcon className="w-5 h-5" />}
+                  label="Redirections"
+                  title="CSV des redirections WP Engine"
+                  loading={downloadingRedirections[fr.code]}
+                  onClick={() => downloadRedirections(fr.code)}
+                />
+                <ExportIconButton
+                  accent="emerald"
+                  icon={<MapPinIcon className="w-5 h-5" />}
+                  label="GeoJSON"
+                  title="POIs avec coordonnées GPS (noms en français)"
+                  loading={downloadingGeoJson[fr.code]}
+                  onClick={() => downloadGeoJson(fr.code)}
+                />
               </div>
             </div>
-            {preview.summary_by_template && (
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(preview.summary_by_template).map(([template, count]) => (
-                  <span
-                    key={template}
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${TEMPLATE_COLORS[template] || 'bg-gray-100 text-gray-700'}`}
-                  >
-                    {template}
-                    <span className="bg-white/60 px-1.5 py-0.5 rounded-full font-bold">{count as number}</span>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : null}
+          );
+        })()}
 
-        {/* Sélection des langues */}
+        {/* Autres langues */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">
-            Langues à exporter <span className="text-gray-400 font-normal">(un fichier JSON par langue)</span>
-          </h3>
-          <div className="space-y-2">
-            {LANGUAGES.map(lang => {
-              const isSelected = selectedLanguages.includes(lang.code);
-              const isDownloading = downloading[lang.code];
-              const isDownloaded = downloadedFiles.some(f => f.endsWith(`_${lang.code}.json`));
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">Traductions</h3>
+          <p className="text-xs text-gray-500 mb-4">
+            Par langue : JSON traduit, redirections et GeoJSON (labels POI traduits, ex. « Escalier Agatha Christie »).
+          </p>
+          <div className="space-y-3">
+            {LANGUAGES.filter(l => !l.native).map(lang => {
               const tState = translationStates[lang.code];
               const isTranslating = translating[lang.code] || tState?.status === 'processing';
-              const isTranslated = lang.native || tState?.status === 'completed';
+              const isTranslated = tState?.status === 'completed';
+              const langOverflows = overflowsByLang[lang.code] ?? [];
 
               return (
                 <div
                   key={lang.code}
-                  className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
-                    isSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-100 hover:border-gray-200'
-                  }`}
+                  className="p-4 rounded-lg border border-gray-100 bg-gray-50/50"
                 >
-                  {/* Sélection */}
-                  <button
-                    type="button"
-                    onClick={() => toggleLanguage(lang.code)}
-                    className="flex items-center gap-2 flex-1 min-w-0"
-                  >
-                    <span className="text-lg">{lang.flag}</span>
-                    <div className="text-left min-w-0">
-                      <div className={`text-sm font-medium ${isSelected ? 'text-blue-700' : 'text-gray-700'}`}>
-                        {lang.label}
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-lg">{lang.flag}</span>
+                      <div>
+                        <div className="text-sm font-medium text-gray-800">{lang.label}</div>
+                        <div className="mt-0.5">{renderTranslationBadge(lang.code)}</div>
                       </div>
-                      {!lang.native && (
-                        <div className="mt-0.5">
-                          {renderTranslationBadge(lang.code)}
-                        </div>
-                      )}
                     </div>
-                    {isDownloaded && <CheckCircleIcon className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />}
-                  </button>
+                    {isTranslating ? (
+                      <button
+                        disabled
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg cursor-not-allowed flex-shrink-0"
+                      >
+                        <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+                        Traduction…
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => translateLanguage(lang.code)}
+                        title={isTranslated ? 'Retraduire le contenu' : 'Lancer la traduction IA'}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors flex-shrink-0 ${
+                          isTranslated
+                            ? 'text-gray-500 bg-white border-gray-200 hover:bg-gray-50'
+                            : 'text-blue-700 bg-blue-50 border-blue-300 hover:bg-blue-100'
+                        }`}
+                      >
+                        <LanguageIcon className="w-3.5 h-3.5" />
+                        {isTranslated ? 'Retraduire' : 'Traduire'}
+                      </button>
+                    )}
+                  </div>
 
-                  {/* Actions traduction (langues non-FR) */}
-                  {!lang.native && (
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {isTranslating ? (
-                        <button
-                          disabled
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg cursor-not-allowed"
-                        >
-                          <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
-                          Traduction…
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => translateLanguage(lang.code)}
-                          title={isTranslated ? 'Retraduire' : 'Lancer la traduction via IA'}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
-                            isTranslated
-                              ? 'text-gray-500 bg-white border-gray-200 hover:bg-gray-50'
-                              : 'text-blue-700 bg-blue-50 border-blue-300 hover:bg-blue-100'
-                          }`}
-                        >
-                          <LanguageIcon className="w-3.5 h-3.5" />
-                          {isTranslated ? 'Retraduire' : 'Traduire'}
-                        </button>
-                      )}
-                    </div>
+                  {!isTranslated && (
+                    <p className="text-[11px] text-amber-600 mb-2">
+                      Traduction non effectuée — les exports contiendront encore le texte français.
+                    </p>
                   )}
 
-                  {/* Actions téléchargement (quand sélectionné) */}
-                  {isSelected && (
-                    <div className="flex gap-1 flex-shrink-0">
-                      {/* Avertissement si non traduit */}
-                      {!lang.native && !isTranslated && (
-                        <span title="Contenu en français — traduction non effectuée">
-                          <ClockIcon className="w-4 h-4 text-amber-400 mt-1" />
-                        </span>
-                      )}
-                      {/* JSON seul */}
-                      <button
-                        onClick={() => downloadExport(lang.code)}
-                        disabled={isDownloading}
-                        className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
-                        title={`Télécharger JSON ${lang.label}`}
-                      >
-                        {isDownloading
-                          ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                          : <ArrowDownTrayIcon className="w-4 h-4" />}
-                      </button>
-                      {/* ZIP + images */}
-                      <button
-                        onClick={() => downloadZip(lang.code)}
-                        disabled={downloadingZip[lang.code]}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
-                        title={`ZIP + images ${lang.label}`}
-                      >
-                        {downloadingZip[lang.code]
-                          ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                          : <span className="text-xs font-bold">ZIP</span>}
-                      </button>
-                      <button
-                        onClick={() => downloadPackage(lang.code)}
-                        disabled={downloadingPackage[lang.code]}
-                        className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
-                        title={`JSON + redirections ${lang.label}`}
-                      >
-                        {downloadingPackage[lang.code]
-                          ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                          : <span className="text-[10px] font-bold">CSV</span>}
-                      </button>
-                    </div>
-                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <ExportIconButton
+                      accent="violet"
+                      icon={<ArchiveBoxIcon className="w-5 h-5" />}
+                      label="Package"
+                      title="ZIP : JSON traduit + redirections + GeoJSON (sans images)"
+                      loading={downloadingPackage[lang.code]}
+                      onClick={() => downloadPackage(lang.code)}
+                    />
+                    <ExportIconButton
+                      icon={<DocumentTextIcon className="w-5 h-5" />}
+                      label="JSON texte"
+                      title={`JSON traduit (${lang.label})`}
+                      loading={downloading[lang.code]}
+                      onClick={() => downloadExport(lang.code)}
+                    />
+                    <ExportIconButton
+                      accent="indigo"
+                      icon={<ArrowsRightLeftIcon className="w-5 h-5" />}
+                      label="Redirections"
+                      title={`CSV redirections (${lang.label})`}
+                      loading={downloadingRedirections[lang.code]}
+                      onClick={() => downloadRedirections(lang.code)}
+                    />
+                    <ExportIconButton
+                      accent="emerald"
+                      icon={<MapPinIcon className="w-5 h-5" />}
+                      label="GeoJSON"
+                      title={`POIs avec labels traduits (${lang.label})`}
+                      loading={downloadingGeoJson[lang.code]}
+                      onClick={() => downloadGeoJson(lang.code)}
+                    />
+                  </div>
+
+                  <LanguageOverflowAlerts
+                    warnings={langOverflows}
+                    onCorrect={() => setOverflowModal({ lang: lang.code, warnings: langOverflows })}
+                  />
                 </div>
               );
             })}
           </div>
         </div>
 
-        {/* Alertes de dépassement de calibre */}
-        <OverflowAlertsPanel
-          guideId={guideId}
-          apiUrl={apiUrl}
-          onOpenCorrection={(lang, warnings) => setOverflowModal({ lang, warnings })}
-        />
-
-        {/* Modale de correction manuelle des overflows */}
         {overflowModal && (
           <OverflowCorrectionModal
             guideId={guideId}
             apiUrl={apiUrl}
             lang={overflowModal.lang}
             initialWarnings={overflowModal.warnings}
-            onClose={() => setOverflowModal(null)}
+            onClose={() => {
+              const closedLang = overflowModal.lang;
+              setOverflowModal(null);
+              refreshOverflowsForLang(closedLang);
+            }}
           />
         )}
 
-        {/* Structure du JSON */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4 pb-2 border-b border-gray-100">
-            Structure du fichier JSON
-          </h3>
-          <div className="space-y-3">
-            {[
-              {
-                icon: <DocumentTextIcon className="w-4 h-4" />,
-                color: 'text-blue-600 bg-blue-50',
-                title: 'meta',
-                desc: 'Nom, destination, année, langue, date export, statistiques (pages exportées / brouillons exclus)',
-              },
-              {
-                icon: <SwatchIcon className="w-4 h-4" />,
-                color: 'text-purple-600 bg-purple-50',
-                title: 'mappings',
-                desc: 'Correspondances field → calque InDesign, picto_layers, picto_values (valeur brute → clé abstraite PICTO_XXX)',
-              },
-              {
-                icon: <DocumentTextIcon className="w-4 h-4" />,
-                color: 'text-green-600 bg-green-50',
-                title: 'pages[].content.text',
-                desc: 'Champs texte et méta indexés par nom de champ (ex: POI_titre_1, POI_meta_duree)',
-              },
-              {
-                icon: <PhotoIcon className="w-4 h-4" />,
-                color: 'text-orange-600 bg-orange-50',
-                title: 'pages[].content.images',
-                desc: 'Images avec url distante + local_filename normalisé (p012_poi_grand_rond.jpg) + local_path',
-              },
-              {
-                icon: <SwatchIcon className="w-4 h-4" />,
-                color: 'text-pink-600 bg-pink-50',
-                title: 'pages[].content.pictos',
-                desc: 'Pictos avec valeur brute (incontournable/oui/50…) + picto_key abstrait (PICTO_SMILEY_3 ou null si non affiché) + calque InDesign',
-              },
-            ].map((item, i) => (
-              <div key={i} className="flex items-start gap-3">
-                <div className={`p-1.5 rounded-lg flex-shrink-0 ${item.color}`}>
-                  {item.icon}
-                </div>
-                <div>
-                  <code className="text-xs font-mono font-semibold text-gray-800">{item.title}</code>
-                  <p className="text-xs text-gray-500 mt-0.5">{item.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Note ZIP */}
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
-          <p className="font-semibold mb-1">ZIP + images</p>
-          <p className="text-xs text-amber-700">
-            Le bouton <strong>ZIP</strong> télécharge toutes les images depuis WordPress côté serveur
-            puis te renvoie une archive prête pour InDesign. L'opération peut prendre
-            30–60 secondes selon le nombre d'images.
+        {/* Aide */}
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-600 space-y-2">
+          <p>
+            <strong className="text-slate-800">Package complet (FR)</strong> — JSON, dossier images, CSV redirections et GeoJSON dans une seule archive.
+            Comptez 30–60 s (téléchargement des images WordPress).
+          </p>
+          <p>
+            <strong className="text-slate-800">Package (traductions)</strong> — JSON traduit, redirections et GeoJSON avec libellés POI dans la langue cible (sans images).
+          </p>
+          <p className="flex items-center gap-1.5 text-slate-500">
+            <PhotoIcon className="w-3.5 h-3.5 flex-shrink-0" />
+            Les images ne sont incluses que dans le package français (visuels identiques toutes langues).
           </p>
         </div>
 
@@ -699,111 +635,58 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
           </div>
         )}
 
-        {/* Import GeoJSON → mise à jour des coordonnées GPS */}
-        <GeoJsonImportPanel guideId={guideId} apiUrl={apiUrl} />
-
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Types communs
+// Alertes de calibre sous chaque langue (après traduction)
 // ---------------------------------------------------------------------------
-interface OverflowWarning {
-  page_id:        string;
-  page_titre:     string;
-  field_key:      string;
-  lang:           string;
-  current_length: number;
-  max_chars:      number;
-  current_value?: string | null;
-}
-
-// ---------------------------------------------------------------------------
-// Panneau d'alertes de dépassement de calibre post-traduction
-// ---------------------------------------------------------------------------
-function OverflowAlertsPanel({
-  guideId,
-  apiUrl,
-  onOpenCorrection,
+function LanguageOverflowAlerts({
+  warnings,
+  onCorrect,
 }: {
-  guideId: string;
-  apiUrl: string;
-  onOpenCorrection: (lang: string, warnings: OverflowWarning[]) => void;
+  warnings: OverflowWarning[];
+  onCorrect: () => void;
 }) {
-  const [warnings, setWarnings]   = useState<OverflowWarning[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [collapsed, setCollapsed] = useState(false);
+  if (warnings.length === 0) return null;
 
-  useEffect(() => {
-    fetch(`${apiUrl}/api/v1/guides/${guideId}/translation-overflows`, { credentials: 'include' })
-      .then(r => r.ok ? r.json() : { warnings: [] })
-      .then(d => { setWarnings(d.warnings ?? []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [guideId, apiUrl]);
-
-  if (loading || warnings.length === 0) return null;
-
-  const byLang = warnings.reduce<Record<string, OverflowWarning[]>>((acc, w) => {
-    (acc[w.lang] = acc[w.lang] ?? []).push(w);
-    return acc;
-  }, {});
+  const preview = warnings.slice(0, 3);
+  const remaining = warnings.length - preview.length;
 
   return (
-    <div className="bg-white rounded-xl border border-amber-300 p-5">
-      <button
-        onClick={() => setCollapsed(c => !c)}
-        className="w-full flex items-center justify-between gap-3"
-      >
-        <div className="flex items-center gap-2">
-          <ExclamationTriangleIcon className="w-5 h-5 text-amber-500 flex-shrink-0" />
-          <h3 className="text-sm font-semibold text-amber-700">
-            {warnings.length} dépassement{warnings.length > 1 ? 's' : ''} de calibre — correction manuelle requise
-          </h3>
+    <div className="mt-3 pt-3 border-t border-amber-200">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-amber-700">
+          <ExclamationTriangleIcon className="w-4 h-4 flex-shrink-0" />
+          {warnings.length} dépassement{warnings.length > 1 ? 's' : ''} de calibre
         </div>
-        <span className="text-xs text-amber-500">{collapsed ? '▼ Afficher' : '▲ Réduire'}</span>
-      </button>
-
-      {!collapsed && (
-        <div className="mt-4 space-y-4">
-          <p className="text-xs text-gray-500">
-            Ces champs dépassent le calibre InDesign après toutes les passes de condensation IA.
-          </p>
-          {Object.entries(byLang).map(([lang, ws]) => (
-            <div key={lang}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  {LANGUAGES.find(l => l.code === lang)?.flag} {LANGUAGES.find(l => l.code === lang)?.label ?? lang}
-                  <span className="ml-2 text-amber-600">({ws.length} champ{ws.length > 1 ? 's' : ''})</span>
-                </div>
-                <button
-                  onClick={() => onOpenCorrection(lang, ws)}
-                  className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-300 rounded-lg hover:bg-amber-100 transition-colors"
-                >
-                  <PencilSquareIcon className="w-3.5 h-3.5" />
-                  Corriger manuellement
-                </button>
-              </div>
-              <div className="space-y-2">
-                {ws.map((w, i) => (
-                  <div key={i} className="flex items-start gap-3 p-3 bg-amber-50 rounded-lg border border-amber-100 text-sm">
-                    <ExclamationTriangleIcon className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <span className="font-medium text-gray-800 truncate block">{w.page_titre}</span>
-                      <span className="text-gray-500">
-                        <code className="bg-gray-100 px-1 rounded text-xs">{w.field_key}</code>
-                        {' '}— {w.current_length} car. pour un max de {w.max_chars} car.
-                        {' '}(<span className="text-amber-600 font-medium">+{w.current_length - w.max_chars}</span>)
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+        <button
+          type="button"
+          onClick={onCorrect}
+          className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-amber-800 bg-amber-50 border border-amber-300 rounded-lg hover:bg-amber-100 transition-colors"
+        >
+          <PencilSquareIcon className="w-3.5 h-3.5" />
+          Corriger
+        </button>
+      </div>
+      <ul className="space-y-1">
+        {preview.map((w, i) => (
+          <li key={i} className="text-[11px] text-amber-800/90 leading-snug">
+            <span className="font-medium">{w.page_titre}</span>
+            {' — '}
+            <code className="bg-amber-100/80 px-1 rounded">{w.field_key}</code>
+            {' '}
+            <span className="text-amber-600">
+              {w.current_length}/{w.max_chars} car. (+{w.current_length - w.max_chars})
+            </span>
+          </li>
+        ))}
+        {remaining > 0 && (
+          <li className="text-[11px] text-amber-600 italic">… et {remaining} autre{remaining > 1 ? 's' : ''}</li>
+        )}
+      </ul>
     </div>
   );
 }
@@ -983,539 +866,6 @@ function OverflowCorrectionModal({
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Import GeoJSON → mise à jour des coordonnées GPS
-// ---------------------------------------------------------------------------
-interface MatchEntry {
-  page_id:          string;
-  page_titre:       string;
-  geojson_name:     string;
-  translated_name:  string | null;
-  is_translated:    boolean;
-  match_quality:    'exact' | 'partial';
-  current_coords:   { lat: number; lon: number } | null;
-  new_coords:       { lat: number; lon: number };
-  status:           'update' | 'identical';
-}
-
-interface PreviewResult {
-  matches:           MatchEntry[];
-  unmatched_geojson: Array<{ name: string; translated_name: string | null; coords: { lat: number; lon: number } }>;
-  unmatched_pages:   Array<{ page_id: string; titre: string }>;
-  all_pages:         Array<{ page_id: string; titre: string }>;
-  stats: {
-    total_features: number; matched: number;
-    matched_direct: number; matched_translated: number;
-    to_update: number; identical: number;
-    unmatched_geojson: number; unmatched_pages: number;
-  };
-}
-
-function GeoJsonImportPanel({ guideId, apiUrl }: { guideId: string; apiUrl: string }) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [open,        setOpen]        = useState(false);
-  const [loading,     setLoading]     = useState(false);
-  const [applying,    setApplying]    = useState(false);
-  const [preview,     setPreview]     = useState<PreviewResult | null>(null);
-  const [error,       setError]       = useState<string | null>(null);
-  const [applyResult, setApplyResult] = useState<{ updated: number; attempted: number } | null>(null);
-  const [selected,    setSelected]    = useState<Set<string>>(new Set());
-
-  const reset = () => {
-    setPreview(null); setError(null); setApplyResult(null);
-    setSelected(new Set()); setManualMatches([]); setPendingGeoJson(null);
-    if (fileRef.current) fileRef.current.value = '';
-  };
-
-  const handleFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    setLoading(true); setError(null); setPreview(null); setApplyResult(null);
-    try {
-      const allFeatures: any[] = [];
-      for (const file of Array.from(files)) {
-        const text = await file.text();
-        const json = JSON.parse(text);
-        allFeatures.push(...(json.features ?? (json.type === 'Feature' ? [json] : [])));
-      }
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/import/geojson/preview`, {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ features: allFeatures }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erreur serveur');
-      setPreview(data);
-      setSelected(new Set(data.matches.filter((m: MatchEntry) => m.status === 'update').map((m: MatchEntry) => m.page_id)));
-    } catch (err: any) {
-      setError(err.message || 'Erreur lors de l\'analyse');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ── Matching manuel ────────────────────────────────────────────────────────
-  type ManualMatch = {
-    geojsonName: string;
-    coords: { lat: number; lon: number };
-    pageId: string;
-    pageTitre: string;
-  };
-  const [manualMatches,    setManualMatches]    = useState<ManualMatch[]>([]);
-  const [pendingGeoJson,   setPendingGeoJson]   = useState<string | null>(null);
-  const [pageSearch,       setPageSearch]       = useState('');
-
-  const handleApply = async () => {
-    const hasAuto   = selected.size > 0;
-    const hasManual = manualMatches.length > 0;
-    if (!preview || (!hasAuto && !hasManual)) return;
-    setApplying(true); setError(null);
-    try {
-      const autoUpdates = (preview?.matches ?? [])
-        .filter(m => selected.has(m.page_id))
-        .map(m => ({
-          pageId:          m.page_id,
-          lat:             m.new_coords.lat,
-          lon:             m.new_coords.lon,
-          nomVernaculaire: m.is_translated ? m.geojson_name : undefined,
-        }));
-      const manualUpdates = manualMatches.map(m => ({
-        pageId:          m.pageId,
-        lat:             m.coords.lat,
-        lon:             m.coords.lon,
-        nomVernaculaire: m.geojsonName,
-      }));
-      const updates = [...autoUpdates, ...manualUpdates];
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/import/geojson/apply`, {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erreur serveur');
-      setApplyResult(data);
-    } catch (err: any) {
-      setError(err.message || 'Erreur lors de l\'application');
-    } finally {
-      setApplying(false);
-    }
-  };
-
-  const toggleRow = (pageId: string) => {
-    setSelected(prev => { const n = new Set(prev); n.has(pageId) ? n.delete(pageId) : n.add(pageId); return n; });
-  };
-  const toggleGroup = (rows: MatchEntry[]) => {
-    const ids = rows.map(m => m.page_id);
-    setSelected(prev =>
-      ids.every(id => prev.has(id))
-        ? new Set([...prev].filter(id => !ids.includes(id)))
-        : new Set([...prev, ...ids])
-    );
-  };
-
-  // Rows par catégorie
-  // Exact update : sélectionnés par défaut
-  const exactUpdateRows   = preview?.matches.filter(m => m.match_quality === 'exact'   && m.status === 'update')   ?? [];
-  // Partial (tous) : à valider manuellement (non sélectionnés par défaut)
-  const partialRows       = preview?.matches.filter(m => m.match_quality === 'partial') ?? [];
-  // Exact identical : déjà OK, collapsé
-  const exactIdentRows    = preview?.matches.filter(m => m.match_quality === 'exact'   && m.status === 'identical') ?? [];
-  // compat alias
-  const toUpdateRows      = exactUpdateRows;
-  const identicalRows     = exactIdentRows;
-
-  const MatchTable = ({ rows, accentColor }: { rows: MatchEntry[]; accentColor: string }) => (
-    <div className="rounded-xl border border-gray-200 overflow-hidden text-xs">
-      <table className="w-full">
-        <thead className="bg-gray-50 text-gray-500 uppercase text-[10px] tracking-wide">
-          <tr>
-            <th className="w-8 px-3 py-2" />
-            <th className="px-3 py-2 text-left">Page (français)</th>
-            <th className="px-3 py-2 text-left">Nom GeoJSON</th>
-            <th className="px-3 py-2 text-left">Coords actuelles</th>
-            <th className="px-3 py-2 text-left">Nouvelles coords</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {rows.map(m => (
-            <tr
-              key={m.page_id}
-              className={`cursor-pointer transition-colors ${selected.has(m.page_id) ? accentColor : 'hover:bg-gray-50'}`}
-              onClick={() => toggleRow(m.page_id)}
-            >
-              <td className="px-3 py-2 text-center">
-                <input
-                  type="checkbox"
-                  checked={selected.has(m.page_id)}
-                  onChange={() => toggleRow(m.page_id)}
-                  onClick={e => e.stopPropagation()}
-                  className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
-                />
-              </td>
-              <td className="px-3 py-2 font-medium text-gray-800">{m.page_titre}</td>
-              <td className="px-3 py-2 text-gray-500">
-                {m.is_translated ? (
-                  <span className="flex flex-wrap items-center gap-1">
-                    <span className="text-gray-400 italic">{m.geojson_name}</span>
-                    <span className="text-gray-300">→</span>
-                    <span className="text-violet-700 font-medium">{m.translated_name}</span>
-                    <span className="text-[9px] bg-violet-100 text-violet-600 px-1 py-0.5 rounded font-medium uppercase tracking-wide">IA</span>
-                    {m.match_quality === 'partial' && (
-                      <span className="text-[9px] bg-orange-100 text-orange-600 px-1 py-0.5 rounded font-medium uppercase tracking-wide">~partiel</span>
-                    )}
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1">
-                    {m.geojson_name}
-                    {m.match_quality === 'partial' && (
-                      <span className="text-[9px] bg-orange-100 text-orange-600 px-1 py-0.5 rounded font-medium uppercase tracking-wide">~partiel</span>
-                    )}
-                  </span>
-                )}
-              </td>
-              <td className="px-3 py-2 font-mono text-gray-400">
-                {m.current_coords
-                  ? `${m.current_coords.lat.toFixed(5)}, ${m.current_coords.lon.toFixed(5)}`
-                  : <span className="italic text-gray-300">aucune</span>}
-              </td>
-              <td className="px-3 py-2 font-mono text-emerald-700">
-                {m.new_coords.lat.toFixed(5)}, {m.new_coords.lon.toFixed(5)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-
-  return (
-    <div className="bg-white rounded-xl border border-emerald-200">
-      <button
-        className="w-full flex items-center justify-between px-5 py-4 text-left"
-        onClick={() => { setOpen(o => !o); if (!open) reset(); }}
-      >
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-emerald-50">
-            <MapPinIcon className="w-5 h-5 text-emerald-600" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-gray-900">Import GPS — fichiers GeoJSON</p>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Importer des fichiers uMap · matching direct + traduction IA des noms vernaculaires
-            </p>
-          </div>
-        </div>
-        <svg xmlns="http://www.w3.org/2000/svg" className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
-          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {open && (
-        <div className="px-5 pb-5 border-t border-emerald-100 pt-4 space-y-4">
-
-          {/* Zone de dépôt */}
-          {!preview && !loading && (
-            <div
-              className="border-2 border-dashed border-emerald-300 rounded-xl p-6 text-center cursor-pointer hover:bg-emerald-50 transition-colors"
-              onClick={() => fileRef.current?.click()}
-              onDragOver={e => e.preventDefault()}
-              onDrop={e => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
-            >
-              <MapPinIcon className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
-              <p className="text-sm font-medium text-gray-700">Déposer les fichiers GeoJSON ici</p>
-              <p className="text-xs text-gray-400 mt-1">Plusieurs fichiers acceptés — matching direct puis traduction IA des noms vernaculaires</p>
-              <input ref={fileRef} type="file" accept=".geojson,application/geo+json,application/json"
-                multiple className="hidden" onChange={e => handleFiles(e.target.files)} />
-            </div>
-          )}
-
-          {loading && (
-            <div className="space-y-2 py-2">
-              <div className="flex items-center gap-3 text-sm text-gray-500">
-                <ArrowPathIcon className="w-5 h-5 animate-spin text-emerald-500" />
-                Analyse + traduction IA des noms vernaculaires…
-              </div>
-              <p className="text-xs text-gray-400 pl-8">Les noms sans correspondance directe sont traduits en français par GPT-4o-mini.</p>
-            </div>
-          )}
-
-          {error && (
-            <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
-              <ExclamationTriangleIcon className="w-4 h-4 flex-shrink-0 mt-0.5" />{error}
-            </div>
-          )}
-
-          {applyResult && (
-            <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
-              <CheckCircleIcon className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-              <div>
-                <p className="text-sm font-semibold text-emerald-800">
-                  {applyResult.updated} coordonnée{applyResult.updated > 1 ? 's' : ''} mise{applyResult.updated > 1 ? 's' : ''} à jour
-                </p>
-                <p className="text-xs text-emerald-600 mt-0.5">
-                  Coordonnées + noms vernaculaires enregistrés — re-télécharge le GeoJSON pour vérifier.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {preview && !applyResult && (
-            <>
-              {/* Stats */}
-              <div className="grid grid-cols-4 gap-2 text-center text-xs">
-                {[
-                  { label: 'Match exact',       value: preview.stats.matched_direct,     color: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
-                  { label: 'Match approx. / IA',value: partialRows.length,               color: 'bg-orange-50 border-orange-200 text-orange-700' },
-                  { label: 'À affecter manuellement', value: preview.stats.unmatched_geojson, color: 'bg-gray-50 border-gray-200 text-gray-500' },
-                  { label: 'À mettre à jour',   value: preview.stats.to_update + manualMatches.length, color: 'bg-amber-50 border-amber-200 text-amber-700' },
-                ].map(s => (
-                  <div key={s.label} className={`rounded-lg border px-2 py-2 ${s.color}`}>
-                    <p className="text-lg font-bold">{s.value}</p>
-                    <p className="text-[10px] mt-0.5 leading-tight">{s.label}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* ── Section 1 : Mises à jour exactes (auto-validées) ── */}
-              {toUpdateRows.length > 0 && (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
-                      Mises à jour — match exact ({toUpdateRows.length})
-                    </p>
-                    <button type="button" onClick={() => toggleGroup(toUpdateRows)} className="text-xs text-emerald-600 hover:underline">
-                      {toUpdateRows.every(m => selected.has(m.page_id)) ? 'Tout désélectionner' : 'Tout sélectionner'}
-                    </button>
-                  </div>
-                  <MatchTable rows={toUpdateRows} accentColor="bg-amber-50" />
-                </div>
-              )}
-
-              {/* ── Section 2 : Rapprochements approx. / IA — à valider ── */}
-              {partialRows.length > 0 && (
-                <div className="rounded-xl border border-orange-200 bg-orange-50/50 p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <ExclamationTriangleIcon className="w-4 h-4 text-orange-500 flex-shrink-0" />
-                      <p className="text-xs font-semibold text-orange-800">
-                        Rapprochements approximatifs — à valider ({partialRows.length})
-                      </p>
-                    </div>
-                    <button type="button" onClick={() => toggleGroup(partialRows)} className="text-xs text-orange-600 hover:underline">
-                      {partialRows.every(m => selected.has(m.page_id)) ? 'Tout désélectionner' : 'Tout valider'}
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-orange-600 pl-6">
-                    Ces correspondances ont été trouvées par similarité de nom (containment ou overlap de mots). Vérifie que chaque ligne est correcte avant d'appliquer.
-                  </p>
-                  <MatchTable rows={partialRows} accentColor="bg-orange-100" />
-                </div>
-              )}
-
-              {/* ── Section 3 : Déjà corrects (collapsé) ── */}
-              {identicalRows.length > 0 && (
-                <details>
-                  <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600 select-none">
-                    {identicalRows.length} POI{identicalRows.length > 1 ? 's' : ''} déjà à jour (coordonnées identiques) ▾
-                  </summary>
-                  <div className="mt-2"><MatchTable rows={identicalRows} accentColor="bg-emerald-50" /></div>
-                </details>
-              )}
-
-              {/* ── Section 4 : Affectation manuelle ── */}
-              {(preview.unmatched_geojson.length > 0 || preview.unmatched_pages.length > 0) && (
-                <div className="rounded-xl border border-gray-200 p-3 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <DocumentTextIcon className="w-4 h-4 text-gray-500 flex-shrink-0" />
-                    <p className="text-xs font-semibold text-gray-700">
-                      Affectation manuelle — {preview.unmatched_geojson.length} point{preview.unmatched_geojson.length > 1 ? 's' : ''} GeoJSON sans correspondance
-                    </p>
-                  </div>
-                  <p className="text-[11px] text-gray-400 pl-6">
-                    Clique un point GeoJSON (gauche) puis une page POI (droite) pour créer une correspondance.
-                  </p>
-
-                  {/* Paires déjà créées */}
-                  {manualMatches.length > 0 && (
-                    <div className="space-y-1">
-                      {manualMatches.map((mm, i) => (
-                        <div key={i} className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5 text-xs">
-                          <span className="text-gray-500 italic flex-1 truncate">{mm.geojsonName}</span>
-                          <span className="text-gray-300">→</span>
-                          <span className="text-emerald-700 font-medium flex-1 truncate">{mm.pageTitre}</span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setManualMatches(prev => prev.filter((_, j) => j !== i));
-                              setPendingGeoJson(null);
-                            }}
-                            className="text-gray-300 hover:text-red-500 ml-1 flex-shrink-0"
-                            title="Supprimer cette correspondance"
-                          >
-                            <XMarkIcon className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Colonnes GeoJSON | Pages */}
-                  {(() => {
-                    const usedGeoJsonNames = new Set(manualMatches.map(m => m.geojsonName));
-                    const usedPageIds      = new Set(manualMatches.map(m => m.pageId));
-
-                    // Colonne gauche : GeoJSON non encore affectés, triés alpha
-                    const availableGeoJson = [...preview.unmatched_geojson]
-                      .filter(u => !usedGeoJsonNames.has(u.name))
-                      .sort((a, b) => (a.translated_name ?? a.name).localeCompare(b.translated_name ?? b.name, 'fr'));
-
-                    // Colonne droite : TOUS les POI du guide, triés alpha, avec recherche
-                    const allPagesSource = preview.all_pages ?? preview.unmatched_pages;
-                    const searchQ = pageSearch.toLowerCase().trim();
-                    const availablePages = allPagesSource
-                      .filter(p => !usedPageIds.has(p.page_id))
-                      .filter(p => !searchQ || p.titre.toLowerCase().includes(searchQ));
-
-                    if (availableGeoJson.length === 0 && allPagesSource.length === 0) return null;
-                    return (
-                      <div className="grid grid-cols-2 gap-3">
-                        {/* Colonne GeoJSON */}
-                        <div>
-                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
-                            Points GeoJSON ({availableGeoJson.length})
-                          </p>
-                          <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
-                            {availableGeoJson.map((u, i) => (
-                              <button
-                                key={i}
-                                type="button"
-                                onClick={() => setPendingGeoJson(prev => prev === u.name ? null : u.name)}
-                                className={`w-full text-left px-2.5 py-1.5 rounded-lg border text-xs transition-colors ${
-                                  pendingGeoJson === u.name
-                                    ? 'bg-blue-100 border-blue-400 text-blue-800 font-medium'
-                                    : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-                                }`}
-                              >
-                                <span className="block truncate">{u.translated_name ?? u.name}</span>
-                                {u.translated_name && u.translated_name !== u.name && (
-                                  <span className="block text-[10px] text-gray-400 truncate">🌐 {u.name}</span>
-                                )}
-                                <span className="block text-[10px] font-mono text-gray-300">
-                                  {u.coords.lat.toFixed(4)}, {u.coords.lon.toFixed(4)}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Colonne Pages — tous les POI du guide */}
-                        <div>
-                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
-                            Tous les POI du guide ({availablePages.length}{searchQ ? ` sur ${allPagesSource.filter(p => !usedPageIds.has(p.page_id)).length}` : ''})
-                          </p>
-                          {/* Barre de recherche */}
-                          <div className="relative mb-1.5">
-                            <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
-                            </svg>
-                            <input
-                              type="text"
-                              value={pageSearch}
-                              onChange={e => setPageSearch(e.target.value)}
-                              placeholder="Rechercher un POI…"
-                              className="w-full pl-7 pr-2 py-1 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white"
-                            />
-                            {pageSearch && (
-                              <button
-                                type="button"
-                                onClick={() => setPageSearch('')}
-                                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                              >
-                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                              </button>
-                            )}
-                          </div>
-                          <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
-                            {availablePages.length === 0 && (
-                              <p className="text-xs text-gray-400 italic px-2">Aucun résultat</p>
-                            )}
-                            {availablePages.map((p, i) => (
-                              <button
-                                key={i}
-                                type="button"
-                                disabled={!pendingGeoJson}
-                                onClick={() => {
-                                  if (!pendingGeoJson) return;
-                                  const geoJsonItem = preview.unmatched_geojson.find(u => u.name === pendingGeoJson);
-                                  if (!geoJsonItem) return;
-                                  setManualMatches(prev => [...prev, {
-                                    geojsonName: pendingGeoJson,
-                                    coords:      geoJsonItem.coords,
-                                    pageId:      p.page_id,
-                                    pageTitre:   p.titre,
-                                  }]);
-                                  setPendingGeoJson(null);
-                                  setPageSearch('');
-                                }}
-                                className={`w-full text-left px-2.5 py-1.5 rounded-lg border text-xs transition-colors ${
-                                  pendingGeoJson
-                                    ? 'bg-white border-blue-300 text-gray-700 hover:bg-blue-50 cursor-pointer'
-                                    : 'bg-white border-gray-200 text-gray-400 cursor-not-allowed'
-                                }`}
-                              >
-                                <span className="block truncate">{p.titre}</span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {pendingGeoJson && (
-                    <p className="text-xs text-blue-600 font-medium flex items-center gap-1">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
-                      </svg>
-                      « {pendingGeoJson} » sélectionné — clique une page à droite pour créer la paire
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* ── Actions ── */}
-              <div className="flex items-center gap-3 pt-1">
-                <button
-                  type="button" onClick={handleApply}
-                  disabled={applying || (selected.size === 0 && manualMatches.length === 0)}
-                  className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {applying
-                    ? <><ArrowPathIcon className="w-4 h-4 animate-spin" /> Application…</>
-                    : <><CheckCircleIcon className="w-4 h-4" /> Appliquer {selected.size + manualMatches.length} mise{(selected.size + manualMatches.length) > 1 ? 's' : ''} à jour</>}
-                </button>
-                <button type="button" onClick={() => { reset(); setManualMatches([]); setPendingGeoJson(null); setPageSearch(''); }}
-                  className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors">
-                  Recommencer
-                </button>
-              </div>
-            </>
-          )}
-
-          {applyResult && (
-            <button type="button" onClick={reset}
-              className="text-xs text-gray-400 hover:text-gray-600 underline decoration-dotted">
-              Importer d'autres fichiers
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }

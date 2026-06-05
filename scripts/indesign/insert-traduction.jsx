@@ -179,6 +179,7 @@ if (bfSource) {
     }
 }
 // Valeurs de secours pour les anciens exports
+bulletFields["POI_liste_1"]                     = true;
 bulletFields["POI_texte_2"]                     = true;
 bulletFields["PRESENTATION_GUIDE_liste_sections"] = true;
 // Page PRESENTATION_DESTINATION : ces champs sont des textes multilignes
@@ -387,105 +388,66 @@ function changeGrepOnScope(scope, story, findWhat, changeTo) {
     app.changeGrepPreferences = NothingEnum.NOTHING;
 }
 
+/**
+ * Apres application GREP des marqueurs, retire le gras (ou autre formatage)
+ * herite du master FR sur les caracteres qui ne portent pas un style de marqueur.
+ * Corrige le cas des listes POI traduites ou tout le paragraphe restait en gras.
+ */
+function resetNonMarkerCharacterFormatting(tf) {
+    var noneCh = getNoneCharacterStyle();
+    if (!noneCh || !noneCh.isValid) return;
+
+    var markerStyles = {};
+    markerStyles[STYLE_GRAS] = true;
+    markerStyles[STYLE_ORANGE] = true;
+    markerStyles[STYLE_CHIFFRE] = true;
+    markerStyles[STYLE_GRAS_ORANGE] = true;
+
+    try {
+        var scope = grepScopeForTextFrame(tf);
+        var chars = scope.characters;
+        for (var c = 0; c < chars.length; c++) {
+            try {
+                var ch = chars.item(c);
+                var applied = ch.appliedCharacterStyle;
+                var isMarker = applied && applied.isValid && markerStyles[applied.name] === true;
+                if (!isMarker) {
+                    ch.appliedCharacterStyle = noneCh;
+                    if (typeof ch.clearOverrides === "function") {
+                        try { ch.clearOverrides(OverrideType.CHARACTER_ONLY); } catch (eClr) { ch.clearOverrides(); }
+                    }
+                }
+            } catch (eChar) {}
+        }
+    } catch (eScope) {}
+}
+
+// Meme logique GREP que insert-fr.jsx : fiable sur **mot** en debut de puce.
 function applyStyleMarkers(tf, clearAllCharacterInheritance) {
     try {
+        var story = tf.parentStory;
+        var scope = grepScopeForTextFrame(tf);
+
         var sGras       = doc.characterStyles.itemByName(STYLE_GRAS);
         var sOrange     = doc.characterStyles.itemByName(STYLE_ORANGE);
         var sChiffre    = doc.characterStyles.itemByName(STYLE_CHIFFRE);
         var sGrasOrange = doc.characterStyles.itemByName(STYLE_GRAS_ORANGE);
-        var raw = String(tf.contents || "");
-        var plain = "";
-        var runs = [];
-        var bold = false;
-        var orange = false;
-        var chiffre = false;
-        var grasOrange = false;
-        var activeName = null;
-        var runStart = -1;
 
-        function currentStyleName() {
-            if (grasOrange) return STYLE_GRAS_ORANGE;
-            if (bold && orange) return STYLE_GRAS_ORANGE;
-            if (chiffre) return STYLE_CHIFFRE;
-            if (orange) return STYLE_ORANGE;
-            if (bold) return STYLE_GRAS;
-            return null;
-        }
+        applyInnerStyledMatches(scope, story, "(?s)\\*\\*[^*]+?\\*\\*", sGras, 2, 2);
+        changeGrepOnScope(scope, story, "\\*\\*", "");
 
-        function flushRun(nextName) {
-            if (activeName !== null && runStart >= 0 && plain.length - 1 >= runStart) {
-                runs.push({ start: runStart, end: plain.length - 1, styleName: activeName });
-            }
-            activeName = nextName;
-            runStart = (nextName !== null) ? plain.length : -1;
-        }
+        applyInnerStyledMatches(scope, story, "(?s)\\{[^}]+?\\}", sOrange, 1, 1);
+        changeGrepOnScope(scope, story, "[{}]", "");
 
-        function toggleStyle(name) {
-            var before = currentStyleName();
-            if (name === STYLE_GRAS) bold = !bold;
-            else if (name === STYLE_ORANGE) orange = !orange;
-            else if (name === STYLE_CHIFFRE) chiffre = !chiffre;
-            else if (name === STYLE_GRAS_ORANGE) grasOrange = !grasOrange;
-            var after = currentStyleName();
-            if (before !== after) flushRun(after);
-        }
+        applyInnerStyledMatches(scope, story, "(?s)\\^[^\\^]+?\\^", sChiffre, 1, 1);
+        changeGrepOnScope(scope, story, "\\^", "");
 
-        for (var i = 0; i < raw.length; i++) {
-            if (raw.substr(i, 2) === "**") {
-                toggleStyle(STYLE_GRAS);
-                i++;
-                continue;
-            }
-            var ch = raw.charAt(i);
-            if (ch === "{") {
-                toggleStyle(STYLE_ORANGE);
-                continue;
-            }
-            if (ch === "}") {
-                toggleStyle(STYLE_ORANGE);
-                continue;
-            }
-            if (ch === "^") {
-                toggleStyle(STYLE_CHIFFRE);
-                continue;
-            }
-            if (ch === "~") {
-                toggleStyle(STYLE_GRAS_ORANGE);
-                continue;
-            }
-            plain += ch;
-        }
-        flushRun(null);
+        applyInnerStyledMatches(scope, story, "(?s)\\x7E[^\\x7E]+?\\x7E", sGrasOrange, 1, 1);
+        changeGrepOnScope(scope, story, "~", "");
 
-        // On remplace par le texte final sans marqueurs, puis on applique les styles
-        // par indices. Cela evite les scopes GREP obsoletes apres modification du texte.
         if (clearAllCharacterInheritance === true) {
-            setCleanTextFrameContents(tf, plain, true);
-        } else {
-            tf.contents = plain;
+            resetNonMarkerCharacterFormatting(tf);
         }
-        resetMarkerCharStyles(tf);
-
-        var story = tf.parentStory;
-        var stylesByName = {};
-        stylesByName[STYLE_GRAS] = sGras;
-        stylesByName[STYLE_ORANGE] = sOrange;
-        stylesByName[STYLE_CHIFFRE] = sChiffre;
-        stylesByName[STYLE_GRAS_ORANGE] = sGrasOrange;
-
-        for (var r = 0; r < runs.length; r++) {
-            try {
-                var run = runs[r];
-                var charStyle = stylesByName[run.styleName];
-                if (!charStyle || !charStyle.isValid) continue;
-                if (run.end < run.start) continue;
-                var cStart = tf.characters.item(run.start);
-                var cEnd = tf.characters.item(run.end);
-                if (!cStart.isValid || !cEnd.isValid) continue;
-                story.characters.itemByRange(cStart.index, cEnd.index).appliedCharacterStyle = charStyle;
-            } catch (eRun) {}
-        }
-
     } catch(e) {}
 }
 

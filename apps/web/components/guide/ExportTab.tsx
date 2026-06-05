@@ -896,6 +896,9 @@ function PoiGeocodeAlerts({
           <li className="text-[11px] text-red-600 italic">… et {remaining} autre{remaining > 1 ? 's' : ''}</li>
         )}
       </ul>
+      <p className="mt-2 text-[10px] text-red-700/80">
+        Dans la modale : bouton « Pas de GPS » si le lieu n&apos;a pas de coordonnées ponctuelles.
+      </p>
     </div>
   );
 }
@@ -932,7 +935,6 @@ function PoiGeocodeModal({
   const [saved, setSaved] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [downloading, setDownloading] = useState(false);
-  const [noGps, setNoGps] = useState<Record<string, boolean>>({});
 
   const allDone = failures.length === 0;
 
@@ -1064,7 +1066,6 @@ function PoiGeocodeModal({
           ) : (
             failures.map((f) => {
               const entry = coords[f.page_id] ?? { lat: '', lon: '' };
-              const skipped = noGps[f.page_id] === true;
               return (
                 <div key={f.page_id} className="border border-gray-200 rounded-xl p-4 space-y-3">
                   <div>
@@ -1072,101 +1073,85 @@ function PoiGeocodeModal({
                     {f.query && (
                       <p className="text-[11px] text-gray-500 mt-0.5">Recherche : {f.query}</p>
                     )}
-                    {f.error && !skipped && (
+                    {f.error && (
                       <p className="text-[11px] text-red-600 mt-0.5">{f.error}</p>
                     )}
                   </div>
 
-                  <label className="flex items-start gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={skipped}
-                      onChange={(e) => {
-                        setNoGps(prev => ({ ...prev, [f.page_id]: e.target.checked }));
-                        setErrors(prev => ({ ...prev, [f.page_id]: '' }));
-                      }}
-                      className="mt-0.5 rounded border-gray-300 text-gray-600 focus:ring-gray-400"
-                    />
-                    <span className="text-[11px] text-gray-600 leading-snug">
-                      Ce POI n&apos;a pas de coordonnées GPS
-                      <span className="text-gray-400"> (marché, lieu non ponctuel…) — </span>
-                      <span className="text-gray-500">geometry: null dans le GeoJSON</span>
-                    </span>
-                  </label>
+                  <p className="text-[11px] text-gray-500 leading-snug">
+                    Saisissez les coordonnées, ou excluez ce POI du GPS si le lieu n&apos;en a pas
+                    <span className="text-gray-400"> (marché, zone non ponctuelle…)</span>
+                    {' '}— <span className="text-gray-600">geometry: null dans le GeoJSON</span>.
+                  </p>
 
-                  {!skipped && (
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="block">
-                        <span className="text-[11px] text-gray-500">Latitude</span>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={entry.lat}
-                          onChange={(e) => {
-                            setCoords(prev => ({
-                              ...prev,
-                              [f.page_id]: { ...entry, lat: e.target.value },
-                            }));
-                            setSaved(prev => ({ ...prev, [f.page_id]: false }));
-                          }}
-                          placeholder="28.367185"
-                          className="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="text-[11px] text-gray-500">Longitude</span>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={entry.lon}
-                          onChange={(e) => {
-                            setCoords(prev => ({
-                              ...prev,
-                              [f.page_id]: { ...entry, lon: e.target.value },
-                            }));
-                            setSaved(prev => ({ ...prev, [f.page_id]: false }));
-                          }}
-                          placeholder="-16.721539"
-                          className="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                        />
-                      </label>
-                    </div>
-                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block">
+                      <span className="text-[11px] text-gray-500">Latitude</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={entry.lat}
+                        onChange={(e) => {
+                          setCoords(prev => ({
+                            ...prev,
+                            [f.page_id]: { ...entry, lat: e.target.value },
+                          }));
+                          setSaved(prev => ({ ...prev, [f.page_id]: false }));
+                        }}
+                        placeholder="28.367185"
+                        className="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[11px] text-gray-500">Longitude</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={entry.lon}
+                        onChange={(e) => {
+                          setCoords(prev => ({
+                            ...prev,
+                            [f.page_id]: { ...entry, lon: e.target.value },
+                          }));
+                          setSaved(prev => ({ ...prev, [f.page_id]: false }));
+                        }}
+                        placeholder="-16.721539"
+                        className="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                      />
+                    </label>
+                  </div>
 
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
                     <p className="text-xs text-red-500">{errors[f.page_id] ?? ''}</p>
-                    <div className="flex items-center gap-2">
-                      {skipped ? (
-                        <button
-                          type="button"
-                          onClick={() => skipNoGps(f)}
-                          disabled={saving[f.page_id]}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 bg-gray-600 hover:bg-gray-700 text-white"
-                        >
-                          {saving[f.page_id] ? (
-                            <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <CheckCircleIcon className="w-3.5 h-3.5" />
-                          )}
-                          Valider sans GPS
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => saveCoordinates(f)}
-                          disabled={saving[f.page_id] || !entry.lat.trim() || !entry.lon.trim()}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 bg-blue-600 hover:bg-blue-700 text-white"
-                        >
-                          {saving[f.page_id] ? (
-                            <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
-                          ) : saved[f.page_id] ? (
-                            <CheckCircleIcon className="w-3.5 h-3.5" />
-                          ) : (
-                            <ArrowDownTrayIcon className="w-3.5 h-3.5" />
-                          )}
-                          {saved[f.page_id] ? 'Enregistré' : 'Enregistrer'}
-                        </button>
-                      )}
+                    <div className="flex items-center gap-2 ml-auto">
+                      <button
+                        type="button"
+                        onClick={() => skipNoGps(f)}
+                        disabled={saving[f.page_id]}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 border border-gray-300 text-gray-700 bg-white hover:bg-gray-50"
+                      >
+                        {saving[f.page_id] ? (
+                          <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <XMarkIcon className="w-3.5 h-3.5" />
+                        )}
+                        Pas de GPS
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => saveCoordinates(f)}
+                        disabled={saving[f.page_id] || !entry.lat.trim() || !entry.lon.trim()}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 bg-blue-600 hover:bg-blue-700 text-white"
+                      >
+                        {saving[f.page_id] ? (
+                          <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+                        ) : saved[f.page_id] ? (
+                          <CheckCircleIcon className="w-3.5 h-3.5" />
+                        ) : (
+                          <ArrowDownTrayIcon className="w-3.5 h-3.5" />
+                        )}
+                        {saved[f.page_id] ? 'Enregistré' : 'Enregistrer'}
+                      </button>
                     </div>
                   </div>
                 </div>

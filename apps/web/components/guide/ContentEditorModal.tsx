@@ -71,7 +71,8 @@ interface Page {
     lat: number;
     lon: number;
     display_name?: string;
-  };
+  } | null;
+  gps_not_applicable?: boolean;
   metadata?: {
     inspiration_id?: string;
     inspiration_title?: string;
@@ -278,6 +279,7 @@ export default function ContentEditorModal({
   const [coordSaving,  setCoordSaving]  = useState(false);
   const [coordSaved,   setCoordSaved]   = useState(false);
   const [coordError,   setCoordError]   = useState<string | null>(null);
+  const [gpsNotApplicable, setGpsNotApplicable] = useState(page.gps_not_applicable === true);
 
   const saveCoordinates = async () => {
     const lat = parseFloat(localLat.replace(',', '.'));
@@ -307,6 +309,56 @@ export default function ContentEditorModal({
       }
       setCoordSaved(true);
       setTimeout(() => setCoordSaved(false), 3000);
+    } catch (err: any) {
+      setCoordError(err.message || 'Erreur réseau');
+    } finally {
+      setCoordSaving(false);
+    }
+  };
+
+  const markGpsNotApplicable = async () => {
+    setCoordSaving(true);
+    setCoordError(null);
+    setCoordSaved(false);
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ gps_not_applicable: true, coordinates: null }),
+        }
+      );
+      if (!res.ok) throw new Error('Erreur lors de la mise à jour de la page');
+      setGpsNotApplicable(true);
+      setLocalLat('');
+      setLocalLon('');
+      setCoordSaved(true);
+      setTimeout(() => setCoordSaved(false), 3000);
+    } catch (err: any) {
+      setCoordError(err.message || 'Erreur réseau');
+    } finally {
+      setCoordSaving(false);
+    }
+  };
+
+  const restoreGpsApplicable = async () => {
+    setCoordSaving(true);
+    setCoordError(null);
+    setCoordSaved(false);
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ gps_not_applicable: false }),
+        }
+      );
+      if (!res.ok) throw new Error('Erreur lors de la mise à jour de la page');
+      setGpsNotApplicable(false);
     } catch (err: any) {
       setCoordError(err.message || 'Erreur réseau');
     } finally {
@@ -1534,7 +1586,12 @@ export default function ContentEditorModal({
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                   <span className="text-sm font-semibold text-emerald-800">Coordonnées GPS</span>
-                  {localLat && localLon && !coordSaving && !coordError && (
+                  {gpsNotApplicable && (
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">
+                      Sans GPS
+                    </span>
+                  )}
+                  {localLat && localLon && !coordSaving && !coordError && !gpsNotApplicable && (
                     <a
                       href={`https://www.google.com/maps?q=${localLat.replace(',', '.')},${localLon.replace(',', '.')}`}
                       target="_blank"
@@ -1548,6 +1605,23 @@ export default function ContentEditorModal({
                     </a>
                   )}
                 </div>
+                {gpsNotApplicable ? (
+                  <div className="space-y-3">
+                    <p className="text-xs text-gray-600 leading-relaxed">
+                      Ce POI est exclu du géocodage (marché, lieu non ponctuel…). Il apparaîtra dans le GeoJSON avec{' '}
+                      <code className="text-[11px] bg-white/80 px-1 rounded">geometry: null</code>.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={restoreGpsApplicable}
+                      disabled={coordSaving}
+                      className="px-3 py-1.5 text-xs font-medium rounded-lg border border-emerald-300 text-emerald-800 bg-white hover:bg-emerald-50 transition-colors disabled:opacity-50"
+                    >
+                      Réactiver les coordonnées GPS
+                    </button>
+                  </div>
+                ) : (
+                <>
                 <div className="flex items-end gap-3">
                   <div className="flex-1">
                     <label className="block text-xs font-medium text-emerald-700 mb-1">Latitude</label>
@@ -1589,7 +1663,20 @@ export default function ContentEditorModal({
                     ) : null}
                     {coordSaving ? 'Sauvegarde…' : coordSaved ? 'Enregistré !' : 'Enregistrer'}
                   </button>
+                  <button
+                    type="button"
+                    onClick={markGpsNotApplicable}
+                    disabled={coordSaving}
+                    className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                  >
+                    Pas de GPS
+                  </button>
                 </div>
+                <p className="mt-2 text-[11px] text-gray-500">
+                  Utilisez « Pas de GPS » pour les exceptions (marché, zone non ponctuelle…).
+                </p>
+                </>
+                )}
                 {coordError && (
                   <p className="mt-2 text-xs text-red-600 font-medium">{coordError}</p>
                 )}

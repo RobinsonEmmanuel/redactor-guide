@@ -105,7 +105,10 @@ export const PageSchema = z.object({
     lat: z.number(),
     lon: z.number(),
     display_name: z.string().optional(),
-  }).optional(),
+  }).optional().nullable(),
+
+  /** POI volontairement sans GPS (marché, lieu non ponctuel…) — geometry: null à l'export */
+  gps_not_applicable: z.boolean().optional(),
   
   /**
    * Saison de la page (pour les templates de type SAISON uniquement).

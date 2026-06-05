@@ -90,6 +90,7 @@ async function buildPoiGeoJson(
         statut:         page.statut_editorial || 'draft',
         url_source:     page.url_source || null,
         display_name:   coords?.display_name || null,
+        gps_not_applicable: page.gps_not_applicable === true,
       },
     };
   });

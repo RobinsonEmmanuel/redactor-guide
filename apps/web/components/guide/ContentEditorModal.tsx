@@ -290,7 +290,7 @@ export default function ContentEditorModal({
     setCoordError(null);
     setCoordSaved(false);
     try {
-      const payload = { coordinates: { lat, lon } };
+      const payload = { coordinates: { lat, lon }, gps_not_applicable: false };
       // 1. Sauvegarder sur la page
       const res = await fetch(
         `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}`,

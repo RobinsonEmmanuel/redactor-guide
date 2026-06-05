@@ -78,6 +78,14 @@ function hasCoordinates(page: Record<string, any>): boolean {
   return c?.lat != null && c?.lon != null && !isNaN(c.lat) && !isNaN(c.lon);
 }
 
+function isGpsNotApplicable(page: Record<string, any>): boolean {
+  return page.gps_not_applicable === true;
+}
+
+function isPoiGeocodeResolved(page: Record<string, any>): boolean {
+  return hasCoordinates(page) || isGpsNotApplicable(page);
+}
+
 async function loadGuidePoiPages(db: Db, guideId: string) {
   if (!ObjectId.isValid(guideId)) {
     throw new Error('guideId invalide');
@@ -110,7 +118,7 @@ export async function listPoisMissingCoordinates(
   const missing: PoiMissingCoordinatesEntry[] = [];
 
   for (const page of pages) {
-    if (hasCoordinates(page)) continue;
+    if (isPoiGeocodeResolved(page)) continue;
     const pageId = page._id.toString();
     const titre = String(page.titre ?? page.template_name ?? pageId);
     const query = buildPoiGeocodingQuery(page, guide).trim() || null;
@@ -163,6 +171,12 @@ export async function geocodeMissingPoiPages(
       continue;
     }
 
+    if (isGpsNotApplicable(page)) {
+      alreadyHadCoords++;
+      results.push({ page_id: pageId, titre, status: 'skipped' });
+      continue;
+    }
+
     missingBefore++;
     const query = buildPoiGeocodingQuery(page, guide).trim();
 
@@ -200,7 +214,13 @@ export async function geocodeMissingPoiPages(
 
     await db.collection(COLLECTIONS.pages).updateOne(
       { _id: page._id },
-      { $set: { coordinates, updated_at: new Date().toISOString() } }
+      {
+        $set: {
+          coordinates,
+          gps_not_applicable: false,
+          updated_at: new Date().toISOString(),
+        },
+      }
     );
 
     geocoded++;

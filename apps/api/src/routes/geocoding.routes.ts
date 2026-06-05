@@ -1,13 +1,15 @@
 import type { FastifyInstance } from 'fastify';
+import { ObjectId } from 'mongodb';
 import { z } from 'zod';
 import { GeocodingService } from '../services/geocoding.service.js';
+import { geocodeMissingPoiPages } from '../services/poi-geocoding.service.js';
 
 const geocodingService = new GeocodingService();
 
 const ResolveBodySchema = z.object({
   /** Nom du lieu à géolocaliser */
   query: z.string().min(1),
-  /** Pays optionnel — améliore la précision de Nominatim */
+  /** Pays optionnel — améliore la précision Photon */
   country: z.string().optional(),
   /**
    * Destination du guide (ex: "Tenerife") — utilisée pour déduire le pays
@@ -20,7 +22,7 @@ export async function geocodingRoutes(fastify: FastifyInstance) {
   /**
    * POST /api/v1/geocoding/resolve
    *
-   * Géolocalise un lieu via Nominatim et retourne ses coordonnées GPS
+   * Géolocalise un lieu via Photon et retourne ses coordonnées GPS
    * ainsi que les URLs cartographiques (Google Maps, OpenStreetMap, geo:).
    *
    * Usage type : champ lien "Voir sur la carte" dans un template POI.
@@ -76,4 +78,36 @@ export async function geocodingRoutes(fastify: FastifyInstance) {
 
     return reply.send(result);
   });
+
+  /**
+   * POST /guides/:guideId/geocode-missing-pois
+   *
+   * Géocode via Photon les POIs sans coordonnées GPS et persiste le résultat
+   * dans pages.coordinates (source unique pour l'export GeoJSON).
+   */
+  fastify.post<{ Params: { guideId: string } }>(
+    '/guides/:guideId/geocode-missing-pois',
+    async (request, reply) => {
+      const db = request.server.container.db;
+      const { guideId } = request.params;
+
+      if (!ObjectId.isValid(guideId)) {
+        return reply.status(400).send({ error: 'guideId invalide' });
+      }
+
+      try {
+        const result = await geocodeMissingPoiPages(db, guideId, geocodingService);
+        return reply.send(result);
+      } catch (error: any) {
+        if (
+          error.message === 'Guide non trouvé' ||
+          error.message === 'Chemin de fer non trouvé pour ce guide'
+        ) {
+          return reply.status(404).send({ error: error.message });
+        }
+        request.log.error(error);
+        return reply.status(500).send({ error: 'Erreur lors du géocodage des POIs' });
+      }
+    }
+  );
 }

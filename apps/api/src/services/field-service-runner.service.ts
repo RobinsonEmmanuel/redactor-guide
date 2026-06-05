@@ -1,6 +1,10 @@
-import { Db } from 'mongodb';
+import { Db, ObjectId } from 'mongodb';
 import OpenAI from 'openai';
 import { GeocodingService } from './geocoding.service.js';
+import {
+  buildPoiGeocodingQuery,
+  persistPoiCoordinatesIfMissing,
+} from './poi-geocoding.service.js';
 import { COLLECTIONS } from '../config/collections.js';
 import { getArticlesDatabase } from '../config/database.js';
 
@@ -628,32 +632,15 @@ async function generateMapsLink(ctx: FieldServiceContext): Promise<FieldServiceR
     }
   }
 
-  // Construire la requête de géocodage
-  let query: string =
-    currentPage.entity_meta?.poi_name ||
-    currentPage.titre                 ||
-    '';
+  const enrichedQuery = buildPoiGeocodingQuery(currentPage, guide, queryField);
 
-  // Si query_field est précisé, utiliser la valeur de ce champ texte
-  if (queryField && currentPage.content?.text?.[queryField]) {
-    query = String(currentPage.content.text[queryField]);
-  }
-
-  if (!query) {
+  if (!enrichedQuery.trim()) {
     console.warn('[geocoding_maps_link] Impossible de déterminer le nom du lieu');
     return { value: JSON.stringify({ label: labelText, url: '' }) };
   }
 
-  // guide.destination (legacy) ou guide.destinations[0] (schema actuel)
   const destination: string = guide.destination ?? guide.destinations?.[0] ?? guide.name ?? '';
   const country = destination ? _geocodingService.getCountryFromDestination(destination) : undefined;
-
-  // Ajouter le cluster entre le nom du POI et la destination pour lever les homonymies
-  // (ex: "Playa Las Teresitas, Santa Cruz de Tenerife, Tenerife")
-  const clusterName: string = (currentPage as any).metadata?.cluster_name?.trim() ?? '';
-  const enrichedQuery = clusterName && destination ? `${query}, ${clusterName}, ${destination}`
-    : destination                                  ? `${query}, ${destination}`
-    :                                                query;
 
   console.log(
     `[geocoding_maps_link] Fallback géocodage (lien manquant) : "${enrichedQuery}" (${country ?? 'pays inconnu'})`
@@ -662,8 +649,19 @@ async function generateMapsLink(ctx: FieldServiceContext): Promise<FieldServiceR
   const result = await _geocodingService.resolve(enrichedQuery, country);
 
   if (!result) {
-    console.warn(`[geocoding_maps_link] Aucun résultat pour "${query}"`);
+    console.warn(`[geocoding_maps_link] Aucun résultat pour "${enrichedQuery}"`);
     return { value: JSON.stringify({ label: labelText, url: '' }) };
+  }
+
+  const pageId = String((currentPage as any)._id ?? '');
+  if (pageId && ObjectId.isValid(pageId)) {
+    await persistPoiCoordinatesIfMissing(ctx.db, pageId, {
+      lat: result.lat,
+      lon: result.lon,
+      display_name: result.display_name,
+    }).catch((err: any) => {
+      console.warn(`[geocoding_maps_link] Impossible de sauver les coords pour ${pageId}:`, err.message);
+    });
   }
 
   const url = result.urls[provider as keyof typeof result.urls] ?? result.urls.google_maps;

@@ -109,6 +109,14 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
   const [downloadingZip, setDownloadingZip] = useState<Record<string, boolean>>({});
   const [downloadingRedirections, setDownloadingRedirections] = useState<Record<string, boolean>>({});
   const [downloadingGeoJson, setDownloadingGeoJson] = useState<Record<string, boolean>>({});
+  const [geocodingMissing, setGeocodingMissing] = useState(false);
+  const [geocodeSummary, setGeocodeSummary] = useState<{
+    missing_before: number;
+    geocoded: number;
+    failed: number;
+    already_had_coords: number;
+    total_pois: number;
+  } | null>(null);
   const [downloadedFiles, setDownloadedFiles] = useState<string[]>([]);
   const [translationStates, setTranslationStates] = useState<Record<string, TranslationState>>({});
   const [translating, setTranslating] = useState<Record<string, boolean>>({});
@@ -405,6 +413,27 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     }
   };
 
+  const geocodeMissingPois = async () => {
+    setGeocodingMissing(true);
+    setGeocodeSummary(null);
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/geocode-missing-pois`,
+        { method: 'POST', credentials: 'include' }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Erreur ${res.status}`);
+      }
+      const data = await res.json();
+      setGeocodeSummary(data);
+    } catch (err: any) {
+      alert(err.message || 'Erreur lors du géocodage des POIs');
+    } finally {
+      setGeocodingMissing(false);
+    }
+  };
+
   const downloadGeoJson = async (lang: string) => {
     setDownloadingGeoJson(prev => ({ ...prev, [lang]: true }));
     try {
@@ -539,6 +568,34 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                   loading={downloadingGeoJson[fr.code]}
                   onClick={() => downloadGeoJson(fr.code)}
                 />
+              </div>
+
+              <div className="mt-3 pt-3 border-t border-blue-100">
+                <button
+                  type="button"
+                  onClick={geocodeMissingPois}
+                  disabled={geocodingMissing}
+                  title="Géocode via Photon les POIs sans coordonnées GPS et sauvegarde en base"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                >
+                  {geocodingMissing ? (
+                    <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <MapPinIcon className="w-3.5 h-3.5" />
+                  )}
+                  {geocodingMissing ? 'Géocodage en cours…' : 'Compléter les GPS manquants'}
+                </button>
+                <p className="text-[11px] text-gray-500 mt-1.5">
+                  Recherche Photon (OpenStreetMap) à partir du titre de chaque POI. Les coordonnées sont sauvegardées pour l&apos;export GeoJSON.
+                </p>
+                {geocodeSummary && (
+                  <p className={`text-[11px] mt-1.5 ${geocodeSummary.failed > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                    {geocodeSummary.geocoded} POI(s) géolocalisé(s)
+                    {geocodeSummary.failed > 0 && `, ${geocodeSummary.failed} échec(s)`}
+                    {geocodeSummary.already_had_coords > 0 && `, ${geocodeSummary.already_had_coords} déjà OK`}
+                    {geocodeSummary.missing_before === 0 && geocodeSummary.geocoded === 0 && ' — tous les POIs avaient déjà des coordonnées'}
+                  </p>
+                )}
               </div>
             </div>
           );

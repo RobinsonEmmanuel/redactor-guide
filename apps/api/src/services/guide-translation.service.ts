@@ -560,7 +560,7 @@ export class GuideTranslationService {
    */
   private async translatePlaceNameBatch(
     fields: Record<string, string>,
-    _targetLang: string,
+    targetLang: string,
     langName: string,
     pass: number = 1,
     fieldLimits: Record<string, number> = {},
@@ -570,7 +570,7 @@ export class GuideTranslationService {
     const limitBlock = this.buildLimitBlock(fields, fieldLimits);
     const condensationInstruction = this.buildCondensationInstruction(pass);
     const contextBlock = formatPageContextBlock(pageContext);
-    const namingRules = buildPlaceNameNamingRules(langName, pageContext);
+    const namingRules = buildPlaceNameNamingRules(langName, pageContext, targetLang);
 
     const systemPrompt = `You are a professional travel guide toponymy localizer.
 Localize place names from French editorial labels to ${langName}.

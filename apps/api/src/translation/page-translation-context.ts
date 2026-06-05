@@ -7,6 +7,7 @@ import {
   resolveOsmNameForLang,
   type PlaceIdentity,
 } from '../services/place-identity.service.js';
+import { buildGenericToponymRules } from './place-name-generic-rules.js';
 
 const DESCRIPTION_FIELD_CANDIDATES = [
   'POI_texte_1',
@@ -138,24 +139,31 @@ export function formatPageContextBlock(ctx: PageTranslationContext): string {
   return lines.join('\n');
 }
 
-export function buildPlaceNameNamingRules(langName: string, ctx: PageTranslationContext): string {
+export function buildPlaceNameNamingRules(
+  langName: string,
+  ctx: PageTranslationContext,
+  targetLang: string
+): string {
+  const genericRules = buildGenericToponymRules(
+    targetLang,
+    ctx.naming_profile.vernacular_lang
+  );
+
   const osmHint = ctx.osm_name_target
-    ? `- An OSM official name exists for the target language: "${ctx.osm_name_target}" — use it as the primary base, adjusting only generic words or format if needed for the InDesign frame`
+    ? `- OSM name in target language (reference for proper nouns): "${ctx.osm_name_target}" — apply the mandatory generic-word rule above; do NOT copy Spanish/French generics from OSM into ${langName} output`
     : ctx.local_name
-      ? `- OSM local name reference: "${ctx.local_name}" — preserve its proper nouns`
+      ? `- OSM local name (reference for proper nouns): "${ctx.local_name}" — translate generic words, keep this proper name`
       : '';
 
   return `
 Place name localization rules (POI_titre and similar fields — tourist-facing toponyms):
 - These values are PLACE NAMES for a travel guide, not sentences or marketing copy
-- Target language: ${langName}
-- Destination vernacular: ${ctx.naming_profile.vernacular_lang} — preserve vernacular proper nouns unless an official OSM name exists in the target language
+- Target language: ${langName} (${targetLang})
+- Destination vernacular: ${ctx.naming_profile.vernacular_lang}
+${genericRules}
 ${osmHint}
-- Translate ONLY generic/descriptive words (church, cathedral, beach, market, tower, museum, garden, natural pools, path, trail, palace, pool…)
-- When the French label mixes a French generic word with a vernacular proper name, localize the generic part into ${langName} and keep the proper name intact
-- Do NOT drop any part of the name (keep qualifiers in parentheses, keep "La/Los/El" when part of the official name)
+- Do NOT drop any part of the name (keep qualifiers in parentheses, keep "La/Los/El" when part of the official proper name)
 - Do NOT invent a different place, substitute a nearby landmark, or hallucinate a variant spelling
-- If OSM reference names are provided in context, they MUST refer to the same entity as the French editorial label
-- Prefer natural tourist-facing wording commonly used in ${langName} travel guides
+- Pure proper nouns without generic (La Caleta de Adeje, Charco Los Chochos) → keep official form, adjust only word order if natural in ${langName}
 - Respect strict character limits (InDesign frame calibration)`;
 }

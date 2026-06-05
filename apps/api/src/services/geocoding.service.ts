@@ -31,6 +31,27 @@ export interface GeocodingResolveResult {
   urls: MapUrls;
 }
 
+/** Résultat Photon enrichi pour place_identity. */
+export interface PhotonPlaceMatch {
+  lat: number;
+  lon: number;
+  name: string | null;
+  display_name: string;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  countrycode: string | null;
+  osm_key: string | null;
+  osm_value: string | null;
+  osm_type: string | null;
+  osm_id: number | null;
+  type: string | null;
+}
+
+export interface GeocodingResolveWithIdentityResult extends GeocodingResolveResult {
+  place_match: PhotonPlaceMatch;
+}
+
 export interface GeocodingError {
   lieu: string;
   error: string;
@@ -46,6 +67,21 @@ export class GeocodingService {
    * @param _pays    Ignoré — le pays est inclus directement dans nomLieu
    */
   async geocodePlace(nomLieu: string, _pays: string): Promise<GeocodingResult | null> {
+    const match = await this.geocodePhotonMatch(nomLieu);
+    if (!match) return null;
+    return {
+      lat:          match.lat,
+      lon:          match.lon,
+      display_name: match.display_name,
+      place_id:     match.osm_id ?? 0,
+      importance:   1,
+    };
+  }
+
+  /**
+   * Géolocalise via Photon et retourne les propriétés OSM complètes.
+   */
+  async geocodePhotonMatch(nomLieu: string): Promise<PhotonPlaceMatch | null> {
     try {
       const params = new URLSearchParams({
         q:     nomLieu,
@@ -72,7 +108,6 @@ export class GeocodingService {
       }
 
       const feature = features[0];
-      // GeoJSON : coordinates = [longitude, latitude]
       const [lon, lat] = feature.geometry?.coordinates ?? [];
 
       if (typeof lat !== 'number' || typeof lon !== 'number' || isNaN(lat) || isNaN(lon)) {
@@ -90,9 +125,17 @@ export class GeocodingService {
       return {
         lat,
         lon,
+        name:         props.name ?? null,
         display_name: displayName,
-        place_id:   props.osm_id  ?? 0,
-        importance: props.extent  ? 1 : 0,
+        city:         props.city ?? null,
+        state:        props.state ?? null,
+        country:      props.country ?? null,
+        countrycode:  props.countrycode ?? null,
+        osm_key:      props.osm_key ?? null,
+        osm_value:    props.osm_value ?? null,
+        osm_type:     props.osm_type ?? null,
+        osm_id:       typeof props.osm_id === 'number' ? props.osm_id : null,
+        type:         props.type ?? null,
       };
     } catch (error: any) {
       console.error(`❌ Erreur géolocalisation "${nomLieu}":`, error.message);
@@ -145,13 +188,35 @@ export class GeocodingService {
     const alreadyHasCountry = country && query.toLowerCase().includes(country.toLowerCase());
     const searchQuery = (country && !alreadyHasCountry) ? `${query}, ${country}` : query;
 
-    const result = await this.geocodePlace(searchQuery, '');
-    if (!result) return null;
+    const match = await this.geocodePhotonMatch(searchQuery);
+    if (!match) return null;
     return {
-      lat:          result.lat,
-      lon:          result.lon,
-      display_name: result.display_name,
-      urls:         this.buildMapUrls(result.lat, result.lon, result.display_name),
+      lat:          match.lat,
+      lon:          match.lon,
+      display_name: match.display_name,
+      urls:         this.buildMapUrls(match.lat, match.lon, match.display_name),
+    };
+  }
+
+  /**
+   * Géolocalise et retourne le match Photon brut (pour enrichissement place_identity).
+   */
+  async resolveWithPlaceMatch(
+    query: string,
+    country?: string
+  ): Promise<GeocodingResolveWithIdentityResult | null> {
+    const alreadyHasCountry = country && query.toLowerCase().includes(country.toLowerCase());
+    const searchQuery = (country && !alreadyHasCountry) ? `${query}, ${country}` : query;
+
+    const match = await this.geocodePhotonMatch(searchQuery);
+    if (!match) return null;
+
+    return {
+      lat:          match.lat,
+      lon:          match.lon,
+      display_name: match.display_name,
+      urls:         this.buildMapUrls(match.lat, match.lon, match.display_name),
+      place_match:  match,
     };
   }
 

@@ -3,8 +3,9 @@ import OpenAI from 'openai';
 import { GeocodingService } from './geocoding.service.js';
 import {
   buildPoiGeocodingQuery,
-  persistPoiCoordinatesIfMissing,
+  persistPoiGeocodeResult,
 } from './poi-geocoding.service.js';
+import { buildPlaceIdentityFromGeocodeQuery } from './place-identity.service.js';
 import { COLLECTIONS } from '../config/collections.js';
 import { getArticlesDatabase } from '../config/database.js';
 
@@ -646,21 +647,32 @@ async function generateMapsLink(ctx: FieldServiceContext): Promise<FieldServiceR
     `[geocoding_maps_link] Fallback géocodage (lien manquant) : "${enrichedQuery}" (${country ?? 'pays inconnu'})`
   );
 
-  const result = await _geocodingService.resolve(enrichedQuery, country);
+  const payload = await buildPlaceIdentityFromGeocodeQuery(_geocodingService, enrichedQuery, country);
 
-  if (!result) {
+  if (!payload) {
     console.warn(`[geocoding_maps_link] Aucun résultat pour "${enrichedQuery}"`);
     return { value: JSON.stringify({ label: labelText, url: '' }) };
   }
 
+  const result = {
+    lat: payload.coordinates.lat,
+    lon: payload.coordinates.lon,
+    display_name: payload.coordinates.display_name,
+    urls: _geocodingService.buildMapUrls(
+      payload.coordinates.lat,
+      payload.coordinates.lon,
+      payload.coordinates.display_name
+    ),
+  };
+
   const pageId = String((currentPage as any)._id ?? '');
   if (pageId && ObjectId.isValid(pageId)) {
-    await persistPoiCoordinatesIfMissing(ctx.db, pageId, {
-      lat: result.lat,
-      lon: result.lon,
-      display_name: result.display_name,
+    await persistPoiGeocodeResult(ctx.db, pageId, {
+      coordinates: payload.coordinates,
+      place_identity: payload.place_identity,
+      onlyIfMissingCoords: true,
     }).catch((err: any) => {
-      console.warn(`[geocoding_maps_link] Impossible de sauver les coords pour ${pageId}:`, err.message);
+      console.warn(`[geocoding_maps_link] Impossible de sauver coords/identité pour ${pageId}:`, err.message);
     });
   }
 

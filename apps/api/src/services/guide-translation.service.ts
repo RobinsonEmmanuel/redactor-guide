@@ -16,6 +16,15 @@ import { parseLinkField } from '../utils/link-field.js';
 import { repairStrandedBoldMarkers } from '../utils/repair-style-markers.js';
 import { COLLECTIONS } from '../config/collections.js';
 import { DEFAULT_SETTINGS } from '../routes/settings.routes.js';
+import { splitTranslatableFields } from '../translation/place-name-fields.js';
+import {
+  buildPageTranslationContext,
+  buildPlaceNameNamingRules,
+  formatPageContextBlock,
+  getPageTextContent,
+  type PageTranslationContext,
+} from '../translation/page-translation-context.js';
+import { resolveGuideDestination } from '../translation/place-naming-profiles.js';
 
 const LANGUAGE_NAMES: Record<string, string> = {
   en:     'English (British)',
@@ -85,11 +94,18 @@ export class GuideTranslationService {
     const retryMax: number   = (settingsDoc as any)?.translation_retry_max ?? DEFAULT_SETTINGS.translation_retry_max;
     const alertEnabled: boolean = (settingsDoc as any)?.translation_overflow_alert ?? DEFAULT_SETTINGS.translation_overflow_alert;
 
-    // 1. Récupérer le chemin de fer
+    // 1. Récupérer le guide (destination pour profil toponymique)
+    const guide = await db.collection(COLLECTIONS.guides).findOne(
+      ObjectId.isValid(guideId) ? { _id: new ObjectId(guideId) } : { _id: guideId as any }
+    );
+    const guideDestination = resolveGuideDestination(guide as Record<string, unknown> | null);
+    console.log(`🌍 [TRANSLATE] Destination: ${guideDestination || '(non renseignée)'}`);
+
+    // 2. Récupérer le chemin de fer
     const cdf = await db.collection('chemins_de_fer').findOne({ guide_id: guideId });
     if (!cdf) throw new Error('Chemin de fer non trouvé');
 
-    // 2. Récupérer uniquement les pages exportables (même filtre que l'export JSON)
+    // 3. Récupérer uniquement les pages exportables (même filtre que l'export JSON)
     const EXPORTED_STATUSES = ['generee_ia', 'relue', 'validee', 'texte_coule', 'visuels_montes'];
     const allPages = await db
       .collection('pages')
@@ -117,11 +133,22 @@ export class GuideTranslationService {
 
     for (let i = 0; i < pages.length; i++) {
       const page = pages[i];
-      const rawContent = page.content || {};
+      const rawContent = getPageTextContent(page as Record<string, unknown>);
+      const pageContext = buildPageTranslationContext(
+        page as Record<string, unknown>,
+        guide as Record<string, unknown> | null,
+        targetLang
+      );
 
       // Extraire les champs texte traduisibles
       const toTranslate = this.extractTranslatableFields(rawContent);
-      console.log(`📋 [TRANSLATE] Page ${i + 1}/${total} ${page.template_name} (${page._id}) — ${Object.keys(toTranslate).length} champs: ${Object.keys(toTranslate).join(', ')}`);
+      const { placeNames, body } = splitTranslatableFields(toTranslate);
+      const placeNameKeys = Object.keys(placeNames);
+      const bodyKeys = Object.keys(body);
+      console.log(
+        `📋 [TRANSLATE] Page ${i + 1}/${total} ${page.template_name} (${page._id}) — ` +
+        `${placeNameKeys.length} toponyme(s), ${bodyKeys.length} autre(s) champ(s)`
+      );
 
       if (Object.keys(toTranslate).length === 0) {
         stats.skipped++;
@@ -132,12 +159,13 @@ export class GuideTranslationService {
           const fieldLimits = this.buildFieldLimits(template);
 
           const translated = await withTimeout(
-            this.translateFieldsWithRetry(
+            this.translatePageFieldsWithRetry(
               toTranslate,
               targetLang,
               langName,
               fieldLimits,
-              retryMax
+              retryMax,
+              pageContext
             ),
             PAGE_TRANSLATION_TIMEOUT_MS,
             `page ${page._id}`
@@ -226,23 +254,72 @@ export class GuideTranslationService {
   }
 
   /**
-   * Traduit un ensemble de champs avec boucle de retry en cas de dépassement.
-   * Passe 1 : traduction standard avec consigne de condensation
-   * Passe 2 : traduction avec pression explicite + longueur actuelle
-   * Passe 3 : traduction minimaliste ultra-condensée
-   * Si dépassement résiduel : retourne quand même (marqué OVERFLOW_MANUEL par translateGuide)
+   * Traduit une page : passe dédiée toponymes + passe corps de texte.
    */
-  private async translateFieldsWithRetry(
+  private async translatePageFieldsWithRetry(
     fields: Record<string, string>,
     targetLang: string,
     langName: string,
     fieldLimits: Record<string, number>,
-    retryMax: number
+    retryMax: number,
+    pageContext: PageTranslationContext
   ): Promise<Record<string, string>> {
-    let result = await this.translateFields(fields, targetLang, langName, 1, null, fieldLimits);
+    const { placeNames, body } = splitTranslatableFields(fields);
+    const result: Record<string, string> = {};
+
+    if (Object.keys(placeNames).length > 0) {
+      Object.assign(
+        result,
+        await this.translatePlaceNameFieldsWithRetry(
+          placeNames,
+          targetLang,
+          langName,
+          fieldLimits,
+          retryMax,
+          pageContext
+        )
+      );
+    }
+
+    if (Object.keys(body).length > 0) {
+      Object.assign(
+        result,
+        await this.translateBodyFieldsWithRetry(
+          body,
+          targetLang,
+          langName,
+          fieldLimits,
+          retryMax,
+          pageContext
+        )
+      );
+    }
+
+    return result;
+  }
+
+  /**
+   * Passe toponymes avec règles universelles + contexte page.
+   */
+  private async translatePlaceNameFieldsWithRetry(
+    fields: Record<string, string>,
+    targetLang: string,
+    langName: string,
+    fieldLimits: Record<string, number>,
+    retryMax: number,
+    pageContext: PageTranslationContext
+  ): Promise<Record<string, string>> {
+    let result = await this.translatePlaceNameFields(
+      fields,
+      targetLang,
+      langName,
+      1,
+      null,
+      fieldLimits,
+      pageContext
+    );
 
     for (let pass = 2; pass <= retryMax; pass++) {
-      // Identifier les champs qui dépassent encore
       const overflowing: Record<string, string> = {};
       for (const [key, value] of Object.entries(result)) {
         const limit = fieldLimits[key];
@@ -250,10 +327,99 @@ export class GuideTranslationService {
           overflowing[key] = value;
         }
       }
-      if (Object.keys(overflowing).length === 0) break; // tout est OK
+      if (Object.keys(overflowing).length === 0) break;
+
+      console.warn(`⚠️ [TRANSLATE] Toponyme pass ${pass} — ${Object.keys(overflowing).length} champ(s) dépassent le calibre`);
+      const corrected = await this.translatePlaceNameFields(
+        fields,
+        targetLang,
+        langName,
+        pass,
+        overflowing,
+        fieldLimits,
+        pageContext
+      );
+      Object.assign(result, corrected);
+    }
+
+    return result;
+  }
+
+  private async translatePlaceNameFields(
+    fields: Record<string, string>,
+    targetLang: string,
+    langName: string,
+    pass: number = 1,
+    overflowingFields: Record<string, string> | null = null,
+    fieldLimits: Record<string, number> = {},
+    pageContext: PageTranslationContext
+  ): Promise<Record<string, string>> {
+    const toProcess = (pass > 1 && overflowingFields) ? overflowingFields : fields;
+    const keys = Object.keys(toProcess);
+    if (keys.length === 0) return {};
+
+    const result: Record<string, string> = {};
+
+    for (let i = 0; i < keys.length; i += MAX_FIELDS_PER_CALL) {
+      const batchKeys = keys.slice(i, i + MAX_FIELDS_PER_CALL);
+      const batchInput: Record<string, string> = {};
+      for (const k of batchKeys) batchInput[k] = toProcess[k];
+
+      const batchResult = await this.translatePlaceNameBatch(
+        batchInput,
+        targetLang,
+        langName,
+        pass,
+        fieldLimits,
+        pageContext
+      );
+      Object.assign(result, batchResult);
+    }
+
+    return result;
+  }
+
+  /**
+   * Traduit un ensemble de champs corps de texte avec boucle de retry.
+   */
+  private async translateBodyFieldsWithRetry(
+    fields: Record<string, string>,
+    targetLang: string,
+    langName: string,
+    fieldLimits: Record<string, number>,
+    retryMax: number,
+    pageContext: PageTranslationContext
+  ): Promise<Record<string, string>> {
+    let result = await this.translateFields(
+      fields,
+      targetLang,
+      langName,
+      1,
+      null,
+      fieldLimits,
+      pageContext
+    );
+
+    for (let pass = 2; pass <= retryMax; pass++) {
+      const overflowing: Record<string, string> = {};
+      for (const [key, value] of Object.entries(result)) {
+        const limit = fieldLimits[key];
+        if (limit && typeof value === 'string' && value.length > limit) {
+          overflowing[key] = value;
+        }
+      }
+      if (Object.keys(overflowing).length === 0) break;
 
       console.warn(`⚠️ [TRANSLATE] Pass ${pass} — ${Object.keys(overflowing).length} champs dépassent le calibre`);
-      const corrected = await this.translateFields(fields, targetLang, langName, pass, overflowing, fieldLimits);
+      const corrected = await this.translateFields(
+        fields,
+        targetLang,
+        langName,
+        pass,
+        overflowing,
+        fieldLimits,
+        pageContext
+      );
       Object.assign(result, corrected);
     }
 
@@ -355,7 +521,8 @@ export class GuideTranslationService {
     langName: string,
     pass: number = 1,
     overflowingFields: Record<string, string> | null = null,
-    fieldLimits: Record<string, number> = {}
+    fieldLimits: Record<string, number> = {},
+    pageContext: PageTranslationContext | null = null
   ): Promise<Record<string, string>> {
     // En passe 2+, ne retraduire QUE les champs qui débordent
     const toProcess = (pass > 1 && overflowingFields)
@@ -374,7 +541,14 @@ export class GuideTranslationService {
       const batchInput: Record<string, string> = {};
       for (const k of batchKeys) batchInput[k] = toProcess[k];
 
-      const batchResult = await this.translateBatch(batchInput, targetLang, langName, pass, fieldLimits);
+      const batchResult = await this.translateBatch(
+        batchInput,
+        targetLang,
+        langName,
+        pass,
+        fieldLimits,
+        pageContext
+      );
       Object.assign(result, batchResult);
     }
 
@@ -382,22 +556,98 @@ export class GuideTranslationService {
   }
 
   /**
-   * Appel OpenAI pour traduire un batch de champs.
-   * Le prompt varie selon la passe :
-   *   Passe 1 : traduction standard avec consigne de condensation
-   *   Passe 2 : pression explicite + longueurs actuelles communiquées
-   *   Passe 3 : mode minimaliste ultra-condensé
+   * Appel OpenAI — passe toponymes (POI_titre_1, noms inspiration, sommaire).
+   */
+  private async translatePlaceNameBatch(
+    fields: Record<string, string>,
+    _targetLang: string,
+    langName: string,
+    pass: number = 1,
+    fieldLimits: Record<string, number> = {},
+    pageContext: PageTranslationContext
+  ): Promise<Record<string, string>> {
+    const inputJson = JSON.stringify(fields, null, 2);
+    const limitBlock = this.buildLimitBlock(fields, fieldLimits);
+    const condensationInstruction = this.buildCondensationInstruction(pass);
+    const contextBlock = formatPageContextBlock(pageContext);
+    const namingRules = buildPlaceNameNamingRules(langName, pageContext);
+
+    const systemPrompt = `You are a professional travel guide toponymy localizer.
+Localize place names from French editorial labels to ${langName}.
+
+Rules:
+- Return ONLY a valid JSON object with the same keys
+- Localize only the values, never the keys
+- Do NOT add explanations, comments, or extra fields
+${namingRules}
+${condensationInstruction}${limitBlock}`;
+
+    const userPrompt = [
+      contextBlock,
+      '',
+      `Localize these place names to ${langName} (pass ${pass}):`,
+      inputJson,
+    ].join('\n');
+
+    return this.callOpenAiTranslation(systemPrompt, userPrompt, fields, pass, 'toponyme');
+  }
+
+  /**
+   * Appel OpenAI pour traduire un batch de champs corps de texte.
    */
   private async translateBatch(
     fields: Record<string, string>,
     targetLang: string,
     langName: string,
     pass: number = 1,
-    fieldLimits: Record<string, number> = {}
+    fieldLimits: Record<string, number> = {},
+    pageContext: PageTranslationContext | null = null
   ): Promise<Record<string, string>> {
     const inputJson = JSON.stringify(fields, null, 2);
+    const limitBlock = this.buildLimitBlock(fields, fieldLimits);
+    const condensationInstruction = this.buildCondensationInstruction(pass);
+    const localizationInstruction = this.buildLocalizationInstruction(targetLang, langName);
+    const contextBlock = pageContext ? formatPageContextBlock(pageContext) : '';
 
-    // Construire les contraintes de longueur pour les champs qui ont un max_chars
+    const systemPrompt = `You are a professional travel content localizer.
+Translate/localize the JSON values from French to ${langName}.
+
+Rules:
+- Return ONLY a valid JSON object with the same keys
+- Translate only the values, never the keys
+- Preserve ALL formatting markers exactly as-is: **bold**, {orange}, ^number^, ~gras-orange~
+- Bold markers must wrap COMPLETE words only (e.g. **to choose**), never split the first letter outside (never t**o choose** or h**elps**)
+- Preserve line breaks (\\n) in their exact positions
+- Do NOT translate or modify URLs (starting with http)
+- Keep proper nouns, brand names, and place names as appropriate for the target language
+- Be natural and idiomatic, not literal
+- Do not add explanations, comments, or extra fields
+- Preserve all factual information accurately
+- Preserve lists, structure, and hierarchy
+- Use the page context block (if provided) to disambiguate entities and places — do NOT translate the context itself
+${localizationInstruction}
+${condensationInstruction}${limitBlock}`;
+
+    const userPromptParts = [
+      contextBlock,
+      contextBlock ? '' : null,
+      `Translate to ${langName} (pass ${pass}):`,
+      inputJson,
+    ].filter((p): p is string => p !== null && p !== '');
+
+    return this.callOpenAiTranslation(
+      systemPrompt,
+      userPromptParts.join('\n'),
+      fields,
+      pass,
+      'body'
+    );
+  }
+
+  private buildLimitBlock(
+    fields: Record<string, string>,
+    fieldLimits: Record<string, number>
+  ): string {
     const limitLines: string[] = [];
     for (const [key, value] of Object.entries(fields)) {
       const limit = fieldLimits[key];
@@ -406,17 +656,24 @@ export class GuideTranslationService {
         limitLines.push(`  "${key}": max ${limit} chars (currently ${current} chars in source/previous attempt)`);
       }
     }
-    const limitBlock = limitLines.length > 0
+    return limitLines.length > 0
       ? `\nCharacter limits per field (MUST respect — InDesign frame calibration):\n${limitLines.join('\n')}`
       : '';
+  }
 
-    const condensationInstruction =
-      pass === 1 ? '- If a field has a character limit, condense the translation to stay within it without losing essential meaning' :
-      pass === 2 ? '- CRITICAL: The fields below EXCEED their character limits. Rewrite them more concisely. Remove secondary details while keeping the core meaning. You MUST stay under the limit.' :
-                   '- ULTRA-CONDENSED MODE: Each field must be as short as possible while remaining meaningful. Cut all non-essential words. Strict compliance with character limits is mandatory.';
+  private buildCondensationInstruction(pass: number): string {
+    if (pass === 1) {
+      return '- If a field has a character limit, condense the translation to stay within it without losing essential meaning';
+    }
+    if (pass === 2) {
+      return '- CRITICAL: The fields below EXCEED their character limits. Rewrite them more concisely. Remove secondary details while keeping the core meaning. You MUST stay under the limit.';
+    }
+    return '- ULTRA-CONDENSED MODE: Each field must be as short as possible while remaining meaningful. Cut all non-essential words. Strict compliance with character limits is mandatory.';
+  }
 
-    const englishLocalizationInstruction = targetLang === 'en'
-      ? `
+  private buildLocalizationInstruction(targetLang: string, langName: string): string {
+    if (targetLang === 'en') {
+      return `
 English localization rules:
 - You are a professional travel content localizer working for Region Lovers
 - Do NOT translate literally from French to English
@@ -439,8 +696,10 @@ Preferred English UX/localization examples:
 - "Accessible for disabled" -> "Accessible"
 - "Dining" -> "Food"
 - "Paid" -> "For a fee"
-- "Must see" -> "Nice to see"`
-      : `
+- "Must see" -> "Nice to see"`;
+    }
+
+    return `
 Localization rules:
 - Do NOT translate literally if the result sounds unnatural in ${langName}
 - Produce natural, fluent travel content that feels written originally for a traveler reading ${langName}
@@ -449,27 +708,15 @@ Localization rules:
 - Keep labels, icons, categories, badges, and practical information short, clear, and intuitive
 - Avoid awkward, overly formal, overly poetic, or promotional phrasing
 - Preserve the meaning, practical value, facts, structure, and hierarchy of the original content`;
+  }
 
-    const systemPrompt = `You are a professional travel content localizer.
-Translate/localize the JSON values from French to ${langName}.
-
-Rules:
-- Return ONLY a valid JSON object with the same keys
-- Translate only the values, never the keys
-- Preserve ALL formatting markers exactly as-is: **bold**, {orange}, ^number^, ~gras-orange~
-- Bold markers must wrap COMPLETE words only (e.g. **to choose**), never split the first letter outside (never t**o choose** or h**elps**)
-- Preserve line breaks (\\n) in their exact positions
-- Do NOT translate or modify URLs (starting with http)
-- Keep proper nouns, brand names, and place names as appropriate for the target language
-- Be natural and idiomatic, not literal
-- Do not add explanations, comments, or extra fields
-- Preserve all factual information accurately
-- Preserve lists, structure, and hierarchy
-${englishLocalizationInstruction}
-${condensationInstruction}${limitBlock}`;
-
-    const userPrompt = `Translate to ${langName} (pass ${pass}):\n${inputJson}`;
-
+  private async callOpenAiTranslation(
+    systemPrompt: string,
+    userPrompt: string,
+    fields: Record<string, string>,
+    pass: number,
+    batchKind: 'toponyme' | 'body'
+  ): Promise<Record<string, string>> {
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const response = await this.client.chat.completions.create({
@@ -487,11 +734,11 @@ ${condensationInstruction}${limitBlock}`;
         const rawContent = choice?.message?.content;
         if (!rawContent) throw new Error('Pas de réponse OpenAI');
 
-        // Log de debug : finish_reason + nombre de tokens
-        console.log(`🤖 [TRANSLATE] Batch finish_reason=${choice.finish_reason} tokens=${response.usage?.total_tokens} input_keys=${Object.keys(fields).length}`);
+        console.log(
+          `🤖 [TRANSLATE] ${batchKind} batch finish_reason=${choice.finish_reason} ` +
+          `tokens=${response.usage?.total_tokens} input_keys=${Object.keys(fields).length}`
+        );
 
-        // Si la réponse a été tronquée, le JSON sera invalide → JSON.parse lèvera une exception
-        // ce qui déclenchera un retry automatiquement. Pas besoin de vérification explicite ici.
         const parsed = JSON.parse(rawContent);
 
         const inputKeys = Object.keys(fields);

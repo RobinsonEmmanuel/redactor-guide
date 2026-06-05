@@ -109,6 +109,23 @@ export const PageSchema = z.object({
 
   /** POI volontairement sans GPS (marché, lieu non ponctuel…) — geometry: null à l'export */
   gps_not_applicable: z.boolean().optional(),
+
+  /** Identité toponymique OSM (noms multilingues, type de lieu) — enrichi au géocodage */
+  place_identity: z.object({
+    local_name: z.string().nullable().optional(),
+    display_name: z.string().nullable().optional(),
+    place_type: z.string().nullable().optional(),
+    osm_key: z.string().nullable().optional(),
+    osm_value: z.string().nullable().optional(),
+    osm_type: z.string().nullable().optional(),
+    osm_id: z.number().nullable().optional(),
+    city: z.string().nullable().optional(),
+    country: z.string().nullable().optional(),
+    country_code: z.string().nullable().optional(),
+    osm_names: z.record(z.string(), z.string()).optional(),
+    geocode_query: z.string().nullable().optional(),
+    resolved_at: z.string().optional(),
+  }).optional().nullable(),
   
   /**
    * Saison de la page (pour les templates de type SAISON uniquement).

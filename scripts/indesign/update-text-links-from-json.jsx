@@ -28,7 +28,7 @@ var NOM_POI_PARA_STYLE_NAME = "Inspiration_nom";
 // en groupe / bouton). Le texte du libellé reste géré dans injectText ; l'URL est
 // appliquée ici pour éviter doublons (voir injectText + skip si jsonFieldKey ci-dessous).
 var FRAME_LINK_FIELDS = {
-    "POI_lien_1":             true,
+    "POI_lien_1":             "POI_lien_1_zone",
     "POI_lien_2":             true,
     "ALLER_PLUS_LOIN_lien_1": true,
     "ALLER_PLUS_LOIN_lien_2": true,
@@ -53,6 +53,65 @@ function findByLabelOnPage(page, label) {
         } catch (e) {}
     }
     return res;
+}
+
+// Alias acceptes pour la zone cliquable POI_lien_1 (bulle + picto lien).
+var POI_LIEN_1_ZONE_ALIASES = ["lien 1", "lien_1", "lien1", "POI lien 1"];
+
+function findParentGroup(item) {
+    try {
+        var p = item.parent;
+        for (var d = 0; d < 10 && p; d++) {
+            try {
+                if (p.constructor && String(p.constructor.name) === "Group") return p;
+            } catch (eG) {}
+            try { p = p.parent; } catch (eP) { break; }
+        }
+    } catch (e) {}
+    return null;
+}
+
+function findGroupContainingTextLabel(page, textLabel) {
+    var out = [];
+    var tfs = findByLabelOnPage(page, textLabel);
+    for (var i = 0; i < tfs.length; i++) {
+        var g = findParentGroup(tfs[i]);
+        if (!g) continue;
+        var dup = false;
+        for (var j = 0; j < out.length; j++) {
+            if (out[j] === g) { dup = true; break; }
+        }
+        if (!dup) out.push(g);
+    }
+    return out;
+}
+
+function findPoiLien1ClickableBlocks(page, zoneLabel, textLabel) {
+    var blocks = findByLabelOnPage(page, zoneLabel);
+    if (blocks.length > 0) return blocks;
+    for (var a = 0; a < POI_LIEN_1_ZONE_ALIASES.length; a++) {
+        blocks = findByLabelOnPage(page, POI_LIEN_1_ZONE_ALIASES[a]);
+        if (blocks.length > 0) return blocks;
+    }
+    return findGroupContainingTextLabel(page, textLabel);
+}
+
+function findFrameLinkBlocks(page, label, frameLinkOpts) {
+    if (frameLinkOpts && frameLinkOpts.poiLien1 === true) {
+        return findPoiLien1ClickableBlocks(page, label, frameLinkOpts.textLinkLabel || label);
+    }
+    var blocks = findByLabelOnPage(page, label);
+    if (blocks.length > 0) return blocks;
+    if (frameLinkOpts && frameLinkOpts.aliases) {
+        for (var a = 0; a < frameLinkOpts.aliases.length; a++) {
+            blocks = findByLabelOnPage(page, frameLinkOpts.aliases[a]);
+            if (blocks.length > 0) return blocks;
+        }
+    }
+    if (frameLinkOpts && frameLinkOpts.textLinkLabel) {
+        blocks = findGroupContainingTextLabel(page, frameLinkOpts.textLinkLabel);
+    }
+    return blocks;
 }
 
 function grepScopeForTextFrame(tf) {
@@ -279,10 +338,10 @@ function injectHyperlinkOnPageItem(block, url) {
     } catch(e5) {}
 }
 
-function injectFrameHyperlink(page, label, value) {
+function injectFrameHyperlink(page, label, value, frameLinkOpts) {
     var url = parseUrlFromLinkValue(value);
 
-    var blocks = findByLabelOnPage(page, label);
+    var blocks = findFrameLinkBlocks(page, label, frameLinkOpts);
     for (var i = 0; i < blocks.length; i++) {
         var block = blocks[i];
         if (!url) continue; // en mode MAJ traduction: ne pas masquer les objets
@@ -1025,8 +1084,17 @@ function updatePageFromJson(page, pageData, bulletFields, sommaireSpreadPart) {
 
     for (var flKey in FRAME_LINK_FIELDS) {
         if (!FRAME_LINK_FIELDS.hasOwnProperty(flKey)) continue;
-        var flMapping = (data.mappings && data.mappings.fields && data.mappings.fields[flKey]) || flKey;
-        injectFrameHyperlink(page, flMapping, textContent[flKey] || null);
+        var flTarget = FRAME_LINK_FIELDS[flKey];
+        var flTargetKey = (typeof flTarget === "string") ? flTarget : flKey;
+        var flMapping = (data.mappings && data.mappings.fields && data.mappings.fields[flTargetKey]) || flTargetKey;
+        var frameOpts = null;
+        if (flKey === "POI_lien_1") {
+            frameOpts = {
+                poiLien1: true,
+                textLinkLabel: (data.mappings && data.mappings.fields && data.mappings.fields["POI_lien_1"]) || "POI_lien_1",
+            };
+        }
+        injectFrameHyperlink(page, flMapping, textContent[flKey] || null, frameOpts);
     }
 
     for (var lKey in textContent) {

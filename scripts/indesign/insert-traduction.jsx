@@ -107,7 +107,7 @@ var sommairePageIndex = 0;
 // Champs dont la valeur est un lien {label, url} a poser sur un cadre GRAPHIQUE
 var FRAME_LINK_FIELDS = {
     // Le label visible reste injecte dans POI_lien_1 (TextFrame).
-    // La zone graphique POI_lien_1_zone rend toute la pastille cliquable.
+    // La zone graphique POI_lien_1_zone (ou alias « lien 1 », ou groupe parent) rend toute la pastille cliquable.
     "POI_lien_1":             "POI_lien_1_zone",
     "POI_lien_2":             true,
     "ALLER_PLUS_LOIN_lien_1": true,
@@ -267,6 +267,66 @@ function findByLabelOrOverrideMaster(page, label) {
         }
     } catch (eMaster) {}
     return result;
+}
+
+// Alias acceptes pour la zone cliquable POI_lien_1 (bulle + picto lien).
+var POI_LIEN_1_ZONE_ALIASES = ["lien 1", "lien_1", "lien1", "POI lien 1"];
+
+function findParentGroup(item) {
+    try {
+        var p = item.parent;
+        for (var d = 0; d < 10 && p; d++) {
+            try {
+                if (p.constructor && String(p.constructor.name) === "Group") return p;
+            } catch (eG) {}
+            try { p = p.parent; } catch (eP) { break; }
+        }
+    } catch (e) {}
+    return null;
+}
+
+function findGroupContainingTextLabel(page, textLabel) {
+    var out = [];
+    var tfs = findByLabelOrOverrideMaster(page, textLabel);
+    for (var i = 0; i < tfs.length; i++) {
+        var g = findParentGroup(tfs[i]);
+        if (!g) continue;
+        var dup = false;
+        for (var j = 0; j < out.length; j++) {
+            if (out[j] === g) { dup = true; break; }
+        }
+        if (!dup) out.push(g);
+    }
+    return out;
+}
+
+/** Zone cliquable POI_lien_1 : label zone, alias (ex. « lien 1 »), ou groupe parent du TextFrame. */
+function findPoiLien1ClickableBlocks(page, zoneLabel, textLabel) {
+    var blocks = findByLabelOrOverrideMaster(page, zoneLabel);
+    if (blocks.length > 0) return blocks;
+    for (var a = 0; a < POI_LIEN_1_ZONE_ALIASES.length; a++) {
+        blocks = findByLabelOrOverrideMaster(page, POI_LIEN_1_ZONE_ALIASES[a]);
+        if (blocks.length > 0) return blocks;
+    }
+    return findGroupContainingTextLabel(page, textLabel);
+}
+
+function findFrameLinkBlocks(page, label, frameLinkOpts) {
+    if (frameLinkOpts && frameLinkOpts.poiLien1 === true) {
+        return findPoiLien1ClickableBlocks(page, label, frameLinkOpts.textLinkLabel || label);
+    }
+    var blocks = findByLabelOrOverrideMaster(page, label);
+    if (blocks.length > 0) return blocks;
+    if (frameLinkOpts && frameLinkOpts.aliases) {
+        for (var a = 0; a < frameLinkOpts.aliases.length; a++) {
+            blocks = findByLabelOrOverrideMaster(page, frameLinkOpts.aliases[a]);
+            if (blocks.length > 0) return blocks;
+        }
+    }
+    if (frameLinkOpts && frameLinkOpts.textLinkLabel) {
+        blocks = findGroupContainingTextLabel(page, frameLinkOpts.textLinkLabel);
+    }
+    return blocks;
 }
 
 // Extrait une URL depuis une valeur qui peut etre :
@@ -902,9 +962,9 @@ function injectHyperlink(page, label, url) {
 //    les sources orphelines apres la suppression des hyperlinks.
 // ---------------------------------------------------------------------------
 
-function injectFrameHyperlink(page, label, value) {
+function injectFrameHyperlink(page, label, value, frameLinkOpts) {
     var url = extractUrl(value);
-    var blocks = findByLabelOrOverrideMaster(page, label);
+    var blocks = findFrameLinkBlocks(page, label, frameLinkOpts);
 
     for (var i = 0; i < blocks.length; i++) {
         var block = blocks[i];
@@ -1912,7 +1972,14 @@ function processPage(idPage, pageData) {
         var frameLabel = (typeof frameTarget === "string")
             ? resolveLabel(frameTarget)
             : resolveLabel(flKey);
-        injectFrameHyperlink(idPage, frameLabel, flVal);
+        var frameOpts = null;
+        if (flKey === "POI_lien_1") {
+            frameOpts = {
+                poiLien1: true,
+                textLinkLabel: resolveLabel("POI_lien_1"),
+            };
+        }
+        injectFrameHyperlink(idPage, frameLabel, flVal, frameOpts);
     }
 
     // --- Etape C : hyperliens pictos articles (_url_article_*, Google Maps ignores) ---

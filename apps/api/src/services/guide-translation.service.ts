@@ -29,6 +29,22 @@ const LANGUAGE_NAMES: Record<string, string> = {
 };
 
 const MAX_FIELDS_PER_CALL = 20;
+const OPENAI_TIMEOUT_MS = 120_000;
+const PAGE_TRANSLATION_TIMEOUT_MS = 8 * 60 * 1000;
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timeout ${label} (${Math.round(ms / 1000)}s)`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 export interface TranslationProgress {
   done: number;
@@ -48,7 +64,7 @@ export class GuideTranslationService {
   private client: OpenAI;
 
   constructor(apiKey: string) {
-    this.client = new OpenAI({ apiKey });
+    this.client = new OpenAI({ apiKey, timeout: OPENAI_TIMEOUT_MS });
   }
 
   /**
@@ -97,13 +113,15 @@ export class GuideTranslationService {
     const stats = { translated: 0, skipped: 0, errors: 0, overflow_warnings: [] as OverflowWarning[] };
     const total = pages.length;
 
+    console.log(`🚀 [TRANSLATE] Début guide ${guideId} → ${targetLang} (${total} pages exportables)`);
+
     for (let i = 0; i < pages.length; i++) {
       const page = pages[i];
       const rawContent = page.content || {};
 
       // Extraire les champs texte traduisibles
       const toTranslate = this.extractTranslatableFields(rawContent);
-      console.log(`📋 [TRANSLATE] Page ${page.template_name} (${page._id}) — ${Object.keys(toTranslate).length} champs extraits: ${Object.keys(toTranslate).join(', ')}`);
+      console.log(`📋 [TRANSLATE] Page ${i + 1}/${total} ${page.template_name} (${page._id}) — ${Object.keys(toTranslate).length} champs: ${Object.keys(toTranslate).join(', ')}`);
 
       if (Object.keys(toTranslate).length === 0) {
         stats.skipped++;
@@ -113,12 +131,16 @@ export class GuideTranslationService {
           const template = templateCache[page.template_id?.toString()] ?? null;
           const fieldLimits = this.buildFieldLimits(template);
 
-          const translated = await this.translateFieldsWithRetry(
-            toTranslate,
-            targetLang,
-            langName,
-            fieldLimits,
-            retryMax
+          const translated = await withTimeout(
+            this.translateFieldsWithRetry(
+              toTranslate,
+              targetLang,
+              langName,
+              fieldLimits,
+              retryMax
+            ),
+            PAGE_TRANSLATION_TIMEOUT_MS,
+            `page ${page._id}`
           );
 
           // Détecter les dépassements résiduels après tous les retries

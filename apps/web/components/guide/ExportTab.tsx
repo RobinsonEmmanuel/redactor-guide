@@ -86,7 +86,19 @@ interface TranslationState {
   status: TranslationStatus;
   progress: { done: number; total: number } | null;
   translated_at: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
   error: string | null;
+}
+
+const TRANSLATION_STALE_MS = 10 * 60 * 1000;
+
+function isTranslationJobStale(state: TranslationState | undefined): boolean {
+  if (!state || state.status !== 'processing') return false;
+  const ref = state.updated_at ?? state.created_at;
+  if (!ref) return true;
+  const ts = new Date(ref).getTime();
+  return Number.isFinite(ts) && Date.now() - ts > TRANSLATION_STALE_MS;
 }
 
 export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
@@ -103,13 +115,11 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
   const [overflowModal, setOverflowModal] = useState<{ lang: string; warnings: OverflowWarning[] } | null>(null);
   const pollingRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
-  useEffect(() => {
-    loadPreview();
-    loadAllOverflows();
-    LANGUAGES.filter(l => !l.native).forEach(l => loadTranslationStatus(l.code));
-    return () => {
-      Object.values(pollingRefs.current).forEach(clearInterval);
-    };
+  const stopPolling = useCallback((lang: string) => {
+    if (pollingRefs.current[lang]) {
+      clearInterval(pollingRefs.current[lang]);
+      delete pollingRefs.current[lang];
+    }
   }, []);
 
   const loadPreview = async () => {
@@ -175,22 +185,66 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     }
   }, [apiUrl, guideId]);
 
+  const pollTranslationOnce = useCallback(async (lang: string) => {
+    const data = await loadTranslationStatus(lang);
+    if (data?.status === 'completed' || data?.status === 'failed') {
+      stopPolling(lang);
+      setTranslating(prev => ({ ...prev, [lang]: false }));
+      if (data?.status === 'completed') {
+        await refreshOverflowsForLang(lang);
+      }
+    } else if (data?.status === 'processing') {
+      setTranslating(prev => ({ ...prev, [lang]: true }));
+    }
+    return data;
+  }, [loadTranslationStatus, stopPolling, refreshOverflowsForLang]);
+
   const startPolling = useCallback((lang: string) => {
-    if (pollingRefs.current[lang]) clearInterval(pollingRefs.current[lang]);
-    pollingRefs.current[lang] = setInterval(async () => {
-      const data = await loadTranslationStatus(lang);
-      if (data?.status === 'completed' || data?.status === 'failed') {
-        clearInterval(pollingRefs.current[lang]);
-        delete pollingRefs.current[lang];
-        setTranslating(prev => ({ ...prev, [lang]: false }));
-        if (data?.status === 'completed') {
-          await refreshOverflowsForLang(lang);
+    stopPolling(lang);
+    setTranslating(prev => ({ ...prev, [lang]: true }));
+    pollTranslationOnce(lang);
+    pollingRefs.current[lang] = setInterval(() => {
+      pollTranslationOnce(lang);
+    }, 3000);
+  }, [stopPolling, pollTranslationOnce]);
+
+  useEffect(() => {
+    loadPreview();
+    loadAllOverflows();
+
+    const resumeProcessingJobs = async () => {
+      for (const l of LANGUAGES.filter(x => !x.native)) {
+        const data = await loadTranslationStatus(l.code);
+        if (data?.status === 'processing') {
+          startPolling(l.code);
         }
       }
-    }, 3000);
-  }, [loadTranslationStatus, refreshOverflowsForLang]);
+    };
+    resumeProcessingJobs();
 
-  const translateLanguage = async (lang: string) => {
+    return () => {
+      Object.values(pollingRefs.current).forEach(clearInterval);
+    };
+  }, [loadAllOverflows, loadTranslationStatus, startPolling]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      LANGUAGES.filter(l => !l.native).forEach(async (l) => {
+        const data = await loadTranslationStatus(l.code);
+        if (data?.status === 'processing' && !pollingRefs.current[l.code]) {
+          startPolling(l.code);
+        } else if (data?.status === 'completed' || data?.status === 'failed') {
+          setTranslating(prev => ({ ...prev, [l.code]: false }));
+        }
+      });
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [loadTranslationStatus, startPolling]);
+
+  const translateLanguage = async (lang: string, options?: { force?: boolean }) => {
+    const force = options?.force ?? false;
     setTranslating(prev => ({ ...prev, [lang]: true }));
     setOverflowsByLang(prev => ({ ...prev, [lang]: [] }));
     setTranslationStates(prev => ({
@@ -198,8 +252,9 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
       [lang]: { status: 'processing', progress: { done: 0, total: 0 }, translated_at: null, error: null },
     }));
     try {
+      const forceParam = force ? '&force=true' : '';
       const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/translate?lang=${lang}`,
+        `${apiUrl}/api/v1/guides/${guideId}/translate?lang=${lang}${forceParam}`,
         { method: 'POST', credentials: 'include' }
       );
       if (!res.ok) {
@@ -386,6 +441,14 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     }
     if (state.status === 'processing') {
       const { done = 0, total = 0 } = state.progress || {};
+      if (isTranslationJobStale(state)) {
+        return (
+          <span className="text-xs text-red-500 flex items-center gap-1">
+            <ExclamationTriangleIcon className="w-3 h-3" />
+            {total > 0 ? `Bloqué à ${done}/${total}` : 'Bloqué'}
+          </span>
+        );
+      }
       return (
         <span className="text-xs text-blue-600 flex items-center gap-1">
           <ArrowPathIcon className="w-3 h-3 animate-spin" />
@@ -486,11 +549,14 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
           <h3 className="text-sm font-semibold text-gray-700 mb-1">Traductions</h3>
           <p className="text-xs text-gray-500 mb-4">
             Par langue : JSON traduit, redirections et GeoJSON (labels POI traduits, ex. « Escalier Agatha Christie »).
+            Évitez de lancer une traduction en même temps que le package complet FR (ZIP + images) — les deux opérations partagent le même serveur.
           </p>
           <div className="space-y-3">
             {LANGUAGES.filter(l => !l.native).map(lang => {
               const tState = translationStates[lang.code];
-              const isTranslating = translating[lang.code] || tState?.status === 'processing';
+              const isProcessing = tState?.status === 'processing';
+              const isStale = isTranslationJobStale(tState);
+              const isTranslating = isProcessing && !isStale;
               const isTranslated = tState?.status === 'completed';
               const langOverflows = overflowsByLang[lang.code] ?? [];
 
@@ -517,21 +583,43 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                       </button>
                     ) : (
                       <button
-                        onClick={() => translateLanguage(lang.code)}
-                        title={isTranslated ? 'Retraduire le contenu' : 'Lancer la traduction IA'}
+                        onClick={() => translateLanguage(lang.code, {
+                          force: isStale || tState?.status === 'failed',
+                        })}
+                        title={
+                          isStale || tState?.status === 'failed'
+                            ? 'Relancer la traduction (job précédent interrompu)'
+                            : isTranslated
+                              ? 'Retraduire le contenu'
+                              : 'Lancer la traduction IA'
+                        }
                         className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors flex-shrink-0 ${
-                          isTranslated
-                            ? 'text-gray-500 bg-white border-gray-200 hover:bg-gray-50'
-                            : 'text-blue-700 bg-blue-50 border-blue-300 hover:bg-blue-100'
+                          isStale || tState?.status === 'failed'
+                            ? 'text-red-700 bg-red-50 border-red-300 hover:bg-red-100'
+                            : isTranslated
+                              ? 'text-gray-500 bg-white border-gray-200 hover:bg-gray-50'
+                              : 'text-blue-700 bg-blue-50 border-blue-300 hover:bg-blue-100'
                         }`}
                       >
                         <LanguageIcon className="w-3.5 h-3.5" />
-                        {isTranslated ? 'Retraduire' : 'Traduire'}
+                        {isStale || tState?.status === 'failed' ? 'Relancer' : isTranslated ? 'Retraduire' : 'Traduire'}
                       </button>
                     )}
                   </div>
 
-                  {!isTranslated && (
+                  {isStale && (
+                    <p className="text-[11px] text-red-600 mb-2">
+                      Traduction bloquée depuis plus de 10 minutes (souvent après un export lourd simultané). Cliquez sur « Relancer ».
+                    </p>
+                  )}
+
+                  {tState?.status === 'failed' && tState.error && !isStale && (
+                    <p className="text-[11px] text-red-600 mb-2">
+                      {tState.error}
+                    </p>
+                  )}
+
+                  {!isTranslated && !isTranslating && !isStale && (
                     <p className="text-[11px] text-amber-600 mb-2">
                       Traduction non effectuée — les exports contiendront encore le texte français.
                     </p>

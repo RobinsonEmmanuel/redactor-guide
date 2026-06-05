@@ -4,6 +4,11 @@ import { ObjectId } from 'mongodb';
 import { GuideTranslationService } from '../services/guide-translation.service.js';
 import { COLLECTIONS } from '../config/collections.js';
 import { getArticlesDatabase } from '../config/database.js';
+import {
+  failTranslationJob,
+  isTranslationJobStale,
+  TRANSLATION_JOB_STALE_MS,
+} from '../utils/translation-jobs.js';
 
 // Langues cibles supportées pour la traduction IA.
 // 'fr' est volontairement absent : c'est la langue source, non une cible.
@@ -280,7 +285,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
   fastify.post('/guides/:guideId/translate', async (request, reply) => {
     const db = request.server.container.db;
     const { guideId } = request.params as { guideId: string };
-    const { lang } = request.query as { lang?: string };
+    const { lang, force } = request.query as { lang?: string; force?: string };
 
     if (!lang || !(VALID_TRANSLATION_LANGS as readonly string[]).includes(lang)) {
       return reply.status(400).send({ error: `Langue invalide. Valeurs acceptées : ${VALID_TRANSLATION_LANGS.join(', ')}` });
@@ -294,13 +299,28 @@ export async function guidesRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({ error: 'OPENAI_API_KEY non configurée' });
     }
 
-    // Vérifier qu'un job n'est pas déjà en cours
+    const forceRestart = force === 'true' || force === '1';
+
+    // Vérifier qu'un job n'est pas déjà en cours (sauf job bloqué ou relance forcée)
     const existingJob = await db.collection(COLLECTIONS.guide_translation_jobs).findOne(
       { guide_id: guideId, lang },
       { sort: { created_at: -1 } }
     );
-    if (existingJob?.status === 'processing') {
+    const existingJobStale = isTranslationJobStale(existingJob);
+
+    if (existingJob?.status === 'processing' && !existingJobStale && !forceRestart) {
       return reply.send({ status: 'processing', jobId: existingJob._id.toString() });
+    }
+
+    if (existingJob?.status === 'processing' && (existingJobStale || forceRestart)) {
+      await failTranslationJob(
+        db,
+        existingJob._id,
+        forceRestart
+          ? 'Job annulé — relance manuelle'
+          : 'Job interrompu — aucune progression récente'
+      );
+      console.warn(`⚠️ [TRANSLATE] Job ${existingJob._id} (${guideId}/${lang}) marqué en échec avant relance`);
     }
 
     // Créer le job
@@ -315,8 +335,9 @@ export async function guidesRoutes(fastify: FastifyInstance) {
     };
     const insertResult = await db.collection(COLLECTIONS.guide_translation_jobs).insertOne(jobDoc);
     const jobId = insertResult.insertedId.toString();
+    console.log(`🚀 [TRANSLATE] Job ${jobId} créé pour guide ${guideId} → ${lang}`);
 
-    // Lancer la traduction en arrière-plan (pas de await)
+    // Lancer la traduction en arrière-plan (pas de await — partage le processus avec les exports lourds)
     const service = new GuideTranslationService(openaiApiKey);
     service.translateGuide(
       guideId,
@@ -373,10 +394,30 @@ export async function guidesRoutes(fastify: FastifyInstance) {
       return reply.send({ status: 'idle', progress: null, translated_at: null });
     }
 
+    if (isTranslationJobStale(job)) {
+      await failTranslationJob(
+        db,
+        job._id,
+        'Job interrompu — aucune progression récente'
+      );
+      return reply.send({
+        status: 'failed',
+        progress: job.progress || null,
+        translated_at: job.translated_at || null,
+        created_at: job.created_at || null,
+        updated_at: new Date(),
+        stats: job.stats || null,
+        error: 'Job interrompu — aucune progression récente. Relancez la traduction.',
+        stale_after_ms: TRANSLATION_JOB_STALE_MS,
+      });
+    }
+
     return reply.send({
       status: job.status,
       progress: job.progress || null,
       translated_at: job.translated_at || null,
+      created_at: job.created_at || null,
+      updated_at: job.updated_at || null,
       stats: job.stats || null,
       error: job.error || null,
     });

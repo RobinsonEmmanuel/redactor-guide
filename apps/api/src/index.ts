@@ -1,6 +1,7 @@
 import { connectDatabase, connectArticlesDatabase, disconnectDatabase } from './config/database';
 import { env } from './config/env';
 import { createServer } from './server';
+import { recoverStaleTranslationJobs } from './utils/translation-jobs.js';
 
 /**
  * Point d'entrée principal de l'application
@@ -17,6 +18,11 @@ async function bootstrap() {
 
     // Connexion à la base articles_raw (service-redaction)
     await connectArticlesDatabase();
+
+    const recovered = await recoverStaleTranslationJobs(db);
+    if (recovered > 0) {
+      console.log(`⚠️ [TRANSLATE] ${recovered} job(s) bloqué(s) récupéré(s) au démarrage`);
+    }
     
     // Créer et démarrer le serveur Fastify
     const server = await createServer(db, env.PORT);

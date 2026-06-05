@@ -691,28 +691,40 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                         Traduction…
                       </button>
                     ) : (
-                      <button
-                        onClick={() => translateLanguage(lang.code, {
-                          force: isStale || tState?.status === 'failed',
-                        })}
-                        title={
-                          isStale || tState?.status === 'failed'
-                            ? 'Relancer la traduction (job précédent interrompu)'
-                            : isTranslated
-                              ? 'Retraduire le contenu'
-                              : 'Lancer la traduction IA'
-                        }
-                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors flex-shrink-0 ${
-                          isStale || tState?.status === 'failed'
-                            ? 'text-red-700 bg-red-50 border-red-300 hover:bg-red-100'
-                            : isTranslated
-                              ? 'text-gray-500 bg-white border-gray-200 hover:bg-gray-50'
-                              : 'text-blue-700 bg-blue-50 border-blue-300 hover:bg-blue-100'
-                        }`}
-                      >
-                        <LanguageIcon className="w-3.5 h-3.5" />
-                        {isStale || tState?.status === 'failed' ? 'Relancer' : isTranslated ? 'Retraduire' : 'Traduire'}
-                      </button>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button
+                          onClick={() => translateLanguage(lang.code, {
+                            force: isStale || tState?.status === 'failed',
+                          })}
+                          title={
+                            isStale || tState?.status === 'failed'
+                              ? 'Relancer la traduction (job précédent interrompu)'
+                              : isTranslated
+                                ? 'Retraduire le contenu'
+                                : 'Lancer la traduction IA'
+                          }
+                          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                            isStale || tState?.status === 'failed'
+                              ? 'text-red-700 bg-red-50 border-red-300 hover:bg-red-100'
+                              : isTranslated
+                                ? 'text-gray-500 bg-white border-gray-200 hover:bg-gray-50'
+                                : 'text-blue-700 bg-blue-50 border-blue-300 hover:bg-blue-100'
+                          }`}
+                        >
+                          <LanguageIcon className="w-3.5 h-3.5" />
+                          {isStale || tState?.status === 'failed' ? 'Relancer' : isTranslated ? 'Retraduire' : 'Traduire'}
+                        </button>
+                        {/* TODO: retirer après validation des règles toponymiques */}
+                        <button
+                          type="button"
+                          onClick={() => translateLanguage(lang.code, { force: true })}
+                          title="Relance forcée (force=true) — annule un job en cours et retraduit tout"
+                          className="flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium rounded-lg border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 transition-colors"
+                        >
+                          <ArrowPathIcon className="w-3 h-3" />
+                          Forcer
+                        </button>
+                      </div>
                     )}
                   </div>
 

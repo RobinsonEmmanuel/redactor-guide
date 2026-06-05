@@ -22,6 +22,13 @@ export interface GeocodeMissingPoisResult {
   results: PoiGeocodeEntryResult[];
 }
 
+export interface PoiMissingCoordinatesEntry {
+  page_id: string;
+  titre: string;
+  query: string | null;
+  error: string | null;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -71,14 +78,7 @@ function hasCoordinates(page: Record<string, any>): boolean {
   return c?.lat != null && c?.lon != null && !isNaN(c.lat) && !isNaN(c.lon);
 }
 
-/**
- * Géocode via Photon les pages POI sans coordonnées et persiste le résultat en base.
- */
-export async function geocodeMissingPoiPages(
-  db: Db,
-  guideId: string,
-  geocodingService: GeocodingService
-): Promise<GeocodeMissingPoisResult> {
+async function loadGuidePoiPages(db: Db, guideId: string) {
   if (!ObjectId.isValid(guideId)) {
     throw new Error('guideId invalide');
   }
@@ -97,6 +97,43 @@ export async function geocodeMissingPoiPages(
     })
     .sort({ ordre: 1 })
     .toArray();
+
+  return { guide, pages };
+}
+
+/** Liste les POIs sans coordonnées GPS (pour alertes export). */
+export async function listPoisMissingCoordinates(
+  db: Db,
+  guideId: string
+): Promise<PoiMissingCoordinatesEntry[]> {
+  const { guide, pages } = await loadGuidePoiPages(db, guideId);
+  const missing: PoiMissingCoordinatesEntry[] = [];
+
+  for (const page of pages) {
+    if (hasCoordinates(page)) continue;
+    const pageId = page._id.toString();
+    const titre = String(page.titre ?? page.template_name ?? pageId);
+    const query = buildPoiGeocodingQuery(page, guide).trim() || null;
+    missing.push({
+      page_id: pageId,
+      titre,
+      query,
+      error: query ? 'Coordonnées GPS manquantes' : 'Nom du lieu introuvable',
+    });
+  }
+
+  return missing;
+}
+
+/**
+ * Géocode via Photon les pages POI sans coordonnées et persiste le résultat en base.
+ */
+export async function geocodeMissingPoiPages(
+  db: Db,
+  guideId: string,
+  geocodingService: GeocodingService
+): Promise<GeocodeMissingPoisResult> {
+  const { guide, pages } = await loadGuidePoiPages(db, guideId);
 
   const destination: string =
     guide.destination ??

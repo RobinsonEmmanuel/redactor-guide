@@ -2,7 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { z } from 'zod';
 import { GeocodingService } from '../services/geocoding.service.js';
-import { geocodeMissingPoiPages } from '../services/poi-geocoding.service.js';
+import {
+  geocodeMissingPoiPages,
+  listPoisMissingCoordinates,
+} from '../services/poi-geocoding.service.js';
 
 const geocodingService = new GeocodingService();
 
@@ -78,6 +81,36 @@ export async function geocodingRoutes(fastify: FastifyInstance) {
 
     return reply.send(result);
   });
+
+  /**
+   * GET /guides/:guideId/poi-geocode-status
+   * Liste les POIs sans coordonnées GPS (alertes export).
+   */
+  fastify.get<{ Params: { guideId: string } }>(
+    '/guides/:guideId/poi-geocode-status',
+    async (request, reply) => {
+      const db = request.server.container.db;
+      const { guideId } = request.params;
+
+      if (!ObjectId.isValid(guideId)) {
+        return reply.status(400).send({ error: 'guideId invalide' });
+      }
+
+      try {
+        const missing = await listPoisMissingCoordinates(db, guideId);
+        return reply.send({ missing, count: missing.length });
+      } catch (error: any) {
+        if (
+          error.message === 'Guide non trouvé' ||
+          error.message === 'Chemin de fer non trouvé pour ce guide'
+        ) {
+          return reply.status(404).send({ error: error.message });
+        }
+        request.log.error(error);
+        return reply.status(500).send({ error: 'Erreur lors de la lecture des POIs' });
+      }
+    }
+  );
 
   /**
    * POST /guides/:guideId/geocode-missing-pois

@@ -46,6 +46,18 @@ interface OverflowWarning {
   current_value?: string | null;
 }
 
+interface PoiGeocodeFailure {
+  page_id: string;
+  titre: string;
+  query?: string | null;
+  error?: string | null;
+}
+
+type PendingGeoExport =
+  | { kind: 'geojson'; lang: string }
+  | { kind: 'zip'; lang: string }
+  | { kind: 'package'; lang: string };
+
 function ExportIconButton({
   icon,
   label,
@@ -109,14 +121,11 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
   const [downloadingZip, setDownloadingZip] = useState<Record<string, boolean>>({});
   const [downloadingRedirections, setDownloadingRedirections] = useState<Record<string, boolean>>({});
   const [downloadingGeoJson, setDownloadingGeoJson] = useState<Record<string, boolean>>({});
-  const [geocodingMissing, setGeocodingMissing] = useState(false);
-  const [geocodeSummary, setGeocodeSummary] = useState<{
-    missing_before: number;
-    geocoded: number;
-    failed: number;
-    already_had_coords: number;
-    total_pois: number;
+  const [geocodeFailures, setGeocodeFailures] = useState<PoiGeocodeFailure[]>([]);
+  const [geocodeModal, setGeocodeModal] = useState<{
+    pendingExport: PendingGeoExport | null;
   } | null>(null);
+  const [exportPreparing, setExportPreparing] = useState<Record<string, boolean>>({});
   const [downloadedFiles, setDownloadedFiles] = useState<string[]>([]);
   const [translationStates, setTranslationStates] = useState<Record<string, TranslationState>>({});
   const [translating, setTranslating] = useState<Record<string, boolean>>({});
@@ -216,9 +225,36 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     }, 3000);
   }, [stopPolling, pollTranslationOnce]);
 
+  const loadGeocodeFailures = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/poi-geocode-status`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setGeocodeFailures(data.missing ?? []);
+    } catch (err) {
+      console.error('Erreur chargement statut GPS:', err);
+    }
+  }, [apiUrl, guideId]);
+
+  const runAutoGeocode = useCallback(async () => {
+    const res = await fetch(
+      `${apiUrl}/api/v1/guides/${guideId}/geocode-missing-pois`,
+      { method: 'POST', credentials: 'include' }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Erreur ${res.status}`);
+    }
+    await loadGeocodeFailures();
+  }, [apiUrl, guideId, loadGeocodeFailures]);
+
   useEffect(() => {
     loadPreview();
     loadAllOverflows();
+    loadGeocodeFailures();
 
     const resumeProcessingJobs = async () => {
       for (const l of LANGUAGES.filter(x => !x.native)) {
@@ -233,7 +269,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     return () => {
       Object.values(pollingRefs.current).forEach(clearInterval);
     };
-  }, [loadAllOverflows, loadTranslationStatus, startPolling]);
+  }, [loadAllOverflows, loadTranslationStatus, startPolling, loadGeocodeFailures]);
 
   useEffect(() => {
     const onVisible = () => {
@@ -349,11 +385,59 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     }
   };
 
-  const downloadZip = async (lang: string) => {
-    setDownloadingZip(prev => ({ ...prev, [lang]: true }));
+  const prepKey = (kind: PendingGeoExport['kind'], lang: string) => `${kind}:${lang}`;
+
+  const executePendingExport = async (pending: PendingGeoExport) => {
+    if (pending.kind === 'zip') {
+      setDownloadingZip(prev => ({ ...prev, [pending.lang]: true }));
+      try {
+        const res = await fetch(
+          `${apiUrl}/api/v1/guides/${guideId}/export/zip?lang=${pending.lang}`,
+          { credentials: 'include' }
+        );
+        if (!res.ok) throw new Error(`Erreur ${res.status}`);
+        const blob = await res.blob();
+        const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+        const now = new Date();
+        const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
+        const timePart = now.toISOString().slice(11, 16).replace(':', '');
+        const dest = slugify(preview?.meta?.destination || preview?.meta?.guide_name || 'guide');
+        downloadBlob(blob, parseFilename(res, `guide_${dest}_${pending.lang}_${datePart}_${timePart}.zip`));
+      } catch {
+        alert(`Erreur lors du téléchargement du ZIP en ${pending.lang}`);
+      } finally {
+        setDownloadingZip(prev => ({ ...prev, [pending.lang]: false }));
+      }
+      return;
+    }
+
+    if (pending.kind === 'package') {
+      setDownloadingPackage(prev => ({ ...prev, [pending.lang]: true }));
+      try {
+        const res = await fetch(
+          `${apiUrl}/api/v1/guides/${guideId}/export/package?lang=${pending.lang}`,
+          { credentials: 'include' }
+        );
+        if (!res.ok) throw new Error(`Erreur ${res.status}`);
+        const blob = await res.blob();
+        const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+        const now = new Date();
+        const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
+        const timePart = now.toISOString().slice(11, 16).replace(':', '');
+        const dest = slugify(preview?.meta?.destination || preview?.meta?.guide_name || 'guide');
+        downloadBlob(blob, parseFilename(res, `guide_${dest}_${pending.lang}_${datePart}_${timePart}_json_redirections.zip`));
+      } catch {
+        alert(`Erreur lors du téléchargement JSON+redirections en ${pending.lang}`);
+      } finally {
+        setDownloadingPackage(prev => ({ ...prev, [pending.lang]: false }));
+      }
+      return;
+    }
+
+    setDownloadingGeoJson(prev => ({ ...prev, [pending.lang]: true }));
     try {
       const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/export/zip?lang=${lang}`,
+        `${apiUrl}/api/v1/guides/${guideId}/export/geojson?lang=${pending.lang}`,
         { credentials: 'include' }
       );
       if (!res.ok) throw new Error(`Erreur ${res.status}`);
@@ -363,13 +447,45 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
       const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
       const timePart = now.toISOString().slice(11, 16).replace(':', '');
       const dest = slugify(preview?.meta?.destination || preview?.meta?.guide_name || 'guide');
-      downloadBlob(blob, parseFilename(res, `guide_${dest}_${lang}_${datePart}_${timePart}.zip`));
-    } catch (err) {
-      alert(`Erreur lors du téléchargement du ZIP en ${lang}`);
+      const fallback = pending.lang === 'fr'
+        ? `pois_${dest}_${datePart}_${timePart}.geojson`
+        : `pois_${dest}_${pending.lang}_${datePart}_${timePart}.geojson`;
+      downloadBlob(blob, parseFilename(res, fallback));
+    } catch {
+      alert(`Erreur lors du téléchargement du GeoJSON (${pending.lang})`);
     } finally {
-      setDownloadingZip(prev => ({ ...prev, [lang]: false }));
+      setDownloadingGeoJson(prev => ({ ...prev, [pending.lang]: false }));
     }
   };
+
+  const ensureGeocodeThenExport = async (pending: PendingGeoExport) => {
+    const key = prepKey(pending.kind, pending.lang);
+    setExportPreparing(prev => ({ ...prev, [key]: true }));
+    try {
+      await runAutoGeocode();
+      const statusRes = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/poi-geocode-status`,
+        { credentials: 'include' }
+      );
+      if (!statusRes.ok) throw new Error('Impossible de vérifier les coordonnées GPS');
+      const statusData = await statusRes.json();
+      const missing: PoiGeocodeFailure[] = statusData.missing ?? [];
+      setGeocodeFailures(missing);
+
+      if (missing.length > 0) {
+        setGeocodeModal({ pendingExport: pending });
+        return;
+      }
+
+      await executePendingExport(pending);
+    } catch (err: any) {
+      alert(err.message || 'Erreur lors du géocodage automatique');
+    } finally {
+      setExportPreparing(prev => ({ ...prev, [key]: false }));
+    }
+  };
+
+  const downloadZip = (lang: string) => ensureGeocodeThenExport({ kind: 'zip', lang });
 
   const downloadPackage = async (lang: string) => {
     setDownloadingPackage(prev => ({ ...prev, [lang]: true }));
@@ -386,7 +502,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
       const timePart = now.toISOString().slice(11, 16).replace(':', '');
       const dest = slugify(preview?.meta?.destination || preview?.meta?.guide_name || 'guide');
       downloadBlob(blob, parseFilename(res, `guide_${dest}_${lang}_${datePart}_${timePart}_json_redirections.zip`));
-    } catch (err) {
+    } catch {
       alert(`Erreur lors du téléchargement JSON+redirections en ${lang}`);
     } finally {
       setDownloadingPackage(prev => ({ ...prev, [lang]: false }));
@@ -413,51 +529,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     }
   };
 
-  const geocodeMissingPois = async () => {
-    setGeocodingMissing(true);
-    setGeocodeSummary(null);
-    try {
-      const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/geocode-missing-pois`,
-        { method: 'POST', credentials: 'include' }
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || `Erreur ${res.status}`);
-      }
-      const data = await res.json();
-      setGeocodeSummary(data);
-    } catch (err: any) {
-      alert(err.message || 'Erreur lors du géocodage des POIs');
-    } finally {
-      setGeocodingMissing(false);
-    }
-  };
-
-  const downloadGeoJson = async (lang: string) => {
-    setDownloadingGeoJson(prev => ({ ...prev, [lang]: true }));
-    try {
-      const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/export/geojson?lang=${lang}`,
-        { credentials: 'include' }
-      );
-      if (!res.ok) throw new Error(`Erreur ${res.status}`);
-      const blob = await res.blob();
-      const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
-      const now = new Date();
-      const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
-      const timePart = now.toISOString().slice(11, 16).replace(':', '');
-      const dest = slugify(preview?.meta?.destination || preview?.meta?.guide_name || 'guide');
-      const fallback = lang === 'fr'
-        ? `pois_${dest}_${datePart}_${timePart}.geojson`
-        : `pois_${dest}_${lang}_${datePart}_${timePart}.geojson`;
-      downloadBlob(blob, parseFilename(res, fallback));
-    } catch {
-      alert(`Erreur lors du téléchargement du GeoJSON (${lang})`);
-    } finally {
-      setDownloadingGeoJson(prev => ({ ...prev, [lang]: false }));
-    }
-  };
+  const downloadGeoJson = (lang: string) => ensureGeocodeThenExport({ kind: 'geojson', lang });
 
   const renderTranslationBadge = (lang: string) => {
     const state = translationStates[lang];
@@ -520,6 +592,8 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
         {/* Français — langue source */}
         {(() => {
           const fr = LANGUAGES.find(l => l.native)!;
+          const zipBusy = !!exportPreparing[`zip:${fr.code}`] || !!downloadingZip[fr.code];
+          const geoBusy = !!exportPreparing[`geojson:${fr.code}`] || !!downloadingGeoJson[fr.code];
           return (
             <div className="bg-white rounded-xl border-2 border-blue-200 p-5">
               <div className="flex items-start justify-between gap-3 mb-4">
@@ -541,8 +615,8 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                   accent="blue"
                   icon={<ArchiveBoxIcon className="w-5 h-5" />}
                   label="Package complet"
-                  title="ZIP : JSON + images + redirections + GeoJSON (30–60 s)"
-                  loading={downloadingZip[fr.code]}
+                  title="ZIP : JSON + images + redirections + GeoJSON (géocodage auto puis 30–60 s)"
+                  loading={zipBusy}
                   onClick={() => downloadZip(fr.code)}
                 />
                 <ExportIconButton
@@ -564,39 +638,16 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                   accent="emerald"
                   icon={<MapPinIcon className="w-5 h-5" />}
                   label="GeoJSON"
-                  title="POIs avec coordonnées GPS (noms en français)"
-                  loading={downloadingGeoJson[fr.code]}
+                  title="POIs avec coordonnées GPS (géocodage auto via Photon)"
+                  loading={geoBusy}
                   onClick={() => downloadGeoJson(fr.code)}
                 />
               </div>
 
-              <div className="mt-3 pt-3 border-t border-blue-100">
-                <button
-                  type="button"
-                  onClick={geocodeMissingPois}
-                  disabled={geocodingMissing}
-                  title="Géocode via Photon les POIs sans coordonnées GPS et sauvegarde en base"
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
-                >
-                  {geocodingMissing ? (
-                    <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <MapPinIcon className="w-3.5 h-3.5" />
-                  )}
-                  {geocodingMissing ? 'Géocodage en cours…' : 'Compléter les GPS manquants'}
-                </button>
-                <p className="text-[11px] text-gray-500 mt-1.5">
-                  Recherche Photon (OpenStreetMap) à partir du titre de chaque POI. Les coordonnées sont sauvegardées pour l&apos;export GeoJSON.
-                </p>
-                {geocodeSummary && (
-                  <p className={`text-[11px] mt-1.5 ${geocodeSummary.failed > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
-                    {geocodeSummary.geocoded} POI(s) géolocalisé(s)
-                    {geocodeSummary.failed > 0 && `, ${geocodeSummary.failed} échec(s)`}
-                    {geocodeSummary.already_had_coords > 0 && `, ${geocodeSummary.already_had_coords} déjà OK`}
-                    {geocodeSummary.missing_before === 0 && geocodeSummary.geocoded === 0 && ' — tous les POIs avaient déjà des coordonnées'}
-                  </p>
-                )}
-              </div>
+              <PoiGeocodeAlerts
+                failures={geocodeFailures}
+                onCorrect={() => setGeocodeModal({ pendingExport: null })}
+              />
             </div>
           );
         })()}
@@ -616,6 +667,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
               const isTranslating = isProcessing && !isStale;
               const isTranslated = tState?.status === 'completed';
               const langOverflows = overflowsByLang[lang.code] ?? [];
+              const geoBusy = !!exportPreparing[`geojson:${lang.code}`] || !!downloadingGeoJson[lang.code];
 
               return (
                 <div
@@ -711,7 +763,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                       icon={<MapPinIcon className="w-5 h-5" />}
                       label="GeoJSON"
                       title={`POIs avec labels traduits (${lang.label})`}
-                      loading={downloadingGeoJson[lang.code]}
+                      loading={geoBusy}
                       onClick={() => downloadGeoJson(lang.code)}
                     />
                   </div>
@@ -725,6 +777,21 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
             })}
           </div>
         </div>
+
+        {geocodeModal && (
+          <PoiGeocodeModal
+            guideId={guideId}
+            apiUrl={apiUrl}
+            initialFailures={geocodeFailures}
+            pendingExport={geocodeModal.pendingExport}
+            onClose={() => setGeocodeModal(null)}
+            onFailuresChange={setGeocodeFailures}
+            onDownload={async (pending) => {
+              setGeocodeModal(null);
+              await executePendingExport(pending);
+            }}
+          />
+        )}
 
         {overflowModal && (
           <OverflowCorrectionModal
@@ -780,6 +847,285 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
           </div>
         )}
 
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Alertes GPS manquants (géocodage Photon en échec)
+// ---------------------------------------------------------------------------
+function PoiGeocodeAlerts({
+  failures,
+  onCorrect,
+}: {
+  failures: PoiGeocodeFailure[];
+  onCorrect: () => void;
+}) {
+  if (failures.length === 0) return null;
+
+  const preview = failures.slice(0, 3);
+  const remaining = failures.length - preview.length;
+
+  return (
+    <div className="mt-3 pt-3 border-t border-red-200">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-red-700">
+          <MapPinIcon className="w-4 h-4 flex-shrink-0" />
+          {failures.length} POI{failures.length > 1 ? 's' : ''} sans coordonnées GPS
+        </div>
+        <button
+          type="button"
+          onClick={onCorrect}
+          className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-red-800 bg-red-50 border border-red-300 rounded-lg hover:bg-red-100 transition-colors"
+        >
+          <PencilSquareIcon className="w-3.5 h-3.5" />
+          Compléter
+        </button>
+      </div>
+      <ul className="space-y-1">
+        {preview.map((f) => (
+          <li key={f.page_id} className="text-[11px] text-red-800/90 leading-snug">
+            <span className="font-medium">{f.titre}</span>
+            {f.error && (
+              <span className="text-red-600"> — {f.error}</span>
+            )}
+          </li>
+        ))}
+        {remaining > 0 && (
+          <li className="text-[11px] text-red-600 italic">… et {remaining} autre{remaining > 1 ? 's' : ''}</li>
+        )}
+      </ul>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Modale de saisie manuelle des coordonnées GPS
+// ---------------------------------------------------------------------------
+function PoiGeocodeModal({
+  guideId,
+  apiUrl,
+  initialFailures,
+  pendingExport,
+  onClose,
+  onFailuresChange,
+  onDownload,
+}: {
+  guideId: string;
+  apiUrl: string;
+  initialFailures: PoiGeocodeFailure[];
+  pendingExport: PendingGeoExport | null;
+  onClose: () => void;
+  onFailuresChange: (failures: PoiGeocodeFailure[]) => void;
+  onDownload: (pending: PendingGeoExport) => Promise<void>;
+}) {
+  const [failures, setFailures] = useState<PoiGeocodeFailure[]>(initialFailures);
+  const [coords, setCoords] = useState<Record<string, { lat: string; lon: string }>>(() => {
+    const init: Record<string, { lat: string; lon: string }> = {};
+    for (const f of initialFailures) {
+      init[f.page_id] = { lat: '', lon: '' };
+    }
+    return init;
+  });
+  const [saving, setSaving] = useState<Record<string, boolean>>({});
+  const [saved, setSaved] = useState<Record<string, boolean>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [downloading, setDownloading] = useState(false);
+
+  const allDone = failures.length === 0;
+
+  const saveCoordinates = async (f: PoiGeocodeFailure) => {
+    const entry = coords[f.page_id] ?? { lat: '', lon: '' };
+    const lat = parseFloat(entry.lat.replace(',', '.'));
+    const lon = parseFloat(entry.lon.replace(',', '.'));
+    if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      setErrors(prev => ({
+        ...prev,
+        [f.page_id]: 'Latitude (-90 à 90) et longitude (-180 à 180) invalides',
+      }));
+      return;
+    }
+
+    setSaving(prev => ({ ...prev, [f.page_id]: true }));
+    setErrors(prev => ({ ...prev, [f.page_id]: '' }));
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${f.page_id}`,
+        {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ coordinates: { lat, lon } }),
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? 'Erreur serveur');
+      }
+      setSaved(prev => ({ ...prev, [f.page_id]: true }));
+      const next = failures.filter(x => x.page_id !== f.page_id);
+      setFailures(next);
+      onFailuresChange(next);
+    } catch (err: any) {
+      setErrors(prev => ({ ...prev, [f.page_id]: err.message }));
+    } finally {
+      setSaving(prev => ({ ...prev, [f.page_id]: false }));
+    }
+  };
+
+  const pendingLabel = pendingExport
+    ? pendingExport.kind === 'zip'
+      ? 'package complet'
+      : pendingExport.kind === 'package'
+        ? 'package'
+        : 'GeoJSON'
+    : null;
+
+  const handleDownload = async () => {
+    if (!pendingExport || !allDone) return;
+    setDownloading(true);
+    try {
+      await onDownload(pendingExport);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <MapPinIcon className="w-5 h-5 text-red-500" />
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">
+                Coordonnées GPS manquantes
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {!allDone && (
+                  <span className="text-red-600 font-medium">
+                    {failures.length} POI{failures.length > 1 ? 's' : ''} à compléter
+                  </span>
+                )}
+                {pendingLabel && !allDone && (
+                  <> — le téléchargement {pendingLabel} attendra la fin des corrections</>
+                )}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+          >
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 px-6 py-4 space-y-5">
+          {allDone ? (
+            <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
+              <CheckCircleIcon className="w-10 h-10 text-green-500" />
+              <p className="text-sm font-medium text-gray-700">Tous les POIs ont des coordonnées GPS.</p>
+              {pendingExport && (
+                <p className="text-xs text-gray-500">Vous pouvez lancer le téléchargement.</p>
+              )}
+            </div>
+          ) : (
+            failures.map((f) => {
+              const entry = coords[f.page_id] ?? { lat: '', lon: '' };
+              return (
+                <div key={f.page_id} className="border border-gray-200 rounded-xl p-4 space-y-3">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-700">{f.titre}</p>
+                    {f.query && (
+                      <p className="text-[11px] text-gray-500 mt-0.5">Recherche : {f.query}</p>
+                    )}
+                    {f.error && (
+                      <p className="text-[11px] text-red-600 mt-0.5">{f.error}</p>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block">
+                      <span className="text-[11px] text-gray-500">Latitude</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={entry.lat}
+                        onChange={(e) => {
+                          setCoords(prev => ({
+                            ...prev,
+                            [f.page_id]: { ...entry, lat: e.target.value },
+                          }));
+                          setSaved(prev => ({ ...prev, [f.page_id]: false }));
+                        }}
+                        placeholder="28.367185"
+                        className="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[11px] text-gray-500">Longitude</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={entry.lon}
+                        onChange={(e) => {
+                          setCoords(prev => ({
+                            ...prev,
+                            [f.page_id]: { ...entry, lon: e.target.value },
+                          }));
+                          setSaved(prev => ({ ...prev, [f.page_id]: false }));
+                        }}
+                        placeholder="-16.721539"
+                        className="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                      />
+                    </label>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs text-red-500">{errors[f.page_id] ?? ''}</p>
+                    <button
+                      onClick={() => saveCoordinates(f)}
+                      disabled={saving[f.page_id] || !entry.lat.trim() || !entry.lon.trim()}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      {saving[f.page_id] ? (
+                        <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+                      ) : saved[f.page_id] ? (
+                        <CheckCircleIcon className="w-3.5 h-3.5" />
+                      ) : (
+                        <ArrowDownTrayIcon className="w-3.5 h-3.5" />
+                      )}
+                      {saved[f.page_id] ? 'Enregistré' : 'Enregistrer'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+          >
+            {allDone && !pendingExport ? 'Fermer' : 'Annuler'}
+          </button>
+          {pendingExport && (
+            <button
+              onClick={handleDownload}
+              disabled={!allDone || downloading}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {downloading ? (
+                <ArrowPathIcon className="w-4 h-4 animate-spin" />
+              ) : (
+                <ArrowDownTrayIcon className="w-4 h-4" />
+              )}
+              Télécharger
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

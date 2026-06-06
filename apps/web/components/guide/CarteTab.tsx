@@ -92,7 +92,9 @@ export default function CarteTab({
   const [downloadingGeo, setDownloadingGeo] = useState<Record<string, boolean>>({});
   const [geoPreparing, setGeoPreparing] = useState<Record<string, boolean>>({});
   const [geocodeFailures, setGeocodeFailures] = useState<PoiGeocodeFailure[]>([]);
-  const [geocodeModal, setGeocodeModal] = useState<{ pendingExport: PendingGeoExport } | null>(null);
+  const [geocodeModal, setGeocodeModal] = useState<{
+    pendingExport: PendingGeoExport | null;
+  } | null>(null);
   const [imageSelector, setImageSelector] = useState<ImageSelectorTarget | null>(null);
 
   const loadPages = useCallback(async () => {

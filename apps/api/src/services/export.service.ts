@@ -465,22 +465,39 @@ export class ExportService {
       }
     }
 
-    // ── 5b-quater. Injection Carte_lien_1 pour les pages CARTE ─────────────────
-    // Résout le lien Mapbox selon la langue demandée :
+    // ── 5b-quater. Injection image carte pour les pages CARTE ────────────────────
+    // Résout l'URL d'image selon la langue demandée :
     //   - surcharge spécifique (map_url_translations[lang]) si disponible,
     //   - sinon fallback sur la version FR (map_url_fr).
-    // Injecté en dehors du content éditorial pour ne pas être soumis à la traduction IA.
+    // Injecté dans content.images (pas text) pour le script InDesign.
     for (let i = 0; i < exportablePages.length; i++) {
       const rawPage = exportablePages[i];
       const tpl = rawPage.template_name || '';
       if (tpl !== 'CARTE' && tpl !== 'CARTE_DESTINATION') continue;
-      const mapUrl =
+      const mapImageUrl =
         lang !== 'fr' && (rawPage as any).map_url_translations?.[lang]
           ? (rawPage as any).map_url_translations[lang]
           : (rawPage as any).map_url_fr;
-      if (mapUrl) {
-        pages[i].content.text['Carte_lien_1'] = mapUrl;
-      }
+      if (!mapImageUrl) continue;
+
+      const template = templates[rawPage.template_id];
+      const templateFields = (template?.fields || []) as any[];
+      const imageField =
+        templateFields.find((f) => f.type === 'image') ||
+        (tpl === 'CARTE_DESTINATION'
+          ? { name: 'CARTE_DESTINATION_image_carte', indesign_layer: undefined }
+          : { name: 'Carte_lien_1', indesign_layer: undefined });
+      const fieldName = imageField.name as string;
+      const pageNum = String(rawPage.ordre || i + 1).padStart(3, '0');
+      const tplSlug = tpl.toLowerCase();
+      const fieldSlug = fieldName.toLowerCase();
+
+      pages[i].content.images[fieldName] = {
+        url: String(mapImageUrl),
+        indesign_layer: resolveFieldLayer(fieldName, imageField.indesign_layer),
+        local_filename: `p${pageNum}_${tplSlug}_${fieldSlug}.jpg`,
+        local_path: `images/${tplSlug}/`,
+      };
     }
 
     // ── 5b-bis. Snapshot des URLs sources de redirection (stable inter-langues)

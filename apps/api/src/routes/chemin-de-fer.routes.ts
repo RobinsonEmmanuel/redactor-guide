@@ -2170,7 +2170,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
 
   /**
    * GET /guides/:guideId/chemin-de-fer/carte-pages
-   * Retourne les pages de template CARTE (ou CARTE_DESTINATION legacy) avec leur lien carte.
+   * Retourne les pages de template CARTE (ou CARTE_DESTINATION legacy) avec leur image carte.
    * Utilisé par l'étape Carte du workflow.
    */
   fastify.get<{ Params: { guideId: string } }>(
@@ -2202,7 +2202,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
                 titre: 1,
                 ordre: 1,
                 template_name: 1,
-                'content.Carte_texte_1': 1,
+                content: 1,
                 map_url_fr: 1,
                 map_url_translations: 1,
               },
@@ -2221,7 +2221,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
 
   /**
    * PUT /guides/:guideId/chemin-de-fer/pages/:pageId/map-url
-   * Sauvegarde le lien Mapbox (FR + traductions) pour une page CARTE.
+   * Sauvegarde l'image carte (FR + traductions) pour une page CARTE.
    * Géré séparément du contenu éditorial — pas soumis à la traduction IA.
    */
   fastify.put<{

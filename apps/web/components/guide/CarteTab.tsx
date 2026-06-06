@@ -1,14 +1,17 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import {
   MapIcon,
   ArrowDownTrayIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
   MapPinIcon,
+  PhotoIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 import PoiGeocodeModal from './PoiGeocodeModal';
+import ImageSelectorModal from './ImageSelectorModal';
 import {
   ensurePoiGeocodeReady,
   fetchPoiGeocodeFailures,
@@ -28,13 +31,20 @@ const LANGUAGES = [
   { code: 'sv',    label: 'Suédois',     flag: '🇸🇪' },
 ];
 
+const MAP_NAME_KEYS = [
+  'Carte_texte_1',
+  'CARTE_texte_1',
+  'CARTE_DESTINATION_titre_principal',
+  'Carte_titre_1',
+];
+
 interface CartePage {
   _id: string;
   page_id: string;
   titre: string;
   ordre: number;
   template_name: string;
-  content?: { Carte_texte_1?: string };
+  content?: Record<string, unknown>;
   map_url_fr?: string;
   map_url_translations?: Record<string, string>;
 }
@@ -43,15 +53,38 @@ interface CarteTabProps {
   guideId: string;
   guide: any;
   apiUrl: string;
+  googleDriveFolderId?: string;
   onCarteUpdated?: () => void;
 }
 
-export default function CarteTab({ guideId, guide, apiUrl, onCarteUpdated }: CarteTabProps) {
+type ImageSelectorTarget = { pageId: string; lang: string };
+
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function getMapName(page: CartePage): string {
+  const content = page.content || {};
+  for (const key of MAP_NAME_KEYS) {
+    const raw = content[key];
+    if (raw == null) continue;
+    const text = stripHtml(String(raw));
+    if (text) return text;
+  }
+  return page.titre || `Page ${page.ordre}`;
+}
+
+export default function CarteTab({
+  guideId,
+  guide,
+  apiUrl,
+  googleDriveFolderId,
+  onCarteUpdated,
+}: CarteTabProps) {
   const [pages, setPages] = useState<CartePage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Valeurs en cours d'édition : { [pageId]: { fr: string, translations: Record<string, string> } }
   const [drafts, setDrafts] = useState<Record<string, { fr: string; translations: Record<string, string> }>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [saveStatus, setSaveStatus] = useState<Record<string, 'saved' | 'error'>>({});
@@ -59,9 +92,7 @@ export default function CarteTab({ guideId, guide, apiUrl, onCarteUpdated }: Car
   const [geoPreparing, setGeoPreparing] = useState<Record<string, boolean>>({});
   const [geocodeFailures, setGeocodeFailures] = useState<PoiGeocodeFailure[]>([]);
   const [geocodeModal, setGeocodeModal] = useState<{ pendingExport: PendingGeoExport } | null>(null);
-
-  // Debounce timers
-  const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [imageSelector, setImageSelector] = useState<ImageSelectorTarget | null>(null);
 
   const loadPages = useCallback(async () => {
     setLoading(true);
@@ -75,7 +106,6 @@ export default function CarteTab({ guideId, guide, apiUrl, onCarteUpdated }: Car
       const fetchedPages: CartePage[] = data.pages || [];
       setPages(fetchedPages);
 
-      // Initialiser les drafts depuis les valeurs sauvegardées
       const initialDrafts: Record<string, { fr: string; translations: Record<string, string> }> = {};
       for (const p of fetchedPages) {
         initialDrafts[p._id] = {
@@ -146,7 +176,11 @@ export default function CarteTab({ guideId, guide, apiUrl, onCarteUpdated }: Car
     }
   };
 
-  const saveMapUrl = useCallback(async (pageId: string, fr: string, translations: Record<string, string>) => {
+  const saveMapImages = useCallback(async (
+    pageId: string,
+    fr: string,
+    translations: Record<string, string>
+  ) => {
     setSaving((prev) => ({ ...prev, [pageId]: true }));
     setSaveStatus((prev) => { const n = { ...prev }; delete n[pageId]; return n; });
     try {
@@ -172,35 +206,109 @@ export default function CarteTab({ guideId, guide, apiUrl, onCarteUpdated }: Car
     }
   }, [apiUrl, guideId, onCarteUpdated]);
 
-  const scheduleSave = useCallback((pageId: string, fr: string, translations: Record<string, string>) => {
-    if (debounceTimers.current[pageId]) clearTimeout(debounceTimers.current[pageId]);
-    debounceTimers.current[pageId] = setTimeout(() => saveMapUrl(pageId, fr, translations), 900);
-  }, [saveMapUrl]);
-
-  const handleFrChange = (pageId: string, value: string) => {
-    setDrafts((prev) => {
-      const updated = { ...prev, [pageId]: { ...prev[pageId], fr: value } };
-      scheduleSave(pageId, value, updated[pageId].translations);
-      return updated;
-    });
-  };
-
-  const handleLangChange = (pageId: string, lang: string, value: string) => {
+  const applyImageSelection = (pageId: string, lang: string, imageUrl: string) => {
     setDrafts((prev) => {
       const current = prev[pageId] ?? { fr: '', translations: {} };
-      const newTranslations = { ...current.translations };
-      if (value.trim()) {
-        newTranslations[lang] = value;
+      let fr = current.fr;
+      let translations = { ...current.translations };
+
+      if (lang === 'fr') {
+        fr = imageUrl;
       } else {
-        delete newTranslations[lang];
+        translations[lang] = imageUrl;
       }
-      const updated = { ...prev, [pageId]: { ...current, translations: newTranslations } };
-      scheduleSave(pageId, updated[pageId].fr, newTranslations);
+
+      const updated = { ...prev, [pageId]: { fr, translations } };
+      saveMapImages(pageId, fr, translations);
       return updated;
     });
   };
 
-  const downloadGeoJson = (lang: string) => ensureGeocodeThenDownload(lang);
+  const clearImage = (pageId: string, lang: string) => {
+    setDrafts((prev) => {
+      const current = prev[pageId] ?? { fr: '', translations: {} };
+      let fr = current.fr;
+      const translations = { ...current.translations };
+
+      if (lang === 'fr') {
+        fr = '';
+      } else {
+        delete translations[lang];
+      }
+
+      const updated = { ...prev, [pageId]: { fr, translations } };
+      saveMapImages(pageId, fr, translations);
+      return updated;
+    });
+  };
+
+  const getImageUrl = (pageId: string, lang: string): string => {
+    const draft = drafts[pageId] ?? { fr: '', translations: {} };
+    if (lang === 'fr') return draft.fr;
+    return draft.translations[lang] ?? '';
+  };
+
+  const renderImagePicker = (page: CartePage, lang: string, label: ReactNode, required = false) => {
+    const imageUrl = getImageUrl(page._id, lang);
+    const fallbackLabel = lang === 'fr' ? undefined : (getImageUrl(page._id, 'fr') ? 'Même image qu\'en FR' : undefined);
+
+    return (
+      <div className="mb-3">
+        <label className="block text-xs font-medium text-gray-600 mb-1.5">
+          {label}
+          {required && <span className="text-orange-500"> *</span>}
+        </label>
+        <div className="flex gap-2 items-start">
+          {imageUrl ? (
+            <div className="relative group shrink-0">
+              <button
+                type="button"
+                onClick={() => setImageSelector({ pageId: page._id, lang })}
+                className="block"
+                title="Changer l'image"
+              >
+                <img
+                  src={imageUrl}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  className="h-20 w-32 object-cover rounded-lg border border-gray-200 group-hover:opacity-80 transition-opacity"
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                />
+              </button>
+              <button
+                type="button"
+                onClick={() => clearImage(page._id, lang)}
+                className="absolute top-1 right-1 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                title="Supprimer l'image"
+              >
+                <XMarkIcon className="h-3 w-3" />
+              </button>
+            </div>
+          ) : (
+            <div className="h-20 w-32 rounded-lg border border-dashed border-gray-300 bg-gray-50 flex items-center justify-center shrink-0">
+              <PhotoIcon className="h-8 w-8 text-gray-300" />
+            </div>
+          )}
+          <div className="flex flex-col gap-2 min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={() => setImageSelector({ pageId: page._id, lang })}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-xs w-fit transition-colors"
+            >
+              <PhotoIcon className="h-4 w-4" />
+              Choisir une image
+            </button>
+            {imageUrl && (
+              <p className="text-[11px] text-gray-400 break-all line-clamp-2">{imageUrl}</p>
+            )}
+            {!imageUrl && fallbackLabel && (
+              <p className="text-[11px] text-gray-400">{fallbackLabel}</p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   if (loading) {
     return (
@@ -222,19 +330,17 @@ export default function CarteTab({ guideId, guide, apiUrl, onCarteUpdated }: Car
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
-      {/* En-tête */}
       <div>
         <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
           <MapIcon className="h-5 w-5 text-blue-500" />
           Cartes
         </h2>
         <p className="text-sm text-gray-500 mt-1">
-          Associez un lien de carte Mapbox à chaque page de type carte. Le lien FR est utilisé par défaut ;
-          vous pouvez définir un lien différent par langue si les étiquettes de la carte sont traduites.
+          Associez une image de carte à chaque page de type carte. L&apos;image FR est utilisée par défaut ;
+          vous pouvez en définir une différente par langue si les étiquettes de la carte sont traduites.
         </p>
       </div>
 
-      {/* GeoJSON par langue */}
       <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
         <h3 className="text-sm font-semibold text-gray-700 mb-2">Télécharger les GeoJSON</h3>
         <p className="text-xs text-gray-500 mb-3">
@@ -256,19 +362,19 @@ export default function CarteTab({ guideId, guide, apiUrl, onCarteUpdated }: Car
           {LANGUAGES.map((lang) => {
             const busy = !!geoPreparing[lang.code] || !!downloadingGeo[lang.code];
             return (
-            <button
-              key={lang.code}
-              onClick={() => downloadGeoJson(lang.code)}
-              disabled={busy}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-            >
-              {busy ? (
-                <span className="animate-spin inline-block w-3 h-3 border border-gray-400 border-t-transparent rounded-full" />
-              ) : (
-                <ArrowDownTrayIcon className="h-3.5 w-3.5" />
-              )}
-              {lang.flag} {lang.label}
-            </button>
+              <button
+                key={lang.code}
+                onClick={() => ensureGeocodeThenDownload(lang.code)}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                {busy ? (
+                  <span className="animate-spin inline-block w-3 h-3 border border-gray-400 border-t-transparent rounded-full" />
+                ) : (
+                  <ArrowDownTrayIcon className="h-3.5 w-3.5" />
+                )}
+                {lang.flag} {lang.label}
+              </button>
             );
           })}
         </div>
@@ -291,7 +397,22 @@ export default function CarteTab({ guideId, guide, apiUrl, onCarteUpdated }: Car
         />
       )}
 
-      {/* Pages carte */}
+      {imageSelector && (
+        <ImageSelectorModal
+          guideId={guideId}
+          pageId={imageSelector.pageId}
+          scope="guide"
+          apiUrl={apiUrl}
+          googleDriveFolderId={googleDriveFolderId}
+          currentImageUrl={getImageUrl(imageSelector.pageId, imageSelector.lang)}
+          onSelect={(imageUrl) => {
+            applyImageSelection(imageSelector.pageId, imageSelector.lang, imageUrl);
+            setImageSelector(null);
+          }}
+          onClose={() => setImageSelector(null)}
+        />
+      )}
+
       {pages.length === 0 ? (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
           Aucune page de template <strong>CARTE</strong> trouvée dans le chemin de fer.
@@ -301,7 +422,7 @@ export default function CarteTab({ guideId, guide, apiUrl, onCarteUpdated }: Car
         <div className="space-y-4">
           {pages.map((page) => {
             const draft = drafts[page._id] ?? { fr: '', translations: {} };
-            const mapName = page.content?.Carte_texte_1 || page.titre || `Page ${page.ordre}`;
+            const mapName = getMapName(page);
             const isSaving = !!saving[page._id];
             const status = saveStatus[page._id];
             const hasFr = !!draft.fr.trim();
@@ -313,7 +434,6 @@ export default function CarteTab({ guideId, guide, apiUrl, onCarteUpdated }: Car
                   hasFr ? 'border-green-200' : 'border-orange-200'
                 }`}
               >
-                {/* Titre de la carte */}
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <div className="flex items-center gap-2">
@@ -339,44 +459,26 @@ export default function CarteTab({ guideId, guide, apiUrl, onCarteUpdated }: Car
                   </div>
                 </div>
 
-                {/* Lien FR */}
-                <div className="mb-3">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    🇫🇷 Lien carte FR <span className="text-orange-500">*</span>
-                  </label>
-                  <input
-                    type="url"
-                    value={draft.fr}
-                    onChange={(e) => handleFrChange(page._id, e.target.value)}
-                    placeholder="https://api.mapbox.com/styles/v1/..."
-                    className={`w-full text-sm border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 transition-colors ${
-                      draft.fr && !draft.fr.startsWith('http')
-                        ? 'border-red-300 bg-red-50'
-                        : 'border-gray-300'
-                    }`}
-                  />
-                </div>
+                {renderImagePicker(
+                  page,
+                  'fr',
+                  <>🇫🇷 Image carte FR</>,
+                  true
+                )}
 
-                {/* Liens par langue (optionnels) */}
                 <details className="group">
                   <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700 select-none list-none flex items-center gap-1">
                     <span className="group-open:rotate-90 inline-block transition-transform">▶</span>
-                    Liens par langue (optionnel — si les étiquettes de la carte sont traduites)
+                    Images par langue (optionnel — si les étiquettes de la carte sont traduites)
                   </summary>
-                  <div className="mt-3 space-y-2 pl-2 border-l-2 border-gray-100">
-                    {LANGUAGES.filter((l) => l.code !== 'fr').map((lang) => (
-                      <div key={lang.code} className="flex items-center gap-2">
-                        <span className="text-sm w-6 flex-shrink-0">{lang.flag}</span>
-                        <span className="text-xs text-gray-500 w-20 flex-shrink-0">{lang.label}</span>
-                        <input
-                          type="url"
-                          value={draft.translations[lang.code] ?? ''}
-                          onChange={(e) => handleLangChange(page._id, lang.code, e.target.value)}
-                          placeholder={draft.fr || 'Même lien qu\'en FR'}
-                          className="flex-1 text-xs border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                        />
-                      </div>
-                    ))}
+                  <div className="mt-3 space-y-3 pl-2 border-l-2 border-gray-100">
+                    {LANGUAGES.filter((l) => l.code !== 'fr').map((lang) =>
+                      renderImagePicker(
+                        page,
+                        lang.code,
+                        <>{lang.flag} {lang.label}</>
+                      )
+                    )}
                   </div>
                 </details>
               </div>

@@ -154,7 +154,7 @@ export default function GuideDetailPage() {
       if (res.ok) {
         const data = await res.json();
         const pages: any[] = data.pages || [];
-        // Configuré si toutes les pages carte ont au moins un lien FR défini
+        // Configuré si toutes les pages carte ont au moins une image FR définie
         // (ou s'il n'y a aucune page carte, l'étape est considérée facultative)
         const allConfigured = pages.length === 0 || pages.every((p) => !!p.map_url_fr);
         setCarteConfigured(allConfigured);
@@ -186,7 +186,7 @@ export default function GuideDetailPage() {
       completed.add(5);
     }
 
-    // Étape 6: Carte (toutes les pages CARTE ont un lien FR, ou aucune page carte)
+    // Étape 6: Carte (toutes les pages CARTE ont une image FR, ou aucune page carte)
     if (carteConfigured) completed.add(6);
 
     return completed;
@@ -376,6 +376,7 @@ export default function GuideDetailPage() {
               guideId={guideId}
               guide={guide}
               apiUrl={apiUrl}
+              googleDriveFolderId={guide.google_drive_folder_id}
               onCarteUpdated={checkCarteStatus}
             />
           )}

@@ -141,7 +141,20 @@ export const PageSchema = z.object({
   
   /** Contenu rédactionnel (champs du template remplis) */
   content: z.record(z.string(), z.any()).optional(),
-  
+
+  /**
+   * Lien Mapbox / carte FR (obligatoire si la page est de type CARTE_DESTINATION).
+   * Géré via l'étape Carte du workflow, indépendamment du contenu éditorial.
+   */
+  map_url_fr: z.string().optional(),
+
+  /**
+   * Surcharges du lien carte par langue (optionnel).
+   * Utilisé quand les labels de la carte exigent une version traduite.
+   * ex: { "en": "https://...", "es": "https://..." }
+   */
+  map_url_translations: z.record(z.string()).optional(),
+
   /** Date de création */
   created_at: z.union([z.string(), z.date()]).optional(),
   

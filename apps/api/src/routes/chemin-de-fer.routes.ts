@@ -2168,4 +2168,102 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
     }
   );
 
+  /**
+   * GET /guides/:guideId/chemin-de-fer/carte-pages
+   * Retourne les pages de template CARTE_DESTINATION avec leur lien carte (si défini).
+   * Utilisé par l'étape Carte du workflow.
+   */
+  fastify.get<{ Params: { guideId: string } }>(
+    '/guides/:guideId/chemin-de-fer/carte-pages',
+    async (request, reply) => {
+      try {
+        const db = request.server.container.db;
+        const { guideId } = request.params;
+
+        if (!ObjectId.isValid(guideId)) {
+          return reply.status(400).send({ error: 'Guide ID invalide' });
+        }
+
+        const cheminDeFer = await db.collection(COLLECTIONS.chemins_de_fer).findOne({ guide_id: guideId });
+        if (!cheminDeFer) {
+          return reply.status(404).send({ error: 'Chemin de fer non trouvé' });
+        }
+
+        const cheminDeFerId = cheminDeFer._id.toString();
+
+        const pages = await db
+          .collection(COLLECTIONS.pages)
+          .find(
+            { chemin_de_fer_id: cheminDeFerId, template_name: 'CARTE_DESTINATION' },
+            {
+              projection: {
+                _id: 1,
+                page_id: 1,
+                titre: 1,
+                ordre: 1,
+                template_name: 1,
+                'content.Carte_texte_1': 1,
+                map_url_fr: 1,
+                map_url_translations: 1,
+              },
+            }
+          )
+          .sort({ ordre: 1 })
+          .toArray();
+
+        return reply.send({ pages });
+      } catch (error) {
+        request.log.error(error);
+        return reply.status(500).send({ error: 'Erreur lors de la récupération des pages carte' });
+      }
+    }
+  );
+
+  /**
+   * PUT /guides/:guideId/chemin-de-fer/pages/:pageId/map-url
+   * Sauvegarde le lien Mapbox (FR + traductions) pour une page CARTE_DESTINATION.
+   * Géré séparément du contenu éditorial — pas soumis à la traduction IA.
+   */
+  fastify.put<{
+    Params: { guideId: string; pageId: string };
+    Body: { map_url_fr?: string; map_url_translations?: Record<string, string> };
+  }>(
+    '/guides/:guideId/chemin-de-fer/pages/:pageId/map-url',
+    async (request, reply) => {
+      try {
+        const db = request.server.container.db;
+        const { pageId } = request.params;
+        const { map_url_fr, map_url_translations } = request.body;
+
+        if (!ObjectId.isValid(pageId)) {
+          return reply.status(400).send({ error: 'Page ID invalide' });
+        }
+
+        const updateFields: Record<string, any> = { updated_at: new Date().toISOString() };
+
+        if (map_url_fr !== undefined) {
+          updateFields.map_url_fr = map_url_fr;
+        }
+        if (map_url_translations !== undefined) {
+          updateFields.map_url_translations = map_url_translations;
+        }
+
+        const result = await db.collection(COLLECTIONS.pages).findOneAndUpdate(
+          { _id: new ObjectId(pageId) },
+          { $set: updateFields },
+          { returnDocument: 'after', projection: { _id: 1, page_id: 1, map_url_fr: 1, map_url_translations: 1 } }
+        );
+
+        if (!result) {
+          return reply.status(404).send({ error: 'Page non trouvée' });
+        }
+
+        return reply.send({ success: true, page_id: result.page_id, map_url_fr: result.map_url_fr, map_url_translations: result.map_url_translations });
+      } catch (error) {
+        request.log.error(error);
+        return reply.status(500).send({ error: 'Erreur lors de la sauvegarde du lien carte' });
+      }
+    }
+  );
+
 }

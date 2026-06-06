@@ -7,7 +7,7 @@ interface Step {
   label: string;
   shortLabel: string;
   icon: string;
-  tabId: 'config' | 'articles' | 'lieux-et-clusters' | 'lieux-et-inspirations' | 'chemin-de-fer' | 'export';
+  tabId: 'config' | 'articles' | 'lieux-et-clusters' | 'lieux-et-inspirations' | 'chemin-de-fer' | 'carte' | 'export';
   description: string;
 }
 
@@ -60,7 +60,15 @@ const WORKFLOW_STEPS: Step[] = [
   },
   {
     id: 6,
-    label: '6. Export',
+    label: '6. Carte',
+    shortLabel: 'Carte',
+    icon: '🗺️',
+    tabId: 'carte',
+    description: 'Association des liens de cartes Mapbox aux pages carte'
+  },
+  {
+    id: 7,
+    label: '7. Export',
     shortLabel: 'Export',
     icon: '📦',
     tabId: 'export',

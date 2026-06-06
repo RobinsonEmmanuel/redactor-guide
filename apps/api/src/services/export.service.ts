@@ -366,6 +366,7 @@ export class ExportService {
     // On a maintenant la liste complète des pages construites → on peut
     // appeler chaque service avec le contexte global.
     const runner = new FieldServiceRunner();
+    const frSommaireToPersist: Array<{ pageId: string; value: string }> = [];
 
     for (let i = 0; i < exportablePages.length; i++) {
       const rawPage  = exportablePages[i];
@@ -394,6 +395,13 @@ export class ExportService {
                 .slice(0, i + 1)
                 .filter((p) => (p.template || '').toUpperCase() === 'SOMMAIRE').length;
               injected = narrowSommaireJsonForPageExport(String(injected), sommaireSpreadIndex);
+              // Persister la source FR de SOMMAIRE_texte_1 pour la traduction ultérieure.
+              if (lang === 'fr') {
+                frSommaireToPersist.push({
+                  pageId: String(rawPage._id),
+                  value: String(injected),
+                });
+              }
             }
           }
           // Injecter la valeur calculée dans le champ texte de la page
@@ -428,6 +436,49 @@ export class ExportService {
           console.error(`[ExportService] Service "${field.service_id}" error on page ${rawPage._id}: ${msg}`);
           pages[i].content.text[field.name] = '';
         }
+      }
+    }
+
+    // ── 5b-ter. Persist FR source sommaire en base ───────────────────────────
+    // Garantit que GuideTranslationService lit un SOMMAIRE_texte_1 FR complet
+    // (JSON structuré) au lieu d'une valeur partielle/legacy.
+    if (lang === 'fr' && frSommaireToPersist.length > 0) {
+      try {
+        const nowIso = new Date().toISOString();
+        await db.collection(COLLECTIONS.pages).bulkWrite(
+          frSommaireToPersist.map((it) => ({
+            updateOne: {
+              filter: { _id: new ObjectId(it.pageId) },
+              update: {
+                $set: {
+                  'content.SOMMAIRE_texte_1': it.value,
+                  updated_at: nowIso,
+                },
+              },
+            },
+          })),
+          { ordered: false }
+        );
+        console.log(`📝 [EXPORT][fr] SOMMAIRE_texte_1 persisté en base pour ${frSommaireToPersist.length} page(s) SOMMAIRE`);
+      } catch (persistErr) {
+        console.warn('⚠️ [EXPORT][fr] Échec persistance SOMMAIRE_texte_1 (non bloquant):', persistErr);
+      }
+    }
+
+    // ── 5b-quater. Injection Carte_lien_1 pour les pages CARTE_DESTINATION ──────
+    // Résout le lien Mapbox selon la langue demandée :
+    //   - surcharge spécifique (map_url_translations[lang]) si disponible,
+    //   - sinon fallback sur la version FR (map_url_fr).
+    // Injecté en dehors du content éditorial pour ne pas être soumis à la traduction IA.
+    for (let i = 0; i < exportablePages.length; i++) {
+      const rawPage = exportablePages[i];
+      if (rawPage.template_name !== 'CARTE_DESTINATION') continue;
+      const mapUrl =
+        lang !== 'fr' && (rawPage as any).map_url_translations?.[lang]
+          ? (rawPage as any).map_url_translations[lang]
+          : (rawPage as any).map_url_fr;
+      if (mapUrl) {
+        pages[i].content.text['Carte_lien_1'] = mapUrl;
       }
     }
 

@@ -11,6 +11,7 @@ import LieuxEtInspirationsTab from '@/components/guide/LieuxEtInspirationsTab';
 import CheminDeFerTab from '@/components/guide/CheminDeFerTab';
 import ParametrageTab from '@/components/guide/ParametrageTab';
 import ExportTab from '@/components/guide/ExportTab';
+import CarteTab from '@/components/guide/CarteTab';
 
 export default function GuideDetailPage() {
   const router = useRouter();
@@ -19,7 +20,7 @@ export default function GuideDetailPage() {
 
   const [guide, setGuide] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'config' | 'articles' | 'lieux-et-clusters' | 'lieux-et-inspirations' | 'chemin-de-fer' | 'export'>('articles');
+  const [activeTab, setActiveTab] = useState<'config' | 'articles' | 'lieux-et-clusters' | 'lieux-et-inspirations' | 'chemin-de-fer' | 'carte' | 'export'>('articles');
   const [articlesCount, setArticlesCount] = useState<number>(0);
   const [hasCheckedArticles, setHasCheckedArticles] = useState(false);
   const [currentWorkflowStep, setCurrentWorkflowStep] = useState<number>(2); // Commence à étape 2 (Articles)
@@ -28,6 +29,7 @@ export default function GuideDetailPage() {
   const [inspirationsGenerated, setInspirationsGenerated] = useState(false); // Étape 4: Inspirations générées
   const [sommaireGenerated, setSommaireGenerated] = useState(false);
   const [cheminDeFerHasPages, setCheminDeFerHasPages] = useState(false);
+  const [carteConfigured, setCarteConfigured] = useState(false);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
@@ -39,6 +41,7 @@ export default function GuideDetailPage() {
     checkInspirationsStatus();
     checkSommaireStatus();
     checkCheminDeFerPages();
+    checkCarteStatus();
   }, [guideId]);
 
   const loadGuide = async () => {
@@ -143,6 +146,24 @@ export default function GuideDetailPage() {
     }
   };
 
+  const checkCarteStatus = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/carte-pages`, {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const pages: any[] = data.pages || [];
+        // Configuré si toutes les pages carte ont au moins un lien FR défini
+        // (ou s'il n'y a aucune page carte, l'étape est considérée facultative)
+        const allConfigured = pages.length === 0 || pages.every((p) => !!p.map_url_fr);
+        setCarteConfigured(allConfigured);
+      }
+    } catch (err) {
+      setCarteConfigured(false);
+    }
+  };
+
   // Calculer les étapes complétées
   const getCompletedSteps = (): Set<number> => {
     const completed = new Set<number>();
@@ -164,7 +185,10 @@ export default function GuideDetailPage() {
     if (cheminDeFerHasPages || sommaireGenerated) {
       completed.add(5);
     }
-    
+
+    // Étape 6: Carte (toutes les pages CARTE_DESTINATION ont un lien FR, ou aucune page carte)
+    if (carteConfigured) completed.add(6);
+
     return completed;
   };
 
@@ -184,6 +208,7 @@ export default function GuideDetailPage() {
     if (tabId === 'lieux-et-clusters') setActiveTab('lieux-et-clusters');
     if (tabId === 'lieux-et-inspirations') setActiveTab('lieux-et-inspirations');
     if (tabId === 'chemin-de-fer') setActiveTab('chemin-de-fer');
+    if (tabId === 'carte') setActiveTab('carte');
     if (tabId === 'export') setActiveTab('export');
   };
 
@@ -344,6 +369,15 @@ export default function GuideDetailPage() {
                 </button>
               </div>
             </div>
+          )}
+
+          {activeTab === 'carte' && (
+            <CarteTab
+              guideId={guideId}
+              guide={guide}
+              apiUrl={apiUrl}
+              onCarteUpdated={checkCarteStatus}
+            />
           )}
 
           {activeTab === 'export' && (

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import {
   MapIcon,
-  ArrowDownTrayIcon,
+  ArrowPathIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
   MapPinIcon,
@@ -11,6 +11,7 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 import PoiGeocodeModal from './PoiGeocodeModal';
+import PoiGeocodeAlerts from './PoiGeocodeAlerts';
 import ImageSelectorModal from './ImageSelectorModal';
 import {
   ensurePoiGeocodeReady,
@@ -121,10 +122,18 @@ export default function CarteTab({
     }
   }, [apiUrl, guideId]);
 
+  const loadGeocodeFailures = useCallback(async () => {
+    try {
+      setGeocodeFailures(await fetchPoiGeocodeFailures(apiUrl, guideId));
+    } catch {
+      setGeocodeFailures([]);
+    }
+  }, [apiUrl, guideId]);
+
   useEffect(() => {
     loadPages();
-    fetchPoiGeocodeFailures(apiUrl, guideId).then(setGeocodeFailures).catch(() => {});
-  }, [loadPages, apiUrl, guideId]);
+    loadGeocodeFailures();
+  }, [loadPages, loadGeocodeFailures]);
 
   const slugifyDest = (s: string) =>
     s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
@@ -158,6 +167,8 @@ export default function CarteTab({
       setDownloadingGeo((prev) => ({ ...prev, [lang]: false }));
     }
   }, [apiUrl, guideId, guide?.destination, guide?.name]);
+
+  const openGeocodeModal = () => setGeocodeModal({ pendingExport: null });
 
   const ensureGeocodeThenDownload = async (lang: string) => {
     setGeoPreparing((prev) => ({ ...prev, [lang]: true }));
@@ -329,9 +340,10 @@ export default function CarteTab({
   }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
+    <div className="h-full overflow-auto bg-gray-50">
+      <div className="max-w-4xl mx-auto p-6 space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+        <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
           <MapIcon className="h-5 w-5 text-blue-500" />
           Cartes
         </h2>
@@ -341,43 +353,41 @@ export default function CarteTab({
         </p>
       </div>
 
-      <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Télécharger les GeoJSON</h3>
-        <p className="text-xs text-gray-500 mb-3">
-          Géocodage automatique des POIs avant téléchargement. Si des coordonnées manquent,
-          une modale vous permet de les saisir ou de marquer « Pas de GPS ».
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <h3 className="text-sm font-semibold text-gray-900 mb-1">Télécharger les GeoJSON</h3>
+        <p className="text-xs text-gray-500 mb-4">
+          POIs avec coordonnées GPS (géocodage automatique via Photon). Si des coordonnées manquent,
+          complétez-les avant le téléchargement.
         </p>
-        {geocodeFailures.length > 0 && (
-          <div className="mb-3 p-3 rounded-lg border border-red-200 bg-red-50 text-xs text-red-800">
-            <div className="flex items-center gap-1.5 font-medium">
-              <MapPinIcon className="w-4 h-4 flex-shrink-0" />
-              {geocodeFailures.length} POI{geocodeFailures.length > 1 ? 's' : ''} sans coordonnées GPS
-            </div>
-            <p className="mt-1 text-red-700/90">
-              Le téléchargement GeoJSON ouvrira la modale de correction si nécessaire.
-            </p>
-          </div>
-        )}
         <div className="flex flex-wrap gap-2">
           {LANGUAGES.map((lang) => {
             const busy = !!geoPreparing[lang.code] || !!downloadingGeo[lang.code];
             return (
               <button
                 key={lang.code}
+                type="button"
                 onClick={() => ensureGeocodeThenDownload(lang.code)}
                 disabled={busy}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                title={`GeoJSON ${lang.label} (géocodage auto via Photon)`}
+                className="flex flex-col items-center gap-1 min-w-[4.5rem] px-2 py-2 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors disabled:opacity-50"
               >
                 {busy ? (
-                  <span className="animate-spin inline-block w-3 h-3 border border-gray-400 border-t-transparent rounded-full" />
+                  <ArrowPathIcon className="w-5 h-5 animate-spin" />
                 ) : (
-                  <ArrowDownTrayIcon className="h-3.5 w-3.5" />
+                  <MapPinIcon className="w-5 h-5" />
                 )}
-                {lang.flag} {lang.label}
+                <span className="text-[10px] font-medium leading-tight text-center">
+                  {lang.flag} {lang.label}
+                </span>
               </button>
             );
           })}
         </div>
+
+        <PoiGeocodeAlerts
+          failures={geocodeFailures}
+          onCorrect={openGeocodeModal}
+        />
       </div>
 
       {geocodeModal && (
@@ -386,10 +396,14 @@ export default function CarteTab({
           apiUrl={apiUrl}
           initialFailures={geocodeFailures}
           pendingExport={geocodeModal.pendingExport}
-          onClose={() => setGeocodeModal(null)}
+          onClose={() => {
+            setGeocodeModal(null);
+            loadGeocodeFailures();
+          }}
           onFailuresChange={setGeocodeFailures}
           onDownload={async (pending) => {
             setGeocodeModal(null);
+            await loadGeocodeFailures();
             if (pending.kind === 'geojson') {
               await executeGeoJsonDownload(pending.lang);
             }
@@ -414,7 +428,7 @@ export default function CarteTab({
       )}
 
       {pages.length === 0 ? (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-sm text-yellow-800">
           Aucune page de template <strong>CARTE</strong> trouvée dans le chemin de fer.
           Vérifiez que le chemin de fer a bien été généré et que les pages carte sont présentes.
         </div>
@@ -486,6 +500,7 @@ export default function CarteTab({
           })}
         </div>
       )}
+      </div>
     </div>
   );
 }

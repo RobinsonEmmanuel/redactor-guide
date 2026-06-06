@@ -465,14 +465,15 @@ export class ExportService {
       }
     }
 
-    // ── 5b-quater. Injection Carte_lien_1 pour les pages CARTE_DESTINATION ──────
+    // ── 5b-quater. Injection Carte_lien_1 pour les pages CARTE ─────────────────
     // Résout le lien Mapbox selon la langue demandée :
     //   - surcharge spécifique (map_url_translations[lang]) si disponible,
     //   - sinon fallback sur la version FR (map_url_fr).
     // Injecté en dehors du content éditorial pour ne pas être soumis à la traduction IA.
     for (let i = 0; i < exportablePages.length; i++) {
       const rawPage = exportablePages[i];
-      if (rawPage.template_name !== 'CARTE_DESTINATION') continue;
+      const tpl = rawPage.template_name || '';
+      if (tpl !== 'CARTE' && tpl !== 'CARTE_DESTINATION') continue;
       const mapUrl =
         lang !== 'fr' && (rawPage as any).map_url_translations?.[lang]
           ? (rawPage as any).map_url_translations[lang]

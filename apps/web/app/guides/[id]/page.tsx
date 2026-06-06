@@ -186,7 +186,7 @@ export default function GuideDetailPage() {
       completed.add(5);
     }
 
-    // Étape 6: Carte (toutes les pages CARTE_DESTINATION ont un lien FR, ou aucune page carte)
+    // Étape 6: Carte (toutes les pages CARTE ont un lien FR, ou aucune page carte)
     if (carteConfigured) completed.add(6);
 
     return completed;

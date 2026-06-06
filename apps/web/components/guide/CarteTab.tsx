@@ -1,7 +1,20 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { MapIcon, ArrowDownTrayIcon, CheckCircleIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import {
+  MapIcon,
+  ArrowDownTrayIcon,
+  CheckCircleIcon,
+  ExclamationTriangleIcon,
+  MapPinIcon,
+} from '@heroicons/react/24/outline';
+import PoiGeocodeModal from './PoiGeocodeModal';
+import {
+  ensurePoiGeocodeReady,
+  fetchPoiGeocodeFailures,
+  type PendingGeoExport,
+  type PoiGeocodeFailure,
+} from './poi-geocode-export';
 
 const LANGUAGES = [
   { code: 'fr',    label: 'Français',    flag: '🇫🇷' },
@@ -43,6 +56,9 @@ export default function CarteTab({ guideId, guide, apiUrl, onCarteUpdated }: Car
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [saveStatus, setSaveStatus] = useState<Record<string, 'saved' | 'error'>>({});
   const [downloadingGeo, setDownloadingGeo] = useState<Record<string, boolean>>({});
+  const [geoPreparing, setGeoPreparing] = useState<Record<string, boolean>>({});
+  const [geocodeFailures, setGeocodeFailures] = useState<PoiGeocodeFailure[]>([]);
+  const [geocodeModal, setGeocodeModal] = useState<{ pendingExport: PendingGeoExport } | null>(null);
 
   // Debounce timers
   const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -77,7 +93,58 @@ export default function CarteTab({ guideId, guide, apiUrl, onCarteUpdated }: Car
 
   useEffect(() => {
     loadPages();
-  }, [loadPages]);
+    fetchPoiGeocodeFailures(apiUrl, guideId).then(setGeocodeFailures).catch(() => {});
+  }, [loadPages, apiUrl, guideId]);
+
+  const slugifyDest = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+
+  const executeGeoJsonDownload = useCallback(async (lang: string) => {
+    setDownloadingGeo((prev) => ({ ...prev, [lang]: true }));
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/export/geojson?lang=${lang}`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) throw new Error('Erreur téléchargement GeoJSON');
+      const blob = await res.blob();
+      const cd = res.headers.get('content-disposition') || '';
+      const cdMatch = cd.match(/filename="([^"]+)"/);
+      const now = new Date();
+      const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
+      const timePart = now.toISOString().slice(11, 16).replace(':', '');
+      const dest = slugifyDest(guide?.destination || guide?.name || 'guide');
+      const fallback = lang === 'fr'
+        ? `pois_${dest}_${datePart}_${timePart}.geojson`
+        : `pois_${dest}_${lang}_${datePart}_${timePart}.geojson`;
+      const filename = cdMatch ? cdMatch[1] : fallback;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloadingGeo((prev) => ({ ...prev, [lang]: false }));
+    }
+  }, [apiUrl, guideId, guide?.destination, guide?.name]);
+
+  const ensureGeocodeThenDownload = async (lang: string) => {
+    setGeoPreparing((prev) => ({ ...prev, [lang]: true }));
+    try {
+      const missing = await ensurePoiGeocodeReady(apiUrl, guideId);
+      setGeocodeFailures(missing);
+      if (missing.length > 0) {
+        setGeocodeModal({ pendingExport: { kind: 'geojson', lang } });
+        return;
+      }
+      await executeGeoJsonDownload(lang);
+    } catch (err: any) {
+      alert(err.message || 'Erreur lors du géocodage automatique');
+    } finally {
+      setGeoPreparing((prev) => ({ ...prev, [lang]: false }));
+    }
+  };
 
   const saveMapUrl = useCallback(async (pageId: string, fr: string, translations: Record<string, string>) => {
     setSaving((prev) => ({ ...prev, [pageId]: true }));
@@ -133,28 +200,7 @@ export default function CarteTab({ guideId, guide, apiUrl, onCarteUpdated }: Car
     });
   };
 
-  const downloadGeoJson = async (lang: string) => {
-    const key = lang;
-    setDownloadingGeo((prev) => ({ ...prev, [key]: true }));
-    try {
-      const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/export/geojson?lang=${lang}&statut=validee`,
-        { credentials: 'include' }
-      );
-      if (!res.ok) throw new Error('Erreur téléchargement GeoJSON');
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `guide_${guideId}_${lang}.geojson`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err: any) {
-      alert(err.message || 'Erreur lors du téléchargement du GeoJSON');
-    } finally {
-      setDownloadingGeo((prev) => ({ ...prev, [key]: false }));
-    }
-  };
+  const downloadGeoJson = (lang: string) => ensureGeocodeThenDownload(lang);
 
   if (loading) {
     return (
@@ -192,31 +238,63 @@ export default function CarteTab({ guideId, guide, apiUrl, onCarteUpdated }: Car
       <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
         <h3 className="text-sm font-semibold text-gray-700 mb-2">Télécharger les GeoJSON</h3>
         <p className="text-xs text-gray-500 mb-3">
-          Importez ces fichiers dans Mapbox pour créer les cartes traduites de votre guide.
+          Géocodage automatique des POIs avant téléchargement. Si des coordonnées manquent,
+          une modale vous permet de les saisir ou de marquer « Pas de GPS ».
         </p>
+        {geocodeFailures.length > 0 && (
+          <div className="mb-3 p-3 rounded-lg border border-red-200 bg-red-50 text-xs text-red-800">
+            <div className="flex items-center gap-1.5 font-medium">
+              <MapPinIcon className="w-4 h-4 flex-shrink-0" />
+              {geocodeFailures.length} POI{geocodeFailures.length > 1 ? 's' : ''} sans coordonnées GPS
+            </div>
+            <p className="mt-1 text-red-700/90">
+              Le téléchargement GeoJSON ouvrira la modale de correction si nécessaire.
+            </p>
+          </div>
+        )}
         <div className="flex flex-wrap gap-2">
-          {LANGUAGES.map((lang) => (
+          {LANGUAGES.map((lang) => {
+            const busy = !!geoPreparing[lang.code] || !!downloadingGeo[lang.code];
+            return (
             <button
               key={lang.code}
               onClick={() => downloadGeoJson(lang.code)}
-              disabled={!!downloadingGeo[lang.code]}
+              disabled={busy}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
             >
-              {downloadingGeo[lang.code] ? (
+              {busy ? (
                 <span className="animate-spin inline-block w-3 h-3 border border-gray-400 border-t-transparent rounded-full" />
               ) : (
                 <ArrowDownTrayIcon className="h-3.5 w-3.5" />
               )}
               {lang.flag} {lang.label}
             </button>
-          ))}
+            );
+          })}
         </div>
       </div>
+
+      {geocodeModal && (
+        <PoiGeocodeModal
+          guideId={guideId}
+          apiUrl={apiUrl}
+          initialFailures={geocodeFailures}
+          pendingExport={geocodeModal.pendingExport}
+          onClose={() => setGeocodeModal(null)}
+          onFailuresChange={setGeocodeFailures}
+          onDownload={async (pending) => {
+            setGeocodeModal(null);
+            if (pending.kind === 'geojson') {
+              await executeGeoJsonDownload(pending.lang);
+            }
+          }}
+        />
+      )}
 
       {/* Pages carte */}
       {pages.length === 0 ? (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
-          Aucune page de template <strong>CARTE_DESTINATION</strong> trouvée dans le chemin de fer.
+          Aucune page de template <strong>CARTE</strong> trouvée dans le chemin de fer.
           Vérifiez que le chemin de fer a bien été généré et que les pages carte sont présentes.
         </div>
       ) : (

@@ -52,6 +52,19 @@ export interface GeocodingResolveWithIdentityResult extends GeocodingResolveResu
   place_match: PhotonPlaceMatch;
 }
 
+export interface GeoBounds {
+  minLat: number;
+  maxLat: number;
+  minLon: number;
+  maxLon: number;
+}
+
+export interface GeocodingBias {
+  countryCode?: string;
+  bounds?: GeoBounds;
+  destinationLabel?: string;
+}
+
 export interface GeocodingError {
   lieu: string;
   error: string;
@@ -81,11 +94,11 @@ export class GeocodingService {
   /**
    * Géolocalise via Photon et retourne les propriétés OSM complètes.
    */
-  async geocodePhotonMatch(nomLieu: string): Promise<PhotonPlaceMatch | null> {
+  async geocodePhotonMatch(nomLieu: string, bias?: GeocodingBias): Promise<PhotonPlaceMatch | null> {
     try {
       const params = new URLSearchParams({
         q:     nomLieu,
-        limit: '1',
+        limit: bias ? '8' : '1',
         lang:  'fr',
       });
       const url = `${this.BASE_URL}?${params.toString()}`;
@@ -107,40 +120,93 @@ export class GeocodingService {
         return null;
       }
 
-      const feature = features[0];
-      const [lon, lat] = feature.geometry?.coordinates ?? [];
+      const candidates = features
+        .map((feature) => this.featureToPhotonMatch(feature, nomLieu))
+        .filter((match): match is PhotonPlaceMatch => match !== null);
 
-      if (typeof lat !== 'number' || typeof lon !== 'number' || isNaN(lat) || isNaN(lon)) {
+      if (candidates.length === 0) {
         console.error(`❌ Coordonnées invalides pour "${nomLieu}"`);
         return null;
       }
 
-      const props = feature.properties ?? {};
-      const displayName = [props.name, props.city, props.country]
-        .filter(Boolean)
-        .join(', ') || nomLieu;
+      const match = this.pickBestMatch(candidates, bias);
+      if (!match) {
+        const label = bias?.destinationLabel ? ` (${bias.destinationLabel})` : '';
+        console.warn(`⚠️ Aucun résultat Photon dans la zone attendue${label} pour "${nomLieu}"`);
+        return null;
+      }
 
-      console.log(`✅ Coordonnées trouvées: ${lat}, ${lon} (${displayName})`);
+      console.log(`✅ Coordonnées trouvées: ${match.lat}, ${match.lon} (${match.display_name})`);
 
-      return {
-        lat,
-        lon,
-        name:         props.name ?? null,
-        display_name: displayName,
-        city:         props.city ?? null,
-        state:        props.state ?? null,
-        country:      props.country ?? null,
-        countrycode:  props.countrycode ?? null,
-        osm_key:      props.osm_key ?? null,
-        osm_value:    props.osm_value ?? null,
-        osm_type:     props.osm_type ?? null,
-        osm_id:       typeof props.osm_id === 'number' ? props.osm_id : null,
-        type:         props.type ?? null,
-      };
+      return match;
     } catch (error: any) {
       console.error(`❌ Erreur géolocalisation "${nomLieu}":`, error.message);
       return null;
     }
+  }
+
+  private featureToPhotonMatch(feature: any, fallbackName: string): PhotonPlaceMatch | null {
+    const [lon, lat] = feature.geometry?.coordinates ?? [];
+
+    if (typeof lat !== 'number' || typeof lon !== 'number' || isNaN(lat) || isNaN(lon)) {
+      return null;
+    }
+
+    const props = feature.properties ?? {};
+    const displayName = [props.name, props.city, props.country]
+      .filter(Boolean)
+      .join(', ') || fallbackName;
+
+    return {
+      lat,
+      lon,
+      name:         props.name ?? null,
+      display_name: displayName,
+      city:         props.city ?? null,
+      state:        props.state ?? null,
+      country:      props.country ?? null,
+      countrycode:  props.countrycode ?? null,
+      osm_key:      props.osm_key ?? null,
+      osm_value:    props.osm_value ?? null,
+      osm_type:     props.osm_type ?? null,
+      osm_id:       typeof props.osm_id === 'number' ? props.osm_id : null,
+      type:         props.type ?? null,
+    };
+  }
+
+  private pickBestMatch(
+    candidates: PhotonPlaceMatch[],
+    bias?: GeocodingBias
+  ): PhotonPlaceMatch | null {
+    if (!bias) return candidates[0] ?? null;
+
+    const scored = candidates
+      .map((match, index) => {
+        let score = 100 - index;
+        if (bias.countryCode && match.countrycode?.toUpperCase() === bias.countryCode.toUpperCase()) score += 80;
+        if (bias.bounds && this.isInsideBounds(match, bias.bounds)) score += 160;
+        return { match, score };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    const best = scored[0]?.match ?? null;
+    if (!best) return null;
+
+    if (bias.bounds && !this.isInsideBounds(best, bias.bounds)) return null;
+    if (bias.countryCode && best.countrycode && best.countrycode.toUpperCase() !== bias.countryCode.toUpperCase()) {
+      return null;
+    }
+
+    return best;
+  }
+
+  private isInsideBounds(match: PhotonPlaceMatch, bounds: GeoBounds): boolean {
+    return (
+      match.lat >= bounds.minLat &&
+      match.lat <= bounds.maxLat &&
+      match.lon >= bounds.minLon &&
+      match.lon <= bounds.maxLon
+    );
   }
 
   /**
@@ -203,12 +269,13 @@ export class GeocodingService {
    */
   async resolveWithPlaceMatch(
     query: string,
-    country?: string
+    country?: string,
+    bias?: GeocodingBias
   ): Promise<GeocodingResolveWithIdentityResult | null> {
     const alreadyHasCountry = country && query.toLowerCase().includes(country.toLowerCase());
     const searchQuery = (country && !alreadyHasCountry) ? `${query}, ${country}` : query;
 
-    const match = await this.geocodePhotonMatch(searchQuery);
+    const match = await this.geocodePhotonMatch(searchQuery, bias);
     if (!match) return null;
 
     return {
@@ -303,5 +370,22 @@ export class GeocodingService {
 
     // Défaut : essayer avec le nom brut
     return destination;
+  }
+
+  getBiasFromDestination(destination: string): GeocodingBias | undefined {
+    const key = destination.toLowerCase().trim();
+    if (key.includes('tenerife')) {
+      return {
+        countryCode: 'ES',
+        destinationLabel: 'Tenerife',
+        bounds: {
+          minLat: 27.90,
+          maxLat: 28.65,
+          minLon: -16.95,
+          maxLon: -16.05,
+        },
+      };
+    }
+    return undefined;
   }
 }

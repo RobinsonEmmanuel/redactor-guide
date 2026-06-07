@@ -162,6 +162,10 @@ Place name localization rules (POI_titre and similar fields — tourist-facing t
 - Destination vernacular: ${ctx.naming_profile.vernacular_lang}
 ${genericRules}
 ${osmHint}
+- Translate the place TYPE, not the identity: Church, Museum, Market, Viewpoint, Natural Pools, Garden, Path/Trail are types; San Marcos Evangelista, Nuestra Señora de África, Punta de Teno, La Caleta de Adeje, Vilaflor de Chasna are proper-name identities
+- Do NOT translate Spanish connectors/articles inside proper names ("de", "del", "de la", "La", "Los", "El") into "of/the" when they belong to the official name
+- Never produce hybrid French/Spanish proper names such as "Notre-Dame de la Conception" for Spanish places; prefer the Spanish official form "Nuestra Señora de la Concepción" unless a well-established target-language name exists
+- If the source label is only a street/local proper name but the context says the POI is a garden, viewpoint, market, etc., add the translated type around the unchanged proper name (e.g. "Garden of Calle de la Verdad")
 - Do NOT drop any part of the name (keep qualifiers in parentheses, keep "La/Los/El" when part of the official proper name)
 - Do NOT invent a different place, substitute a nearby landmark, or hallucinate a variant spelling
 - Pure proper nouns without generic (La Caleta de Adeje, Charco Los Chochos) → keep official form, adjust only word order if natural in ${langName}

@@ -249,6 +249,9 @@ export async function geocodeMissingPoiPages(
   const country = destination
     ? geocodingService.getCountryFromDestination(destination)
     : undefined;
+  const geoBias = destination
+    ? geocodingService.getBiasFromDestination(destination)
+    : undefined;
 
   const results: PoiGeocodeEntryResult[] = [];
   let missingBefore = 0;
@@ -289,7 +292,7 @@ export async function geocodeMissingPoiPages(
       continue;
     }
 
-    const payload = await buildPlaceIdentityFromGeocodeQuery(geocodingService, query, country);
+    const payload = await buildPlaceIdentityFromGeocodeQuery(geocodingService, query, country, geoBias);
 
     if (!payload) {
       failed++;

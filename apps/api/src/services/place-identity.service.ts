@@ -3,7 +3,7 @@
  * Langue-neutre : osm_names alimente les 8 langues cibles à la traduction.
  */
 
-import type { GeocodingService, PhotonPlaceMatch } from './geocoding.service.js';
+import type { GeocodingBias, GeocodingService, PhotonPlaceMatch } from './geocoding.service.js';
 
 /** Langues cibles du guide → clés OSM name:xx */
 export const TARGET_LANG_TO_OSM: Record<string, string> = {
@@ -201,9 +201,10 @@ export interface PoiGeocodePersistPayload {
 export async function buildPlaceIdentityFromGeocodeQuery(
   geocodingService: GeocodingService,
   query: string,
-  country?: string
+  country?: string,
+  bias?: GeocodingBias
 ): Promise<PoiGeocodePersistPayload | null> {
-  const resolved = await geocodingService.resolveWithPlaceMatch(query, country);
+  const resolved = await geocodingService.resolveWithPlaceMatch(query, country, bias);
   if (!resolved) return null;
 
   let osmNames: Record<string, string> = {};

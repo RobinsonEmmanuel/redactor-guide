@@ -35,7 +35,7 @@ export interface GenericToponymRuleSet {
 }
 
 const EN_RULES: GenericToponymRuleSet = {
-  pattern: '[English generic] + "of" + [vernacular proper name unchanged]',
+  pattern: '[English tourist category] + "of" + [vernacular proper name unchanged] ONLY when the generic is a real visitor-facing category; otherwise keep the official Spanish proper name',
   forbidden_in_output: [
     'Iglesia', 'Ermita', 'Catedral', 'Basílica', 'Capilla',
     'Église', 'Eglise', 'Cathédrale', 'Cathedrale',
@@ -49,6 +49,11 @@ const EN_RULES: GenericToponymRuleSet = {
     'Piscines naturelles Charco Los Chochos → Charco Los Chochos Natural Pools',
     'Tour de la Concepción → Tower of the Conception (keep La Orotava qualifier in parentheses if present)',
     'Double Église San Francisco (Puerto de la Cruz) → Church of San Francisco (Puerto de la Cruz)',
+    'Punta de Teno → Punta de Teno (or Teno Point if the source explicitly uses the headland as a category)',
+    'La Caleta de Adeje → La Caleta de Adeje',
+    'Vilaflor de Chasna → Vilaflor de Chasna (or Vilaflor if the shorter official/common name is clearer)',
+    'Mercado Nuestra Señora de África → Nuestra Señora de África Market',
+    'Calle de la Verdad + garden context → Garden of Calle de la Verdad',
   ],
   osm_usage:
     'If OSM name:en starts with a Spanish/French generic (Iglesia, Catedral…), REPLACE the generic with the English equivalent and use "of" — do NOT copy Iglesia into English output.',

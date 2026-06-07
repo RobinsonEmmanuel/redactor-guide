@@ -642,12 +642,13 @@ async function generateMapsLink(ctx: FieldServiceContext): Promise<FieldServiceR
 
   const destination: string = guide.destination ?? guide.destinations?.[0] ?? guide.name ?? '';
   const country = destination ? _geocodingService.getCountryFromDestination(destination) : undefined;
+  const geoBias = destination ? _geocodingService.getBiasFromDestination(destination) : undefined;
 
   console.log(
     `[geocoding_maps_link] Fallback géocodage (lien manquant) : "${enrichedQuery}" (${country ?? 'pays inconnu'})`
   );
 
-  const payload = await buildPlaceIdentityFromGeocodeQuery(_geocodingService, enrichedQuery, country);
+  const payload = await buildPlaceIdentityFromGeocodeQuery(_geocodingService, enrichedQuery, country, geoBias);
 
   if (!payload) {
     console.warn(`[geocoding_maps_link] Aucun résultat pour "${enrichedQuery}"`);

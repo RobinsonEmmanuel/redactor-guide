@@ -586,6 +586,39 @@ export default function CarteTab({
     }
   };
 
+  const regeocodePoi = async (poi: GeocodeQualityPoi) => {
+    setSavingCoordinates((prev) => ({ ...prev, [poi.page_id]: true }));
+    setCoordinateErrors((prev) => ({ ...prev, [poi.page_id]: '' }));
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/poi-geocode-quality/${poi.page_id}/regeocode`,
+        {
+          method: 'POST',
+          credentials: 'include',
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? 'Aucun résultat Photon dans le périmètre');
+      }
+      const data = await res.json();
+      if (data.coordinates) {
+        setDraftCoordinates(
+          poi.page_id,
+          String(data.coordinates.lat),
+          String(data.coordinates.lon)
+        );
+      }
+      await loadQualityReport();
+      await loadGeocodeFailures();
+      onCarteUpdated?.();
+    } catch (err: any) {
+      setCoordinateErrors((prev) => ({ ...prev, [poi.page_id]: err.message }));
+    } finally {
+      setSavingCoordinates((prev) => ({ ...prev, [poi.page_id]: false }));
+    }
+  };
+
   const markPoiWithoutGps = async (poi: GeocodeQualityPoi) => {
     setSavingCoordinates((prev) => ({ ...prev, [poi.page_id]: true }));
     try {
@@ -1019,6 +1052,16 @@ export default function CarteTab({
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs text-red-600">{coordinateErrors[selectedPoi.page_id] ?? ''}</p>
                   <div className="flex items-center gap-2 ml-auto">
+                    <button
+                      type="button"
+                      onClick={() => regeocodePoi(selectedPoi)}
+                      disabled={savingCoordinates[selectedPoi.page_id]}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                      title="Relancer Photon avec la destination et le périmètre géographique"
+                    >
+                      <ArrowPathIcon className={`h-3.5 w-3.5 ${savingCoordinates[selectedPoi.page_id] ? 'animate-spin' : ''}`} />
+                      Relancer Photon
+                    </button>
                     <button
                       type="button"
                       onClick={() => markPoiWithoutGps(selectedPoi)}

@@ -6,6 +6,7 @@ import {
   geocodeMissingPoiPages,
   getPoiGeocodeQualityReport,
   listPoisMissingCoordinates,
+  regeocodePoiPage,
 } from '../services/poi-geocoding.service.js';
 
 const geocodingService = new GeocodingService();
@@ -139,6 +140,44 @@ export async function geocodingRoutes(fastify: FastifyInstance) {
         }
         request.log.error(error);
         return reply.status(500).send({ error: 'Erreur lors du contrôle qualité GPS' });
+      }
+    }
+  );
+
+  /**
+   * POST /guides/:guideId/poi-geocode-quality/:pageId/regeocode
+   * Relance Photon pour un POI précis et remplace ses coordonnées si un résultat
+   * est trouvé dans le périmètre de destination.
+   */
+  fastify.post<{ Params: { guideId: string; pageId: string } }>(
+    '/guides/:guideId/poi-geocode-quality/:pageId/regeocode',
+    async (request, reply) => {
+      const db = request.server.container.db;
+      const { guideId, pageId } = request.params;
+
+      if (!ObjectId.isValid(guideId) || !ObjectId.isValid(pageId)) {
+        return reply.status(400).send({ error: 'ID invalide' });
+      }
+
+      try {
+        const result = await regeocodePoiPage(db, guideId, pageId, geocodingService);
+        return reply.send(result);
+      } catch (error: any) {
+        if (
+          error.message === 'Guide non trouvé' ||
+          error.message === 'Chemin de fer non trouvé pour ce guide' ||
+          error.message === 'Page POI non trouvée'
+        ) {
+          return reply.status(404).send({ error: error.message });
+        }
+        if (
+          error.message === 'Nom du lieu introuvable' ||
+          error.message?.startsWith('Aucun résultat Photon')
+        ) {
+          return reply.status(422).send({ error: error.message });
+        }
+        request.log.error(error);
+        return reply.status(500).send({ error: 'Erreur lors de la relance Photon' });
       }
     }
   );

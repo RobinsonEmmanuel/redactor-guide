@@ -29,6 +29,14 @@ export interface GeocodeMissingPoisResult {
   results: PoiGeocodeEntryResult[];
 }
 
+export interface RegeocodePoiResult {
+  page_id: string;
+  titre: string;
+  query: string;
+  coordinates: { lat: number; lon: number; display_name: string };
+  place_identity: PlaceIdentity;
+}
+
 export interface PoiMissingCoordinatesEntry {
   page_id: string;
   titre: string;
@@ -305,6 +313,48 @@ export async function getPoiGeocodeQualityReport(
   };
 
   return { destination, bounds, stats, pois };
+}
+
+/** Regéocode un seul POI, même s'il possède déjà des coordonnées. */
+export async function regeocodePoiPage(
+  db: Db,
+  guideId: string,
+  pageId: string,
+  geocodingService: GeocodingService
+): Promise<RegeocodePoiResult> {
+  const { guide, pages } = await loadGuidePoiPages(db, guideId);
+  const page = pages.find((p) => p._id.toString() === pageId);
+  if (!page) throw new Error('Page POI non trouvée');
+
+  const destination = getGuideDestination(guide);
+  const country = destination ? geocodingService.getCountryFromDestination(destination) : undefined;
+  const geoBias = destination ? geocodingService.getBiasFromDestination(destination) : undefined;
+  const query = buildPoiGeocodingQuery(page, guide).trim();
+  if (!query) throw new Error('Nom du lieu introuvable');
+
+  const payload = await buildPlaceIdentityFromGeocodeQuery(
+    geocodingService,
+    query,
+    country,
+    geoBias
+  );
+  if (!payload) {
+    throw new Error(
+      geoBias?.destinationLabel
+        ? `Aucun résultat Photon dans le périmètre ${geoBias.destinationLabel}`
+        : 'Aucun résultat Photon'
+    );
+  }
+
+  await persistPoiGeocodeResult(db, pageId, payload);
+
+  return {
+    page_id: pageId,
+    titre: String(page.titre ?? page.template_name ?? pageId),
+    query,
+    coordinates: payload.coordinates,
+    place_identity: payload.place_identity,
+  };
 }
 
 /**

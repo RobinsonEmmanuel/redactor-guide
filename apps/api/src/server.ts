@@ -5,6 +5,21 @@ import { UPLOADS_DIR } from './routes/image-upload.routes.js';
 import { COLLECTIONS } from './config/collections.js';
 import { getArticlesDatabase } from './config/database.js';
 
+const ALLOWED_CORS_ORIGINS: Array<string | RegExp> = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'https://redactor-guide-web.vercel.app',
+  /^https:\/\/.*\.vercel\.app$/,
+  /^https:\/\/.*\.up\.railway\.app$/,
+];
+
+function isAllowedCorsOrigin(origin: string | undefined): boolean {
+  if (!origin) return true;
+  return ALLOWED_CORS_ORIGINS.some((allowed) =>
+    typeof allowed === 'string' ? allowed === origin : allowed.test(origin)
+  );
+}
+
 /**
  * Créer et configurer le serveur Fastify
  */
@@ -52,11 +67,9 @@ export async function createServer(db: Db, _port: number) {
 
   // Activer CORS pour le frontend
   await fastify.register(import('@fastify/cors'), {
-    origin: [
-      'http://localhost:3001', // Dev local
-      /^https:\/\/.*\.vercel\.app$/,        // Vercel (previews + production)
-      /^https:\/\/.*\.up\.railway\.app$/,   // Railway (toutes les apps)
-    ],
+    origin: (origin, callback) => {
+      callback(null, isAllowedCorsOrigin(origin));
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     credentials: true,
   });

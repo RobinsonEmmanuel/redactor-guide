@@ -36,6 +36,34 @@ export interface PoiMissingCoordinatesEntry {
   error: string | null;
 }
 
+export type PoiGeocodeQualityStatus = 'ok' | 'missing' | 'out_of_scope' | 'no_gps';
+
+export interface PoiGeocodeQualityEntry {
+  page_id: string;
+  titre: string;
+  ordre: number | null;
+  cluster_name: string | null;
+  query: string | null;
+  status: PoiGeocodeQualityStatus;
+  issue: string | null;
+  coordinates: { lat: number; lon: number; display_name?: string | null } | null;
+  gps_not_applicable: boolean;
+  place_identity: PlaceIdentity | null;
+}
+
+export interface PoiGeocodeQualityReport {
+  destination: string;
+  bounds: { minLat: number; maxLat: number; minLon: number; maxLon: number } | null;
+  stats: {
+    total: number;
+    ok: number;
+    missing: number;
+    out_of_scope: number;
+    no_gps: number;
+  };
+  pois: PoiGeocodeQualityEntry[];
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -96,6 +124,22 @@ function isGpsNotApplicable(page: Record<string, any>): boolean {
 
 function isPoiGeocodeResolved(page: Record<string, any>): boolean {
   return hasCoordinates(page) || isGpsNotApplicable(page);
+}
+
+function getGuideDestination(guide: Record<string, any>): string {
+  return guide.destination ?? guide.destinations?.[0] ?? guide.name ?? '';
+}
+
+function isInsideBounds(
+  coordinates: { lat: number; lon: number },
+  bounds: { minLat: number; maxLat: number; minLon: number; maxLon: number }
+): boolean {
+  return (
+    coordinates.lat >= bounds.minLat &&
+    coordinates.lat <= bounds.maxLat &&
+    coordinates.lon >= bounds.minLon &&
+    coordinates.lon <= bounds.maxLon
+  );
 }
 
 async function loadGuidePoiPages(db: Db, guideId: string) {
@@ -199,6 +243,70 @@ export async function listPoisMissingCoordinates(
   return missing;
 }
 
+/** Rapport complet pour contrôler les coordonnées déjà présentes. */
+export async function getPoiGeocodeQualityReport(
+  db: Db,
+  guideId: string,
+  geocodingService: GeocodingService
+): Promise<PoiGeocodeQualityReport> {
+  const { guide, pages } = await loadGuidePoiPages(db, guideId);
+  const destination = getGuideDestination(guide);
+  const bias = destination ? geocodingService.getBiasFromDestination(destination) : undefined;
+  const bounds = bias?.bounds ?? null;
+
+  const pois: PoiGeocodeQualityEntry[] = pages.map((page) => {
+    const pageId = page._id.toString();
+    const titre = String(page.titre ?? page.template_name ?? pageId);
+    const query = buildPoiGeocodingQuery(page, guide).trim() || null;
+    const gpsNotApplicable = isGpsNotApplicable(page);
+    const rawCoords = page.coordinates;
+    const coordinates = hasCoordinates(page)
+      ? {
+          lat: Number(rawCoords.lat),
+          lon: Number(rawCoords.lon),
+          display_name: rawCoords.display_name ?? null,
+        }
+      : null;
+
+    let status: PoiGeocodeQualityStatus = 'ok';
+    let issue: string | null = null;
+
+    if (gpsNotApplicable) {
+      status = 'no_gps';
+      issue = 'POI volontairement sans point GPS';
+    } else if (!coordinates) {
+      status = 'missing';
+      issue = 'Coordonnées GPS manquantes';
+    } else if (bounds && !isInsideBounds(coordinates, bounds)) {
+      status = 'out_of_scope';
+      issue = `Coordonnées hors zone ${bias?.destinationLabel ?? destination}`;
+    }
+
+    return {
+      page_id: pageId,
+      titre,
+      ordre: typeof page.ordre === 'number' ? page.ordre : null,
+      cluster_name: page.metadata?.cluster_name ?? page.section_name ?? null,
+      query,
+      status,
+      issue,
+      coordinates,
+      gps_not_applicable: gpsNotApplicable,
+      place_identity: page.place_identity ?? null,
+    };
+  });
+
+  const stats = {
+    total: pois.length,
+    ok: pois.filter((p) => p.status === 'ok').length,
+    missing: pois.filter((p) => p.status === 'missing').length,
+    out_of_scope: pois.filter((p) => p.status === 'out_of_scope').length,
+    no_gps: pois.filter((p) => p.status === 'no_gps').length,
+  };
+
+  return { destination, bounds, stats, pois };
+}
+
 /**
  * Enrichit place_identity pour les POIs coordonnés qui n'en ont pas encore.
  */
@@ -241,11 +349,7 @@ export async function geocodeMissingPoiPages(
 ): Promise<GeocodeMissingPoisResult> {
   const { guide, pages } = await loadGuidePoiPages(db, guideId);
 
-  const destination: string =
-    guide.destination ??
-    guide.destinations?.[0] ??
-    guide.name ??
-    '';
+  const destination = getGuideDestination(guide);
   const country = destination
     ? geocodingService.getCountryFromDestination(destination)
     : undefined;

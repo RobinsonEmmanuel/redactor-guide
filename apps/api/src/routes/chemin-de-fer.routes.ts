@@ -334,9 +334,16 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         const body = UpdatePageSchema.parse(request.body);
         const now = new Date().toISOString();
 
+        const update: Record<string, any> = {
+          $set: { ...body, updated_at: now },
+        };
+        if (Object.prototype.hasOwnProperty.call(body, 'coordinates')) {
+          update.$unset = { place_identity: '' };
+        }
+
         const result = await db.collection(COLLECTIONS.pages).findOneAndUpdate(
           { _id: new ObjectId(pageId) },
-          { $set: { ...body, updated_at: now } },
+          update,
           { returnDocument: 'after' }
         );
 

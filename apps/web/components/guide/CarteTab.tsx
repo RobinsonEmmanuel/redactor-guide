@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import {
   MapIcon,
   ArrowPathIcon,
@@ -8,7 +8,9 @@ import {
   ExclamationTriangleIcon,
   LanguageIcon,
   MapPinIcon,
+  NoSymbolIcon,
   PhotoIcon,
+  PencilSquareIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 import PoiGeocodeModal from './PoiGeocodeModal';
@@ -49,6 +51,38 @@ interface CartePage {
   content?: Record<string, unknown>;
   map_url_fr?: string;
   map_url_translations?: Record<string, string>;
+}
+
+type GeocodeQualityStatus = 'ok' | 'missing' | 'out_of_scope' | 'no_gps';
+
+interface GeocodeQualityPoi {
+  page_id: string;
+  titre: string;
+  ordre: number | null;
+  cluster_name: string | null;
+  query: string | null;
+  status: GeocodeQualityStatus;
+  issue: string | null;
+  coordinates: { lat: number; lon: number; display_name?: string | null } | null;
+  gps_not_applicable: boolean;
+  place_identity?: {
+    local_name?: string | null;
+    display_name?: string | null;
+    country_code?: string | null;
+  } | null;
+}
+
+interface GeocodeQualityReport {
+  destination: string;
+  bounds: { minLat: number; maxLat: number; minLon: number; maxLon: number } | null;
+  stats: {
+    total: number;
+    ok: number;
+    missing: number;
+    out_of_scope: number;
+    no_gps: number;
+  };
+  pois: GeocodeQualityPoi[];
 }
 
 interface CarteTabProps {
@@ -98,6 +132,181 @@ function getMapName(page: CartePage): string {
   return page.titre || `Page ${page.ordre}`;
 }
 
+const TILE_SIZE = 256;
+
+function lonLatToWorld(lat: number, lon: number, zoom: number) {
+  const scale = TILE_SIZE * 2 ** zoom;
+  const sin = Math.sin((lat * Math.PI) / 180);
+  return {
+    x: ((lon + 180) / 360) * scale,
+    y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * scale,
+  };
+}
+
+function worldToLonLat(x: number, y: number, zoom: number) {
+  const scale = TILE_SIZE * 2 ** zoom;
+  const lon = (x / scale) * 360 - 180;
+  const n = Math.PI - (2 * Math.PI * y) / scale;
+  const lat = (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+  return { lat, lon };
+}
+
+function getStatusLabel(status: GeocodeQualityStatus) {
+  if (status === 'ok') return 'OK';
+  if (status === 'missing') return 'Manquant';
+  if (status === 'out_of_scope') return 'Hors zone';
+  return 'Sans GPS';
+}
+
+function getStatusClasses(status: GeocodeQualityStatus) {
+  if (status === 'ok') return 'bg-emerald-500 border-emerald-700 text-emerald-700';
+  if (status === 'missing') return 'bg-amber-500 border-amber-700 text-amber-700';
+  if (status === 'out_of_scope') return 'bg-red-500 border-red-700 text-red-700';
+  return 'bg-slate-400 border-slate-600 text-slate-600';
+}
+
+function OSMQualityMap({
+  report,
+  selectedPoiId,
+  onSelectPoi,
+  onPickCoordinates,
+}: {
+  report: GeocodeQualityReport;
+  selectedPoiId: string | null;
+  onSelectPoi: (poi: GeocodeQualityPoi) => void;
+  onPickCoordinates: (lat: number, lon: number) => void;
+}) {
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const [mapWidth, setMapWidth] = useState(760);
+  useEffect(() => {
+    const node = mapRef.current;
+    if (!node) return;
+    const updateWidth = () => setMapWidth(Math.max(320, Math.round(node.getBoundingClientRect().width)));
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  const width = mapWidth;
+  const height = 360;
+  const points = report.pois.filter((poi) => poi.coordinates);
+  const bounds = report.bounds;
+  const zoom = bounds ? 10 : points.length > 0 ? 8 : 2;
+  const center = bounds
+    ? {
+        lat: (bounds.minLat + bounds.maxLat) / 2,
+        lon: (bounds.minLon + bounds.maxLon) / 2,
+      }
+    : points.length > 0
+      ? {
+          lat: points.reduce((sum, poi) => sum + (poi.coordinates?.lat ?? 0), 0) / points.length,
+          lon: points.reduce((sum, poi) => sum + (poi.coordinates?.lon ?? 0), 0) / points.length,
+        }
+      : { lat: 28.2916, lon: -16.6291 };
+  const centerWorld = lonLatToWorld(center.lat, center.lon, zoom);
+  const minX = centerWorld.x - width / 2;
+  const minY = centerWorld.y - height / 2;
+  const tileMinX = Math.floor(minX / TILE_SIZE);
+  const tileMaxX = Math.floor((centerWorld.x + width / 2) / TILE_SIZE);
+  const tileMinY = Math.floor(minY / TILE_SIZE);
+  const tileMaxY = Math.floor((centerWorld.y + height / 2) / TILE_SIZE);
+  const maxTile = 2 ** zoom;
+  const tiles: Array<{ x: number; y: number; left: number; top: number; url: string }> = [];
+
+  for (let x = tileMinX; x <= tileMaxX; x++) {
+    for (let y = tileMinY; y <= tileMaxY; y++) {
+      if (y < 0 || y >= maxTile) continue;
+      const wrappedX = ((x % maxTile) + maxTile) % maxTile;
+      tiles.push({
+        x,
+        y,
+        left: x * TILE_SIZE - minX,
+        top: y * TILE_SIZE - minY,
+        url: `https://tile.openstreetmap.org/${zoom}/${wrappedX}/${y}.png`,
+      });
+    }
+  }
+
+  const project = (lat: number, lon: number) => {
+    const world = lonLatToWorld(lat, lon, zoom);
+    return { left: world.x - minX, top: world.y - minY };
+  };
+
+  const boundsRect = bounds
+    ? (() => {
+        const nw = project(bounds.maxLat, bounds.minLon);
+        const se = project(bounds.minLat, bounds.maxLon);
+        return {
+          left: nw.left,
+          top: nw.top,
+          width: se.left - nw.left,
+          height: se.top - nw.top,
+        };
+      })()
+    : null;
+
+  return (
+    <div
+      ref={mapRef}
+      className="relative h-[360px] overflow-hidden rounded-lg border border-gray-200 bg-slate-100"
+      onClick={(event) => {
+        if (!selectedPoiId) return;
+        const rect = event.currentTarget.getBoundingClientRect();
+        const x = minX + (event.clientX - rect.left);
+        const y = minY + (event.clientY - rect.top) * (height / rect.height);
+        const picked = worldToLonLat(x, y, zoom);
+        onPickCoordinates(picked.lat, picked.lon);
+      }}
+      title={selectedPoiId ? 'Cliquez sur la carte pour proposer des coordonnées' : 'Sélectionnez un POI avant de cliquer sur la carte'}
+    >
+      {tiles.map((tile) => (
+        <img
+          key={`${tile.x}:${tile.y}`}
+          src={tile.url}
+          alt=""
+          className="absolute max-w-none select-none"
+          draggable={false}
+          style={{ width: TILE_SIZE, height: TILE_SIZE, left: tile.left, top: tile.top }}
+        />
+      ))}
+
+      {boundsRect && (
+        <div
+          className="absolute border-2 border-blue-500/70 bg-blue-500/5 pointer-events-none"
+          style={boundsRect}
+        />
+      )}
+
+      {points.map((poi) => {
+        const coords = poi.coordinates!;
+        const pos = project(coords.lat, coords.lon);
+        const selected = poi.page_id === selectedPoiId;
+        const color = getStatusClasses(poi.status).split(' ')[0];
+        return (
+          <button
+            key={poi.page_id}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelectPoi(poi);
+            }}
+            className={`absolute -translate-x-1/2 -translate-y-full transition-transform ${selected ? 'scale-125 z-20' : 'z-10 hover:scale-110'}`}
+            style={{ left: pos.left, top: pos.top }}
+            title={poi.titre}
+          >
+            <span className={`block h-4 w-4 rounded-full border-2 border-white shadow ${color}`} />
+          </button>
+        );
+      })}
+
+      <div className="absolute bottom-2 right-2 rounded bg-white/90 px-2 py-1 text-[10px] text-gray-500 shadow-sm">
+        © OpenStreetMap
+      </div>
+    </div>
+  );
+}
+
 export default function CarteTab({
   guideId,
   guide,
@@ -116,6 +325,13 @@ export default function CarteTab({
   const [geoPreparing, setGeoPreparing] = useState<Record<string, boolean>>({});
   const [translationStates, setTranslationStates] = useState<Record<string, TranslationState>>({});
   const [translatingGeo, setTranslatingGeo] = useState<Record<string, boolean>>({});
+  const [qualityReport, setQualityReport] = useState<GeocodeQualityReport | null>(null);
+  const [qualityLoading, setQualityLoading] = useState(false);
+  const [qualityFilter, setQualityFilter] = useState<GeocodeQualityStatus | 'all'>('all');
+  const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null);
+  const [coordinateDrafts, setCoordinateDrafts] = useState<Record<string, { lat: string; lon: string }>>({});
+  const [savingCoordinates, setSavingCoordinates] = useState<Record<string, boolean>>({});
+  const [coordinateErrors, setCoordinateErrors] = useState<Record<string, string>>({});
   const [geocodeFailures, setGeocodeFailures] = useState<PoiGeocodeFailure[]>([]);
   const [geocodeModal, setGeocodeModal] = useState<{
     pendingExport: PendingGeoExport | null;
@@ -157,6 +373,35 @@ export default function CarteTab({
     }
   }, [apiUrl, guideId]);
 
+  const loadQualityReport = useCallback(async () => {
+    setQualityLoading(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/poi-geocode-quality`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setQualityReport(data);
+      const drafts: Record<string, { lat: string; lon: string }> = {};
+      for (const poi of (data.pois ?? []) as GeocodeQualityPoi[]) {
+        if (!poi.coordinates) continue;
+        drafts[poi.page_id] = {
+          lat: String(poi.coordinates.lat),
+          lon: String(poi.coordinates.lon),
+        };
+      }
+      setCoordinateDrafts((prev) => ({ ...drafts, ...prev }));
+      if (data.pois?.length > 0) {
+        const firstIssue = data.pois.find((poi: GeocodeQualityPoi) => poi.status === 'out_of_scope' || poi.status === 'missing');
+        setSelectedPoiId((prev) => prev ?? (firstIssue ?? data.pois[0]).page_id);
+      }
+    } catch (err) {
+      console.error('Erreur rapport qualité GPS:', err);
+    } finally {
+      setQualityLoading(false);
+    }
+  }, [apiUrl, guideId]);
+
   const loadTranslationStatus = useCallback(async (lang: string) => {
     try {
       const res = await fetch(
@@ -175,10 +420,11 @@ export default function CarteTab({
   useEffect(() => {
     loadPages();
     loadGeocodeFailures();
+    loadQualityReport();
     LANGUAGES.filter((lang) => !lang.native).forEach((lang) => {
       loadTranslationStatus(lang.code);
     });
-  }, [loadPages, loadGeocodeFailures, loadTranslationStatus]);
+  }, [loadPages, loadGeocodeFailures, loadQualityReport, loadTranslationStatus]);
 
   const waitForTranslation = useCallback(async (lang: string) => {
     for (let attempt = 0; attempt < TRANSLATION_MAX_ATTEMPTS; attempt++) {
@@ -273,6 +519,7 @@ export default function CarteTab({
 
       const missing = await ensurePoiGeocodeReady(apiUrl, guideId);
       setGeocodeFailures(missing);
+      await loadQualityReport();
       if (missing.length > 0) {
         setGeocodeModal({ pendingExport: { kind: 'geojson', lang } });
         return;
@@ -282,6 +529,86 @@ export default function CarteTab({
       alert(err.message || 'Erreur lors du géocodage automatique');
     } finally {
       setGeoPreparing((prev) => ({ ...prev, [lang]: false }));
+    }
+  };
+
+  const selectedPoi = qualityReport?.pois.find((poi) => poi.page_id === selectedPoiId) ?? null;
+  const filteredQualityPois = qualityReport?.pois.filter((poi) =>
+    qualityFilter === 'all' ? true : poi.status === qualityFilter
+  ) ?? [];
+
+  const setDraftCoordinates = (pageId: string, lat: string, lon: string) => {
+    setCoordinateDrafts((prev) => ({
+      ...prev,
+      [pageId]: { lat, lon },
+    }));
+    setCoordinateErrors((prev) => ({ ...prev, [pageId]: '' }));
+  };
+
+  const savePoiCoordinates = async (poi: GeocodeQualityPoi) => {
+    const draft = coordinateDrafts[poi.page_id] ?? { lat: '', lon: '' };
+    const lat = parseFloat(draft.lat.replace(',', '.'));
+    const lon = parseFloat(draft.lon.replace(',', '.'));
+
+    if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      setCoordinateErrors((prev) => ({
+        ...prev,
+        [poi.page_id]: 'Latitude ou longitude invalide',
+      }));
+      return;
+    }
+
+    setSavingCoordinates((prev) => ({ ...prev, [poi.page_id]: true }));
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${poi.page_id}`,
+        {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            coordinates: { lat, lon },
+            gps_not_applicable: false,
+          }),
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? 'Erreur serveur');
+      }
+      await loadQualityReport();
+      await loadGeocodeFailures();
+      onCarteUpdated?.();
+    } catch (err: any) {
+      setCoordinateErrors((prev) => ({ ...prev, [poi.page_id]: err.message }));
+    } finally {
+      setSavingCoordinates((prev) => ({ ...prev, [poi.page_id]: false }));
+    }
+  };
+
+  const markPoiWithoutGps = async (poi: GeocodeQualityPoi) => {
+    setSavingCoordinates((prev) => ({ ...prev, [poi.page_id]: true }));
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${poi.page_id}`,
+        {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gps_not_applicable: true, coordinates: null }),
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? 'Erreur serveur');
+      }
+      await loadQualityReport();
+      await loadGeocodeFailures();
+      onCarteUpdated?.();
+    } catch (err: any) {
+      setCoordinateErrors((prev) => ({ ...prev, [poi.page_id]: err.message }));
+    } finally {
+      setSavingCoordinates((prev) => ({ ...prev, [poi.page_id]: false }));
     }
   };
 
@@ -530,6 +857,200 @@ export default function CarteTab({
           failures={geocodeFailures}
           onCorrect={openGeocodeModal}
         />
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">Contrôle du géocodage</h3>
+            <p className="text-xs text-gray-500 mt-1">
+              Vérifiez les points du GeoJSON, repérez les coordonnées hors destination et corrigez-les directement sur OpenStreetMap.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              await loadQualityReport();
+              await loadGeocodeFailures();
+            }}
+            disabled={qualityLoading}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            <ArrowPathIcon className={`h-3.5 w-3.5 ${qualityLoading ? 'animate-spin' : ''}`} />
+            Actualiser
+          </button>
+        </div>
+
+        {qualityReport ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+              {[
+                { key: 'all' as const, label: 'Total', value: qualityReport.stats.total, color: 'border-gray-200 text-gray-700 bg-gray-50' },
+                { key: 'ok' as const, label: 'OK', value: qualityReport.stats.ok, color: 'border-emerald-200 text-emerald-700 bg-emerald-50' },
+                { key: 'out_of_scope' as const, label: 'Hors zone', value: qualityReport.stats.out_of_scope, color: 'border-red-200 text-red-700 bg-red-50' },
+                { key: 'missing' as const, label: 'Manquants', value: qualityReport.stats.missing, color: 'border-amber-200 text-amber-700 bg-amber-50' },
+                { key: 'no_gps' as const, label: 'Sans GPS', value: qualityReport.stats.no_gps, color: 'border-slate-200 text-slate-600 bg-slate-50' },
+              ].map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setQualityFilter(item.key)}
+                  className={`rounded-lg border px-3 py-2 text-left transition-colors ${item.color} ${
+                    qualityFilter === item.key ? 'ring-2 ring-blue-300' : ''
+                  }`}
+                >
+                  <div className="text-[11px] font-medium">{item.label}</div>
+                  <div className="text-lg font-semibold leading-tight">{item.value}</div>
+                </button>
+              ))}
+            </div>
+
+            <div className="grid lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)] gap-4">
+              <div className="space-y-2">
+                <OSMQualityMap
+                  report={qualityReport}
+                  selectedPoiId={selectedPoiId}
+                  onSelectPoi={(poi) => setSelectedPoiId(poi.page_id)}
+                  onPickCoordinates={(lat, lon) => {
+                    if (!selectedPoiId) return;
+                    setDraftCoordinates(selectedPoiId, lat.toFixed(6), lon.toFixed(6));
+                  }}
+                />
+                <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-500">
+                  <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> OK</span>
+                  <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-red-500" /> Hors zone</span>
+                  <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> À compléter</span>
+                  <span className="text-gray-400">Cliquez un POI, puis la carte pour préremplir ses coordonnées.</span>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
+                <div className="max-h-[360px] overflow-y-auto divide-y divide-gray-200">
+                  {filteredQualityPois.length === 0 ? (
+                    <div className="p-4 text-xs text-gray-500">Aucun POI pour ce filtre.</div>
+                  ) : (
+                    filteredQualityPois.map((poi) => {
+                      const selected = poi.page_id === selectedPoiId;
+                      const statusClasses = getStatusClasses(poi.status);
+                      return (
+                        <button
+                          key={poi.page_id}
+                          type="button"
+                          onClick={() => setSelectedPoiId(poi.page_id)}
+                          className={`block w-full text-left p-3 transition-colors ${
+                            selected ? 'bg-blue-50' : 'bg-white hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-xs font-semibold text-gray-800 truncate">{poi.titre}</div>
+                              <div className="text-[11px] text-gray-500 truncate">
+                                {poi.cluster_name || poi.query || 'POI'}
+                              </div>
+                            </div>
+                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold bg-white border ${statusClasses.replace('bg-', 'border-').split(' ')[1] ?? 'border-gray-200'} ${statusClasses.split(' ').find(c => c.startsWith('text-')) ?? 'text-gray-600'}`}>
+                              {getStatusLabel(poi.status)}
+                            </span>
+                          </div>
+                          {poi.coordinates && (
+                            <div className="mt-1 text-[10px] text-gray-400 font-mono">
+                              {poi.coordinates.lat.toFixed(5)}, {poi.coordinates.lon.toFixed(5)}
+                            </div>
+                          )}
+                          {poi.issue && <div className="mt-1 text-[11px] text-red-600">{poi.issue}</div>}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {selectedPoi && (
+              <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-4">
+                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <MapPinIcon className="h-4 w-4 text-blue-600 shrink-0" />
+                      <h4 className="text-sm font-semibold text-gray-900 truncate">{selectedPoi.titre}</h4>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {selectedPoi.query || selectedPoi.cluster_name || 'Coordonnées du POI'}
+                    </p>
+                    {selectedPoi.place_identity?.local_name && (
+                      <p className="text-[11px] text-gray-400 mt-0.5">
+                        OSM : {selectedPoi.place_identity.local_name}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 md:w-[20rem]">
+                    <label className="block">
+                      <span className="text-[11px] text-gray-500">Latitude</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={coordinateDrafts[selectedPoi.page_id]?.lat ?? ''}
+                        onChange={(event) => setDraftCoordinates(
+                          selectedPoi.page_id,
+                          event.target.value,
+                          coordinateDrafts[selectedPoi.page_id]?.lon ?? ''
+                        )}
+                        className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[11px] text-gray-500">Longitude</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={coordinateDrafts[selectedPoi.page_id]?.lon ?? ''}
+                        onChange={(event) => setDraftCoordinates(
+                          selectedPoi.page_id,
+                          coordinateDrafts[selectedPoi.page_id]?.lat ?? '',
+                          event.target.value
+                        )}
+                        className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-red-600">{coordinateErrors[selectedPoi.page_id] ?? ''}</p>
+                  <div className="flex items-center gap-2 ml-auto">
+                    <button
+                      type="button"
+                      onClick={() => markPoiWithoutGps(selectedPoi)}
+                      disabled={savingCoordinates[selectedPoi.page_id]}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      <NoSymbolIcon className="h-3.5 w-3.5" />
+                      Sans GPS
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => savePoiCoordinates(selectedPoi)}
+                      disabled={savingCoordinates[selectedPoi.page_id]}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {savingCoordinates[selectedPoi.page_id] ? (
+                        <ArrowPathIcon className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <PencilSquareIcon className="h-3.5 w-3.5" />
+                      )}
+                      Enregistrer
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
+            {qualityLoading ? 'Chargement du contrôle GPS...' : 'Contrôle GPS indisponible pour le moment.'}
+          </div>
+        )}
       </div>
 
       {geocodeModal && (

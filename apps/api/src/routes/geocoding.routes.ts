@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { GeocodingService } from '../services/geocoding.service.js';
 import {
   geocodeMissingPoiPages,
+  getPoiGeocodeQualityReport,
   listPoisMissingCoordinates,
 } from '../services/poi-geocoding.service.js';
 
@@ -108,6 +109,36 @@ export async function geocodingRoutes(fastify: FastifyInstance) {
         }
         request.log.error(error);
         return reply.status(500).send({ error: 'Erreur lors de la lecture des POIs' });
+      }
+    }
+  );
+
+  /**
+   * GET /guides/:guideId/poi-geocode-quality
+   * Rapport complet : coordonnées OK, manquantes, hors destination, sans GPS.
+   */
+  fastify.get<{ Params: { guideId: string } }>(
+    '/guides/:guideId/poi-geocode-quality',
+    async (request, reply) => {
+      const db = request.server.container.db;
+      const { guideId } = request.params;
+
+      if (!ObjectId.isValid(guideId)) {
+        return reply.status(400).send({ error: 'guideId invalide' });
+      }
+
+      try {
+        const report = await getPoiGeocodeQualityReport(db, guideId, geocodingService);
+        return reply.send(report);
+      } catch (error: any) {
+        if (
+          error.message === 'Guide non trouvé' ||
+          error.message === 'Chemin de fer non trouvé pour ce guide'
+        ) {
+          return reply.status(404).send({ error: error.message });
+        }
+        request.log.error(error);
+        return reply.status(500).send({ error: 'Erreur lors du contrôle qualité GPS' });
       }
     }
   );

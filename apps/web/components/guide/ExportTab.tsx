@@ -8,7 +8,6 @@ import {
   ArrowsRightLeftIcon,
   CheckCircleIcon,
   DocumentTextIcon,
-  MapPinIcon,
   PhotoIcon,
   LanguageIcon,
   ExclamationTriangleIcon,
@@ -116,7 +115,6 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
   const [downloadingPackage, setDownloadingPackage] = useState<Record<string, boolean>>({});
   const [downloadingZip, setDownloadingZip] = useState<Record<string, boolean>>({});
   const [downloadingRedirections, setDownloadingRedirections] = useState<Record<string, boolean>>({});
-  const [downloadingGeoJson, setDownloadingGeoJson] = useState<Record<string, boolean>>({});
   const [geocodeFailures, setGeocodeFailures] = useState<PoiGeocodeFailure[]>([]);
   const [geocodeModal, setGeocodeModal] = useState<{
     pendingExport: PendingGeoExport | null;
@@ -412,28 +410,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
       return;
     }
 
-    setDownloadingGeoJson(prev => ({ ...prev, [pending.lang]: true }));
-    try {
-      const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/export/geojson?lang=${pending.lang}`,
-        { credentials: 'include' }
-      );
-      if (!res.ok) throw new Error(`Erreur ${res.status}`);
-      const blob = await res.blob();
-      const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
-      const now = new Date();
-      const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
-      const timePart = now.toISOString().slice(11, 16).replace(':', '');
-      const dest = slugify(preview?.meta?.destination || preview?.meta?.guide_name || 'guide');
-      const fallback = pending.lang === 'fr'
-        ? `pois_${dest}_${datePart}_${timePart}.geojson`
-        : `pois_${dest}_${pending.lang}_${datePart}_${timePart}.geojson`;
-      downloadBlob(blob, parseFilename(res, fallback));
-    } catch {
-      alert(`Erreur lors du téléchargement du GeoJSON (${pending.lang})`);
-    } finally {
-      setDownloadingGeoJson(prev => ({ ...prev, [pending.lang]: false }));
-    }
+    return;
   };
 
   const ensureGeocodeThenExport = async (pending: PendingGeoExport) => {
@@ -500,8 +477,6 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     }
   };
 
-  const downloadGeoJson = (lang: string) => ensureGeocodeThenExport({ kind: 'geojson', lang });
-
   const renderTranslationBadge = (lang: string) => {
     const state = translationStates[lang];
     if (!state || state.status === 'idle') {
@@ -564,7 +539,6 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
         {(() => {
           const fr = LANGUAGES.find(l => l.native)!;
           const zipBusy = !!exportPreparing[`zip:${fr.code}`] || !!downloadingZip[fr.code];
-          const geoBusy = !!exportPreparing[`geojson:${fr.code}`] || !!downloadingGeoJson[fr.code];
           return (
             <div className="bg-white rounded-xl border-2 border-blue-200 p-5">
               <div className="flex items-start justify-between gap-3 mb-4">
@@ -578,6 +552,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                   </div>
                   <p className="text-xs text-gray-500 mt-1.5">
                     Package complet : JSON, images, redirections et GeoJSON (labels français).
+                    Le GeoJSON séparé se télécharge maintenant dans l&apos;étape Cartes.
                   </p>
                 </div>
               </div>
@@ -605,14 +580,6 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                   loading={downloadingRedirections[fr.code]}
                   onClick={() => downloadRedirections(fr.code)}
                 />
-                <ExportIconButton
-                  accent="emerald"
-                  icon={<MapPinIcon className="w-5 h-5" />}
-                  label="GeoJSON"
-                  title="POIs avec coordonnées GPS (géocodage auto via Photon)"
-                  loading={geoBusy}
-                  onClick={() => downloadGeoJson(fr.code)}
-                />
               </div>
 
               <PoiGeocodeAlerts
@@ -627,7 +594,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h3 className="text-sm font-semibold text-gray-700 mb-1">Traductions</h3>
           <p className="text-xs text-gray-500 mb-4">
-            Par langue : JSON traduit, redirections et GeoJSON (labels POI traduits, ex. « Escalier Agatha Christie »).
+            Par langue : JSON traduit et redirections. Les GeoJSON traduits se téléchargent dans l&apos;étape Cartes.
             Évitez de lancer une traduction en même temps que le package complet FR (ZIP + images) — les deux opérations partagent le même serveur.
           </p>
           <div className="space-y-3">
@@ -638,7 +605,6 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
               const isTranslating = isProcessing && !isStale;
               const isTranslated = tState?.status === 'completed';
               const langOverflows = overflowsByLang[lang.code] ?? [];
-              const geoBusy = !!exportPreparing[`geojson:${lang.code}`] || !!downloadingGeoJson[lang.code];
 
               return (
                 <div
@@ -740,14 +706,6 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                       title={`CSV redirections (${lang.label})`}
                       loading={downloadingRedirections[lang.code]}
                       onClick={() => downloadRedirections(lang.code)}
-                    />
-                    <ExportIconButton
-                      accent="emerald"
-                      icon={<MapPinIcon className="w-5 h-5" />}
-                      label="GeoJSON"
-                      title={`POIs avec labels traduits (${lang.label})`}
-                      loading={geoBusy}
-                      onClick={() => downloadGeoJson(lang.code)}
                     />
                   </div>
 

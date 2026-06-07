@@ -6,6 +6,7 @@ import {
   ArrowPathIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
+  LanguageIcon,
   MapPinIcon,
   PhotoIcon,
   XMarkIcon,
@@ -21,15 +22,15 @@ import {
 } from './poi-geocode-export';
 
 const LANGUAGES = [
-  { code: 'fr',    label: 'Français',    flag: '🇫🇷' },
-  { code: 'en',    label: 'Anglais',     flag: '🇬🇧' },
-  { code: 'de',    label: 'Allemand',    flag: '🇩🇪' },
-  { code: 'it',    label: 'Italien',     flag: '🇮🇹' },
-  { code: 'es',    label: 'Espagnol',    flag: '🇪🇸' },
-  { code: 'pt-pt', label: 'Portugais',   flag: '🇵🇹' },
-  { code: 'nl',    label: 'Néerlandais', flag: '🇳🇱' },
-  { code: 'da',    label: 'Danois',      flag: '🇩🇰' },
-  { code: 'sv',    label: 'Suédois',     flag: '🇸🇪' },
+  { code: 'fr',    label: 'Français',    flag: '🇫🇷', native: true },
+  { code: 'en',    label: 'Anglais',     flag: '🇬🇧', native: false },
+  { code: 'de',    label: 'Allemand',    flag: '🇩🇪', native: false },
+  { code: 'it',    label: 'Italien',     flag: '🇮🇹', native: false },
+  { code: 'es',    label: 'Espagnol',    flag: '🇪🇸', native: false },
+  { code: 'pt-pt', label: 'Portugais',   flag: '🇵🇹', native: false },
+  { code: 'nl',    label: 'Néerlandais', flag: '🇳🇱', native: false },
+  { code: 'da',    label: 'Danois',      flag: '🇩🇰', native: false },
+  { code: 'sv',    label: 'Suédois',     flag: '🇸🇪', native: false },
 ];
 
 const MAP_NAME_KEYS = [
@@ -59,6 +60,28 @@ interface CarteTabProps {
 }
 
 type ImageSelectorTarget = { pageId: string; lang: string };
+type TranslationStatus = 'idle' | 'processing' | 'completed' | 'failed';
+
+interface TranslationState {
+  status: TranslationStatus;
+  progress: { done: number; total: number } | null;
+  translated_at: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  error: string | null;
+}
+
+const TRANSLATION_STALE_MS = 10 * 60 * 1000;
+const TRANSLATION_POLL_DELAY_MS = 3000;
+const TRANSLATION_MAX_ATTEMPTS = 240;
+
+function isTranslationJobStale(state: TranslationState | undefined): boolean {
+  if (!state || state.status !== 'processing') return false;
+  const ref = state.updated_at ?? state.created_at;
+  if (!ref) return true;
+  const ts = new Date(ref).getTime();
+  return Number.isFinite(ts) && Date.now() - ts > TRANSLATION_STALE_MS;
+}
 
 function stripHtml(value: string): string {
   return value.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
@@ -91,6 +114,8 @@ export default function CarteTab({
   const [saveStatus, setSaveStatus] = useState<Record<string, 'saved' | 'error'>>({});
   const [downloadingGeo, setDownloadingGeo] = useState<Record<string, boolean>>({});
   const [geoPreparing, setGeoPreparing] = useState<Record<string, boolean>>({});
+  const [translationStates, setTranslationStates] = useState<Record<string, TranslationState>>({});
+  const [translatingGeo, setTranslatingGeo] = useState<Record<string, boolean>>({});
   const [geocodeFailures, setGeocodeFailures] = useState<PoiGeocodeFailure[]>([]);
   const [geocodeModal, setGeocodeModal] = useState<{
     pendingExport: PendingGeoExport | null;
@@ -132,10 +157,79 @@ export default function CarteTab({
     }
   }, [apiUrl, guideId]);
 
+  const loadTranslationStatus = useCallback(async (lang: string) => {
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/guides/${guideId}/translation-status?lang=${lang}`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      setTranslationStates((prev) => ({ ...prev, [lang]: data }));
+      return data as TranslationState;
+    } catch {
+      return null;
+    }
+  }, [apiUrl, guideId]);
+
   useEffect(() => {
     loadPages();
     loadGeocodeFailures();
-  }, [loadPages, loadGeocodeFailures]);
+    LANGUAGES.filter((lang) => !lang.native).forEach((lang) => {
+      loadTranslationStatus(lang.code);
+    });
+  }, [loadPages, loadGeocodeFailures, loadTranslationStatus]);
+
+  const waitForTranslation = useCallback(async (lang: string) => {
+    for (let attempt = 0; attempt < TRANSLATION_MAX_ATTEMPTS; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, TRANSLATION_POLL_DELAY_MS));
+      const status = await loadTranslationStatus(lang);
+      if (status?.status === 'completed') return status;
+      if (status?.status === 'failed') {
+        throw new Error(status.error || 'La traduction a échoué');
+      }
+      if (isTranslationJobStale(status ?? undefined)) {
+        throw new Error('La traduction semble bloquée. Relancez le GeoJSON pour forcer une nouvelle traduction.');
+      }
+    }
+    throw new Error('La traduction prend trop de temps. Réessayez dans quelques minutes.');
+  }, [loadTranslationStatus]);
+
+  const ensureTranslationReady = useCallback(async (lang: string) => {
+    if (lang === 'fr') return;
+
+    const currentStatus = await loadTranslationStatus(lang);
+    if (currentStatus?.status === 'completed') return;
+
+    const force = currentStatus?.status === 'failed' || isTranslationJobStale(currentStatus ?? undefined);
+    setTranslatingGeo((prev) => ({ ...prev, [lang]: true }));
+    setTranslationStates((prev) => ({
+      ...prev,
+      [lang]: {
+        status: 'processing',
+        progress: currentStatus?.progress ?? { done: 0, total: 0 },
+        translated_at: null,
+        error: null,
+      },
+    }));
+
+    try {
+      if (currentStatus?.status !== 'processing' || force) {
+        const forceParam = force ? '&force=true' : '';
+        const res = await fetch(
+          `${apiUrl}/api/v1/guides/${guideId}/translate?lang=${lang}${forceParam}`,
+          { method: 'POST', credentials: 'include' }
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || 'Erreur traduction');
+        }
+      }
+      await waitForTranslation(lang);
+    } finally {
+      setTranslatingGeo((prev) => ({ ...prev, [lang]: false }));
+    }
+  }, [apiUrl, guideId, loadTranslationStatus, waitForTranslation]);
 
   const slugifyDest = (s: string) =>
     s.toLowerCase().replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
@@ -175,6 +269,8 @@ export default function CarteTab({
   const ensureGeocodeThenDownload = async (lang: string) => {
     setGeoPreparing((prev) => ({ ...prev, [lang]: true }));
     try {
+      await ensureTranslationReady(lang);
+
       const missing = await ensurePoiGeocodeReady(apiUrl, guideId);
       setGeocodeFailures(missing);
       if (missing.length > 0) {
@@ -187,6 +283,49 @@ export default function CarteTab({
     } finally {
       setGeoPreparing((prev) => ({ ...prev, [lang]: false }));
     }
+  };
+
+  const renderTranslationBadge = (lang: string) => {
+    if (lang === 'fr') {
+      return <span className="text-[10px] text-blue-600">Source</span>;
+    }
+
+    const state = translationStates[lang];
+    if (!state || state.status === 'idle') {
+      return (
+        <span className="text-[10px] text-gray-400 flex items-center gap-1">
+          <LanguageIcon className="w-3 h-3" /> À traduire
+        </span>
+      );
+    }
+    if (state.status === 'processing') {
+      const { done = 0, total = 0 } = state.progress || {};
+      if (isTranslationJobStale(state)) {
+        return (
+          <span className="text-[10px] text-red-500 flex items-center gap-1">
+            <ExclamationTriangleIcon className="w-3 h-3" /> Bloqué
+          </span>
+        );
+      }
+      return (
+        <span className="text-[10px] text-blue-600 flex items-center gap-1">
+          <ArrowPathIcon className="w-3 h-3 animate-spin" />
+          {total > 0 ? `${done}/${total}` : 'Traduction'}
+        </span>
+      );
+    }
+    if (state.status === 'completed') {
+      return (
+        <span className="text-[10px] text-green-600 flex items-center gap-1">
+          <CheckCircleIcon className="w-3 h-3" /> Traduit
+        </span>
+      );
+    }
+    return (
+      <span className="text-[10px] text-red-500 flex items-center gap-1">
+        <ExclamationTriangleIcon className="w-3 h-3" /> Erreur
+      </span>
+    );
   };
 
   const saveMapImages = useCallback(async (
@@ -358,12 +497,12 @@ export default function CarteTab({
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <h3 className="text-sm font-semibold text-gray-900 mb-1">Télécharger les GeoJSON</h3>
         <p className="text-xs text-gray-500 mb-4">
-          POIs avec coordonnées GPS (géocodage automatique via Photon). Si des coordonnées manquent,
-          complétez-les avant le téléchargement.
+          POIs avec coordonnées GPS et labels strictement traduits. Pour les langues étrangères,
+          la traduction est lancée puis attendue avant le téléchargement.
         </p>
         <div className="flex flex-wrap gap-2">
           {LANGUAGES.map((lang) => {
-            const busy = !!geoPreparing[lang.code] || !!downloadingGeo[lang.code];
+            const busy = !!geoPreparing[lang.code] || !!downloadingGeo[lang.code] || !!translatingGeo[lang.code];
             return (
               <button
                 key={lang.code}
@@ -381,6 +520,7 @@ export default function CarteTab({
                 <span className="text-[10px] font-medium leading-tight text-center">
                   {lang.flag} {lang.label}
                 </span>
+                {renderTranslationBadge(lang.code)}
               </button>
             );
           })}

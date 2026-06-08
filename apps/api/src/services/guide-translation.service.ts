@@ -84,7 +84,8 @@ export class GuideTranslationService {
     guideId: string,
     targetLang: string,
     db: Db,
-    onProgress?: (p: TranslationProgress) => Promise<void>
+    onProgress?: (p: TranslationProgress) => Promise<void>,
+    scope: 'geojson' | 'full' = 'full'
   ): Promise<{ translated: number; skipped: number; errors: number; overflow_warnings: OverflowWarning[] }> {
     const langName = LANGUAGE_NAMES[targetLang];
     if (!langName) throw new Error(`Langue inconnue : ${targetLang}`);
@@ -129,7 +130,7 @@ export class GuideTranslationService {
     const stats = { translated: 0, skipped: 0, errors: 0, overflow_warnings: [] as OverflowWarning[] };
     const total = pages.length;
 
-    console.log(`🚀 [TRANSLATE] Début guide ${guideId} → ${targetLang} (${total} pages exportables)`);
+    console.log(`🚀 [TRANSLATE] Début guide ${guideId} → ${targetLang} scope=${scope} (${total} pages exportables)`);
 
     for (let i = 0; i < pages.length; i++) {
       const page = pages[i];
@@ -141,13 +142,20 @@ export class GuideTranslationService {
       );
 
       // Extraire les champs texte traduisibles
-      const toTranslate = this.extractTranslatableFields(rawContent);
+      const allTranslatable = this.extractTranslatableFields(rawContent);
+
+      // scope=geojson : seul POI_titre_1 est traduit (pour les labels GeoJSON)
+      const toTranslate = scope === 'geojson'
+        ? (allTranslatable['POI_titre_1'] ? { POI_titre_1: allTranslatable['POI_titre_1'] } : {})
+        : allTranslatable;
+
       const { placeNames, body } = splitTranslatableFields(toTranslate);
       const placeNameKeys = Object.keys(placeNames);
       const bodyKeys = Object.keys(body);
       console.log(
         `📋 [TRANSLATE] Page ${i + 1}/${total} ${page.template_name} (${page._id}) — ` +
-        `${placeNameKeys.length} toponyme(s), ${bodyKeys.length} autre(s) champ(s)`
+        `${placeNameKeys.length} toponyme(s), ${bodyKeys.length} autre(s) champ(s)` +
+        (scope === 'geojson' ? ' [geojson]' : '')
       );
 
       if (Object.keys(toTranslate).length === 0) {
@@ -171,9 +179,9 @@ export class GuideTranslationService {
             `page ${page._id}`
           );
 
-          // Détecter les dépassements résiduels après tous les retries
+          // Détecter les dépassements résiduels (scope=full uniquement)
           const pageOverflows: OverflowWarning[] = [];
-          if (alertEnabled) {
+          if (scope === 'full' && alertEnabled) {
             for (const [key, value] of Object.entries(translated)) {
               const limit = fieldLimits[key];
               if (limit && typeof value === 'string' && value.length > limit) {
@@ -191,15 +199,23 @@ export class GuideTranslationService {
           }
 
           // Sauvegarder sur la page
+          const setFields: Record<string, any> = {
+            [`content_translations.${targetLang}.translated_at`]: new Date(),
+            [`content_translations.${targetLang}.scope`]:         scope,
+          };
+          if (scope === 'geojson') {
+            // Ne mettre à jour que POI_titre_1 pour ne pas écraser une traduction complète existante
+            if (translated['POI_titre_1'] != null) {
+              setFields[`content_translations.${targetLang}.text.POI_titre_1`] = translated['POI_titre_1'];
+            }
+          } else {
+            setFields[`content_translations.${targetLang}.text`]              = translated;
+            setFields[`content_translations.${targetLang}.overflow_warnings`] = pageOverflows;
+          }
+
           await db.collection('pages').updateOne(
             { _id: new ObjectId(page._id) },
-            {
-              $set: {
-                [`content_translations.${targetLang}.text`]:              translated,
-                [`content_translations.${targetLang}.translated_at`]:     new Date(),
-                [`content_translations.${targetLang}.overflow_warnings`]: pageOverflows,
-              },
-            }
+            { $set: setFields }
           );
           stats.translated++;
         } catch (err: any) {

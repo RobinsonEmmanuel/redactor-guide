@@ -161,7 +161,7 @@ export class ExportService {
 
           const dayNumFromAnchorId = (id: string): number | null => {
             const raw = String(id).replace(/^#/, '');
-            const mJ = /\bJour[_\s]*(\d+)\b/i.exec(raw) ?? /\bDay[_\s]*(\d+)\b/i.exec(raw);
+            const mJ = /\bJour[_\s]*(\d+)/i.exec(raw) ?? /\bDay[_\s]*(\d+)/i.exec(raw);
             if (mJ) return parseInt(mJ[1], 10);
             const mN = /^(\d+)_/.exec(raw);
             if (mN) return parseInt(mN[1], 10);
@@ -255,7 +255,7 @@ export class ExportService {
         return stripUrlFragment(resolved);
       }
 
-      const mDay = /\bJour[_\s]*(\d+)\b/i.exec(fragInner) ?? /\bDay[_\s]*(\d+)\b/i.exec(fragInner);
+      const mDay = /\bJour[_\s]*(\d+)/i.exec(fragInner) ?? /\bDay[_\s]*(\d+)/i.exec(fragInner);
       if (mDay) {
         const dayNum = parseInt(mDay[1], 10);
         const anchoredDay = anchorByFrCanonAndDay.get(`${canonFr}|day:${dayNum}`);

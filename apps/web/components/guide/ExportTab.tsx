@@ -8,6 +8,7 @@ import {
   ArrowsRightLeftIcon,
   CheckCircleIcon,
   DocumentTextIcon,
+  MapPinIcon,
   PhotoIcon,
   LanguageIcon,
   ExclamationTriangleIcon,
@@ -91,6 +92,7 @@ function ExportIconButton({
 
 interface TranslationState {
   status: TranslationStatus;
+  scope?: 'geojson' | 'full' | null;
   progress: { done: number; total: number } | null;
   translated_at: string | null;
   created_at?: string | null;
@@ -263,18 +265,19 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [loadTranslationStatus, startPolling]);
 
-  const translateLanguage = async (lang: string, options?: { force?: boolean }) => {
+  const translateLanguage = async (lang: string, options?: { force?: boolean; scope?: 'geojson' | 'full' }) => {
     const force = options?.force ?? false;
+    const scope = options?.scope ?? 'geojson';
     setTranslating(prev => ({ ...prev, [lang]: true }));
-    setOverflowsByLang(prev => ({ ...prev, [lang]: [] }));
+    if (scope === 'full') setOverflowsByLang(prev => ({ ...prev, [lang]: [] }));
     setTranslationStates(prev => ({
       ...prev,
-      [lang]: { status: 'processing', progress: { done: 0, total: 0 }, translated_at: null, error: null },
+      [lang]: { status: 'processing', scope, progress: { done: 0, total: 0 }, translated_at: null, error: null },
     }));
     try {
       const forceParam = force ? '&force=true' : '';
       const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/translate?lang=${lang}${forceParam}`,
+        `${apiUrl}/api/v1/guides/${guideId}/translate?lang=${lang}&scope=${scope}${forceParam}`,
         { method: 'POST', credentials: 'include' }
       );
       if (!res.ok) {
@@ -286,7 +289,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
       setTranslating(prev => ({ ...prev, [lang]: false }));
       setTranslationStates(prev => ({
         ...prev,
-        [lang]: { status: 'failed', progress: null, translated_at: null, error: err.message },
+        [lang]: { status: 'failed', scope, progress: null, translated_at: null, error: err.message },
       }));
     }
   };
@@ -307,9 +310,65 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     return cdMatch ? cdMatch[1] : fallback;
   };
 
+  const ensureFullTranslation = useCallback(async (lang: string): Promise<void> => {
+    // Relire le statut depuis l'API pour éviter un état périmé dans la closure
+    const statusRes = await fetch(
+      `${apiUrl}/api/v1/guides/${guideId}/translation-status?lang=${lang}`,
+      { credentials: 'include' }
+    );
+    const currentStatus = statusRes.ok ? await statusRes.json() : null;
+
+    // Déjà pleinement traduit → rien à faire
+    if (currentStatus?.status === 'completed' && currentStatus?.scope !== 'geojson') return;
+
+    // Déclencher la traduction complète
+    const needsForce = currentStatus?.status === 'failed' || isTranslationJobStale(currentStatus);
+    const res = await fetch(
+      `${apiUrl}/api/v1/guides/${guideId}/translate?lang=${lang}&scope=full${needsForce ? '&force=true' : ''}`,
+      { method: 'POST', credentials: 'include' }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Erreur traduction complète');
+    }
+
+    setTranslationStates(prev => ({
+      ...prev,
+      [lang]: { ...prev[lang], status: 'processing', scope: 'full', progress: { done: 0, total: 0 }, error: null },
+    }));
+    setTranslating(prev => ({ ...prev, [lang]: true }));
+    startPolling(lang);
+
+    // Attendre la fin (polling toutes les 3 s)
+    await new Promise<void>((resolve, reject) => {
+      const checkInterval = setInterval(async () => {
+        try {
+          const pollRes = await fetch(
+            `${apiUrl}/api/v1/guides/${guideId}/translation-status?lang=${lang}`,
+            { credentials: 'include' }
+          );
+          if (!pollRes.ok) return;
+          const d = await pollRes.json();
+          if (d?.status === 'completed') {
+            clearInterval(checkInterval);
+            resolve();
+          } else if (d?.status === 'failed') {
+            clearInterval(checkInterval);
+            reject(new Error(d.error || 'Traduction échouée'));
+          }
+        } catch { /* ignore, retry on next tick */ }
+      }, 3000);
+    });
+  }, [apiUrl, guideId, startPolling]);
+
   const downloadExport = async (lang: string) => {
     setDownloading(prev => ({ ...prev, [lang]: true }));
     try {
+      // 0) Si langue étrangère avec seulement GeoJSON traduit, finir la traduction complète d'abord
+      if (lang !== 'fr') {
+        await ensureFullTranslation(lang);
+      }
+
       // 1) Créer un job asynchrone côté API (anti-timeout)
       const createRes = await fetch(
         `${apiUrl}/api/v1/guides/${guideId}/export/json-jobs`,
@@ -354,8 +413,8 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
       if (!res.ok) throw new Error('Erreur téléchargement JSON');
       const blob = await res.blob();
       downloadBlob(blob, parseFilename(res, `guide_${lang}.json`));
-    } catch (err) {
-      alert(`Erreur lors de l'export en ${lang}`);
+    } catch (err: any) {
+      alert(err?.message || `Erreur lors de l'export en ${lang}`);
     } finally {
       setDownloading(prev => ({ ...prev, [lang]: false }));
     }
@@ -438,6 +497,9 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
   const downloadPackage = async (lang: string) => {
     setDownloadingPackage(prev => ({ ...prev, [lang]: true }));
     try {
+      // Déclencher la traduction complète si seulement GeoJSON traduit
+      await ensureFullTranslation(lang);
+
       const res = await fetch(
         `${apiUrl}/api/v1/guides/${guideId}/export/package?lang=${lang}`,
         { credentials: 'include' }
@@ -450,8 +512,8 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
       const timePart = now.toISOString().slice(11, 16).replace(':', '');
       const dest = slugify(preview?.meta?.destination || preview?.meta?.guide_name || 'guide');
       downloadBlob(blob, parseFilename(res, `guide_${dest}_${lang}_${datePart}_${timePart}_json_redirections.zip`));
-    } catch {
-      alert(`Erreur lors du téléchargement JSON+redirections en ${lang}`);
+    } catch (err: any) {
+      alert(err?.message || `Erreur lors du téléchargement JSON+redirections en ${lang}`);
     } finally {
       setDownloadingPackage(prev => ({ ...prev, [lang]: false }));
     }
@@ -507,6 +569,13 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
       const date = state.translated_at
         ? new Date(state.translated_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
         : '';
+      if (state.scope === 'geojson') {
+        return (
+          <span className="text-xs text-emerald-600 flex items-center gap-1">
+            <MapPinIcon className="w-3 h-3" /> GeoJSON prêt {date}
+          </span>
+        );
+      }
       return (
         <span className="text-xs text-green-600 flex items-center gap-1">
           <CheckCircleIcon className="w-3 h-3" /> Traduit {date}
@@ -632,6 +701,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                         <button
                           onClick={() => translateLanguage(lang.code, {
                             force: isStale || tState?.status === 'failed',
+                            scope: 'geojson',
                           })}
                           title={
                             isStale || tState?.status === 'failed'
@@ -654,8 +724,8 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                         {/* TODO: retirer après validation des règles toponymiques */}
                         <button
                           type="button"
-                          onClick={() => translateLanguage(lang.code, { force: true })}
-                          title="Relance forcée (force=true) — annule un job en cours et retraduit tout"
+                          onClick={() => translateLanguage(lang.code, { force: true, scope: 'geojson' })}
+                          title="Relance forcée GeoJSON (force=true) — annule un job en cours et retraduit les titres POI"
                           className="flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium rounded-lg border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 transition-colors"
                         >
                           <ArrowPathIcon className="w-3 h-3" />
@@ -674,6 +744,12 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                   {tState?.status === 'failed' && tState.error && !isStale && (
                     <p className="text-[11px] text-red-600 mb-2">
                       {tState.error}
+                    </p>
+                  )}
+
+                  {tState?.status === 'completed' && tState?.scope === 'geojson' && (
+                    <p className="text-[11px] text-amber-600 mb-2">
+                      Noms POI traduits (GeoJSON). L&apos;export JSON déclenchera automatiquement la traduction complète du guide.
                     </p>
                   )}
 

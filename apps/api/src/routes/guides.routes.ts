@@ -285,7 +285,8 @@ export async function guidesRoutes(fastify: FastifyInstance) {
   fastify.post('/guides/:guideId/translate', async (request, reply) => {
     const db = request.server.container.db;
     const { guideId } = request.params as { guideId: string };
-    const { lang, force } = request.query as { lang?: string; force?: string };
+    const { lang, force, scope } = request.query as { lang?: string; force?: string; scope?: string };
+    const translationScope: 'geojson' | 'full' = scope === 'geojson' ? 'geojson' : 'full';
 
     if (!lang || !(VALID_TRANSLATION_LANGS as readonly string[]).includes(lang)) {
       return reply.status(400).send({ error: `Langue invalide. Valeurs acceptées : ${VALID_TRANSLATION_LANGS.join(', ')}` });
@@ -327,6 +328,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
     const jobDoc = {
       guide_id: guideId,
       lang,
+      scope: translationScope,
       status: 'processing',
       progress: { done: 0, total: 0 },
       error: null,
@@ -348,7 +350,8 @@ export async function guidesRoutes(fastify: FastifyInstance) {
           { _id: new ObjectId(jobId) },
           { $set: { progress, updated_at: new Date() } }
         ).catch(() => {});
-      }
+      },
+      translationScope
     ).then(async (stats) => {
       await db.collection(COLLECTIONS.guide_translation_jobs).updateOne(
         { _id: new ObjectId(jobId) },
@@ -414,6 +417,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
 
     return reply.send({
       status: job.status,
+      scope: (job.scope as 'geojson' | 'full' | undefined) ?? 'full',
       progress: job.progress || null,
       translated_at: job.translated_at || null,
       created_at: job.created_at || null,

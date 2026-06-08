@@ -58,6 +58,94 @@ function extractTextFromContent(content: Record<string, any> | null | undefined)
   return parts.slice(0, 6).join('\n').substring(0, 1200);
 }
 
+function isClusterPage(page: any): boolean {
+  return page?.metadata?.page_type === 'cluster_intro' || page?.template_name === 'CLUSTER';
+}
+
+function isPoiPage(page: any): boolean {
+  return page?.metadata?.page_type === 'poi' || page?.type_de_page === 'poi' || page?.template_name === 'POI';
+}
+
+async function syncPoiClusterLinksFromOrder(
+  db: any,
+  guideId: string,
+  cheminDeFerId: string,
+  now: string
+): Promise<void> {
+  const orderedPages = await db
+    .collection(COLLECTIONS.pages)
+    .find({ chemin_de_fer_id: cheminDeFerId })
+    .sort({ ordre: 1, _id: 1 })
+    .toArray();
+
+  let currentCluster: { pageId: string | null; clusterId: string | null; clusterName: string | null } | null = null;
+  const pageOps: any[] = [];
+  const poiSelectionOps: any[] = [];
+
+  for (const page of orderedPages) {
+    if (isClusterPage(page)) {
+      currentCluster = {
+        pageId: page.page_id || page._id?.toString() || null,
+        clusterId: page.metadata?.cluster_id || page.cluster_id || null,
+        clusterName: page.metadata?.cluster_name || page.cluster_name || page.titre || null,
+      };
+      continue;
+    }
+
+    if (!isPoiPage(page)) continue;
+
+    const nextClusterId = currentCluster?.clusterId ?? null;
+    const nextClusterName = currentCluster?.clusterName ?? null;
+    const nextParentPageId = currentCluster?.pageId ?? null;
+    const previousMetadata = page.metadata ?? {};
+
+    if (
+      previousMetadata.cluster_id === nextClusterId &&
+      previousMetadata.cluster_name === nextClusterName &&
+      previousMetadata.parent_cluster_page_id === nextParentPageId
+    ) {
+      continue;
+    }
+
+    pageOps.push({
+      updateOne: {
+        filter: { _id: page._id },
+        update: {
+          $set: {
+            'metadata.cluster_id': nextClusterId,
+            'metadata.cluster_name': nextClusterName,
+            'metadata.parent_cluster_page_id': nextParentPageId,
+            updated_at: now,
+          },
+        },
+      },
+    });
+
+    if (previousMetadata.poi_id) {
+      poiSelectionOps.push({
+        updateOne: {
+          filter: { guide_id: guideId, 'pois.poi_id': previousMetadata.poi_id },
+          update: {
+            $set: {
+              'pois.$.cluster_id': nextClusterId,
+              'pois.$.cluster_name': nextClusterName,
+              'pois.$.matched_automatically': false,
+              updated_at: now,
+            },
+          },
+        },
+      });
+    }
+  }
+
+  if (pageOps.length > 0) {
+    await db.collection(COLLECTIONS.pages).bulkWrite(pageOps);
+  }
+  if (poiSelectionOps.length > 0) {
+    await db.collection(COLLECTIONS.pois_selection).bulkWrite(poiSelectionOps);
+  }
+}
+
 export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   /**
    * GET /guides/:guideId/chemin-de-fer
@@ -325,7 +413,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       try {
         const db = request.server.container.db;
-        const { pageId } = request.params;
+        const { guideId, pageId } = request.params;
 
         if (!ObjectId.isValid(pageId)) {
           return reply.status(400).send({ error: 'Page ID invalide' });
@@ -359,6 +447,10 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
             { $set: { 'pois.$.url_source': body.url_source, updated_at: now } }
           );
           console.log(`🔄 [Sync POI URL] poi_id=${result.metadata.poi_id} → ${body.url_source}`);
+        }
+
+        if (Object.prototype.hasOwnProperty.call(body, 'ordre') && result.chemin_de_fer_id) {
+          await syncPoiClusterLinksFromOrder(db, guideId, result.chemin_de_fer_id, now);
         }
 
         return reply.send(result);
@@ -554,6 +646,7 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       try {
         const db = request.server.container.db;
+        const { guideId } = request.params;
         const { pages } = request.body;
 
         if (!Array.isArray(pages)) {
@@ -569,6 +662,11 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         }));
 
         await db.collection(COLLECTIONS.pages).bulkWrite(bulkOps);
+
+        const cheminDeFer = await db.collection(COLLECTIONS.chemins_de_fer).findOne({ guide_id: guideId });
+        if (cheminDeFer?._id) {
+          await syncPoiClusterLinksFromOrder(db, guideId, cheminDeFer._id.toString(), now);
+        }
 
         return reply.send({ success: true });
       } catch (error) {

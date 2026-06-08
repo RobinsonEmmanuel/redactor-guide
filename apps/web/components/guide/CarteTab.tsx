@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
+import { Fragment, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import {
   MapIcon,
   ArrowPathIcon,
@@ -13,6 +13,7 @@ import {
   PencilSquareIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
+import { MapPinIcon as MapPinSolidIcon } from '@heroicons/react/24/solid';
 import PoiGeocodeModal from './PoiGeocodeModal';
 import PoiGeocodeAlerts from './PoiGeocodeAlerts';
 import ImageSelectorModal from './ImageSelectorModal';
@@ -54,6 +55,7 @@ interface CartePage {
 }
 
 type GeocodeQualityStatus = 'ok' | 'missing' | 'out_of_scope' | 'no_gps';
+type GeocodeQualitySortMode = 'alphabetical' | 'cluster';
 
 interface GeocodeQualityPoi {
   page_id: string;
@@ -165,19 +167,50 @@ function getStatusClasses(status: GeocodeQualityStatus) {
   return 'bg-slate-400 border-slate-600 text-slate-600';
 }
 
+function getStatusMarkerClass(status: GeocodeQualityStatus) {
+  return getStatusClasses(status).split(' ')[0];
+}
+
+function getStatusTextClass(status: GeocodeQualityStatus) {
+  return getStatusClasses(status).split(' ').find((className) => className.startsWith('text-')) ?? 'text-gray-600';
+}
+
+function compareText(a: string | null | undefined, b: string | null | undefined) {
+  return String(a || '').localeCompare(String(b || ''), 'fr', {
+    sensitivity: 'base',
+    numeric: true,
+  });
+}
+
+function getPoiClusterName(poi: GeocodeQualityPoi) {
+  return poi.cluster_name?.trim() || 'Sans cluster';
+}
+
 function OSMQualityMap({
   report,
   selectedPoiId,
+  selectedClusterName,
   onSelectPoi,
   onPickCoordinates,
 }: {
   report: GeocodeQualityReport;
   selectedPoiId: string | null;
+  selectedClusterName: string | null;
   onSelectPoi: (poi: GeocodeQualityPoi) => void;
   onPickCoordinates: (lat: number, lon: number) => void;
 }) {
   const mapRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    centerWorldX: number;
+    centerWorldY: number;
+  } | null>(null);
+  const dragMovedRef = useRef(false);
   const [mapWidth, setMapWidth] = useState(760);
+  const [zoomOffset, setZoomOffset] = useState(0);
+  const [centerOverride, setCenterOverride] = useState<{ lat: number; lon: number } | null>(null);
   useEffect(() => {
     const node = mapRef.current;
     if (!node) return;
@@ -192,8 +225,9 @@ function OSMQualityMap({
   const height = 360;
   const points = report.pois.filter((poi) => poi.coordinates);
   const bounds = report.bounds;
-  const zoom = bounds ? 10 : points.length > 0 ? 8 : 2;
-  const center = bounds
+  const baseZoom = bounds ? 10 : points.length > 0 ? 8 : 2;
+  const zoom = Math.max(2, Math.min(18, baseZoom + zoomOffset));
+  const defaultCenter = bounds
     ? {
         lat: (bounds.minLat + bounds.maxLat) / 2,
         lon: (bounds.minLon + bounds.maxLon) / 2,
@@ -204,6 +238,7 @@ function OSMQualityMap({
           lon: points.reduce((sum, poi) => sum + (poi.coordinates?.lon ?? 0), 0) / points.length,
         }
       : { lat: 28.2916, lon: -16.6291 };
+  const center = centerOverride ?? defaultCenter;
   const centerWorld = lonLatToWorld(center.lat, center.lon, zoom);
   const minX = centerWorld.x - width / 2;
   const minY = centerWorld.y - height / 2;
@@ -233,6 +268,11 @@ function OSMQualityMap({
     return { left: world.x - minX, top: world.y - minY };
   };
 
+  useEffect(() => {
+    setCenterOverride(null);
+    setZoomOffset(0);
+  }, [report.destination, report.bounds?.minLat, report.bounds?.maxLat, report.bounds?.minLon, report.bounds?.maxLon]);
+
   const boundsRect = bounds
     ? (() => {
         const nw = project(bounds.maxLat, bounds.minLon);
@@ -249,8 +289,45 @@ function OSMQualityMap({
   return (
     <div
       ref={mapRef}
-      className="relative h-[360px] overflow-hidden rounded-lg border border-gray-200 bg-slate-100"
+      className="relative h-[360px] cursor-grab overflow-hidden rounded-lg border border-gray-200 bg-slate-100 active:cursor-grabbing"
+      onPointerDown={(event) => {
+        const target = event.target as HTMLElement;
+        if (target.closest('button')) return;
+        dragMovedRef.current = false;
+        dragRef.current = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          centerWorldX: centerWorld.x,
+          centerWorldY: centerWorld.y,
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={(event) => {
+        const drag = dragRef.current;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        const dx = event.clientX - drag.startX;
+        const dy = event.clientY - drag.startY;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragMovedRef.current = true;
+        const nextCenter = worldToLonLat(drag.centerWorldX - dx, drag.centerWorldY - dy, zoom);
+        setCenterOverride(nextCenter);
+      }}
+      onPointerUp={(event) => {
+        if (dragRef.current?.pointerId === event.pointerId) {
+          dragRef.current = null;
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      }}
+      onPointerCancel={(event) => {
+        if (dragRef.current?.pointerId === event.pointerId) {
+          dragRef.current = null;
+        }
+      }}
       onClick={(event) => {
+        if (dragMovedRef.current) {
+          dragMovedRef.current = false;
+          return;
+        }
         if (!selectedPoiId) return;
         const rect = event.currentTarget.getBoundingClientRect();
         const x = minX + (event.clientX - rect.left);
@@ -282,7 +359,9 @@ function OSMQualityMap({
         const coords = poi.coordinates!;
         const pos = project(coords.lat, coords.lon);
         const selected = poi.page_id === selectedPoiId;
-        const color = getStatusClasses(poi.status).split(' ')[0];
+        const clusterSelected = !!selectedClusterName && getPoiClusterName(poi) === selectedClusterName;
+        const markerColor = getStatusMarkerClass(poi.status);
+        const markerTextColor = getStatusTextClass(poi.status);
         return (
           <button
             key={poi.page_id}
@@ -295,10 +374,49 @@ function OSMQualityMap({
             style={{ left: pos.left, top: pos.top }}
             title={poi.titre}
           >
-            <span className={`block h-4 w-4 rounded-full border-2 border-white shadow ${color}`} />
+            {selected ? (
+              <MapPinSolidIcon
+                className={`h-8 w-8 drop-shadow-md ${clusterSelected ? '' : markerTextColor}`}
+                style={clusterSelected ? { color: '#191E55' } : undefined}
+              />
+            ) : clusterSelected ? (
+              <span
+                className="block h-5 w-5 rounded-full border-2 border-white shadow"
+                style={{ backgroundColor: '#191E55' }}
+              />
+            ) : (
+              <span className={`block h-4 w-4 rounded-full border-2 border-white shadow ${markerColor}`} />
+            )}
           </button>
         );
       })}
+
+      <div className="absolute left-3 top-3 flex overflow-hidden rounded-lg border border-gray-200 bg-white/95 shadow-sm">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setZoomOffset((value) => Math.min(value + 1, 8));
+          }}
+          className="h-8 w-8 text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-40"
+          disabled={zoom >= 18}
+          title="Zoomer"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setZoomOffset((value) => Math.max(value - 1, -8));
+          }}
+          className="h-8 w-8 border-l border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-40"
+          disabled={zoom <= 2}
+          title="Dézoomer"
+        >
+          -
+        </button>
+      </div>
 
       <div className="absolute bottom-2 right-2 rounded bg-white/90 px-2 py-1 text-[10px] text-gray-500 shadow-sm">
         © OpenStreetMap
@@ -328,7 +446,9 @@ export default function CarteTab({
   const [qualityReport, setQualityReport] = useState<GeocodeQualityReport | null>(null);
   const [qualityLoading, setQualityLoading] = useState(false);
   const [qualityFilter, setQualityFilter] = useState<GeocodeQualityStatus | 'all'>('all');
+  const [qualitySortMode, setQualitySortMode] = useState<GeocodeQualitySortMode>('alphabetical');
   const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null);
+  const [selectedClusterName, setSelectedClusterName] = useState<string | null>(null);
   const [coordinateDrafts, setCoordinateDrafts] = useState<Record<string, { lat: string; lon: string }>>({});
   const [savingCoordinates, setSavingCoordinates] = useState<Record<string, boolean>>({});
   const [coordinateErrors, setCoordinateErrors] = useState<Record<string, string>>({});
@@ -445,9 +565,9 @@ export default function CarteTab({
     if (lang === 'fr') return;
 
     const currentStatus = await loadTranslationStatus(lang);
-    if (currentStatus?.status === 'completed') return;
+    const isActiveProcessing =
+      currentStatus?.status === 'processing' && !isTranslationJobStale(currentStatus);
 
-    const force = currentStatus?.status === 'failed' || isTranslationJobStale(currentStatus ?? undefined);
     setTranslatingGeo((prev) => ({ ...prev, [lang]: true }));
     setTranslationStates((prev) => ({
       ...prev,
@@ -460,10 +580,9 @@ export default function CarteTab({
     }));
 
     try {
-      if (currentStatus?.status !== 'processing' || force) {
-        const forceParam = force ? '&force=true' : '';
+      if (!isActiveProcessing) {
         const res = await fetch(
-          `${apiUrl}/api/v1/guides/${guideId}/translate?lang=${lang}${forceParam}`,
+          `${apiUrl}/api/v1/guides/${guideId}/translate?lang=${lang}&force=true`,
           { method: 'POST', credentials: 'include' }
         );
         if (!res.ok) {
@@ -533,9 +652,21 @@ export default function CarteTab({
   };
 
   const selectedPoi = qualityReport?.pois.find((poi) => poi.page_id === selectedPoiId) ?? null;
-  const filteredQualityPois = qualityReport?.pois.filter((poi) =>
-    qualityFilter === 'all' ? true : poi.status === qualityFilter
-  ) ?? [];
+  const filteredQualityPois = useMemo(() => {
+    const pois = qualityReport?.pois.filter((poi) =>
+      qualityFilter === 'all' ? true : poi.status === qualityFilter
+    ) ?? [];
+
+    return [...pois].sort((a, b) => {
+      if (qualitySortMode === 'cluster') {
+        const clusterCompare = compareText(getPoiClusterName(a), getPoiClusterName(b));
+        if (clusterCompare !== 0) return clusterCompare;
+      }
+      const titleCompare = compareText(a.titre, b.titre);
+      if (titleCompare !== 0) return titleCompare;
+      return compareText(a.query, b.query);
+    });
+  }, [qualityFilter, qualityReport, qualitySortMode]);
 
   const setDraftCoordinates = (pageId: string, lat: string, lon: string) => {
     setCoordinateDrafts((prev) => ({
@@ -858,7 +989,7 @@ export default function CarteTab({
         <h3 className="text-sm font-semibold text-gray-900 mb-1">Télécharger les GeoJSON</h3>
         <p className="text-xs text-gray-500 mb-4">
           POIs avec coordonnées GPS et labels strictement traduits. Pour les langues étrangères,
-          la traduction est lancée puis attendue avant le téléchargement.
+          la traduction est relancée puis attendue avant le téléchargement.
         </p>
         <div className="flex flex-wrap gap-2">
           {LANGUAGES.map((lang) => {
@@ -869,7 +1000,11 @@ export default function CarteTab({
                 type="button"
                 onClick={() => ensureGeocodeThenDownload(lang.code)}
                 disabled={busy}
-                title={`GeoJSON ${lang.label} (géocodage auto via Photon)`}
+                title={
+                  lang.code === 'fr'
+                    ? `GeoJSON ${lang.label} (géocodage auto via Photon)`
+                    : `GeoJSON ${lang.label} (traduction relancée puis géocodage auto via Photon)`
+                }
                 className="flex flex-col items-center gap-1 min-w-[4.5rem] px-2 py-2 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors disabled:opacity-50"
               >
                 {busy ? (
@@ -943,7 +1078,11 @@ export default function CarteTab({
                 <OSMQualityMap
                   report={qualityReport}
                   selectedPoiId={selectedPoiId}
-                  onSelectPoi={(poi) => setSelectedPoiId(poi.page_id)}
+                  selectedClusterName={selectedClusterName}
+                  onSelectPoi={(poi) => {
+                    setSelectedPoiId(poi.page_id);
+                    setSelectedClusterName(getPoiClusterName(poi));
+                  }}
                   onPickCoordinates={(lat, lon) => {
                     if (!selectedPoiId) return;
                     setDraftCoordinates(selectedPoiId, lat.toFixed(6), lon.toFixed(6));
@@ -958,40 +1097,91 @@ export default function CarteTab({
               </div>
 
               <div className="rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
+                <div className="flex items-center justify-between gap-2 border-b border-gray-200 bg-white px-3 py-2">
+                  <span className="text-[11px] font-medium text-gray-500">Affichage</span>
+                  <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setQualitySortMode('alphabetical')}
+                      className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                        qualitySortMode === 'alphabetical'
+                          ? 'bg-white text-blue-700 shadow-sm'
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      A-Z
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQualitySortMode('cluster')}
+                      className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                        qualitySortMode === 'cluster'
+                          ? 'bg-white text-blue-700 shadow-sm'
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      Clusters
+                    </button>
+                  </div>
+                </div>
                 <div className="max-h-[360px] overflow-y-auto divide-y divide-gray-200">
                   {filteredQualityPois.length === 0 ? (
                     <div className="p-4 text-xs text-gray-500">Aucun POI pour ce filtre.</div>
                   ) : (
-                    filteredQualityPois.map((poi) => {
+                    filteredQualityPois.map((poi, index) => {
                       const selected = poi.page_id === selectedPoiId;
-                      const statusClasses = getStatusClasses(poi.status);
+                      const statusTextClass = getStatusTextClass(poi.status);
+                      const clusterName = getPoiClusterName(poi);
+                      const previousClusterName = index > 0 ? getPoiClusterName(filteredQualityPois[index - 1]) : null;
+                      const showClusterHeader = qualitySortMode === 'cluster' && clusterName !== previousClusterName;
+                      const clusterSelected = selectedClusterName === clusterName;
                       return (
-                        <button
-                          key={poi.page_id}
-                          type="button"
-                          onClick={() => setSelectedPoiId(poi.page_id)}
-                          className={`block w-full text-left p-3 transition-colors ${
-                            selected ? 'bg-blue-50' : 'bg-white hover:bg-gray-50'
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="text-xs font-semibold text-gray-800 truncate">{poi.titre}</div>
-                              <div className="text-[11px] text-gray-500 truncate">
-                                {poi.cluster_name || poi.query || 'POI'}
-                              </div>
-                            </div>
-                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold bg-white border ${statusClasses.replace('bg-', 'border-').split(' ')[1] ?? 'border-gray-200'} ${statusClasses.split(' ').find(c => c.startsWith('text-')) ?? 'text-gray-600'}`}>
-                              {getStatusLabel(poi.status)}
-                            </span>
-                          </div>
-                          {poi.coordinates && (
-                            <div className="mt-1 text-[10px] text-gray-400 font-mono">
-                              {poi.coordinates.lat.toFixed(5)}, {poi.coordinates.lon.toFixed(5)}
-                            </div>
+                        <Fragment key={poi.page_id}>
+                          {showClusterHeader && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedClusterName((current) => current === clusterName ? null : clusterName);
+                              }}
+                              className={`block w-full px-3 py-1.5 text-left text-[11px] font-semibold uppercase transition-colors ${
+                                clusterSelected
+                                  ? 'bg-[#191E55] text-white'
+                                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700'
+                              }`}
+                              title="Afficher les POI de ce cluster sur la carte"
+                            >
+                              {clusterName}
+                            </button>
                           )}
-                          {poi.issue && <div className="mt-1 text-[11px] text-red-600">{poi.issue}</div>}
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedPoiId(poi.page_id);
+                              setSelectedClusterName(clusterName);
+                            }}
+                            className={`block w-full text-left p-3 transition-colors ${
+                              selected ? 'bg-blue-50' : 'bg-white hover:bg-gray-50'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="text-xs font-semibold text-gray-800 truncate">{poi.titre}</div>
+                                <div className="text-[11px] text-gray-500 truncate">
+                                  {poi.cluster_name || poi.query || 'POI'}
+                                </div>
+                              </div>
+                              <span className={`shrink-0 rounded-full border border-current bg-white px-2 py-0.5 text-[10px] font-semibold ${statusTextClass}`}>
+                                {getStatusLabel(poi.status)}
+                              </span>
+                            </div>
+                            {poi.coordinates && (
+                              <div className="mt-1 text-[10px] text-gray-400 font-mono">
+                                {poi.coordinates.lat.toFixed(5)}, {poi.coordinates.lon.toFixed(5)}
+                              </div>
+                            )}
+                            {poi.issue && <div className="mt-1 text-[11px] text-red-600">{poi.issue}</div>}
+                          </button>
+                        </Fragment>
                       );
                     })
                   )}

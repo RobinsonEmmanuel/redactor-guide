@@ -22,6 +22,7 @@ interface PageDocument {
   metadata: {
     cluster_id?: string;
     cluster_name?: string;
+    parent_cluster_page_id?: string;
     poi_id?: string;
     poi_name?: string;
     article_source?: string | null;
@@ -254,6 +255,7 @@ export class CheminDeFerBuilderService {
           ...poiPage.metadata,
           cluster_id:               cluster.cluster_id,
           cluster_name:             cluster.cluster_name,
+          parent_cluster_page_id:    clusterIntroPage.page_id,
           poi_id:                   poi.poi_id,
           poi_name:                 poi.nom,
           article_source:           poi.article_source   ?? null,

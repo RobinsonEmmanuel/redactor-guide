@@ -393,11 +393,10 @@ function extractLinkObject(value) {
 
 /** Texte du cadre (hors fil avec d'autres champs) ; fallback story si indispo. */
 function grepScopeForTextFrame(tf) {
-    try {
-        if (tf.texts != null && tf.texts.length > 0) {
-            return tf.texts.item(0);
-        }
-    } catch (e1) {}
+    // parentStory couvre TOUS les paragraphes du cadre, y compris ceux crees par
+    // un \n JSON qui devient un saut de paragraphe InDesign (\r).
+    // tf.texts.item(0) ne couvrait que le premier paragraphe, laissant les suivants
+    // sans traitement GREP (styles non appliques, marqueurs non supprimes).
     return tf.parentStory;
 }
 

@@ -485,7 +485,10 @@ async function generateSommaireContent(ctx: FieldServiceContext): Promise<FieldS
     }
 
     const titre =
+      // _titre_4 = titre principal de PRESENTATION_GUIDE et PRESENTATION_DESTINATION
+      page.content?.text?.['PRESENTATION_GUIDE_titre_4'] ||
       page.content?.text?.['PRESENTATION_GUIDE_titre_1'] ||
+      page.content?.text?.['PRESENTATION_DESTINATION_titre_4'] ||
       page.content?.text?.['PRESENTATION_DESTINATION_titre_1'] ||
       page.content?.text?.['SECTION_titre_1'] ||
       page.content?.text?.['SECTION_INTRO_titre_section'] ||

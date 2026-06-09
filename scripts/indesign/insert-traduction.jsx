@@ -24,6 +24,9 @@
 #target indesign
 #include "json2.js"
 
+// VERSION CHECK — à supprimer après diagnostic
+alert("insert-traduction.jsx\nVERSION : 2026-06-09-DEBUG\n\nSi tu vois ce message, le bon script est chargé.");
+
 // ---------------------------------------------------------------------------
 // Document courant
 // ---------------------------------------------------------------------------

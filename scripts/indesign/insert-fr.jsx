@@ -559,8 +559,10 @@ function applyStyleMarkers(tf) {
  */
 function normalizeMarkersForIndesign(s) {
     if (!s) return s;
+    // {**texte**} → ~texte~ : slice(2, len-2) est plus fiable que
+    // replace(/^\*\*|\*\*$/g,"") dont les ancres ^ $ sont instables dans ExtendScript.
     s = s.replace(/\{(\*\*[^*}]+?\*\*)\}/g, function(all, inner) {
-        return "~" + inner.replace(/^\*\*|\*\*$/g, "") + "~";
+        return "~" + inner.slice(2, inner.length - 2) + "~";
     });
     s = s.replace(/\n/g, "\r");
     return s;

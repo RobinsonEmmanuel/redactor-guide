@@ -24,8 +24,6 @@
 #target indesign
 #include "json2.js"
 
-// VERSION CHECK — à supprimer après diagnostic
-alert("insert-traduction.jsx\nVERSION : 2026-06-09-DEBUG\n\nSi tu vois ce message, le bon script est chargé.");
 
 // ---------------------------------------------------------------------------
 // Document courant
@@ -752,9 +750,11 @@ function hasMarkers(str) {
  */
 function normalizeMarkersForIndesign(s) {
     if (!s) return s;
-    // Étape 1 : {**...**} → ~...~
+    // Étape 1 : {**texte**} → ~texte~
+    // Utilise slice(2, len-2) pour retirer les ** de debut/fin de maniere
+    // fiable (les ancres ^ et $ avec /g ne sont pas stables dans ExtendScript).
     s = s.replace(/\{(\*\*[^*}]+?\*\*)\}/g, function(all, inner) {
-        return "~" + inner.replace(/^\*\*|\*\*$/g, "") + "~";
+        return "~" + inner.slice(2, inner.length - 2) + "~";
     });
     // Étape 2 : \n → \r (saut de paragraphe InDesign)
     s = s.replace(/\n/g, "\r");

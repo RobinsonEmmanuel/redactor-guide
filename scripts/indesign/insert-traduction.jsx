@@ -852,9 +852,11 @@ function injectText(page, label, value) {
         var str    = normalizeMarkersForIndesign(rawStr);
         tf.contents = str;
         resetMarkerCharStyles(tf);
-        if (hasMarkers(str)) applyStyleMarkers(tf);
+        // clearAllCharacterInheritance=true : declenche resetNonMarkerCharacterFormatting()
+        // apres les GREP — efface toute surcharge residuelle (gras/couleur) heritee
+        // d'un run precedent sur les caracteres qui ne portent pas de style marqueur.
+        applyStyleMarkers(tf, true);
         truncateOverflow(tf);
-        // Debug : verifie que tous les marqueurs ont bien ete supprimes apres injection
         checkMarkerResiduals(tf, label, value, str);
     }
 }

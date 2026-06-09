@@ -750,14 +750,14 @@ function hasMarkers(str) {
  */
 function normalizeMarkersForIndesign(s) {
     if (!s) return s;
-    // Étape 1 : {**texte**} → ~texte~
-    // Utilise slice(2, len-2) pour retirer les ** de debut/fin de maniere
-    // fiable (les ancres ^ et $ avec /g ne sont pas stables dans ExtendScript).
+    // {**texte**} → ~texte~ : slice(2, len-2) retire les ** de debut/fin
+    // sans regex (ancres ^ et $ instables dans ExtendScript).
+    // Note : on ne convertit PAS \n en \r — le \n produit un retour force
+    // InDesign (meme paragraphe = meme style) alors que \r creerait un nouveau
+    // paragraphe avec un style potentiellement different (ex. gras parasite).
     s = s.replace(/\{(\*\*[^*}]+?\*\*)\}/g, function(all, inner) {
         return "~" + inner.slice(2, inner.length - 2) + "~";
     });
-    // Étape 2 : \n → \r (saut de paragraphe InDesign)
-    s = s.replace(/\n/g, "\r");
     return s;
 }
 

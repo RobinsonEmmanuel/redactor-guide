@@ -559,12 +559,14 @@ function applyStyleMarkers(tf) {
  */
 function normalizeMarkersForIndesign(s) {
     if (!s) return s;
-    // {**texte**} → ~texte~ : slice(2, len-2) est plus fiable que
-    // replace(/^\*\*|\*\*$/g,"") dont les ancres ^ $ sont instables dans ExtendScript.
+    // {**texte**} → ~texte~ : slice(2, len-2) retire les ** sans regex
+    // (ancres ^ et $ avec /g instables dans ExtendScript).
+    // Note : on ne convertit PAS \n en \r — le \n produit un retour force
+    // InDesign (meme paragraphe = meme style), alors que \r creerait un
+    // nouveau paragraphe avec un style potentiellement different (gras parasite).
     s = s.replace(/\{(\*\*[^*}]+?\*\*)\}/g, function(all, inner) {
         return "~" + inner.slice(2, inner.length - 2) + "~";
     });
-    s = s.replace(/\n/g, "\r");
     return s;
 }
 

@@ -850,12 +850,21 @@ function injectText(page, label, value) {
         tf.visible = true;
         var rawStr = repairBoldMarkersInJsonContent(String(value).replace(/^\s+|\s+$/g, ""));
         var str    = normalizeMarkersForIndesign(rawStr);
-        // Nettoyage ciblé : vide le bloc, reset le point d'insertion, reecrit.
-        // false = clearCharacterOnlyOverrides (pas clearAllOverrides qui efface
-        // aussi les styles paragraphe et detruit la mise en forme du gabarit).
-        setCleanTextFrameContents(tf, str, false);
+        // Vider le cadre avant réécriture : InDesign conserve sinon les styles
+        // de caractère par position (comportement documenté).
+        // On ne touche QUE ce cadre — pas de clearOverrides sur parentStory
+        // qui détruirait les styles d'autres blocs.
+        try { tf.contents = ""; } catch (eClear) {}
+        try {
+            if (tf.insertionPoints && tf.insertionPoints.length > 0) {
+                var ip = tf.insertionPoints.item(0);
+                var nc = getNoneCharacterStyle();
+                if (nc && nc.isValid) ip.appliedCharacterStyle = nc;
+            }
+        } catch (eIp) {}
+        tf.contents = str;
         resetMarkerCharStyles(tf);
-        applyStyleMarkers(tf, true);
+        if (hasMarkers(str)) applyStyleMarkers(tf);
         truncateOverflow(tf);
         checkMarkerResiduals(tf, label, value, str);
     }

@@ -495,6 +495,11 @@ function applyStyleMarkers(tf, clearAllCharacterInheritance) {
         var sChiffre    = doc.characterStyles.itemByName(STYLE_CHIFFRE);
         var sGrasOrange = doc.characterStyles.itemByName(STYLE_GRAS_ORANGE);
 
+        // Pass 0 : combinaison {**texte**} → Gras-orange atomique.
+        // DOIT preceder les passes bold/orange separees pour eviter que l'une ecrase l'autre.
+        applyInnerStyledMatches(scope, story, "(?s)\\{\\*\\*[^*}]+?\\*\\*\\}", sGrasOrange, 3, 3);
+        changeGrepOnScope(scope, story, "\\{\\*\\*|\\*\\*\\}", "");
+
         applyInnerStyledMatches(scope, story, "(?s)\\*\\*[^*]+?\\*\\*", sGras, 2, 2);
         changeGrepOnScope(scope, story, "\\*\\*", "");
 

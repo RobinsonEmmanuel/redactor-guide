@@ -110,6 +110,8 @@ var FRAME_LINK_FIELDS = {
     // La zone graphique POI_lien_1_zone (ou alias « lien 1 », ou groupe parent) rend toute la pastille cliquable.
     "POI_lien_1":             "POI_lien_1_zone",
     "POI_lien_2":             true,
+    // Idem pour CLUSTER_lien_1 : cherche CLUSTER_lien_1_zone, sinon groupe parent du TextFrame.
+    "CLUSTER_lien_1":         "CLUSTER_lien_1_zone",
     "ALLER_PLUS_LOIN_lien_1": true,
     "ALLER_PLUS_LOIN_lien_2": true,
     "ALLER_PLUS_LOIN_lien_3": true,
@@ -1977,6 +1979,11 @@ function processPage(idPage, pageData) {
             frameOpts = {
                 poiLien1: true,
                 textLinkLabel: resolveLabel("POI_lien_1"),
+            };
+        } else if (flKey === "CLUSTER_lien_1") {
+            // Cherche CLUSTER_lien_1_zone ; sinon groupe parent du TextFrame CLUSTER_lien_1.
+            frameOpts = {
+                textLinkLabel: resolveLabel("CLUSTER_lien_1"),
             };
         }
         injectFrameHyperlink(idPage, frameLabel, flVal, frameOpts);

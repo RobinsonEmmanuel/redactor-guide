@@ -850,11 +850,11 @@ function injectText(page, label, value) {
         tf.visible = true;
         var rawStr = repairBoldMarkersInJsonContent(String(value).replace(/^\s+|\s+$/g, ""));
         var str    = normalizeMarkersForIndesign(rawStr);
-        tf.contents = str;
+        // Nettoyage profond identique aux listes POI :
+        // 1. capture les styles paragraphe, 2. vide le bloc, 3. reset le point
+        //    d'insertion (clearOverrides ALL), 4. reecrit le texte proprement.
+        setCleanTextFrameContents(tf, str, true);
         resetMarkerCharStyles(tf);
-        // clearAllCharacterInheritance=true : declenche resetNonMarkerCharacterFormatting()
-        // apres les GREP — efface toute surcharge residuelle (gras/couleur) heritee
-        // d'un run precedent sur les caracteres qui ne portent pas de style marqueur.
         applyStyleMarkers(tf, true);
         truncateOverflow(tf);
         checkMarkerResiduals(tf, label, value, str);

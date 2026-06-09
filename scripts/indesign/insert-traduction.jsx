@@ -51,7 +51,7 @@ function logMarkerDebug(label, rawValue, normalizedValue, injectedContents) {
         injected:   String(injectedContents || "").slice(0, 300),
     });
 }
-/** Appele apres tf.contents = str : verifie que les marqueurs ont bien ete supprimes. */
+/** Appele apres tf.contents = str : loggue TOUJOURS si on est page 2, sinon uniquement si marqueurs suspects. */
 function checkMarkerResiduals(tf, label, rawValue, normalizedValue) {
     try {
         var injected = String(tf.contents || "");
@@ -60,10 +60,27 @@ function checkMarkerResiduals(tf, label, rawValue, normalizedValue) {
                        || injected.indexOf("**") !== -1
                        || injected.indexOf("~") !== -1
                        || injected.indexOf("^") !== -1;
-        if (hasResidual || String(rawValue || "").indexOf("{**") !== -1) {
+        var forcePage2 = (currentPageNum === 2);
+        if (forcePage2 || hasResidual || String(rawValue || "").indexOf("{**") !== -1) {
             logMarkerDebug(label, rawValue, normalizedValue, injected);
         }
     } catch(e) {}
+}
+
+/** Loggue chaque cle/valeur brute de textContent pour la page 2 (avant injection). */
+function dumpPage2TextContent(textContent) {
+    if (currentPageNum !== 2) return;
+    for (var k in textContent) {
+        if (!textContent.hasOwnProperty(k)) continue;
+        var v = textContent[k];
+        MARKERS_DEBUG_LOGS.push({
+            page: 2, titre: currentPageTitre,
+            label: "[DUMP RAW] " + k,
+            raw: String(v || "").slice(0, 400),
+            normalized: "(avant injection)",
+            injected:   "(avant injection)",
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1952,6 +1969,7 @@ function injectSommaire(page, rawValue) {
 
 function processPage(idPage, pageData) {
     var textContent = (pageData.content && pageData.content.text) || {};
+    dumpPage2TextContent(textContent); // dump brut page 2 avant toute injection
 
     // --- Cas special : sommaire ---
     // SOMMAIRE_texte_1 est un JSON structure qui ne doit pas passer par injectText.

@@ -504,7 +504,8 @@ function applyStyleMarkers(tf, clearAllCharacterInheritance) {
         changeGrepOnScope(scope, story, "\\*\\*", "");
 
         applyInnerStyledMatches(scope, story, "(?s)\\{[^}]+?\\}", sOrange, 1, 1);
-        changeGrepOnScope(scope, story, "[{}]", "");
+        changeGrepOnScope(scope, story, "\\{", "");   // supprime { orphelins
+        changeGrepOnScope(scope, story, "\\}", "");   // supprime } orphelins
 
         applyInnerStyledMatches(scope, story, "(?s)\\^[^\\^]+?\\^", sChiffre, 1, 1);
         changeGrepOnScope(scope, story, "\\^", "");

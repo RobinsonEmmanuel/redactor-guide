@@ -6,6 +6,12 @@
  *    au moins 3 caractères — évite « x**bold** »).
  *
  * 2) Fermeture trop tôt avant « and » : « **Teide a**nd » → « **Teide** and »
+ *
+ * 3) Accolade orpheline après gras : « **organiser**} » → « {**organiser**} »
+ *    Le LLM a décalé le { hors du bloc → on le remet juste avant **.
+ *
+ * 4) Gras débordant hors du bloc orange : « {mot **autre** } » → pas de cas connu,
+ *    mais la règle 3 couvre le cas fréquent **...**}.
  */
 
 const INNER_STARTS_WITH_VOWEL = /^[aeiouyàáâãäåèéêëìíîïòóôõöùúûüýÿæœ]/i;
@@ -35,9 +41,26 @@ function repairSplitWordClosingBold(text: string): string {
   return text.replace(/\*\*([^*\r\n]+?)\*\*([a-z\u00C0-\u024F]+)/g, '**$1$2**');
 }
 
+/**
+ * Répare « **texte**} » → « {**texte**} » :
+ * le LLM a omis le { d'ouverture mais gardé le } de fermeture.
+ * On détecte **...**} précédé d'un séparateur (espace / début / ponctuation)
+ * et on ajoute le { manquant juste avant **.
+ */
+function repairOrphanClosingBrace(text: string): string {
+  // Pattern : (séparateur)\*\*[contenu]\*\*}
+  // → (séparateur){**[contenu]**}
+  return text.replace(
+    /(^|[\s\n\r"'""«»().,;:!?\-—–àáâãäåèéêëìíîïòóôõöùúûü])\*\*([^*\r\n]+?)\*\*\}/gmu,
+    (_full, sep, inner) => `${sep}{**${inner}**}`,
+  );
+}
+
 export function repairStrandedBoldMarkers(text: string): string {
   if (!text || !text.includes('**')) return text;
   let out = text;
+  // Règle 3 : accolade orpheline après gras — appliquée en premier
+  out = repairOrphanClosingBrace(out);
   for (let i = 0; i < 12; i++) {
     const step = repairSplitWordClosingBold(
       repairSplitWordAndAfterBold(repairStrandedBoldOpen(out))

@@ -696,6 +696,22 @@ function hasMarkers(str) {
             str.indexOf("~")  !== -1);
 }
 
+/**
+ * Normalise les marqueurs avant injection InDesign :
+ * 1. {**texte**} → ~texte~  (Gras-orange via le pass tilde, pas de GREP imbriqué)
+ * 2. \n → \r               (saut de paragraphe InDesign, couvre tous les paragraphes)
+ */
+function normalizeMarkersForIndesign(s) {
+    if (!s) return s;
+    // Étape 1 : {**...**} → ~...~
+    s = s.replace(/\{(\*\*[^*}]+?\*\*)\}/g, function(all, inner) {
+        return "~" + inner.replace(/^\*\*|\*\*$/g, "") + "~";
+    });
+    // Étape 2 : \n → \r (saut de paragraphe InDesign)
+    s = s.replace(/\n/g, "\r");
+    return s;
+}
+
 // Repare les ** mal places (traduction LLM) — aligne apps/api/src/utils/repair-style-markers.ts
 function repairBoldMarkersInJsonContent(s) {
     if (!s || s.indexOf("**") === -1) return s;
@@ -783,7 +799,9 @@ function injectText(page, label, value) {
 
         // Texte simple
         tf.visible = true;
-        var str = repairBoldMarkersInJsonContent(String(value).replace(/^\s+|\s+$/g, ""));
+        var str = normalizeMarkersForIndesign(
+            repairBoldMarkersInJsonContent(String(value).replace(/^\s+|\s+$/g, ""))
+        );
         tf.contents = str;
         resetMarkerCharStyles(tf);
         if (hasMarkers(str)) applyStyleMarkers(tf);

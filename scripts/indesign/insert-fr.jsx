@@ -552,10 +552,25 @@ function applyStyleMarkers(tf) {
     }
 }
 
+/**
+ * Normalise les marqueurs avant injection InDesign :
+ * 1. {**texte**} → ~texte~  (Gras-orange via le pass tilde, évite les GREP imbriqués)
+ * 2. \n → \r               (saut de paragraphe InDesign, couvre tous les paragraphes)
+ */
+function normalizeMarkersForIndesign(s) {
+    if (!s) return s;
+    s = s.replace(/\{(\*\*[^*}]+?\*\*)\}/g, function(all, inner) {
+        return "~" + inner.replace(/^\*\*|\*\*$/g, "") + "~";
+    });
+    s = s.replace(/\n/g, "\r");
+    return s;
+}
+
 // --- 5. Injecter texte avec styles optionnels --------------------------------
 function setTextWithStyles(textFrame, rawText) {
-    textFrame.contents = rawText;  // definir avec les marqueurs en place
-    applyStyleMarkers(textFrame);  // GREP trouve, applique styles, supprime marqueurs
+    var normalized = normalizeMarkersForIndesign(rawText);
+    textFrame.contents = normalized;  // definir avec les marqueurs en place
+    applyStyleMarkers(textFrame);     // GREP trouve, applique styles, supprime marqueurs
 }
 
 // --- 5b. Couper le surplus de texte d'un bloc filonne ------------------------

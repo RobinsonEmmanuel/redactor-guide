@@ -37,6 +37,35 @@ var currentPageTitre = "";
 var DEBUG_SOMMAIRE_FILE = true;
 var SOMMAIRE_DEBUG_LOGS = [];
 
+// Debug marqueurs — markers-debug-report.txt
+// Active uniquement si le champ contient {** ou des marqueurs suspects apres injection.
+var MARKERS_DEBUG_LOGS = [];
+/** Enregistre un evenement de debug marqueurs. */
+function logMarkerDebug(label, rawValue, normalizedValue, injectedContents) {
+    MARKERS_DEBUG_LOGS.push({
+        page:       currentPageNum,
+        titre:      currentPageTitre,
+        label:      label,
+        raw:        String(rawValue   || "").slice(0, 300),
+        normalized: String(normalizedValue || "").slice(0, 300),
+        injected:   String(injectedContents || "").slice(0, 300),
+    });
+}
+/** Appele apres tf.contents = str : verifie que les marqueurs ont bien ete supprimes. */
+function checkMarkerResiduals(tf, label, rawValue, normalizedValue) {
+    try {
+        var injected = String(tf.contents || "");
+        var hasResidual = injected.indexOf("{") !== -1
+                       || injected.indexOf("}") !== -1
+                       || injected.indexOf("**") !== -1
+                       || injected.indexOf("~") !== -1
+                       || injected.indexOf("^") !== -1;
+        if (hasResidual || String(rawValue || "").indexOf("{**") !== -1) {
+            logMarkerDebug(label, rawValue, normalizedValue, injected);
+        }
+    } catch(e) {}
+}
+
 // ---------------------------------------------------------------------------
 // Noms des styles de caractere utilises par les marqueurs inline
 // ---------------------------------------------------------------------------
@@ -799,13 +828,14 @@ function injectText(page, label, value) {
 
         // Texte simple
         tf.visible = true;
-        var str = normalizeMarkersForIndesign(
-            repairBoldMarkersInJsonContent(String(value).replace(/^\s+|\s+$/g, ""))
-        );
+        var rawStr = repairBoldMarkersInJsonContent(String(value).replace(/^\s+|\s+$/g, ""));
+        var str    = normalizeMarkersForIndesign(rawStr);
         tf.contents = str;
         resetMarkerCharStyles(tf);
         if (hasMarkers(str)) applyStyleMarkers(tf);
         truncateOverflow(tf);
+        // Debug : verifie que tous les marqueurs ont bien ete supprimes apres injection
+        checkMarkerResiduals(tf, label, value, str);
     }
 }
 
@@ -2108,6 +2138,31 @@ if (overflowWarnings.length > 0) {
 
     report += "\n\n[!] " + overflowWarnings.length + " bloc(s) tronque(s)"
               + (overflowWritten ? " -> voir overflow-report.txt" : " (impossible d ecrire le fichier rapport)");
+}
+
+// --- Rapport debug marqueurs (markers-debug-report.txt) ---
+if (MARKERS_DEBUG_LOGS.length > 0) {
+    var markersReportWritten = false;
+    try {
+        var mrf = new File(rootFolder + "/markers-debug-report.txt");
+        mrf.encoding = "UTF-8";
+        mrf.open("w");
+        mrf.writeln("MARKERS DEBUG REPORT — marqueurs résiduels ou champs {** détectés");
+        mrf.writeln("Entrées : " + MARKERS_DEBUG_LOGS.length);
+        mrf.writeln("====================================================");
+        for (var md = 0; md < MARKERS_DEBUG_LOGS.length; md++) {
+            var m = MARKERS_DEBUG_LOGS[md];
+            mrf.writeln("p." + m.page + " [" + m.label + "]  " + m.titre);
+            mrf.writeln("  RAW      : " + m.raw);
+            mrf.writeln("  NORMALISÉ: " + m.normalized);
+            mrf.writeln("  INJECTÉ  : " + m.injected);
+            mrf.writeln("----------------------------------------------------");
+        }
+        mrf.close();
+        markersReportWritten = true;
+    } catch(eMrf) {}
+    report += "\n\n[DEBUG MARKERS] " + MARKERS_DEBUG_LOGS.length + " champ(s) suspects"
+           + (markersReportWritten ? " -> voir markers-debug-report.txt" : " (impossible d'ecrire le fichier rapport)");
 }
 
 if (DEBUG_SOMMAIRE_FILE && SOMMAIRE_DEBUG_LOGS.length > 0) {

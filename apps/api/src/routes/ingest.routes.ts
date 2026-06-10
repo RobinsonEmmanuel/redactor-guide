@@ -83,4 +83,9 @@ export async function ingestRoutes(fastify: FastifyInstance) {
   fastify.get('/wp-sites/:siteId/posts', (req, reply) =>
     proxyRequest(req, reply, `/user/sites/${(req.params as any).siteId}/posts`, 'GET')
   );
+
+  // Régions Region Lovers — vue globale (sites + régions assignées)
+  fastify.get('/regions/overview', (req, reply) =>
+    proxyRequest(req, reply, '/regions/overview', 'GET')
+  );
 }

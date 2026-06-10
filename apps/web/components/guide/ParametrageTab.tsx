@@ -11,7 +11,19 @@ interface ParametrageTabProps {
   onGuideUpdated: () => void;
 }
 
+interface RegionEntry {
+  id: string;
+  name: string;
+  assignedSiteIds: string[];
+  assignedSiteNames: string[];
+}
+
 export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated }: ParametrageTabProps) {
+  // Régions Region Lovers
+  const [regions, setRegions] = useState<RegionEntry[]>([]);
+  const [regionsLoading, setRegionsLoading] = useState(false);
+  const [selectedSite, setSelectedSite] = useState<string>('');
+
   const [formData, setFormData] = useState({
     name: '',
     slug: '',
@@ -55,8 +67,40 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
       });
       // Vérifier si des credentials sont déjà stockés dans site_connections
       checkStoredCredentials(guide.slug);
+      // Pré-sélectionner le site si destination_rl_id déjà renseigné
+      if (guide.destination_rl_id) {
+        loadRegions().then((list) => {
+          const found = list.find((r: RegionEntry) => r.id === guide.destination_rl_id);
+          if (found?.assignedSiteNames?.[0]) setSelectedSite(found.assignedSiteNames[0]);
+        });
+      } else {
+        loadRegions();
+      }
     }
   }, [guide]);
+
+  const loadRegions = async (): Promise<RegionEntry[]> => {
+    setRegionsLoading(true);
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/regions/overview`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      const list: RegionEntry[] = (data.data ?? data ?? []).filter(
+        (r: RegionEntry) => r.assignedSiteNames?.length > 0
+      );
+      list.sort((a, b) => {
+        const siteA = a.assignedSiteNames[0] ?? '';
+        const siteB = b.assignedSiteNames[0] ?? '';
+        return siteA.localeCompare(siteB, 'fr') || a.name.localeCompare(b.name, 'fr');
+      });
+      setRegions(list);
+      return list;
+    } catch {
+      return [];
+    } finally {
+      setRegionsLoading(false);
+    }
+  };
 
   const checkStoredCredentials = async (siteId: string) => {
     if (!siteId) return;
@@ -379,25 +423,62 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
               </div>
             </div>
 
-            {/* ID Region Lovers */}
+            {/* Région Region Lovers */}
             <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h3 className="text-sm font-semibold text-gray-700 mb-4 pb-2 border-b border-gray-100">
+              <h3 className="text-sm font-semibold text-gray-700 mb-4 pb-2 border-b border-gray-100 flex items-center justify-between">
                 Region Lovers
+                {regionsLoading && <ArrowPathIcon className="w-4 h-4 animate-spin text-gray-400" />}
               </h3>
+
+              {/* Sélecteur de site */}
+              <div className="mb-3">
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                  Site
+                </label>
+                <select
+                  value={selectedSite}
+                  onChange={e => {
+                    setSelectedSite(e.target.value);
+                    // reset région si on change de site
+                    setFormData(prev => ({ ...prev, destination_rl_id: '' }));
+                  }}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">— Choisir un site —</option>
+                  {Array.from(new Set(regions.map(r => r.assignedSiteNames[0]).filter(Boolean)))
+                    .sort((a, b) => a.localeCompare(b, 'fr'))
+                    .map(site => (
+                      <option key={site} value={site}>{site}</option>
+                    ))}
+                </select>
+              </div>
+
+              {/* Sélecteur de région */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                  ID de la destination Region Lovers
+                  Région
                 </label>
-                <input
-                  type="text"
+                <select
                   name="destination_rl_id"
                   value={formData.destination_rl_id}
                   onChange={handleChange}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
-                  placeholder="6703bae5ae4bca1fddab73c1"
-                />
+                  disabled={!selectedSite}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:bg-gray-50"
+                >
+                  <option value="">— Choisir une région —</option>
+                  {regions
+                    .filter(r => r.assignedSiteNames[0] === selectedSite)
+                    .map(r => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                </select>
+                {formData.destination_rl_id && (
+                  <p className="mt-1 text-xs text-gray-400 font-mono">
+                    ID : {formData.destination_rl_id}
+                  </p>
+                )}
                 <p className="mt-1 text-xs text-gray-400">
-                  Utilisé pour récupérer les POIs depuis l'API Region Lovers
+                  Utilisé pour récupérer les POIs depuis l&apos;API Region Lovers
                 </p>
               </div>
             </div>

@@ -269,29 +269,6 @@ useEffect(() => {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1.5">Destination *</label>
-                  <input
-                    type="text"
-                    name="destination"
-                    value={formData.destination}
-                    onChange={handleChange}
-                    required
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Tenerife"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1.5">Slug</label>
-                  <input
-                    type="text"
-                    name="slug"
-                    value={formData.slug}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
-                    placeholder="guide-tenerife-2026"
-                  />
-                </div>
-                <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1.5">Année</label>
                   <input
                     type="number"
@@ -378,8 +355,8 @@ useEffect(() => {
                   value={selectedSite}
                   onChange={e => {
                     setSelectedSite(e.target.value);
-                    // reset région si on change de site
-                    setFormData(prev => ({ ...prev, destination_rl_id: '' }));
+                    // reset région et destination si on change de site
+                    setFormData(prev => ({ ...prev, destination_rl_id: '', destination: '' }));
                   }}
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
@@ -400,7 +377,16 @@ useEffect(() => {
                 <select
                   name="destination_rl_id"
                   value={formData.destination_rl_id}
-                  onChange={handleChange}
+                  onChange={e => {
+                    const regionId = e.target.value;
+                    const region = regions.find(r => r.id === regionId);
+                    // Auto-rempli destination depuis le nom de la région (utilisé dans l'export)
+                    setFormData(prev => ({
+                      ...prev,
+                      destination_rl_id: regionId,
+                      destination: region?.name ?? prev.destination,
+                    }));
+                  }}
                   disabled={!selectedSite}
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:bg-gray-50"
                 >

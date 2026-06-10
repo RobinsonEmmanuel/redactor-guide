@@ -89,8 +89,9 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
   };
 
   const launchIngestion = async () => {
-    if (!guide?.slug) {
-      setIngestionError('Slug du guide manquant');
+    const wpSiteId = guide?.wp_site_id;
+    if (!wpSiteId) {
+      setIngestionError('Site ID manquant — sélectionnez une région dans le Paramétrage');
       return;
     }
 
@@ -98,28 +99,21 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
     setIngestionError(null);
     setIngestionStatus('Démarrage de la récupération...');
 
-    // siteUrl uniquement si valide (évite les erreurs de validation Zod .url())
-    const rawSiteUrl = guide.wpConfig?.siteUrl?.trim() ?? '';
-    const siteUrl = rawSiteUrl && !/^https?:\/\//i.test(rawSiteUrl)
-      ? `https://${rawSiteUrl}`
-      : rawSiteUrl || undefined;
-
     const payload: Record<string, unknown> = {
-      siteId: guide.slug,
+      siteId: wpSiteId,
       destinationIds: guide.destinations || [],
-      ...(siteUrl ? { siteUrl } : {}),
       languages: guide.availableLanguages || ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'],
     };
 
     console.log('[Ingestion] payload →', payload);
 
     try {
-      // Nouveau microservice canonique : déclenche la sync globale articles_raw.
-      // Les credentials WordPress sont ceux enregistrés à l'étape 1.
+      // Déclenche la sync articles_raw via le microservice d'ingestion.
+      // siteId = assignedSiteIds[0] de la région RL (configuré dans Paramétrage).
       const triggerRes = await authFetch(`${apiUrl}/api/v1/ingest/articles-raw-sync/trigger`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ siteId: guide.slug }),
+        body: JSON.stringify({ siteId: wpSiteId }),
       });
       const triggerData = await triggerRes.json().catch(() => ({}));
       if (!triggerRes.ok) {
@@ -189,8 +183,8 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
   const handleSingleUrl = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!singleUrl.trim()) return;
-    if (!guide?.slug) {
-      setSingleError('Slug du guide manquant');
+    if (!guide?.wp_site_id) {
+      setSingleError('Site ID manquant — sélectionnez une région dans le Paramétrage');
       return;
     }
 
@@ -203,8 +197,7 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          siteId:         guide.slug,
-          ...(guide.wpConfig?.siteUrl ? { siteUrl: guide.wpConfig.siteUrl } : {}),
+          siteId:         guide.wp_site_id,
           articleUrl:     singleUrl.trim(),
           destinationIds: guide.destinations || [],
         }),
@@ -216,8 +209,7 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
         setSingleError(data.error || 'Erreur lors de l\'ajout');
       } else {
         await syncTranslationUrls({
-          siteId:         guide.slug,
-          ...(guide.wpConfig?.siteUrl ? { siteUrl: guide.wpConfig.siteUrl } : {}),
+          siteId:         guide.wp_site_id,
           articleUrl:     singleUrl.trim(),
           destinationIds: guide.destinations || [],
           languages:      guide.availableLanguages || ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'],

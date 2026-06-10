@@ -33,6 +33,7 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
     status: 'draft',
     destination: '',
     destination_rl_id: '',
+    wp_site_id: '',
     guide_template_id: '',
     google_drive_folder_id: '',
     image_principale: '',
@@ -53,6 +54,7 @@ const [saving, setSaving] = useState(false);
         status: guide.status || 'draft',
         destination: guide.destination || (guide.destinations?.[0] || ''),
         destination_rl_id: guide.destination_rl_id || '',
+        wp_site_id: guide.wp_site_id || '',
         guide_template_id: guide.guide_template_id || '',
         google_drive_folder_id: guide.google_drive_folder_id || '',
         image_principale: guide.image_principale || '',
@@ -380,11 +382,13 @@ useEffect(() => {
                   onChange={e => {
                     const regionId = e.target.value;
                     const region = regions.find(r => r.id === regionId);
-                    // Auto-rempli destination depuis le nom de la région (utilisé dans l'export)
                     setFormData(prev => ({
                       ...prev,
                       destination_rl_id: regionId,
+                      // Nom de la région → destination (utilisé dans l'export JSON)
                       destination: region?.name ?? prev.destination,
+                      // siteId du site RL → utilisé pour le trigger ingestion articles
+                      wp_site_id: region?.assignedSiteIds?.[0] ?? prev.wp_site_id,
                     }));
                   }}
                   disabled={!selectedSite}
@@ -398,9 +402,12 @@ useEffect(() => {
                     ))}
                 </select>
                 {formData.destination_rl_id && (
-                  <p className="mt-1 text-xs text-gray-400 font-mono">
-                    ID : {formData.destination_rl_id}
-                  </p>
+                  <div className="mt-1 space-y-0.5">
+                    <p className="text-xs text-gray-400 font-mono">Région ID : {formData.destination_rl_id}</p>
+                    {formData.wp_site_id && (
+                      <p className="text-xs text-gray-400 font-mono">Site ID : {formData.wp_site_id}</p>
+                    )}
+                  </div>
                 )}
                 <p className="mt-1 text-xs text-gray-400">
                   Utilisé pour récupérer les POIs depuis l&apos;API Region Lovers

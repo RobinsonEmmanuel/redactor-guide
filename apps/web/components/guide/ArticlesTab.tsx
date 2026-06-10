@@ -240,14 +240,27 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {/* Rechargement léger : relit la DB locale sans appeler WordPress */}
+            {pagination.total > 0 && (
+              <button
+                onClick={loadArticles}
+                disabled={loading || ingesting}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="Recharge la liste depuis la base locale (rapide)"
+              >
+                <ArrowPathIcon className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                Recharger
+              </button>
+            )}
+            {/* Sync complète : re-fetch depuis WordPress via le microservice */}
             <button
               onClick={launchIngestion}
               disabled={ingesting}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-              title="Relance l'ingestion complète et récupère les nouveaux articles"
+              title="Relance la sync complète depuis WordPress (peut prendre quelques minutes)"
             >
               <ArrowPathIcon className={`h-5 w-5 ${ingesting ? 'animate-spin' : ''}`} />
-              {ingesting ? 'Actualisation...' : pagination.total === 0 ? 'Récupérer les articles' : 'Actualiser'}
+              {ingesting ? 'Sync en cours...' : pagination.total === 0 ? 'Récupérer les articles' : 'Sync WordPress'}
             </button>
           </div>
         </div>

@@ -101,6 +101,8 @@ interface TranslationState {
 }
 
 const TRANSLATION_STALE_MS = 10 * 60 * 1000;
+const TRANSLATION_POLL_DELAY_MS = 3000;
+const TRANSLATION_MAX_ATTEMPTS = 240; // ~12 min
 
 function isTranslationJobStale(state: TranslationState | undefined): boolean {
   if (!state || state.status !== 'processing') return false;
@@ -339,9 +341,16 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     setTranslating(prev => ({ ...prev, [lang]: true }));
     startPolling(lang);
 
-    // Attendre la fin (polling toutes les 3 s)
+    // Attendre la fin (polling toutes les 3 s, max 12 min)
     await new Promise<void>((resolve, reject) => {
+      let attempts = 0;
       const checkInterval = setInterval(async () => {
+        attempts++;
+        if (attempts > TRANSLATION_MAX_ATTEMPTS) {
+          clearInterval(checkInterval);
+          reject(new Error('La traduction prend trop de temps. Réessayez dans quelques minutes.'));
+          return;
+        }
         try {
           const pollRes = await fetch(
             `${apiUrl}/api/v1/guides/${guideId}/translation-status?lang=${lang}`,
@@ -355,9 +364,12 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
           } else if (d?.status === 'failed') {
             clearInterval(checkInterval);
             reject(new Error(d.error || 'Traduction échouée'));
+          } else if (isTranslationJobStale(d)) {
+            clearInterval(checkInterval);
+            reject(new Error('La traduction semble bloquée. Relancez depuis l\'étape Traduction.'));
           }
         } catch { /* ignore, retry on next tick */ }
-      }, 3000);
+      }, TRANSLATION_POLL_DELAY_MS);
     });
   }, [apiUrl, guideId, startPolling]);
 

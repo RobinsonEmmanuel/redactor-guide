@@ -441,12 +441,13 @@ export async function guidesRoutes(fastify: FastifyInstance) {
 
     const pages = await db.collection(COLLECTIONS.pages)
       .find({ chemin_de_fer_id: cdf._id.toString() })
-      .project({ _id: 1, titre: 1, template_name: 1, content_translations: 1 })
+      .project({ _id: 1, titre: 1, template_name: 1, content: 1, content_translations: 1 })
       .toArray();
 
     const allWarnings: any[] = [];
     for (const page of pages) {
       const translations = page.content_translations ?? {};
+      const frText = (page as any).content?.text ?? {};
       for (const [lang, trans] of Object.entries(translations) as [string, any][]) {
         const ws = trans?.overflow_warnings ?? [];
         for (const w of ws) {
@@ -455,8 +456,8 @@ export async function guidesRoutes(fastify: FastifyInstance) {
             page_id:      page._id.toString(),
             page_titre:   page.titre ?? page.template_name ?? page._id.toString(),
             lang,
-            // Valeur traduite actuelle (pour l'édition manuelle)
             current_value: trans?.text?.[w.field_key] ?? null,
+            fr_value:      frText[w.field_key] ?? null,
           });
         }
       }

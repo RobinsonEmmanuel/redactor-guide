@@ -52,6 +52,7 @@ interface OverflowWarning {
   current_length: number;
   max_chars:      number;
   current_value?: string | null;
+  fr_value?:      string | null;
 }
 
 function ExportIconButton({
@@ -1042,6 +1043,14 @@ function OverflowCorrectionModal({
                       {len} / {w.max_chars} car.
                     </span>
                   </div>
+
+                  {/* Texte original FR */}
+                  {w.fr_value && (
+                    <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                      <p className="text-[10px] font-medium text-blue-500 mb-0.5">🇫🇷 Original</p>
+                      <p className="text-xs text-blue-800 whitespace-pre-wrap">{w.fr_value}</p>
+                    </div>
+                  )}
 
                   {/* Textarea */}
                   <textarea

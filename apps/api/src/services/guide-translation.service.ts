@@ -10,6 +10,24 @@
  *  - Les URLs ne sont pas traduites
  *  - La progression est rapportée via callback après chaque page
  */
+
+/**
+ * Traductions forcées : bypasse le LLM pour des labels qui ont une valeur
+ * corrigée connue (ex : label trop long après traduction automatique).
+ * Structure : { [lang]: { [fieldKey]: { fr: valeur source, translation: valeur cible } } }
+ * Le champ n'est substitué que si la valeur FR actuelle correspond à `fr`.
+ */
+const FORCED_TRANSLATIONS: Record<string, Record<string, { fr: string; translation: string }>> = {
+  de: {
+    POI_lien_1: { fr: 'HORAIRES, PRIX ET PHOTOS', translation: 'ÖFFNUNGSZEITEN PREISE BILDER' },
+  },
+  da: {
+    POI_lien_1: { fr: 'HORAIRES, PRIX ET PHOTOS', translation: 'ÅBNINGSTIDER PRISER BILLEDER' },
+  },
+  nl: {
+    POI_lien_1: { fr: 'HORAIRES, PRIX ET PHOTOS', translation: 'OPENINGSTIJDEN PRIJZEN FOTO' },
+  },
+};
 import OpenAI from 'openai';
 import { Db, ObjectId } from 'mongodb';
 import { parseLinkField } from '../utils/link-field.js';
@@ -149,6 +167,16 @@ export class GuideTranslationService {
         ? (allTranslatable['POI_titre_1'] ? { POI_titre_1: allTranslatable['POI_titre_1'] } : {})
         : allTranslatable;
 
+      // Appliquer les traductions forcées (labels corrigés, bypass LLM)
+      const forcedForLang = FORCED_TRANSLATIONS[targetLang] ?? {};
+      const forcedApplied: Record<string, string> = {};
+      for (const [fieldKey, { fr, translation }] of Object.entries(forcedForLang)) {
+        if (toTranslate[fieldKey] === fr) {
+          forcedApplied[fieldKey] = translation;
+          delete (toTranslate as Record<string, string>)[fieldKey];
+        }
+      }
+
       const { placeNames, body } = splitTranslatableFields(toTranslate);
       const placeNameKeys = Object.keys(placeNames);
       const bodyKeys = Object.keys(body);
@@ -198,6 +226,9 @@ export class GuideTranslationService {
             stats.overflow_warnings.push(...pageOverflows);
           }
 
+          // Fusionner les traductions forcées dans le résultat LLM
+          const translatedFinal = { ...translated, ...forcedApplied };
+
           // Sauvegarder sur la page
           const setFields: Record<string, any> = {
             [`content_translations.${targetLang}.translated_at`]: new Date(),
@@ -205,11 +236,11 @@ export class GuideTranslationService {
           };
           if (scope === 'geojson') {
             // Ne mettre à jour que POI_titre_1 pour ne pas écraser une traduction complète existante
-            if (translated['POI_titre_1'] != null) {
-              setFields[`content_translations.${targetLang}.text.POI_titre_1`] = translated['POI_titre_1'];
+            if (translatedFinal['POI_titre_1'] != null) {
+              setFields[`content_translations.${targetLang}.text.POI_titre_1`] = translatedFinal['POI_titre_1'];
             }
           } else {
-            setFields[`content_translations.${targetLang}.text`]              = translated;
+            setFields[`content_translations.${targetLang}.text`]              = translatedFinal;
             setFields[`content_translations.${targetLang}.overflow_warnings`] = pageOverflows;
           }
 

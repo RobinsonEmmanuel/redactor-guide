@@ -582,7 +582,7 @@ export default function CarteTab({
     try {
       if (!isActiveProcessing) {
         const res = await fetch(
-          `${apiUrl}/api/v1/guides/${guideId}/translate?lang=${lang}&force=true`,
+          `${apiUrl}/api/v1/guides/${guideId}/translate?lang=${lang}&force=true&scope=geojson`,
           { method: 'POST', credentials: 'include' }
         );
         if (!res.ok) {

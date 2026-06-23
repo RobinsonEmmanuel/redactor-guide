@@ -12,6 +12,7 @@ import {
   PhotoIcon,
   PencilSquareIcon,
   XMarkIcon,
+  MagnifyingGlassPlusIcon,
 } from '@heroicons/react/24/outline';
 import { MapPinIcon as MapPinSolidIcon } from '@heroicons/react/24/solid';
 import PoiGeocodeModal from './PoiGeocodeModal';
@@ -457,6 +458,7 @@ export default function CarteTab({
     pendingExport: PendingGeoExport | null;
   } | null>(null);
   const [imageSelector, setImageSelector] = useState<ImageSelectorTarget | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const loadPages = useCallback(async () => {
     setLoading(true);
@@ -906,9 +908,9 @@ export default function CarteTab({
             <div className="relative group shrink-0">
               <button
                 type="button"
-                onClick={() => setImageSelector({ pageId: page._id, lang })}
+                onClick={() => setPreviewImage(imageUrl)}
                 className="block"
-                title="Changer l'image"
+                title="Agrandir l'image"
               >
                 <img
                   src={imageUrl}
@@ -917,6 +919,9 @@ export default function CarteTab({
                   className="h-20 w-32 object-cover rounded-lg border border-gray-200 group-hover:opacity-80 transition-opacity"
                   onError={(e) => { e.currentTarget.style.display = 'none'; }}
                 />
+                <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <MagnifyingGlassPlusIcon className="h-7 w-7 text-white drop-shadow-lg" />
+                </span>
               </button>
               <button
                 type="button"
@@ -1305,6 +1310,28 @@ export default function CarteTab({
             }
           }}
         />
+      )}
+
+      {previewImage && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setPreviewImage(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setPreviewImage(null)}
+            className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors"
+          >
+            <XMarkIcon className="h-6 w-6" />
+          </button>
+          <img
+            src={previewImage}
+            alt=""
+            referrerPolicy="no-referrer"
+            className="max-h-[90vh] max-w-[90vw] rounded-xl shadow-2xl object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
       )}
 
       {imageSelector && (

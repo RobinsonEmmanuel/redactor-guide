@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ObjectId } from 'mongodb';
-import { GuideTranslationService } from '../services/guide-translation.service.js';
+import { GuideTranslationService, extractTranslatableFields } from '../services/guide-translation.service.js';
 import { COLLECTIONS } from '../config/collections.js';
 import { getArticlesDatabase } from '../config/database.js';
 import {
@@ -447,7 +447,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
     const allWarnings: any[] = [];
     for (const page of pages) {
       const translations = page.content_translations ?? {};
-      const frText = (page as any).content?.text ?? {};
+      const frFields = extractTranslatableFields((page as any).content?.text ?? {});
       for (const [lang, trans] of Object.entries(translations) as [string, any][]) {
         const ws = trans?.overflow_warnings ?? [];
         for (const w of ws) {
@@ -457,7 +457,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
             page_titre:   page.titre ?? page.template_name ?? page._id.toString(),
             lang,
             current_value: trans?.text?.[w.field_key] ?? null,
-            fr_value:      frText[w.field_key] ?? null,
+            fr_value:      frFields[w.field_key] ?? null,
           });
         }
       }

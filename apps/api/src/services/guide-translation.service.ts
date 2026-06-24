@@ -483,79 +483,7 @@ export class GuideTranslationService {
    * - URLs directes, champs sans label → exclus
    */
   private extractTranslatableFields(content: Record<string, any>): Record<string, string> {
-    const result: Record<string, string> = {};
-
-    for (const [key, value] of Object.entries(content)) {
-      if (value === null || value === undefined || value === '') continue;
-
-      // Exclure les champs non-texte : pictos (calques InDesign), card (sentinelle) et images
-      if (/_picto_/i.test(key) || /_card_/i.test(key) || /_image_/i.test(key)) continue;
-
-      // ── Champ lien {label, url} — objet MongoDB natif ou string JSON ──────────
-      const link = parseLinkField(value);
-      if (link !== null) {
-        if (link.label.trim()) result[key] = link.label.trim();
-        continue;
-      }
-
-      if (typeof value !== 'string') continue;
-
-      const str = value.trim();
-      if (!str) continue;
-
-      // Exclure les URLs directes
-      if (/^https?:\/\//i.test(str)) continue;
-
-      // Champ sommaire JSON (SommaireJsonV1) → extraire les titres uniques comme champs plats.
-      // La clé utilise le nom du champ source pour éviter toute collision avec les champs
-      // content existants (ex. SOMMAIRE_titre_1 = "Sommaire" est un champ template distinct).
-      // Exemple : SOMMAIRE_texte_1 → SOMMAIRE_texte_1_entry_1, SOMMAIRE_texte_1_entry_2, …
-      if (str.startsWith('{')) {
-        try {
-          const parsed = JSON.parse(str) as { schema_version?: number; entries?: Array<{ title?: string }> };
-          if (parsed?.schema_version === 1 && Array.isArray(parsed.entries)) {
-            const seen = new Set<string>();
-            let idx = 0;
-            for (const entry of parsed.entries) {
-              const title = entry.title?.trim();
-              if (title && !seen.has(title)) {
-                seen.add(title);
-                idx++;
-                result[`${key}_entry_${idx}`] = title;
-              }
-            }
-          }
-        } catch { /* JSON invalide → ignorer */ }
-        continue;
-      }
-
-      // ── Champ répétitif (array JSON) → extraire tous les sous-champs textuels ──
-      // ex: "INSPIRATION_repetitif_1" → "INSPIRATION_1_nom_1", "INSPIRATION_1_hashtag_1", …
-      if (str.startsWith('[')) {
-        try {
-          const cards = JSON.parse(str);
-          if (Array.isArray(cards)) {
-            const flatPrefix = key.replace(/_repetitif_/g, '_');
-            cards.forEach((card: any, idx: number) => {
-              if (!card || typeof card !== 'object') return;
-              const n = idx + 1;
-              for (const [subKey, subVal] of Object.entries(card)) {
-                if (typeof subVal !== 'string' || !subVal.trim()) continue;
-                // Exclure les URLs, les sentinelles numériques ('1'/''), les champs image/url
-                if (/^https?:\/\//i.test(subVal)) continue;
-                if (subKey === 'card' || subKey === 'image' || subKey === 'url_article' || subKey === 'url_maps') continue;
-                result[`${flatPrefix}_${subKey}_${n}`] = subVal.trim();
-              }
-            });
-          }
-        } catch { /* JSON invalide → ignorer */ }
-        continue;
-      }
-
-      result[key] = str;
-    }
-
-    return result;
+    return extractTranslatableFields(content);
   }
 
   /**
@@ -812,4 +740,75 @@ Localization rules:
 
     return fields;
   }
+}
+
+/**
+ * Extrait les champs traduisibles depuis un objet content.text, en aplatissant les champs
+ * répétitifs (arrays JSON) et les liens {label, url}.
+ * Exportée pour permettre le lookup de valeurs FR originales dans d'autres modules.
+ */
+export function extractTranslatableFields(content: Record<string, any>): Record<string, string> {
+  const result: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(content)) {
+    if (value === null || value === undefined || value === '') continue;
+
+    if (/_picto_/i.test(key) || /_card_/i.test(key) || /_image_/i.test(key)) continue;
+
+    const link = parseLinkField(value);
+    if (link !== null) {
+      if (link.label.trim()) result[key] = link.label.trim();
+      continue;
+    }
+
+    if (typeof value !== 'string') continue;
+
+    const str = value.trim();
+    if (!str) continue;
+
+    if (/^https?:\/\//i.test(str)) continue;
+
+    if (str.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(str) as { schema_version?: number; entries?: Array<{ title?: string }> };
+        if (parsed?.schema_version === 1 && Array.isArray(parsed.entries)) {
+          const seen = new Set<string>();
+          let idx = 0;
+          for (const entry of parsed.entries) {
+            const title = entry.title?.trim();
+            if (title && !seen.has(title)) {
+              seen.add(title);
+              idx++;
+              result[`${key}_entry_${idx}`] = title;
+            }
+          }
+        }
+      } catch { /* JSON invalide → ignorer */ }
+      continue;
+    }
+
+    if (str.startsWith('[')) {
+      try {
+        const cards = JSON.parse(str);
+        if (Array.isArray(cards)) {
+          const flatPrefix = key.replace(/_repetitif_/g, '_');
+          cards.forEach((card: any, idx: number) => {
+            if (!card || typeof card !== 'object') return;
+            const n = idx + 1;
+            for (const [subKey, subVal] of Object.entries(card)) {
+              if (typeof subVal !== 'string' || !subVal.trim()) continue;
+              if (/^https?:\/\//i.test(subVal)) continue;
+              if (subKey === 'card' || subKey === 'image' || subKey === 'url_article' || subKey === 'url_maps') continue;
+              result[`${flatPrefix}_${subKey}_${n}`] = subVal.trim();
+            }
+          });
+        }
+      } catch { /* JSON invalide → ignorer */ }
+      continue;
+    }
+
+    result[key] = str;
+  }
+
+  return result;
 }

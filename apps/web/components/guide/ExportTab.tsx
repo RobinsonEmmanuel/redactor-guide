@@ -904,6 +904,7 @@ function OverflowCorrectionModal({
   const [saving, setSaving]       = useState<Record<string, boolean>>({});
   const [saved, setSaved]         = useState<Record<string, boolean>>({});
   const [errors, setErrors]       = useState<Record<string, string>>({});
+  const [savingAll, setSavingAll] = useState(false);
 
   const fieldKey = (w: OverflowWarning) => `${w.page_id}__${w.field_key}`;
 
@@ -927,13 +928,22 @@ function OverflowCorrectionModal({
         throw new Error(err.error ?? 'Erreur serveur');
       }
       setSaved(prev => ({ ...prev, [k]: true }));
-      // Retirer l'overflow de la liste locale
       setWarnings(prev => prev.filter(x => fieldKey(x) !== k));
     } catch (err: any) {
       setErrors(prev => ({ ...prev, [k]: err.message }));
     } finally {
       setSaving(prev => ({ ...prev, [k]: false }));
     }
+  };
+
+  const conformFields = warnings.filter(w => (values[fieldKey(w)] ?? '').length <= w.max_chars);
+
+  const saveAllConform = async () => {
+    setSavingAll(true);
+    for (const w of conformFields) {
+      await saveField(w);
+    }
+    setSavingAll(false);
   };
 
   const allDone = warnings.length === 0;
@@ -957,12 +967,26 @@ function OverflowCorrectionModal({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-          >
-            <XMarkIcon className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {!allDone && conformFields.length > 0 && (
+              <button
+                onClick={saveAllConform}
+                disabled={savingAll}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white transition-colors"
+              >
+                {savingAll
+                  ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+                  : <CheckCircleIcon className="w-3.5 h-3.5" />}
+                {savingAll ? 'Validation…' : `Tout valider (${conformFields.length})`}
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            >
+              <XMarkIcon className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Corps */}

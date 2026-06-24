@@ -616,45 +616,38 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
           const zipBusy = !!exportPreparing[`zip:${fr.code}`] || !!downloadingZip[fr.code];
           return (
             <div className="bg-white rounded-xl border-2 border-blue-200 p-5">
-              <div className="flex items-start justify-between gap-3 mb-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl">{fr.flag}</span>
-                    <h3 className="text-sm font-semibold text-gray-900">{fr.label}</h3>
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
-                      Langue source
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1.5">
-                    Package complet : JSON, images, redirections et GeoJSON (labels français).
-                    Le GeoJSON séparé se télécharge maintenant dans l&apos;étape Cartes.
-                  </p>
-                </div>
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-xl">{fr.flag}</span>
+                <h3 className="text-sm font-semibold text-gray-900">{fr.label}</h3>
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
+                  Langue source
+                </span>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <ExportIconButton
-                  accent="blue"
-                  icon={<ArchiveBoxIcon className="w-5 h-5" />}
-                  label="Package complet"
-                  title="ZIP : JSON + images + redirections + GeoJSON (géocodage auto puis 30–60 s)"
-                  loading={zipBusy}
-                  onClick={() => downloadZip(fr.code)}
-                />
-                <ExportIconButton
-                  icon={<DocumentTextIcon className="w-5 h-5" />}
-                  label="JSON texte"
-                  title="JSON normalisé layout-ready (sans images)"
-                  loading={downloading[fr.code]}
-                  onClick={() => downloadExport(fr.code)}
-                />
-                <ExportIconButton
-                  accent="indigo"
-                  icon={<ArrowsRightLeftIcon className="w-5 h-5" />}
-                  label="Redirections"
-                  title="CSV des redirections WP Engine"
-                  loading={downloadingRedirections[fr.code]}
+
+              <button
+                type="button"
+                onClick={() => downloadZip(fr.code)}
+                disabled={zipBusy}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium text-sm rounded-xl transition-colors"
+              >
+                {zipBusy
+                  ? <ArrowPathIcon className="w-5 h-5 animate-spin" />
+                  : <ArchiveBoxIcon className="w-5 h-5" />}
+                {zipBusy ? 'Génération en cours…' : 'Télécharger le package (JSON + images + GeoJSON)'}
+              </button>
+
+              <div className="mt-2 flex justify-end">
+                <button
+                  type="button"
                   onClick={() => downloadRedirections(fr.code)}
-                />
+                  disabled={!!downloadingRedirections[fr.code]}
+                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-indigo-600 disabled:opacity-50 transition-colors"
+                >
+                  {downloadingRedirections[fr.code]
+                    ? <ArrowPathIcon className="w-3 h-3 animate-spin" />
+                    : <ArrowsRightLeftIcon className="w-3 h-3" />}
+                  Redirections WP Engine uniquement
+                </button>
               </div>
 
               <PoiGeocodeAlerts
@@ -667,11 +660,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
 
         {/* Autres langues */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-1">Traductions</h3>
-          <p className="text-xs text-gray-500 mb-4">
-            Par langue : JSON traduit et redirections. Les GeoJSON traduits se téléchargent dans l&apos;étape Cartes.
-            Évitez de lancer une traduction en même temps que le package complet FR (ZIP + images) — les deux opérations partagent le même serveur.
-          </p>
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">Langues</h3>
           <div className="space-y-3">
             {LANGUAGES.filter(l => !l.native).map(lang => {
               const tState = translationStates[lang.code];
@@ -679,116 +668,77 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
               const isStale = isTranslationJobStale(tState);
               const isTranslating = isProcessing && !isStale;
               const isTranslated = tState?.status === 'completed';
+              const needsForce = isStale || tState?.status === 'failed';
               const langOverflows = overflowsByLang[lang.code] ?? [];
 
               return (
-                <div
-                  key={lang.code}
-                  className="p-4 rounded-lg border border-gray-100 bg-gray-50/50"
-                >
-                  <div className="flex items-center justify-between gap-3 mb-3">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-lg">{lang.flag}</span>
-                      <div>
-                        <div className="text-sm font-medium text-gray-800">{lang.label}</div>
-                        <div className="mt-0.5">{renderTranslationBadge(lang.code)}</div>
-                      </div>
-                    </div>
-                    {isTranslating ? (
-                      <button
-                        disabled
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg cursor-not-allowed flex-shrink-0"
-                      >
-                        <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
-                        Traduction…
-                      </button>
-                    ) : (
-                      <div className="flex items-center gap-1.5 flex-shrink-0">
-                        <button
-                          onClick={() => translateLanguage(lang.code, {
-                            force: isStale || tState?.status === 'failed',
-                            scope: 'geojson',
-                          })}
-                          title={
-                            isStale || tState?.status === 'failed'
-                              ? 'Relancer la traduction (job précédent interrompu)'
-                              : isTranslated
-                                ? 'Retraduire le contenu'
-                                : 'Lancer la traduction IA'
-                          }
-                          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
-                            isStale || tState?.status === 'failed'
-                              ? 'text-red-700 bg-red-50 border-red-300 hover:bg-red-100'
-                              : isTranslated
-                                ? 'text-gray-500 bg-white border-gray-200 hover:bg-gray-50'
-                                : 'text-blue-700 bg-blue-50 border-blue-300 hover:bg-blue-100'
-                          }`}
-                        >
-                          <LanguageIcon className="w-3.5 h-3.5" />
-                          {isStale || tState?.status === 'failed' ? 'Relancer' : isTranslated ? 'Retraduire' : 'Traduire'}
-                        </button>
-                        {/* TODO: retirer après validation des règles toponymiques */}
-                        <button
-                          type="button"
-                          onClick={() => translateLanguage(lang.code, { force: true, scope: 'geojson' })}
-                          title="Relance forcée GeoJSON (force=true) — annule un job en cours et retraduit les titres POI"
-                          className="flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium rounded-lg border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 transition-colors"
-                        >
-                          <ArrowPathIcon className="w-3 h-3" />
-                          Forcer
-                        </button>
-                      </div>
-                    )}
+                <div key={lang.code} className="p-4 rounded-xl border border-gray-100 bg-gray-50/50">
+                  {/* Ligne langue + statut */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-lg">{lang.flag}</span>
+                    <span className="text-sm font-medium text-gray-800">{lang.label}</span>
+                    <div className="ml-1">{renderTranslationBadge(lang.code)}</div>
                   </div>
 
+                  {/* Message d'état */}
                   {isStale && (
-                    <p className="text-[11px] text-red-600 mb-2">
-                      Traduction bloquée depuis plus de 10 minutes (souvent après un export lourd simultané). Cliquez sur « Relancer ».
+                    <p className="text-[11px] text-red-600 mb-3">
+                      Traduction bloquée depuis plus de 10 min. Cliquez sur « Relancer ».
                     </p>
                   )}
-
                   {tState?.status === 'failed' && tState.error && !isStale && (
-                    <p className="text-[11px] text-red-600 mb-2">
-                      {tState.error}
-                    </p>
+                    <p className="text-[11px] text-red-600 mb-3">{tState.error}</p>
                   )}
 
-                  {tState?.status === 'completed' && tState?.scope === 'geojson' && (
-                    <p className="text-[11px] text-amber-600 mb-2">
-                      Noms POI traduits (GeoJSON). L&apos;export JSON déclenchera automatiquement la traduction complète du guide.
-                    </p>
-                  )}
+                  {/* Boutons */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Bouton traduction */}
+                    {isTranslating ? (
+                      <button disabled className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg cursor-not-allowed">
+                        <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+                        Traduction en cours…
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => translateLanguage(lang.code, { force: needsForce, scope: 'geojson' })}
+                        className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                          needsForce
+                            ? 'text-red-700 bg-red-50 border-red-300 hover:bg-red-100'
+                            : isTranslated
+                              ? 'text-gray-500 bg-white border-gray-200 hover:bg-gray-50'
+                              : 'text-blue-700 bg-blue-50 border-blue-300 hover:bg-blue-100'
+                        }`}
+                      >
+                        <LanguageIcon className="w-3.5 h-3.5" />
+                        {needsForce ? 'Relancer' : isTranslated ? 'Retraduire' : 'Traduire'}
+                      </button>
+                    )}
 
-                  {!isTranslated && !isTranslating && !isStale && (
-                    <p className="text-[11px] text-amber-600 mb-2">
-                      Traduction non effectuée — les exports contiendront encore le texte français.
-                    </p>
-                  )}
-
-                  <div className="flex flex-wrap gap-2">
-                    <ExportIconButton
-                      accent="violet"
-                      icon={<ArchiveBoxIcon className="w-5 h-5" />}
-                      label="Package"
-                      title="ZIP : JSON traduit + redirections + GeoJSON (sans images)"
-                      loading={downloadingPackage[lang.code]}
+                    {/* Bouton téléchargement principal */}
+                    <button
+                      type="button"
                       onClick={() => downloadPackage(lang.code)}
-                    />
-                    <ExportIconButton
-                      icon={<DocumentTextIcon className="w-5 h-5" />}
-                      label="JSON texte"
-                      title={`JSON traduit (${lang.label})`}
-                      loading={downloading[lang.code]}
-                      onClick={() => downloadExport(lang.code)}
-                    />
-                    <ExportIconButton
-                      accent="indigo"
-                      icon={<ArrowsRightLeftIcon className="w-5 h-5" />}
-                      label="Redirections"
-                      title={`CSV redirections (${lang.label})`}
-                      loading={downloadingRedirections[lang.code]}
+                      disabled={!!downloadingPackage[lang.code]}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+                    >
+                      {downloadingPackage[lang.code]
+                        ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+                        : <ArchiveBoxIcon className="w-3.5 h-3.5" />}
+                      {downloadingPackage[lang.code] ? 'Génération…' : 'Télécharger le package'}
+                    </button>
+
+                    {/* Lien redirections */}
+                    <button
+                      type="button"
                       onClick={() => downloadRedirections(lang.code)}
-                    />
+                      disabled={!!downloadingRedirections[lang.code]}
+                      className="flex items-center gap-1 text-xs text-gray-400 hover:text-indigo-600 disabled:opacity-50 transition-colors ml-auto"
+                    >
+                      {downloadingRedirections[lang.code]
+                        ? <ArrowPathIcon className="w-3 h-3 animate-spin" />
+                        : <ArrowsRightLeftIcon className="w-3 h-3" />}
+                      Redirections
+                    </button>
                   </div>
 
                   <LanguageOverflowAlerts

@@ -102,7 +102,7 @@ interface TranslationState {
 }
 
 const TRANSLATION_STALE_MS = 10 * 60 * 1000;
-const TRANSLATION_POLL_DELAY_MS = 3000;
+
 
 function isTranslationJobStale(state: TranslationState | undefined): boolean {
   if (!state || state.status !== 'processing') return false;
@@ -114,8 +114,7 @@ function isTranslationJobStale(state: TranslationState | undefined): boolean {
 
 export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
   const [preview, setPreview] = useState<any>(null);
-  const [downloading, setDownloading] = useState<Record<string, boolean>>({});
-  const [overflowsByLang, setOverflowsByLang] = useState<Record<string, OverflowWarning[]>>({});
+const [overflowsByLang, setOverflowsByLang] = useState<Record<string, OverflowWarning[]>>({});
   const [downloadingPackage, setDownloadingPackage] = useState<Record<string, boolean>>({});
   const [downloadingZip, setDownloadingZip] = useState<Record<string, boolean>>({});
   const [downloadingRedirections, setDownloadingRedirections] = useState<Record<string, boolean>>({});
@@ -312,120 +311,6 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
     return cdMatch ? cdMatch[1] : fallback;
   };
 
-  const ensureFullTranslation = useCallback(async (lang: string): Promise<void> => {
-    // Relire le statut depuis l'API pour éviter un état périmé dans la closure
-    const statusRes = await fetch(
-      `${apiUrl}/api/v1/guides/${guideId}/translation-status?lang=${lang}`,
-      { credentials: 'include' }
-    );
-    const currentStatus = statusRes.ok ? await statusRes.json() : null;
-
-    // Déjà pleinement traduit → rien à faire
-    if (currentStatus?.status === 'completed' && currentStatus?.scope !== 'geojson') return;
-
-    // Déclencher la traduction complète
-    const needsForce = currentStatus?.status === 'failed' || isTranslationJobStale(currentStatus);
-    const res = await fetch(
-      `${apiUrl}/api/v1/guides/${guideId}/translate?lang=${lang}&scope=full${needsForce ? '&force=true' : ''}`,
-      { method: 'POST', credentials: 'include' }
-    );
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Erreur traduction complète');
-    }
-
-    setTranslationStates(prev => ({
-      ...prev,
-      [lang]: { ...prev[lang], status: 'processing', scope: 'full', progress: { done: 0, total: 0 }, error: null },
-    }));
-    setTranslating(prev => ({ ...prev, [lang]: true }));
-    startPolling(lang);
-
-    // Attendre la fin — pas de limite fixe (guide peut avoir 100+ pages)
-    // Seule sortie d'erreur : job bloqué (plus aucune mise à jour depuis 10 min)
-    await new Promise<void>((resolve, reject) => {
-      const checkInterval = setInterval(async () => {
-        try {
-          const pollRes = await fetch(
-            `${apiUrl}/api/v1/guides/${guideId}/translation-status?lang=${lang}`,
-            { credentials: 'include' }
-          );
-          if (!pollRes.ok) return;
-          const d = await pollRes.json();
-          if (d?.status === 'completed') {
-            clearInterval(checkInterval);
-            resolve();
-          } else if (d?.status === 'failed') {
-            clearInterval(checkInterval);
-            reject(new Error(d.error || 'Traduction échouée'));
-          } else if (isTranslationJobStale(d)) {
-            clearInterval(checkInterval);
-            reject(new Error('La traduction semble bloquée (aucune activité depuis 10 min). Relancez depuis l\'étape Traduction.'));
-          }
-        } catch { /* ignore, retry on next tick */ }
-      }, TRANSLATION_POLL_DELAY_MS);
-    });
-  }, [apiUrl, guideId, startPolling]);
-
-  const downloadExport = async (lang: string) => {
-    setDownloading(prev => ({ ...prev, [lang]: true }));
-    try {
-      // 0) Si langue étrangère avec seulement GeoJSON traduit, finir la traduction complète d'abord
-      if (lang !== 'fr') {
-        await ensureFullTranslation(lang);
-      }
-
-      // 1) Créer un job asynchrone côté API (anti-timeout)
-      const createRes = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/export/json-jobs`,
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lang, normalize: true, drop_null_pictos: true }),
-        }
-      );
-      if (!createRes.ok) throw new Error('Erreur lancement job export');
-      const createData = await createRes.json();
-      const jobId = createData.jobId as string;
-      if (!jobId) throw new Error('Job export introuvable');
-
-      // 2) Polling du statut jusqu'à complétion
-      const maxAttempts = 360; // ~12 min à 2s
-      let completed = false;
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        await new Promise(r => setTimeout(r, 2000));
-        const statusRes = await fetch(
-          `${apiUrl}/api/v1/guides/${guideId}/export/json-jobs/${jobId}`,
-          { credentials: 'include' }
-        );
-        if (!statusRes.ok) continue;
-        const statusData = await statusRes.json();
-        if (statusData.status === 'completed') {
-          completed = true;
-          break;
-        }
-        if (statusData.status === 'failed') {
-          throw new Error(statusData.error || 'Job export échoué');
-        }
-      }
-      if (!completed) throw new Error('Timeout export JSON');
-
-      // 3) Télécharger le JSON final
-      const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/export/json-jobs/${jobId}/download`,
-        { credentials: 'include' }
-      );
-      if (!res.ok) throw new Error('Erreur téléchargement JSON');
-      const blob = await res.blob();
-      downloadBlob(blob, parseFilename(res, `guide_${lang}.json`));
-    } catch (err: any) {
-      alert(err?.message || `Erreur lors de l'export en ${lang}`);
-    } finally {
-      setDownloading(prev => ({ ...prev, [lang]: false }));
-    }
-  };
-
   const prepKey = (kind: PendingGeoExport['kind'], lang: string) => `${kind}:${lang}`;
 
   const executePendingExport = async (pending: PendingGeoExport) => {
@@ -503,9 +388,6 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
   const downloadPackage = async (lang: string) => {
     setDownloadingPackage(prev => ({ ...prev, [lang]: true }));
     try {
-      // Déclencher la traduction complète si seulement GeoJSON traduit
-      await ensureFullTranslation(lang);
-
       const res = await fetch(
         `${apiUrl}/api/v1/guides/${guideId}/export/package?lang=${lang}`,
         { credentials: 'include' }

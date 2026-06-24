@@ -152,6 +152,13 @@ export class GuideTranslationService {
 
     for (let i = 0; i < pages.length; i++) {
       const page = pages[i];
+
+      // Heartbeat : signaler le début de chaque page pour éviter la détection stale
+      // si OpenAI met plusieurs minutes à répondre sur une page donnée.
+      if (onProgress) {
+        await onProgress({ done: i, total }).catch(() => {});
+      }
+
       const rawContent = getPageTextContent(page as Record<string, unknown>);
       const pageContext = buildPageTranslationContext(
         page as Record<string, unknown>,

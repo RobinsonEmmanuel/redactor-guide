@@ -718,8 +718,9 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                     <button
                       type="button"
                       onClick={() => downloadPackage(lang.code)}
-                      disabled={!!downloadingPackage[lang.code]}
-                      className="flex items-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+                      disabled={!!downloadingPackage[lang.code] || langOverflows.length > 0}
+                      title={langOverflows.length > 0 ? `Corrigez les ${langOverflows.length} dépassement(s) de calibre avant de télécharger` : undefined}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium rounded-lg transition-colors"
                     >
                       {downloadingPackage[lang.code]
                         ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />

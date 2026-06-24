@@ -700,7 +700,7 @@ export default function ExportTab({ guideId, guide, apiUrl }: ExportTabProps) {
                       </button>
                     ) : (
                       <button
-                        onClick={() => translateLanguage(lang.code, { force: needsForce, scope: 'geojson' })}
+                        onClick={() => translateLanguage(lang.code, { force: needsForce, scope: 'full' })}
                         className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
                           needsForce
                             ? 'text-red-700 bg-red-50 border-red-300 hover:bg-red-100'

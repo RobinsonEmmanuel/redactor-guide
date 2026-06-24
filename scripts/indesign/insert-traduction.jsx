@@ -755,7 +755,9 @@ function truncateOverflow(tf) {
                 page:           currentPageNum,
                 titre:          currentPageTitre,
                 label:          tf.label || "(sans label)",
-                texteComplet:   texteComplet
+                texteComplet:   texteComplet,
+                visibleChars:   visCount,
+                totalChars:     total
             });
             story.characters.itemByRange(visCount, total - 1).remove();
         }
@@ -2065,10 +2067,20 @@ if (overflowWarnings.length > 0) {
             rf.writeln("p." + owRec.page
                      + "  [" + owRec.label + "]"
                      + (owRec.titre ? "  " + owRec.titre : ""));
-            rf.writeln("Texte complet avant troncature :");
+            rf.writeln("Calibre : " + owRec.visibleChars + " car. visibles / "
+                     + owRec.totalChars + " car. total  ("
+                     + (owRec.totalChars - owRec.visibleChars) + " tronques)");
+            var fullStr = (owRec.texteComplet !== undefined && owRec.texteComplet !== null)
+                ? String(owRec.texteComplet) : "";
+            var visStr  = fullStr.slice(0, owRec.visibleChars);
+            var cutStr  = fullStr.slice(owRec.visibleChars);
+            rf.writeln("Partie visible :");
             rf.writeln("---8<---");
-            rf.writeln(owRec.texteComplet !== undefined && owRec.texteComplet !== null
-                ? String(owRec.texteComplet) : "(indisponible)");
+            rf.writeln(visStr || "(vide)");
+            rf.writeln("---8<---");
+            rf.writeln("Partie tronquee :");
+            rf.writeln("---8<---");
+            rf.writeln(cutStr || "(vide)");
             rf.writeln("---8<---");
             rf.writeln("");
         }

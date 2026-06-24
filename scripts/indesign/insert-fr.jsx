@@ -591,10 +591,15 @@ function truncateOverflow(tf) {
         var visCount = tf.characters.length;
         var total    = story.characters.length;
         if (total > visCount && visCount > 0) {
+            var texteComplet = "";
+            try { texteComplet = String(story.contents); } catch(eCap) {}
             overflowWarnings.push({
-                page:  currentPageNum,
-                titre: currentPageTitre,
-                label: tf.label || "(sans label)"
+                page:         currentPageNum,
+                titre:        currentPageTitre,
+                label:        tf.label || "(sans label)",
+                texteComplet: texteComplet,
+                visibleChars: visCount,
+                totalChars:   total
             });
             story.characters.itemByRange(visCount, total - 1).remove();
         }
@@ -3034,9 +3039,26 @@ if (overflowWarnings.length > 0) {
         rf.writeln("Blocs tronques : " + overflowWarnings.length);
         rf.writeln("----------------------------------------------------");
         for (var ow = 0; ow < overflowWarnings.length; ow++) {
-            rf.writeln("p." + overflowWarnings[ow].page
-                     + "  [" + overflowWarnings[ow].label + "]"
-                     + (overflowWarnings[ow].titre ? "  " + overflowWarnings[ow].titre : ""));
+            var owRec = overflowWarnings[ow];
+            rf.writeln("p." + owRec.page
+                     + "  [" + owRec.label + "]"
+                     + (owRec.titre ? "  " + owRec.titre : ""));
+            rf.writeln("Calibre : " + owRec.visibleChars + " car. visibles / "
+                     + owRec.totalChars + " car. total  ("
+                     + (owRec.totalChars - owRec.visibleChars) + " tronques)");
+            var fullStr = (owRec.texteComplet !== undefined && owRec.texteComplet !== null)
+                ? String(owRec.texteComplet) : "";
+            var visStr  = fullStr.slice(0, owRec.visibleChars);
+            var cutStr  = fullStr.slice(owRec.visibleChars);
+            rf.writeln("Partie visible :");
+            rf.writeln("---8<---");
+            rf.writeln(visStr || "(vide)");
+            rf.writeln("---8<---");
+            rf.writeln("Partie tronquee :");
+            rf.writeln("---8<---");
+            rf.writeln(cutStr || "(vide)");
+            rf.writeln("---8<---");
+            rf.writeln("");
         }
         rf.writeln("----------------------------------------------------");
         rf.writeln("Reduisez le texte de ces champs dans l editeur de contenu.");

@@ -35,54 +35,6 @@ var doc = app.activeDocument;
 var overflowWarnings = [];
 var currentPageNum   = 0;
 var currentPageTitre = "";
-var DEBUG_SOMMAIRE_FILE = true;
-var SOMMAIRE_DEBUG_LOGS = [];
-
-// Debug marqueurs — markers-debug-report.txt
-// Active uniquement si le champ contient {** ou des marqueurs suspects apres injection.
-var MARKERS_DEBUG_LOGS = [];
-/** Enregistre un evenement de debug marqueurs. */
-function logMarkerDebug(label, rawValue, normalizedValue, injectedContents) {
-    MARKERS_DEBUG_LOGS.push({
-        page:       currentPageNum,
-        titre:      currentPageTitre,
-        label:      label,
-        raw:        String(rawValue   || "").slice(0, 300),
-        normalized: String(normalizedValue || "").slice(0, 300),
-        injected:   String(injectedContents || "").slice(0, 300),
-    });
-}
-/** Appele apres tf.contents = str : loggue TOUJOURS si on est page 2, sinon uniquement si marqueurs suspects. */
-function checkMarkerResiduals(tf, label, rawValue, normalizedValue) {
-    try {
-        var injected = String(tf.contents || "");
-        var hasResidual = injected.indexOf("{") !== -1
-                       || injected.indexOf("}") !== -1
-                       || injected.indexOf("**") !== -1
-                       || injected.indexOf("~") !== -1
-                       || injected.indexOf("^") !== -1;
-        var forcePage2 = (currentPageNum === 2);
-        if (forcePage2 || hasResidual || String(rawValue || "").indexOf("{**") !== -1) {
-            logMarkerDebug(label, rawValue, normalizedValue, injected);
-        }
-    } catch(e) {}
-}
-
-/** Loggue chaque cle/valeur brute de textContent pour la page 2 (avant injection). */
-function dumpPage2TextContent(textContent) {
-    if (currentPageNum !== 2) return;
-    for (var k in textContent) {
-        if (!textContent.hasOwnProperty(k)) continue;
-        var v = textContent[k];
-        MARKERS_DEBUG_LOGS.push({
-            page: 2, titre: currentPageTitre,
-            label: "[DUMP RAW] " + k,
-            raw: String(v || "").slice(0, 400),
-            normalized: "(avant injection)",
-            injected:   "(avant injection)",
-        });
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Noms des styles de caractere utilises par les marqueurs inline
@@ -866,7 +818,6 @@ function injectText(page, label, value) {
         resetMarkerCharStyles(tf);
         if (hasMarkers(str)) applyStyleMarkers(tf);
         truncateOverflow(tf);
-        checkMarkerResiduals(tf, label, value, str);
     }
 }
 
@@ -1342,64 +1293,6 @@ function sommaireSafeStr(v) {
     return String(v === undefined || v === null ? "" : v).replace(/\r/g, "\\r").replace(/\n/g, "\\n");
 }
 
-function sommaireCollectDebugForPage(page, part, slice, tfTitre, tfNums, dualMode) {
-    if (!DEBUG_SOMMAIRE_FILE) return;
-    try {
-        var lines = [];
-        lines.push("=== PAGE SOMMAIRE p." + String(page && page.name ? page.name : "?") + " | part=" + String(part) + " | dualMode=" + (dualMode ? "true" : "false") + " ===");
-        lines.push("entries=" + (slice ? slice.length : 0));
-        var titleParas = null;
-        var numParas = null;
-        try { titleParas = tfTitre ? tfTitre.paragraphs : null; } catch(eTp) {}
-        try { numParas = tfNums ? sommaireStoryParas(tfNums) : null; } catch(eNp) {}
-
-        var n = 0;
-        if (slice && slice.length > n) n = slice.length;
-        try { if (titleParas && titleParas.length > n) n = titleParas.length; } catch(eTl) {}
-        try { if (numParas && numParas.length > n) n = numParas.length; } catch(eNl) {}
-
-        for (var i = 0; i < n; i++) {
-            var e = (slice && i < slice.length) ? slice[i] : null;
-            var lv = e ? parseInt(e.level, 10) : NaN;
-            if (isNaN(lv)) lv = -1;
-            var entryTitle = e ? sommaireSafeStr(e.title) : "";
-            var entryPage = e ? sommaireSafeStr(sommaireEntryPage(e)) : "";
-
-            var tp = (titleParas && i < titleParas.length) ? titleParas[i] : null;
-            var np = (numParas && i < numParas.length) ? numParas[i] : null;
-
-            var tpTxt = "", tpLines = -1, tpSb = 0, tpSa = 0, tpLd = 0;
-            var npTxt = "", npLines = -1, npSb = 0, npSa = 0, npLd = 0;
-            try { if (tp) tpTxt = sommaireSafeStr(tp.contents).replace(/\\r$/g, ""); } catch(eT0) {}
-            try { if (tp) tpLines = tp.lines.length; } catch(eT1) {}
-            try { if (tp) tpSb = Number(tp.spaceBefore || 0); } catch(eT2) {}
-            try { if (tp) tpSa = Number(tp.spaceAfter || 0); } catch(eT3) {}
-            try { if (tp) tpLd = Number(tp.leading || 0); } catch(eT4) {}
-
-            try { if (np) npTxt = sommaireSafeStr(np.contents).replace(/\\r$/g, ""); } catch(eN0) {}
-            try { if (np) npLines = np.lines.length; } catch(eN1) {}
-            try { if (np) npSb = Number(np.spaceBefore || 0); } catch(eN2) {}
-            try { if (np) npSa = Number(np.spaceAfter || 0); } catch(eN3) {}
-            try { if (np) npLd = Number(np.leading || 0); } catch(eN4) {}
-
-            var effLd = sommaireIsAutoLeading(tpLd) ? sommaireLeadingForLevel(lv) : tpLd;
-            var titleBlockH = tpSb + ((tpLines > 0 ? tpLines : 1) * effLd) + tpSa;
-            var expectedNumSa = titleBlockH - tpSb - effLd;
-            if (expectedNumSa < 0) expectedNumSa = 0;
-
-            lines.push(
-                "#" + i
-                + " | lv=" + lv
-                + " | entryTitle=\"" + entryTitle + "\""
-                + " | entryPage=\"" + entryPage + "\""
-                + " | titleTxt=\"" + tpTxt + "\" lines=" + tpLines + " sb=" + tpSb + " sa=" + tpSa + " ld=" + tpLd
-                + " | numTxt=\"" + npTxt + "\" lines=" + npLines + " sb=" + npSb + " sa=" + npSa + " ld=" + npLd
-                + " | titleBlockH=" + titleBlockH + " expectedNumSa=" + expectedNumSa
-            );
-        }
-        SOMMAIRE_DEBUG_LOGS.push(lines.join("\n"));
-    } catch(eAll) {}
-}
 
 // Applique un style paragraphe sur un numero sans toucher au style caractere
 // (clearOverrides seulement — identique a sommaireApplyNumerosParagraphOnly).
@@ -1974,7 +1867,6 @@ function injectSommaire(page, rawValue) {
         sommaireWireTitres(tfTitre, slice);
     }
     try { truncateOverflow(tfTitre); } catch(eTr1) {}
-    sommaireCollectDebugForPage(page, currentPart, slice, tfTitre, tfNums, dualMode);
 }
 
 // ---------------------------------------------------------------------------
@@ -1983,7 +1875,6 @@ function injectSommaire(page, rawValue) {
 
 function processPage(idPage, pageData) {
     var textContent = (pageData.content && pageData.content.text) || {};
-    dumpPage2TextContent(textContent); // dump brut page 2 avant toute injection
 
     // --- Cas special : sommaire ---
     // SOMMAIRE_texte_1 est un JSON structure qui ne doit pas passer par injectText.
@@ -2189,51 +2080,6 @@ if (overflowWarnings.length > 0) {
 
     report += "\n\n[!] " + overflowWarnings.length + " bloc(s) tronque(s)"
               + (overflowWritten ? " -> voir overflow-report.txt" : " (impossible d ecrire le fichier rapport)");
-}
-
-// --- Rapport debug marqueurs (markers-debug-report.txt) ---
-if (MARKERS_DEBUG_LOGS.length > 0) {
-    var markersReportWritten = false;
-    try {
-        var mrf = new File(rootFolder + "/markers-debug-report.txt");
-        mrf.encoding = "UTF-8";
-        mrf.open("w");
-        mrf.writeln("MARKERS DEBUG REPORT — marqueurs résiduels ou champs {** détectés");
-        mrf.writeln("Entrées : " + MARKERS_DEBUG_LOGS.length);
-        mrf.writeln("====================================================");
-        for (var md = 0; md < MARKERS_DEBUG_LOGS.length; md++) {
-            var m = MARKERS_DEBUG_LOGS[md];
-            mrf.writeln("p." + m.page + " [" + m.label + "]  " + m.titre);
-            mrf.writeln("  RAW      : " + m.raw);
-            mrf.writeln("  NORMALISÉ: " + m.normalized);
-            mrf.writeln("  INJECTÉ  : " + m.injected);
-            mrf.writeln("----------------------------------------------------");
-        }
-        mrf.close();
-        markersReportWritten = true;
-    } catch(eMrf) {}
-    report += "\n\n[DEBUG MARKERS] " + MARKERS_DEBUG_LOGS.length + " champ(s) suspects"
-           + (markersReportWritten ? " -> voir markers-debug-report.txt" : " (impossible d'ecrire le fichier rapport)");
-}
-
-if (DEBUG_SOMMAIRE_FILE && SOMMAIRE_DEBUG_LOGS.length > 0) {
-    var sommaireDebugWritten = false;
-    try {
-        var srf = new File(rootFolder + "/sommaire-debug-report.txt");
-        srf.encoding = "UTF-8";
-        srf.open("w");
-        srf.writeln("SOMMAIRE DEBUG REPORT");
-        srf.writeln("Pages sommaire loggees : " + SOMMAIRE_DEBUG_LOGS.length);
-        srf.writeln("====================================================");
-        for (var sd = 0; sd < SOMMAIRE_DEBUG_LOGS.length; sd++) {
-            srf.writeln(SOMMAIRE_DEBUG_LOGS[sd]);
-            srf.writeln("----------------------------------------------------");
-        }
-        srf.close();
-        sommaireDebugWritten = true;
-    } catch(eSd) {}
-    report += "\n\n[DEBUG SOMMAIRE] " + SOMMAIRE_DEBUG_LOGS.length + " page(s) loggee(s)"
-           + (sommaireDebugWritten ? " -> voir sommaire-debug-report.txt" : " (impossible d ecrire sommaire-debug-report.txt)");
 }
 
 alert(report);

@@ -34,8 +34,6 @@ var DEBUG_PICTOS      = false;
 var DEBUG_INSPIRATION = false;
 var DEBUG_PAGES       = false;
 var DEBUG_SOMMAIRE    = false;
-// Debug structure sommaire vers fichier texte dedie (pages sommaire uniquement).
-var DEBUG_SOMMAIRE_FILE = true;
 // Mode diagnostic : affiche uniquement les numeros bruts du sommaire, sans liens.
 var SOMMAIRE_NUMBERS_ONLY_NO_LINKS = false;
 // Reprise a zero: injection simple JSON -> SOMMAIRE_numeros_1 avec saut de paragraphe.
@@ -44,7 +42,6 @@ var SOMMAIRE_NUMBERS_STRICT_SIMPLE = true;
 var DEBUG_SOMMAIRE_FIRST_TWO_LINES = false;
 // Log amont garanti: verifier que le bloc numeros est bien trouve et que l'injection passe ici.
 var DEBUG_SOMMAIRE_ENTRY_PROBE = false;
-var SOMMAIRE_DEBUG_LOGS = [];
 
 var BOLD_STYLE_NAME        = "Gras";        // Marqueurs **...**
 var ORANGE_STYLE_NAME      = "Orange";      // Marqueurs {...}   - couleur #f39428
@@ -1834,68 +1831,6 @@ function sommaireDebugAlert(msg) {
     try { alert("[DEBUG SOMMAIRE]\n" + String(msg || "")); } catch (eDbg) {}
 }
 
-function sommaireSafeStr(v) {
-    return String(v === undefined || v === null ? "" : v).replace(/\r/g, "\\r").replace(/\n/g, "\\n");
-}
-
-function sommaireCollectDebugForPage(page, part, slice, tfTitle, tfNums, dualMode) {
-    if (!DEBUG_SOMMAIRE_FILE) return;
-    try {
-        var lines = [];
-        lines.push("=== PAGE SOMMAIRE p." + String(page && page.name ? page.name : "?") + " | part=" + String(part) + " | dualMode=" + (dualMode ? "true" : "false") + " ===");
-        lines.push("entries=" + (slice ? slice.length : 0));
-        var titleParas = null;
-        var numParas = null;
-        try { titleParas = tfTitle ? tfTitle.paragraphs : null; } catch (eTp) {}
-        try { numParas = tfNums ? sommaireNumerosStoryParagraphs(tfNums) : null; } catch (eNp) {}
-        var n = 0;
-        if (slice && slice.length > n) n = slice.length;
-        try { if (titleParas && titleParas.length > n) n = titleParas.length; } catch (eTl) {}
-        try { if (numParas && numParas.length > n) n = numParas.length; } catch (eNl) {}
-
-        for (var i = 0; i < n; i++) {
-            var e = (slice && i < slice.length) ? slice[i] : null;
-            var lv = e ? parseInt(e.level, 10) : NaN;
-            if (isNaN(lv)) lv = -1;
-            var title = e ? sommaireSafeStr(e.title) : "";
-            var pageNum = e ? sommaireEntryPageValue(e) : "";
-
-            var tp = (titleParas && i < titleParas.length) ? titleParas[i] : null;
-            var np = (numParas && i < numParas.length) ? numParas[i] : null;
-
-            var tpTxt = "", tpLines = -1, tpSb = 0, tpSa = 0, tpLd = 0;
-            var npTxt = "", npLines = -1, npSb = 0, npSa = 0, npLd = 0;
-            try { if (tp) tpTxt = sommaireSafeStr(tp.contents).replace(/\\r$/g, ""); } catch (eT0) {}
-            try { if (tp) tpLines = tp.lines.length; } catch (eT1) {}
-            try { if (tp) tpSb = Number(tp.spaceBefore || 0); } catch (eT2) {}
-            try { if (tp) tpSa = Number(tp.spaceAfter || 0); } catch (eT3) {}
-            try { if (tp) tpLd = Number(tp.leading || 0); } catch (eT4) {}
-
-            try { if (np) npTxt = sommaireSafeStr(np.contents).replace(/\\r$/g, ""); } catch (eN0) {}
-            try { if (np) npLines = np.lines.length; } catch (eN1) {}
-            try { if (np) npSb = Number(np.spaceBefore || 0); } catch (eN2) {}
-            try { if (np) npSa = Number(np.spaceAfter || 0); } catch (eN3) {}
-            try { if (np) npLd = Number(np.leading || 0); } catch (eN4) {}
-
-            var effLd = sommaireIsAutoLeading(tpLd) ? sommaireLeadingForLevel(lv) : tpLd;
-            var titleBlockH = tpSb + ((tpLines > 0 ? tpLines : 1) * effLd) + tpSa;
-            var expectedNumSa = titleBlockH - tpSb - effLd;
-            if (expectedNumSa < 0) expectedNumSa = 0;
-
-            lines.push(
-                "#" + i
-                + " | lv=" + lv
-                + " | entryTitle=\"" + title + "\""
-                + " | entryPage=\"" + sommaireSafeStr(pageNum) + "\""
-                + " | titleTxt=\"" + tpTxt + "\" lines=" + tpLines + " sb=" + tpSb + " sa=" + tpSa + " ld=" + tpLd
-                + " | numTxt=\"" + npTxt + "\" lines=" + npLines + " sb=" + npSb + " sa=" + npSa + " ld=" + npLd
-                + " | titleBlockH=" + titleBlockH + " expectedNumSa=" + expectedNumSa
-            );
-        }
-        SOMMAIRE_DEBUG_LOGS.push(lines.join("\n"));
-    } catch (eAll) {}
-}
-
 function sommaireForceVisibleNumeros(tfNums) {
     if (!tfNums) return;
     try {
@@ -2671,7 +2606,6 @@ function sommaireWirePageNumberHyperlinksOnPage(idPage, pageData, spreadPart, da
         if (dualMode && tfNums) truncateOverflow(tfNums);
         truncateOverflow(tfTitle);
     } catch (eTr0) {}
-    sommaireCollectDebugForPage(idPage, spreadPart, slice, tfTitle, tfNums, dualMode);
 }
 
 function sommaireWireAllSommairePagesForGenerate(data) {
@@ -3122,26 +3056,6 @@ if (missingGabarits.length > 0) {
     for (var mg = 0; mg < missingGabarits.length; mg++) {
         finalMsg += " " + missingGabarits[mg];
     }
-}
-
-if (DEBUG_SOMMAIRE_FILE && SOMMAIRE_DEBUG_LOGS.length > 0) {
-    var sommaireDebugWritten = false;
-    try {
-        var srf = new File(rootFolder + "/sommaire-debug-report.txt");
-        srf.encoding = "UTF-8";
-        srf.open("w");
-        srf.writeln("SOMMAIRE DEBUG REPORT");
-        srf.writeln("Pages sommaire loggees : " + SOMMAIRE_DEBUG_LOGS.length);
-        srf.writeln("====================================================");
-        for (var sd = 0; sd < SOMMAIRE_DEBUG_LOGS.length; sd++) {
-            srf.writeln(SOMMAIRE_DEBUG_LOGS[sd]);
-            srf.writeln("----------------------------------------------------");
-        }
-        srf.close();
-        sommaireDebugWritten = true;
-    } catch (eSd) {}
-    finalMsg += "\n\n[DEBUG SOMMAIRE] " + SOMMAIRE_DEBUG_LOGS.length + " page(s) loggee(s)"
-             + (sommaireDebugWritten ? " -> voir sommaire-debug-report.txt" : " (impossible d ecrire sommaire-debug-report.txt)");
 }
 
 // Restaurer les preferences Smart Text Reflow

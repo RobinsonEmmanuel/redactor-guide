@@ -36,6 +36,56 @@ var overflowWarnings = [];
 var currentPageNum   = 0;
 var currentPageTitre = "";
 
+// --- TRACE DEBUG GRAS (jetable) ---------------------------------------------
+// Trace pas-a-pas le traitement d'un bloc precis pour comprendre le gras.
+var DEBUG_TRACE        = true;
+var DEBUG_TRACE_TITLE  = "Punta del Hidalgo";   // page ciblee (titre exact)
+var DEBUG_TRACE_LABELS = { "POI_liste_1": true }; // champs ciblés (cle JSON)
+var TRACE_ACTIVE = false;   // mis a true pendant le traitement du bloc cible
+var TRACE_LINES  = [];
+
+function traceStyleName(ch) {
+    try { var cs = ch.appliedCharacterStyle; return (cs && cs.isValid) ? cs.name : "(?)"; }
+    catch (e) { return "(err)"; }
+}
+function traceFontStyle(ch) {
+    try { return String(ch.fontStyle); } catch (e) { return "(err)"; }
+}
+// Regroupe les caracteres consecutifs partageant (styleCaractere + graisse).
+function traceDumpRuns(tf) {
+    var s = "";
+    try {
+        var chars = tf.characters;
+        var n = chars.length;
+        var curKey = null, buf = "", curStyle = "", curFont = "";
+        for (var i = 0; i < n; i++) {
+            var ch = chars.item(i);
+            var st = traceStyleName(ch), ft = traceFontStyle(ch);
+            var key = st + "|" + ft;
+            var c; try { c = String(ch.contents); } catch (e) { c = "?"; }
+            if (c === "\r") c = "\\r"; if (c === "\n") c = "\\n";
+            if (key !== curKey) {
+                if (curKey !== null) s += "    [" + curStyle + " / " + curFont + "] \"" + buf + "\"\n";
+                curKey = key; curStyle = st; curFont = ft; buf = c;
+            } else { buf += c; }
+        }
+        if (curKey !== null) s += "    [" + curStyle + " / " + curFont + "] \"" + buf + "\"\n";
+        s += "    (total " + n + " car.)\n";
+    } catch (e) { s += "    (dump impossible: " + e + ")\n"; }
+    return s;
+}
+function trace(step, tf) {
+    if (!TRACE_ACTIVE) return;
+    TRACE_LINES.push("== " + step + " ==");
+    if (tf) TRACE_LINES.push(traceDumpRuns(tf));
+}
+function traceRaw(label, str) {
+    if (!TRACE_ACTIVE) return;
+    var shown = String(str).replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+    TRACE_LINES.push("== " + label + " ==");
+    TRACE_LINES.push("    \"" + shown + "\"");
+}
+
 // ---------------------------------------------------------------------------
 // Noms des styles de caractere utilises par les marqueurs inline
 // ---------------------------------------------------------------------------
@@ -482,12 +532,16 @@ function applyStyleMarkers(tf, clearAllCharacterInheritance) {
         var sChiffre    = doc.characterStyles.itemByName(STYLE_CHIFFRE);
         var sGrasOrange = doc.characterStyles.itemByName(STYLE_GRAS_ORANGE);
 
+        trace("5a. applyStyleMarkers ENTREE", tf);
+
         // Pass 0 : combinaison {**texte**} → Gras-orange. DOIT preceder les passes
         // bold/orange separees pour eviter que l'une ne consomme l'autre.
         styleAndStripMarkers(scope, story, "(?s)\\{\\*\\*([^*}]+?)\\*\\*\\}", sGrasOrange);
+        trace("5b. apres passe {**...**} (Gras-orange)", tf);
 
         // **texte** → Gras
         styleAndStripMarkers(scope, story, "(?s)\\*\\*([^*]+?)\\*\\*", sGras);
+        trace("5c. apres passe **...** (Gras)", tf);
 
         // {texte} → Orange
         styleAndStripMarkers(scope, story, "(?s)\\{([^}]+?)\\}", sOrange);
@@ -502,9 +556,11 @@ function applyStyleMarkers(tf, clearAllCharacterInheritance) {
 
         // Retirer d'eventuels marqueurs ** orphelins (paires desequilibrees)
         changeGrepOnScope(scope, story, "\\*\\*", "");
+        trace("5d. apres toutes passes + strip orphelins", tf);
 
         if (clearAllCharacterInheritance === true) {
             resetNonMarkerCharacterFormatting(tf);
+            trace("5e. apres resetNonMarkerCharacterFormatting", tf);
         }
     } catch(e) {}
 }
@@ -837,19 +893,41 @@ function injectBulletText(page, label, value) {
         if (items.length === 0) { tf.visible = false; continue; }
 
         tf.visible = true;
+
+        // --- TRACE DEBUG : activer pour la page + le bloc cibles ---
+        TRACE_ACTIVE = (DEBUG_TRACE &&
+                        currentPageTitre === DEBUG_TRACE_TITLE &&
+                        String(label).indexOf("POI_liste") === 0);
+        if (TRACE_ACTIVE) {
+            TRACE_LINES.push("############################################");
+            TRACE_LINES.push("PAGE: " + currentPageTitre + "  |  LABEL: " + label);
+            TRACE_LINES.push("############################################");
+            traceRaw("0. value brute (depuis JSON)", value);
+            trace("1. ENTREE — placeholder du cadre AVANT toute modif", tf);
+        }
+
         var fullText = repairBoldMarkersInJsonContent(items.join("\r"));
+        if (TRACE_ACTIVE) traceRaw("2. fullText (apres repair + join \\r)", fullText);
+
         // Le nettoyage profond est nécessaire sur les listes POI pour supprimer
         // le gras hérité du master FR. Les autres listes repartent du style
         // paragraphe porté par le gabarit (puces définies dans le template).
         var deepCleanBullet = (String(label).indexOf("POI_") === 0);
         if (deepCleanBullet) {
             setCleanTextFrameContents(tf, fullText, true);
+            trace("3. apres setCleanTextFrameContents(clearAll=true)", tf);
         } else {
             setBulletTextWithCapturedParagraphStyle(tf, fullText);
+            trace("3. apres setBulletTextWithCapturedParagraphStyle", tf);
         }
         resetMarkerCharStyles(tf);
+        trace("4. apres resetMarkerCharStyles", tf);
+
         if (hasMarkers(fullText)) applyStyleMarkers(tf, deepCleanBullet);
+        trace("6. apres applyStyleMarkers (FINAL)", tf);
+
         truncateOverflow(tf);
+        TRACE_ACTIVE = false;
     }
 }
 
@@ -2069,6 +2147,24 @@ if (overflowWarnings.length > 0) {
 
     report += "\n\n[!] " + overflowWarnings.length + " bloc(s) tronque(s)"
               + (overflowWritten ? " -> voir overflow-report.txt" : " (impossible d ecrire le fichier rapport)");
+}
+
+// --- TRACE DEBUG GRAS : ecriture du rapport pas-a-pas (jetable) ---
+if (DEBUG_TRACE && TRACE_LINES.length > 0) {
+    var traceWritten = false;
+    try {
+        var tf2 = new File(rootFolder + "/trace-gras-report.txt");
+        tf2.encoding = "UTF-8";
+        tf2.open("w");
+        tf2.writeln("TRACE GRAS — " + DEBUG_TRACE_TITLE);
+        tf2.writeln("====================================================");
+        for (var t = 0; t < TRACE_LINES.length; t++) tf2.writeln(TRACE_LINES[t]);
+        tf2.close();
+        traceWritten = true;
+    } catch (eTr) {}
+    report += "\n\n[TRACE] " + (traceWritten
+        ? "voir trace-gras-report.txt"
+        : "impossible d'ecrire trace-gras-report.txt");
 }
 
 alert(report);

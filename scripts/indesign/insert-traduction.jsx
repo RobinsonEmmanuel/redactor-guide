@@ -677,8 +677,12 @@ function setBulletTextWithCapturedParagraphStyle(tf, text) {
                 if (bulletStyle && bulletStyle.isValid) {
                     tf.paragraphs[p].appliedParagraphStyle = bulletStyle;
                 }
+                // Nettoyage CARACTERE uniquement : retire le gras/italique herite du
+                // master FR sans toucher aux surcharges de PARAGRAPHE (puces, retraits,
+                // espacements) portees par le gabarit. clearOverrides(ALL) effacerait
+                // les puces locales — c'est ce qui cassait les listes SAISON.
                 if (typeof tf.paragraphs[p].clearOverrides === "function") {
-                    try { tf.paragraphs[p].clearOverrides(OverrideType.ALL); } catch (eAll) { tf.paragraphs[p].clearOverrides(); }
+                    try { tf.paragraphs[p].clearOverrides(OverrideType.CHARACTER_ONLY); } catch (eCh) {}
                 }
             } catch (ePara) {}
         }

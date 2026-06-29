@@ -2923,23 +2923,6 @@ for (var i = 0; i < data.pages.length; i++) {
         var saisonPage = addPageWithMaster(msSaison, "SAISON");
         injectPageContent(saisonPage, pageData);
 
-        // SAISON_liste_2 (Moins idéal) : copier le style puce de SAISON_liste_1 (Au top)
-        try {
-            var sl1Frames = findByLabelOnPage(saisonPage, "SAISON_liste_1");
-            var sl2Frames = findByLabelOnPage(saisonPage, "SAISON_liste_2");
-            if (sl1Frames.length > 0 && sl2Frames.length > 0 &&
-                sl1Frames[0] instanceof TextFrame && sl2Frames[0] instanceof TextFrame) {
-                var sl1Ps = sl1Frames[0].paragraphs.length > 0
-                    ? sl1Frames[0].paragraphs[0].appliedParagraphStyle : null;
-                var sl2tf = sl2Frames[0];
-                if (sl1Ps && sl1Ps.isValid && sl2tf.paragraphs.length > 0) {
-                    for (var slBp = 0; slBp < sl2tf.paragraphs.length; slBp++) {
-                        try { sl2tf.paragraphs[slBp].appliedParagraphStyle = sl1Ps; } catch(eSlBp) {}
-                    }
-                }
-            }
-        } catch(eSaisonBullet) {}
-
         docRegisterJsonPage(i, pageData, saisonPage);
         pagesGenerated++;
         continue;

@@ -1981,25 +1981,6 @@ function processPage(idPage, pageData) {
         if (lTrim === "") continue;
         injectFrameHyperlink(idPage, resolveLabel(lKey), lVal);
     }
-
-    // --- Etape D : SAISON — copier style puce de SAISON_liste_1 vers SAISON_liste_2 ---
-    if (pageData.template === "SAISON") {
-        try {
-            var sl1Frames = findByLabelOnPage(idPage, resolveLabel("SAISON_liste_1"));
-            var sl2Frames = findByLabelOnPage(idPage, resolveLabel("SAISON_liste_2"));
-            if (sl1Frames.length > 0 && sl2Frames.length > 0 &&
-                sl1Frames[0] instanceof TextFrame && sl2Frames[0] instanceof TextFrame) {
-                var sl1Ps = sl1Frames[0].paragraphs.length > 0
-                    ? sl1Frames[0].paragraphs[0].appliedParagraphStyle : null;
-                var sl2tf = sl2Frames[0];
-                if (sl1Ps && sl1Ps.isValid && sl2tf.paragraphs.length > 0) {
-                    for (var slBp = 0; slBp < sl2tf.paragraphs.length; slBp++) {
-                        try { sl2tf.paragraphs[slBp].appliedParagraphStyle = sl1Ps; } catch(eSlBp) {}
-                    }
-                }
-            }
-        } catch(eSaisonBullet) {}
-    }
 }
 
 // ---------------------------------------------------------------------------

@@ -70,3 +70,44 @@ export function repairStrandedBoldMarkers(text: string): string {
   }
   return out;
 }
+
+/**
+ * Normalise ET équilibre les marqueurs gras `**` — à appeler à l'export.
+ *
+ * Au-delà des réparations positionnelles de repairStrandedBoldMarkers, garantit
+ * que chaque champ ne contient que des paires `**…**` équilibrées :
+ *   - séquences de 3+ astérisques  → `**`
+ *   - étoile simple accolée à une paire (étoile manquante) :
+ *       `*mot**`  → `**mot**`   (ajout de l'étoile ouvrante)
+ *       `**mot*`  → `**mot**`   (ajout de l'étoile fermante)
+ *   - si le nombre de `**` reste impair, on retire le `**` orphelin (suppression),
+ *     ce qui évite tout débordement de gras côté InDesign.
+ *
+ * Conservateur : une étoile isolée SANS paire voisine (note « 4* », « *voir bas »)
+ * n'est jamais touchée — elle n'est pas un marqueur de gras.
+ */
+export function normalizeBoldMarkers(text: string): string {
+  if (!text || !text.includes('*')) return text;
+
+  let out = repairStrandedBoldMarkers(text);
+
+  // 3+ astérisques consécutifs → **
+  out = out.replace(/\*{3,}/g, '**');
+
+  // étoile simple ouvrante manquante : *mot** → **mot**
+  out = out.replace(/(^|[^*])\*([^\s*][^*\r\n]*?)\*\*/g, '$1**$2**');
+  // étoile simple fermante manquante : **mot* → **mot**
+  out = out.replace(/\*\*([^*\r\n]*?[^\s*])\*(?!\*)/g, '**$1**');
+
+  // ré-collapse si une réparation a produit ***
+  out = out.replace(/\*{3,}/g, '**');
+
+  // nombre de ** impair → retirer le dernier orphelin
+  const pairs = out.match(/\*\*/g);
+  if (pairs && pairs.length % 2 !== 0) {
+    const lastIdx = out.lastIndexOf('**');
+    out = out.slice(0, lastIdx) + out.slice(lastIdx + 2);
+  }
+
+  return out;
+}

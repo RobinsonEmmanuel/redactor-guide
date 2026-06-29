@@ -24,7 +24,7 @@ import {
   getUrlFragment,
   parseAnchorLeadingIndex,
 } from '../utils/link-field.js';
-import { repairStrandedBoldMarkers } from '../utils/repair-style-markers.js';
+import { repairStrandedBoldMarkers, normalizeBoldMarkers } from '../utils/repair-style-markers.js';
 
 const EXPORTED_STATUSES = ['generee_ia', 'relue', 'validee', 'texte_coule', 'visuels_montes'];
 
@@ -1033,24 +1033,34 @@ export class ExportService {
       }
     }
 
-    // ── 5h. Marqueurs ** (traduction / LLM) sur tout le texte exporté ─────────
-    // Dernière passe : tous les champs (toutes langues), y compris liens {label}.
+    // ── 5h. Contrôle & équilibrage des marqueurs gras ** — passe finale ───────
+    // Dernière passe sur tous les champs (toutes langues), liens {label} inclus.
+    // normalizeBoldMarkers garantit des paires **…** équilibrées (ajout/suppression
+    // d'étoiles) pour qu'InDesign ne reçoive jamais de gras mal formé.
+    let boldFixCount = 0;
     for (const page of pages) {
       for (const k of Object.keys(page.content.text)) {
         if (k.includes('_url_maps_')) continue;
         const v = page.content.text[k];
-        if (!v || typeof v !== 'string' || !v.includes('**')) continue;
+        if (!v || typeof v !== 'string' || !v.includes('*')) continue;
         const link = parseLinkField(v);
         if (link) {
-          const fixedLabel = repairStrandedBoldMarkers(link.label);
+          const fixedLabel = normalizeBoldMarkers(link.label);
           if (fixedLabel !== link.label) {
             page.content.text[k] = buildLinkField(fixedLabel, link.url);
+            boldFixCount++;
           }
           continue;
         }
-        const fixed = repairStrandedBoldMarkers(v);
-        if (fixed !== v) page.content.text[k] = fixed;
+        const fixed = normalizeBoldMarkers(v);
+        if (fixed !== v) {
+          page.content.text[k] = fixed;
+          boldFixCount++;
+        }
       }
+    }
+    if (boldFixCount > 0) {
+      console.log(`[export] Marqueurs gras normalisés : ${boldFixCount} champ(s) corrigé(s) (${lang}).`);
     }
 
     // ── 6. Construire le mapping field→calque depuis les templates réels ──────

@@ -576,12 +576,21 @@ function applyStyleMarkers(tf, clearAllCharacterInheritance) {
  * operation necessaire et suffisante — pas de clearOverrides, pas de [None] global.
  */
 function getNoneCharacterStyle() {
-    var cand = ["[None]", "[Aucun style de caractere]", "[Aucun style de caractère]", "None"];
+    // characterStyles[0] est TOUJOURS le style [None]/[Aucun], quelle que soit la
+    // langue de l'UI InDesign. C'est la methode fiable : itemByName("[None]") echoue
+    // en InDesign francais (le style se nomme "[Aucun]"), ce qui renvoyait null et
+    // rendait resetMarkerCharStyles / resetNonMarkerCharacterFormatting inoperants
+    // (le gras du gabarit survivait alors a tout le pipeline).
+    try {
+        var first = doc.characterStyles.item(0);
+        if (first && first.isValid) return first;
+    } catch (e0) {}
+    var cand = ["[None]", "[Aucun]", "[Aucun style de caractere]", "[Aucun style de caractère]", "None"];
     for (var k = 0; k < cand.length; k++) {
         try {
             var t = doc.characterStyles.itemByName(cand[k]);
             if (t.isValid) return t;
-        } catch (e0) {}
+        } catch (e1) {}
     }
     return null;
 }

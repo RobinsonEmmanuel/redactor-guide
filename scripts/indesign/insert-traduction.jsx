@@ -399,39 +399,26 @@ function grepScopeForTextFrame(tf) {
     return tf.parentStory;
 }
 
-function findGrepOnScope(scope, findWhat) {
+/** Applique un style de caractere ET retire les marqueurs en UNE operation atomique.
+ *  findWhat doit capturer le contenu interne dans le groupe $1 ; changeTo = "$1" remplace
+ *  le match (marqueurs inclus) par son seul contenu, et appliedCharacterStyle stylise
+ *  le texte resultant. Insensible a la position (debut de paragraphe inclus) — contrairement
+ *  a l'ancienne approche par index absolus + suppression separee qui faisait baver le gras
+ *  sur tout le paragraphe quand un marqueur ouvrait la ligne. */
+function styleAndStripMarkers(scope, story, findWhat, charStyle) {
+    if (!charStyle || !charStyle.isValid) return;
     app.findGrepPreferences = NothingEnum.NOTHING;
     app.changeGrepPreferences = NothingEnum.NOTHING;
     app.findGrepPreferences.findWhat = findWhat;
-    var arr;
+    app.changeGrepPreferences.changeTo = "$1";
+    try { app.changeGrepPreferences.appliedCharacterStyle = charStyle; } catch (eCS) {}
     try {
-        arr = scope.findGrep();
-    } catch (eFG) {
-        arr = [];
+        scope.changeGrep();
+    } catch (eC) {
+        try { story.changeGrep(); } catch (e2) {}
     }
     app.findGrepPreferences = NothingEnum.NOTHING;
-    return arr;
-}
-
-/** Applique un style de caractere sur le contenu interne de chaque match (sans marqueurs).
- *  Utilise r.characters.length (fiable) et non r.length (non documente sur Text).
- *  Passe les indices story absolus (entiers) a itemByRange — les objets Character comme
- *  arguments de itemByRange peuvent invalider le scope dans certaines versions d'InDesign. */
-function applyInnerStyledMatches(scope, story, findWhat, charStyle, headSkip, tailSkip) {
-    if (!charStyle || !charStyle.isValid) return;
-    var matches = findGrepOnScope(scope, findWhat);
-    var i, r, nChars, stIdx, enIdx;
-    for (i = matches.length - 1; i >= 0; i--) {
-        try {
-            r = matches[i];
-            nChars = r.characters.length;
-            if (nChars <= headSkip + tailSkip) continue;
-            stIdx = r.characters.item(headSkip).index;
-            enIdx = r.characters.item(nChars - tailSkip - 1).index;
-            if (enIdx < stIdx) continue;
-            story.characters.itemByRange(stIdx, enIdx).appliedCharacterStyle = charStyle;
-        } catch (eA) {}
-    }
+    app.changeGrepPreferences = NothingEnum.NOTHING;
 }
 
 function changeGrepOnScope(scope, story, findWhat, changeTo) {
@@ -482,7 +469,9 @@ function resetNonMarkerCharacterFormatting(tf) {
     } catch (eScope) {}
 }
 
-// Meme logique GREP que insert-fr.jsx : fiable sur **mot** en debut de puce.
+// Application atomique des marqueurs : chaque passe stylise le contenu interne ($1)
+// et retire les marqueurs en une seule operation changeGrep. Fiable quelle que soit
+// la position du marqueur (y compris en tout debut de paragraphe).
 function applyStyleMarkers(tf, clearAllCharacterInheritance) {
     try {
         var story = tf.parentStory;
@@ -493,23 +482,26 @@ function applyStyleMarkers(tf, clearAllCharacterInheritance) {
         var sChiffre    = doc.characterStyles.itemByName(STYLE_CHIFFRE);
         var sGrasOrange = doc.characterStyles.itemByName(STYLE_GRAS_ORANGE);
 
-        // Pass 0 : combinaison {**texte**} → Gras-orange atomique.
-        // DOIT preceder les passes bold/orange separees pour eviter que l'une ecrase l'autre.
-        applyInnerStyledMatches(scope, story, "(?s)\\{\\*\\*[^*}]+?\\*\\*\\}", sGrasOrange, 3, 3);
-        changeGrepOnScope(scope, story, "\\{\\*\\*|\\*\\*\\}", "");
+        // Pass 0 : combinaison {**texte**} → Gras-orange. DOIT preceder les passes
+        // bold/orange separees pour eviter que l'une ne consomme l'autre.
+        styleAndStripMarkers(scope, story, "(?s)\\{\\*\\*([^*}]+?)\\*\\*\\}", sGrasOrange);
 
-        applyInnerStyledMatches(scope, story, "(?s)\\*\\*[^*]+?\\*\\*", sGras, 2, 2);
+        // **texte** → Gras
+        styleAndStripMarkers(scope, story, "(?s)\\*\\*([^*]+?)\\*\\*", sGras);
+
+        // {texte} → Orange
+        styleAndStripMarkers(scope, story, "(?s)\\{([^}]+?)\\}", sOrange);
+        changeGrepOnScope(scope, story, "\\{", "");   // accolades orphelines
+        changeGrepOnScope(scope, story, "\\}", "");
+
+        // ^texte^ → Chiffre
+        styleAndStripMarkers(scope, story, "(?s)\\^([^\\^]+?)\\^", sChiffre);
+
+        // ~texte~ → Gras-orange
+        styleAndStripMarkers(scope, story, "(?s)\\x7E([^\\x7E]+?)\\x7E", sGrasOrange);
+
+        // Retirer d'eventuels marqueurs ** orphelins (paires desequilibrees)
         changeGrepOnScope(scope, story, "\\*\\*", "");
-
-        applyInnerStyledMatches(scope, story, "(?s)\\{[^}]+?\\}", sOrange, 1, 1);
-        changeGrepOnScope(scope, story, "\\{", "");   // supprime { orphelins
-        changeGrepOnScope(scope, story, "\\}", "");   // supprime } orphelins
-
-        applyInnerStyledMatches(scope, story, "(?s)\\^[^\\^]+?\\^", sChiffre, 1, 1);
-        changeGrepOnScope(scope, story, "\\^", "");
-
-        applyInnerStyledMatches(scope, story, "(?s)\\x7E[^\\x7E]+?\\x7E", sGrasOrange, 1, 1);
-        changeGrepOnScope(scope, story, "~", "");
 
         if (clearAllCharacterInheritance === true) {
             resetNonMarkerCharacterFormatting(tf);

@@ -509,6 +509,46 @@ function changeGrepOnScope(scope, story, findWhat, changeTo) {
     app.changeGrepPreferences = NothingEnum.NOTHING;
 }
 
+// Retourne le style de caractere [None]/[Aucun] de facon fiable.
+// characterStyles.item(0) est TOUJOURS le style "sans", quelle que soit la langue
+// de l'UI (itemByName("[None]") echoue en InDesign francais : "[Aucun]").
+function getNoneCharacterStyle() {
+    try {
+        var first = doc.characterStyles.item(0);
+        if (first && first.isValid) return first;
+    } catch (e0) {}
+    var cand = ["[None]", "[Aucun]", "[Aucun style de caractere]", "[Aucun style de caractère]", "None"];
+    for (var k = 0; k < cand.length; k++) {
+        try { var t = doc.characterStyles.itemByName(cand[k]); if (t.isValid) return t; } catch (e1) {}
+    }
+    return null;
+}
+
+// Retire les 4 styles de caractere marqueurs (Gras, Orange, Chiffre, Gras-orange)
+// herites du gabarit sur le texte injecte, AVANT de re-styler via les marqueurs.
+// Sans ce nettoyage, un placeholder entierement en "Gras" laisse tout le bloc en
+// gras (le ** ne fait qu'ajouter du gras la ou il y en a deja partout).
+function resetMarkerCharStyles(tf) {
+    var noneCh = getNoneCharacterStyle();
+    if (!noneCh || !noneCh.isValid) return;
+    var markerStyles = {};
+    markerStyles[BOLD_STYLE_NAME] = true;
+    markerStyles[ORANGE_STYLE_NAME] = true;
+    markerStyles[CHIFFRE_STYLE_NAME] = true;
+    markerStyles[GRAS_ORANGE_STYLE_NAME] = true;
+    try {
+        var chars = tf.parentStory.characters;
+        for (var c = 0; c < chars.length; c++) {
+            try {
+                var applied = chars.item(c).appliedCharacterStyle;
+                if (applied && applied.isValid && markerStyles[applied.name] === true) {
+                    chars.item(c).appliedCharacterStyle = noneCh;
+                }
+            } catch (eChar) {}
+        }
+    } catch (eScope) {}
+}
+
 function applyStyleMarkers(tf) {
     try {
         var story = tf.parentStory;
@@ -567,6 +607,7 @@ function normalizeMarkersForIndesign(s) {
 function setTextWithStyles(textFrame, rawText) {
     var normalized = normalizeMarkersForIndesign(rawText);
     textFrame.contents = normalized;  // definir avec les marqueurs en place
+    resetMarkerCharStyles(textFrame); // retirer le gras herite du gabarit avant re-style
     applyStyleMarkers(textFrame);     // GREP trouve, applique styles, supprime marqueurs
 }
 
@@ -686,6 +727,7 @@ function injectText(page, label, value) {
                     setTextWithStyles(blocks[i], strValue);
                 } else {
                     blocks[i].contents = strValue;
+                    resetMarkerCharStyles(blocks[i]); // retirer un gras herite du gabarit
                 }
                 truncateOverflow(blocks[i]);
             }
@@ -730,6 +772,10 @@ function injectBulletText(page, label, value) {
                 }
             }
         } catch (eApplyBulletStyle) {}
+
+        // Retirer le gras (ou autre style marqueur) herite du gabarit avant de
+        // re-styler via les marqueurs — sinon tout le bloc reste en gras.
+        resetMarkerCharStyles(tf);
 
         // Appliquer les styles via GREP si des marqueurs sont presents
         var hasMarkers = fullText.indexOf("**") !== -1 ||

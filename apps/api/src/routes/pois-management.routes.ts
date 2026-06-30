@@ -95,13 +95,14 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
     const targetUrl = `${serviceUrl.replace(/\/$/, '')}/api/v1${targetPath}`;
     const reqMethod = method || request.method;
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const headers: Record<string, string> = {};
       if (env.POI_SERVICE_API_KEY) headers['X-Api-Key'] = env.POI_SERVICE_API_KEY;
       if (request.headers.authorization) headers['Authorization'] = request.headers.authorization as string;
       if (request.headers.cookie) headers['Cookie'] = request.headers.cookie as string;
       const fetchOptions: RequestInit = { method: reqMethod, headers };
       const effectiveBody = bodyOverride ?? request.body;
       if (reqMethod !== 'GET' && reqMethod !== 'HEAD' && effectiveBody) {
+        headers['Content-Type'] = 'application/json';
         fetchOptions.body = JSON.stringify(effectiveBody);
       }
       const res = await fetch(targetUrl, fetchOptions);

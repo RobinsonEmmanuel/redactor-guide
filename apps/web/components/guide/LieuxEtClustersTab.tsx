@@ -834,6 +834,8 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     try {
       const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/generate`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
       });
 
       if (!res.ok) {
@@ -883,6 +885,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               clearInterval(pollInterval);
               setGeneratingProgress(null);
               setGenerating(false);
+              launchDedup();
             } else if (status.status === 'failed' || status.status === 'cancelled') {
               clearInterval(pollInterval);
               setGeneratingProgress(null);
@@ -1535,86 +1538,35 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               </>
             )}
 
-            {/* Séparateur */}
-            <div className="w-px h-5 bg-gray-200" />
-
-            {/* Étape 1 : Identification des POIs */}
+            {/* Étape 1 : Génération (extraction + dédoublonnage enchaînés) */}
             <button
               onClick={generatePoisFromArticles}
-              disabled={generating}
+              disabled={generating || deduplicating}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
             >
               {generating ? (
                 <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Identification...</>
+              ) : deduplicating ? (
+                <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Dédoublonnage...</>
               ) : (
-                <><SparklesIcon className="w-3.5 h-3.5" />1. Identifier les POIs</>
+                <><SparklesIcon className="w-3.5 h-3.5" />1. Générer les POIs</>
               )}
             </button>
 
-            {/* Bouton de reprise si extraction en attente — s'affiche dès qu'un job est détecté,
-                indépendamment du jobStatus exact pour éviter les blocages */}
-            {pendingJobRawCount !== null && !generating && !deduplicating && (
+            {/* Reprise si dedup_complete — permet de rouvrir le modal de validation */}
+            {jobStatus === 'dedup_complete' && dedupPois.length > 0 && !generating && !deduplicating && (
               <button
-                onClick={() => setShowPreviewModal(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-600 text-xs font-medium transition-colors"
-                title="Voir les POIs extraits en attente de dédoublonnage"
+                onClick={() => { setValidationPois(dedupPois); setExcludedPoiIds(new Set()); setShowValidationModal(true); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 text-xs font-medium transition-colors"
               >
-                <ArrowPathIcon className="w-3.5 h-3.5" />
-                Voir l'extraction ({pendingJobRawCount})
+                ✅ Voir la sélection ({dedupPois.length})
               </button>
             )}
-
-            {/* Étape 2 : Dédoublonnage
-                Actif dès qu'un jobId existe et que l'extraction est terminée (peu importe le status exact).
-                Les états terminaux (completed/failed/cancelled) désactivent le bouton. */}
-            {(() => {
-              const isTerminal = jobStatus === 'completed' || jobStatus === 'failed' || jobStatus === 'cancelled';
-              const hasJob = !!currentJobId && !generating && !deduplicating;
-              const isDedupDone = jobStatus === 'dedup_complete' && dedupPois.length > 0;
-              const canDedup = hasJob && !isTerminal && (jobStatus === 'extraction_complete' || pendingJobRawCount !== null);
-              const isEnabled = isDedupDone || canDedup;
-
-              return (
-                <button
-                  onClick={() => {
-                    if (isDedupDone) {
-                      setValidationPois(dedupPois);
-                      setExcludedPoiIds(new Set());
-                      setShowValidationModal(true);
-                    } else if (hasJob) {
-                      setShowPreviewModal(true);
-                      launchDedup();
-                    }
-                  }}
-                  disabled={!isEnabled}
-                  title={
-                    isDedupDone ? 'Voir les résultats du dédoublonnage'
-                    : canDedup ? 'Lancer le dédoublonnage des POIs extraits'
-                    : 'Disponible après l\'identification des POIs'
-                  }
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed ${
-                    isDedupDone
-                      ? 'bg-green-600 text-white hover:bg-green-700'
-                      : canDedup
-                      ? 'bg-teal-600 text-white hover:bg-teal-700'
-                      : 'bg-gray-200 text-gray-400'
-                  }`}
-                >
-                  {deduplicating ? (
-                    <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Dédoublonnage...</>
-                  ) : isDedupDone ? (
-                    <>✅ 2. Voir la sélection ({dedupPois.length})</>
-                  ) : (
-                    <>🔁 2. Dédoublonner</>
-                  )}
-                </button>
-              );
-            })()}
 
             {/* Séparateur */}
             <div className="w-px h-5 bg-gray-200" />
 
-            {/* Étape 3 : Ventilation dans les clusters */}
+            {/* Étape 2 : Ventilation dans les clusters */}
             <button
               onClick={launchMatching}
               disabled={matching || pois.length === 0}
@@ -1623,7 +1575,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               {matching ? (
                 <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Ventilation...</>
               ) : (
-                <><ArrowPathIcon className="w-3.5 h-3.5" />3. Ventiler dans les clusters</>
+                <><ArrowPathIcon className="w-3.5 h-3.5" />2. Ventiler dans les clusters</>
               )}
             </button>
 
@@ -2439,21 +2391,6 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                 )}
               </div>
               <div className="flex items-center gap-3">
-                {/* Relancer le dédoublonnage */}
-                {currentJobId && (
-                  <button
-                    onClick={() => {
-                      setShowValidationModal(false);
-                      setShowPreviewModal(true);
-                      launchDedup();
-                    }}
-                    disabled={deduplicating}
-                    className="flex items-center gap-1.5 px-4 py-2 text-sm text-teal-700 bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <ArrowPathIcon className="w-4 h-4" />
-                    Relancer le dédoublonnage
-                  </button>
-                )}
                 <button
                   onClick={() => setShowValidationModal(false)}
                   className="px-4 py-2 text-sm text-gray-600 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"

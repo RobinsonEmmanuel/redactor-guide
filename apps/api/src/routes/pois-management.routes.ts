@@ -86,7 +86,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
 
   // ─── Helper proxy vers poi-service ──────────────────────────────────────
 
-  async function proxyToPoiService(request: any, reply: any, targetPath: string, method?: string) {
+  async function proxyToPoiService(request: any, reply: any, targetPath: string, method?: string, bodyOverride?: unknown) {
     const serviceUrl = env.POI_SERVICE_URL;
     if (!serviceUrl) {
       return reply.status(503).send({ error: 'POI service non disponible', message: 'POI_SERVICE_URL doit être configuré.' });
@@ -99,8 +99,9 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       if (request.headers.authorization) headers['Authorization'] = request.headers.authorization as string;
       if (request.headers.cookie) headers['Cookie'] = request.headers.cookie as string;
       const fetchOptions: RequestInit = { method: reqMethod, headers };
-      if (reqMethod !== 'GET' && reqMethod !== 'HEAD' && request.body) {
-        fetchOptions.body = JSON.stringify(request.body);
+      const effectiveBody = bodyOverride ?? request.body;
+      if (reqMethod !== 'GET' && reqMethod !== 'HEAD' && effectiveBody) {
+        fetchOptions.body = JSON.stringify(effectiveBody);
       }
       const res = await fetch(targetUrl, fetchOptions);
       const data = await res.json().catch(() => ({ error: 'Réponse non-JSON du microservice' }));
@@ -126,15 +127,12 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       );
       if (!guide) return reply.status(404).send({ error: 'Guide non trouvé' });
 
-      const enrichedRequest = {
-        ...request,
-        body: {
-          wp_site_id: guide.wp_site_id,
-          destination: guide.destination ?? guide.destinations?.[0] ?? '',
-          selected_categories: guide.selected_categories ?? [],
-        },
+      const bodyOverride = {
+        wp_site_id: guide.wp_site_id,
+        destination: guide.destination ?? guide.destinations?.[0] ?? '',
+        selected_categories: guide.selected_categories ?? [],
       };
-      return proxyToPoiService(enrichedRequest, reply, `/guides/${guideId}/pois/generate`);
+      return proxyToPoiService(request, reply, `/guides/${guideId}/pois/generate`, undefined, bodyOverride);
     }
   );
 

@@ -2036,36 +2036,76 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col mx-4">
 
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 flex-shrink-0">
-            <div className="flex items-center gap-3">
-              {generating || deduplicating ? (
-                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              ) : jobStatus === 'dedup_complete' ? (
-                <span className="text-blue-500 text-lg">🔁</span>
-              ) : jobStatus === 'completed' ? (
-                <span className="text-green-500 text-lg">✅</span>
-              ) : (
-                <span className="text-orange-500 text-lg">⏳</span>
-              )}
-              <div>
-                <h2 className="text-base font-semibold text-gray-900">
-                  {generating ? 'Extraction en cours...'
-                    : deduplicating ? 'Dédoublonnage en cours...'
-                    : jobStatus === 'extraction_complete' ? 'Extraction terminée — à dédoublonner'
-                    : jobStatus === 'dedup_complete' ? 'Dédoublonnage terminé — à valider'
-                    : 'Analyse terminée'}
-                </h2>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {generatingProgress && <span className="font-medium text-blue-600">{generatingProgress} — </span>}
-                  {jobStatus === 'dedup_complete'
-                    ? <><span className="text-green-600 font-medium">{dedupPois.length} POIs dédoublonnés</span> <span className="text-gray-400">(sur {previewPois.length} bruts)</span></>
-                    : <>{previewPois.length} POI{previewPois.length > 1 ? 's' : ''} extraits</>
-                  }
-                </p>
+          {(() => {
+            const isRunning = generating || deduplicating || jobStatus === 'processing' || jobStatus === 'pending';
+            const title = generating
+              ? 'Extraction en cours...'
+              : deduplicating
+              ? 'Dédoublonnage en cours...'
+              : jobStatus === 'processing' || jobStatus === 'pending'
+              ? 'Analyse en cours...'
+              : jobStatus === 'extraction_complete'
+              ? 'Extraction terminée'
+              : jobStatus === 'dedup_complete'
+              ? 'Dédoublonnage terminé — à valider'
+              : jobStatus === 'completed'
+              ? 'Analyse terminée'
+              : 'Analyse terminée';
+
+            return (
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 flex-shrink-0">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  {isRunning ? (
+                    <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                  ) : jobStatus === 'dedup_complete' ? (
+                    <span className="text-lg flex-shrink-0">🔁</span>
+                  ) : jobStatus === 'completed' ? (
+                    <span className="text-lg flex-shrink-0">✅</span>
+                  ) : (
+                    <span className="text-lg flex-shrink-0">⏳</span>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <h2 className="text-base font-semibold text-gray-900">{title}</h2>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {generatingProgress && (
+                        <span className="text-xs font-medium text-blue-600 truncate">{generatingProgress}</span>
+                      )}
+                      {!generatingProgress && (jobStatus === 'processing' || jobStatus === 'pending') && (
+                        <span className="text-xs text-gray-500">Le worker analyse vos articles...</span>
+                      )}
+                      {jobStatus === 'dedup_complete' ? (
+                        <span className="text-xs text-gray-500">
+                          <span className="text-green-600 font-medium">{dedupPois.length} POIs</span>
+                          <span className="text-gray-400"> sur {previewPois.length} bruts</span>
+                        </span>
+                      ) : previewPois.length > 0 ? (
+                        <span className="text-xs text-gray-500">
+                          <span className="font-medium text-blue-600">{previewPois.length}</span> POI{previewPois.length > 1 ? 's' : ''} extraits
+                        </span>
+                      ) : null}
+                    </div>
+                    {/* Barre de progression batch */}
+                    {isRunning && previewBatches.length > 0 && previewBatches[previewBatches.length - 1]?.total_batches > 0 && (() => {
+                      const last = previewBatches[previewBatches.length - 1];
+                      const pct = Math.round((last.batch_num / last.total_batches) * 100);
+                      return (
+                        <div className="mt-1.5">
+                          <div className="flex justify-between text-xs text-gray-400 mb-0.5">
+                            <span>Batch {last.batch_num}/{last.total_batches}</span>
+                            <span>{pct}%</span>
+                          </div>
+                          <div className="w-full bg-gray-100 rounded-full h-1.5">
+                            <div className="bg-blue-500 h-1.5 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+                <button onClick={() => setShowPreviewModal(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none px-2 flex-shrink-0">×</button>
               </div>
-            </div>
-            <button onClick={() => setShowPreviewModal(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none px-2">×</button>
-          </div>
+            );
+          })()}
 
           {/* Bandeau de synthèse classification (dès que disponible) */}
           {(monoCount !== null || multiCount !== null) && (
@@ -2115,8 +2155,12 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             ) : jobStatus === 'dedup_complete' && dedupPois.length > 0 ? (
               <PoiPreviewList batches={[]} poisFallback={dedupPois} />
             ) : previewBatches.length === 0 && previewPois.length === 0 ? (
-              <div className="flex items-center justify-center h-32 text-gray-400 text-sm">
-                En attente des premiers résultats...
+              <div className="flex flex-col items-center justify-center h-40 gap-3 text-gray-400">
+                <div className="w-6 h-6 border-2 border-gray-300 border-t-blue-400 rounded-full animate-spin" />
+                <div className="text-sm text-center">
+                  <p className="font-medium text-gray-500">Analyse en cours</p>
+                  <p className="text-xs mt-0.5">Classification des articles puis extraction des POIs...</p>
+                </div>
               </div>
             ) : (
               <PoiPreviewList batches={previewBatches} poisFallback={previewPois} />

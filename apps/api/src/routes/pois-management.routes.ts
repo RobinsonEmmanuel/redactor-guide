@@ -3,6 +3,7 @@ import { Db, ObjectId } from 'mongodb';
 import { env } from '../config/env';
 import { z } from 'zod';
 import { COLLECTIONS } from '../config/collections.js';
+import { getDatabase } from '../config/database';
 
 const ManualPOISchema = z.object({
   nom: z.string().min(1),
@@ -121,7 +122,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
     '/guides/:guideId/pois/generate',
     async (request, reply) => {
       const { guideId } = request.params;
-      const guide = await db.collection(COLLECTIONS.guides).findOne(
+      const guide = await getDatabase().collection(COLLECTIONS.guides).findOne(
         { _id: new ObjectId(guideId) },
         { projection: { wp_site_id: 1, destination: 1, destinations: 1, selected_categories: 1 } }
       );

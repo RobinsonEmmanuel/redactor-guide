@@ -885,7 +885,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               clearInterval(pollInterval);
               setGeneratingProgress(null);
               setGenerating(false);
-              launchDedup();
+              launchDedup(jobId);
             } else if (status.status === 'failed' || status.status === 'cancelled') {
               clearInterval(pollInterval);
               setGeneratingProgress(null);
@@ -959,15 +959,16 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     }
   };
 
-  const launchDedup = async () => {
-    if (!currentJobId) return;
+  const launchDedup = async (explicitJobId?: string) => {
+    const jobId = explicitJobId ?? currentJobId;
+    if (!jobId) return;
     setDeduplicating(true);
     setDedupPois([]);
 
     try {
       // Déclenche le worker via QStash — réponse immédiate
       const res = await authFetch(
-        `${apiUrl}/api/v1/guides/${guideId}/pois/jobs/${currentJobId}/deduplicate`,
+        `${apiUrl}/api/v1/guides/${guideId}/pois/jobs/${jobId}/deduplicate`,
         { method: 'POST' }
       );
       if (!res.ok) {
@@ -978,7 +979,6 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
       }
 
       // Polling dédié — indépendant du polling d'extraction
-      const jobId = currentJobId;
       const dedupPoll = setInterval(async () => {
         try {
           const checkRes = await authFetch(

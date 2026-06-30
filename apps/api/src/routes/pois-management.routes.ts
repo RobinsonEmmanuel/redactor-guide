@@ -447,26 +447,11 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
 
   /**
    * DELETE /guides/:guideId/pois/jobs
-   * Supprime tous les jobs de génération POIs pour repartir sur une base propre
+   * Proxy → poi-service (les jobs sont stockés dans la base du poi-service, pas ici)
    */
   fastify.delete<{ Params: { guideId: string } }>(
     '/guides/:guideId/pois/jobs',
-    async (request, reply) => {
-      const { guideId } = request.params;
-      try {
-        // Supprimer TOUS les jobs d'un coup — pas de passage par "cancelled" pour éviter
-        // la race condition où QStash relivrerait un vieux message entre le updateMany et le deleteMany
-        // Le worker gère désormais les jobs supprimés (matchedCount === 0 → skipped)
-        const deleteResult = await db.collection(COLLECTIONS.pois_generation_jobs).deleteMany(
-          { guide_id: guideId }
-        );
-
-        console.log(`🧹 [POIs] ${deleteResult.deletedCount} job(s) supprimé(s) pour guide ${guideId}`);
-        return reply.send({ cancelled: 0, deleted: deleteResult.deletedCount, total: deleteResult.deletedCount });
-      } catch (error: any) {
-        return reply.code(500).send({ error: error.message });
-      }
-    }
+    (request, reply) => proxyToPoiService(request, reply, `/guides/${(request.params as any).guideId}/pois/jobs`, 'DELETE')
   );
 
   /**

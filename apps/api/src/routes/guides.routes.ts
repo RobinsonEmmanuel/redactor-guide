@@ -15,22 +15,32 @@ import {
 // 'fr' est volontairement absent : c'est la langue source, non une cible.
 const VALID_TRANSLATION_LANGS = ['en', 'de', 'it', 'es', 'pt-pt', 'nl', 'da', 'sv'] as const;
 
+function toSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80);
+}
+
 const CreateGuideSchema = z.object({
   name: z.string().min(1),
-  slug: z.string().min(1),
+  slug: z.string().optional(),
   year: z.number().int().min(2020).max(2100),
   version: z.string(),
-  language: z.enum(['fr', 'en', 'de', 'it', 'es', 'pt-pt', 'nl', 'da', 'sv']),
+  language: z.enum(['fr', 'en', 'de', 'it', 'es', 'pt-pt', 'nl', 'da', 'sv']).default('fr').optional(),
   availableLanguages: z.array(z.string()).default(['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl']),
   status: z.enum(['draft', 'in_progress', 'review', 'ready', 'published', 'archived']),
-  destination: z.string().min(1),
+  destination: z.string().optional(),
   destination_rl_id: z.string().optional(),
+  wp_site_id: z.string().optional(),
+  scope_type: z.enum(['region', 'cluster', 'poi']).optional(),
+  scope_id: z.string().optional(),
   guide_template_id: z.string().optional(),
   google_drive_folder_id: z.string().optional(),
   image_principale: z.string().optional(),
-  wpConfig: z.object({
-    siteUrl: z.string().url().or(z.literal('')),
-  }).optional(),
 });
 
 export async function guidesRoutes(fastify: FastifyInstance) {
@@ -68,8 +78,9 @@ export async function guidesRoutes(fastify: FastifyInstance) {
     const db = request.server.container.db;
     
     try {
-      const data = CreateGuideSchema.parse(request.body);
-      
+      const raw = CreateGuideSchema.parse(request.body);
+      const data = { ...raw, slug: raw.slug || toSlug(raw.name), language: raw.language ?? 'fr' };
+
       const now = new Date().toISOString();
       const result = await db.collection(COLLECTIONS.guides).insertOne({
         ...data,
@@ -114,8 +125,14 @@ export async function guidesRoutes(fastify: FastifyInstance) {
       const sanitized = Object.fromEntries(
         Object.entries(body).map(([k, v]) => [k, v === '' ? undefined : v])
       );
-      const data = CreateGuideSchema.partial().parse(sanitized);
-      
+      const parsed = CreateGuideSchema.partial().parse(sanitized);
+      // Auto-générer le slug si absent du document existant et que le name est fourni
+      const existingGuide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(id) });
+      const data = {
+        ...parsed,
+        ...(parsed.name && !existingGuide?.slug ? { slug: toSlug(parsed.name) } : {}),
+      };
+
       const result = await db.collection(COLLECTIONS.guides).updateOne(
         { _id: new ObjectId(id) },
         {

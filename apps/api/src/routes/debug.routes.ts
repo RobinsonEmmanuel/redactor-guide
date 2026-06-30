@@ -38,40 +38,35 @@ export async function debugRoutes(fastify: FastifyInstance) {
         data: {
           name: guide.name,
           destination: guide.destination,
-          wpConfig: guide.wpConfig ? {
-            siteUrl: guide.wpConfig.siteUrl,
-          } : null,
+          destination_rl_id: guide.destination_rl_id,
+          wp_site_id: guide.wp_site_id,
         },
       };
 
       // 2. Vérifier la destination
       result.checks.destination = { status: 'checking' };
-      if (!guide.destination) {
+      if (!guide.destination && !guide.destination_rl_id) {
         result.checks.destination = { status: 'error', message: 'Aucune destination définie' };
         result.errors.push('Aucune destination définie pour ce guide');
       } else {
-        result.checks.destination = { status: 'ok', value: guide.destination };
+        result.checks.destination = { status: 'ok', value: guide.destination || guide.destination_rl_id };
       }
 
-      // 3. Vérifier wpConfig
-      result.checks.wpConfig = { status: 'checking' };
-      if (!guide.wpConfig?.siteUrl) {
-        result.checks.wpConfig = { status: 'error', message: 'Aucun site WordPress configuré' };
+      // 3. Vérifier le site via wp_site_id
+      result.checks.site = { status: 'checking' };
+      if (!guide.wp_site_id) {
+        result.checks.site = { status: 'error', message: 'Aucun site WordPress configuré (wp_site_id manquant)' };
         result.errors.push('Aucun site WordPress configuré pour ce guide');
         return reply.send(result);
       }
 
-      result.checks.wpConfig = { status: 'ok', siteUrl: guide.wpConfig.siteUrl };
+      const site = await db.collection(COLLECTIONS.sites).findOne({ _id: guide.wp_site_id });
 
-      // 4. Vérifier le site
-      result.checks.site = { status: 'checking' };
-      const site = await db.collection(COLLECTIONS.sites).findOne({ url: guide.wpConfig.siteUrl });
-      
       if (!site) {
-        result.checks.site = { 
-          status: 'error', 
-          message: `Site non trouvé dans la collection sites pour l'URL: ${guide.wpConfig.siteUrl}`,
-          suggestion: 'Créer un document dans la collection "sites" avec { url: "' + guide.wpConfig.siteUrl + '" }',
+        result.checks.site = {
+          status: 'error',
+          message: `Site non trouvé dans la collection sites pour l'ID: ${guide.wp_site_id}`,
+          suggestion: 'Vérifier que le site est bien enregistré via le service d\'ingestion',
         };
         result.errors.push('Site WordPress non trouvé dans la base');
         return reply.send(result);

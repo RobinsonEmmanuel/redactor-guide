@@ -1,6 +1,17 @@
 import { FastifyInstance } from 'fastify';
 import { env } from '../config/env.js';
 
+interface ClusterPoi {
+  id: string;
+  name: string;
+}
+
+interface Cluster {
+  id: string;
+  name: string;
+  pois: ClusterPoi[];
+}
+
 /**
  * Routes d'ingestion WordPress.
  *
@@ -88,4 +99,63 @@ export async function ingestRoutes(fastify: FastifyInstance) {
   fastify.get('/regions/overview', (req, reply) =>
     proxyRequest(req, reply, '/regions/overview', 'GET')
   );
+
+  // Clusters d'une région Region Lovers (pour le sélecteur de périmètre)
+  fastify.get('/regions/:regionId/clusters', async (request, reply) => {
+    const { regionId } = request.params as { regionId: string };
+    const userToken =
+      (request.cookies as any)?.accessToken ||
+      request.headers.authorization?.replace('Bearer ', '');
+
+    if (!userToken) {
+      return reply.status(401).send({ error: 'Token JWT manquant. Veuillez vous reconnecter.' });
+    }
+
+    const rlApiUrl = env.REGION_LOVERS_API_URL || 'https://api-prod.regionlovers.ai';
+
+    try {
+      const res = await fetch(`${rlApiUrl}/place-instance-drafts/region/${regionId}`, {
+        headers: {
+          'Authorization': `Bearer ${userToken}`,
+          'Content-Type': 'application/json',
+        },
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      if (!res.ok) {
+        return reply.status(res.status).send({ error: `Erreur API Region Lovers: ${res.status}` });
+      }
+
+      const data: any = await res.json();
+
+      // Normaliser la structure (tableau direct ou { clusters: [...] })
+      let rawClusters: any[] = [];
+      if (Array.isArray(data)) {
+        rawClusters = data;
+      } else if (Array.isArray(data?.clusters)) {
+        rawClusters = data.clusters;
+      } else if (Array.isArray(data?.data)) {
+        rawClusters = data.data;
+      }
+
+      const clusters: Cluster[] = rawClusters.map((c: any) => ({
+        id: c.id ?? c._id,
+        name: c.name ?? c.nom ?? '',
+        pois: (c.drafts ?? c.pois ?? []).map((d: any) => ({
+          id: d._id ?? d.id,
+          name:
+            d.place_name ??
+            d.blocks?.find((b: any) => b.block_id === 'general_info')
+              ?.sections?.find((s: any) => s.section_id === 'general_info_general')
+              ?.fields?.find((f: any) => f.field_id === 'name')?.value ??
+            '',
+        })),
+      }));
+
+      return reply.send({ clusters });
+    } catch (error: any) {
+      fastify.log.error({ error: error.message, regionId }, 'Erreur fetch clusters RL');
+      return reply.status(502).send({ error: 'Erreur de communication avec Region Lovers', details: error.message });
+    }
+  });
 }

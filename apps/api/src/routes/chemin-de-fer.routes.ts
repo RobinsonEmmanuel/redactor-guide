@@ -1391,13 +1391,16 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: 'Aucune destination définie pour ce guide' });
     }
 
-    // Vérifier qu'il y a un site WordPress configuré
-    if (!guide.wpConfig?.siteUrl) {
+    // Récupérer le site depuis wp_site_id (ou fallback wpConfig.siteUrl pour les anciens guides)
+    if (!guide.wp_site_id && !guide.wpConfig?.siteUrl) {
       return reply.code(400).send({ error: 'Aucun site WordPress configuré pour ce guide' });
     }
 
-    // Récupérer le site_id depuis la collection sites (via siteUrl)
-    const site = await db.collection(COLLECTIONS.sites).findOne({ url: guide.wpConfig.siteUrl });
+    const site = guide.wp_site_id
+      ? await db.collection(COLLECTIONS.sites).findOne({
+          $or: [{ _id: guide.wp_site_id }, { rl_id: guide.wp_site_id }],
+        })
+      : await db.collection(COLLECTIONS.sites).findOne({ url: guide.wpConfig.siteUrl });
     if (!site) {
       return reply.code(400).send({ error: 'Site WordPress non trouvé dans la base' });
     }

@@ -41,42 +41,46 @@ export const LANGUAGE_LABELS: Record<Language, string> = {
  */
 export const GuideSchema = z.object({
   _id: z.string().optional(),
-  
+
   // Informations de base
   name: z.string().min(1, 'Le nom du guide est requis'),
-  slug: z.string().min(1),
+  slug: z.string().optional(),
   year: z.number().int().min(2020).max(2100),
   version: z.string(),
-  
-  // Langue principale
-  language: LanguageEnum,
-  
+
+  // Langue principale (gérée par le service de traduction, toujours 'fr' en source)
+  language: LanguageEnum.default('fr').optional(),
+
   // Langues disponibles pour la récupération des articles
   availableLanguages: z.array(LanguageEnum).default(['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl']),
-  
+
   // Destinations incluses
-  destinations: z.array(z.string()).min(1, 'Au moins une destination requise'),
-  
-  // ID MongoDB de la destination dans Region Lovers
+  destinations: z.array(z.string()).optional(),
+  destination: z.string().optional(),
+
+  // Périmètre géographique Region Lovers
   destination_rl_id: z.string().optional(),
-  
+  wp_site_id: z.string().optional(),
+  scope_type: z.enum(['region', 'cluster', 'poi']).optional(),
+  scope_id: z.string().optional(),
+
   // ID du template de guide à utiliser
   guide_template_id: z.string().optional(),
 
   // ID du dossier Google Drive contenant les photos de la destination
   google_drive_folder_id: z.string().optional(),
-  
+
   // Image principale du guide (pour la couverture)
   image_principale: z.string().url().optional(),
-  
+
   // Statut
   status: GuideStatusEnum.default('draft'),
-  
+
   // Métadonnées
   createdAt: z.date().optional(),
   updatedAt: z.date().optional(),
   publishedAt: z.date().optional().nullable(),
-  
+
   // Configuration
   config: z.object({
     enableAiTranslation: z.boolean().default(true),

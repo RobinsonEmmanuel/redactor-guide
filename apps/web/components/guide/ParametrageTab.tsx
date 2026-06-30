@@ -18,58 +18,112 @@ interface RegionEntry {
   assignedSiteNames: string[];
 }
 
+interface ClusterEntry {
+  id: string;
+  name: string;
+  pois: PoiEntry[];
+}
+
+interface PoiEntry {
+  id: string;
+  name: string;
+}
+
+type ScopeType = 'region' | 'cluster' | 'poi';
+
 export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated }: ParametrageTabProps) {
   // Régions Region Lovers
   const [regions, setRegions] = useState<RegionEntry[]>([]);
   const [regionsLoading, setRegionsLoading] = useState(false);
-  const [selectedSite, setSelectedSite] = useState<string>('');
+
+  // Clusters / POIs (chargés depuis RL API selon la région choisie)
+  const [clusters, setClusters] = useState<ClusterEntry[]>([]);
+  const [clustersLoading, setClustersLoading] = useState(false);
+
+  // Périmètre géographique
+  const [scopeType, setScopeType] = useState<ScopeType>('region');
+  const [selectedRegionId, setSelectedRegionId] = useState('');
+  const [selectedClusterId, setSelectedClusterId] = useState('');
+  const [selectedPoiId, setSelectedPoiId] = useState('');
 
   const [formData, setFormData] = useState({
     name: '',
     slug: '',
     year: new Date().getFullYear(),
     version: '1.0.0',
-    language: 'fr',
     status: 'draft',
     destination: '',
     destination_rl_id: '',
     wp_site_id: '',
+    scope_type: 'region' as ScopeType,
+    scope_id: '',
     guide_template_id: '',
     google_drive_folder_id: '',
     image_principale: '',
   });
 
-const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [guideTemplates, setGuideTemplates] = useState<any[]>([]);
 
+  // Chargement initial
   useEffect(() => {
     if (guide) {
+      const initialScopeType: ScopeType = guide.scope_type || 'region';
       setFormData({
         name: guide.name || '',
         slug: guide.slug || '',
         year: guide.year || new Date().getFullYear(),
         version: guide.version || '1.0.0',
-        language: guide.language || 'fr',
         status: guide.status || 'draft',
         destination: guide.destination || (guide.destinations?.[0] || ''),
         destination_rl_id: guide.destination_rl_id || '',
         wp_site_id: guide.wp_site_id || '',
+        scope_type: initialScopeType,
+        scope_id: guide.scope_id || '',
         guide_template_id: guide.guide_template_id || '',
         google_drive_folder_id: guide.google_drive_folder_id || '',
         image_principale: guide.image_principale || '',
       });
-      // Pré-sélectionner le site si destination_rl_id déjà renseigné
-      if (guide.destination_rl_id) {
-        loadRegions().then((list) => {
-          const found = list.find((r: RegionEntry) => r.id === guide.destination_rl_id);
-          if (found?.assignedSiteNames?.[0]) setSelectedSite(found.assignedSiteNames[0]);
-        });
-      } else {
-        loadRegions();
-      }
+      setScopeType(initialScopeType);
+      setSelectedRegionId(guide.destination_rl_id || '');
+      setSelectedClusterId(
+        initialScopeType === 'cluster' ? (guide.scope_id || '') : ''
+      );
+      setSelectedPoiId(
+        initialScopeType === 'poi' ? (guide.scope_id || '') : ''
+      );
+
+      loadRegions().then((list) => {
+        // Si on a déjà une région et un scope non-region, charger les clusters
+        if (guide.destination_rl_id && initialScopeType !== 'region') {
+          loadClusters(guide.destination_rl_id);
+        }
+        // Restaurer la sélection du cluster si scope = cluster
+        if (initialScopeType === 'cluster' && guide.scope_id) {
+          setSelectedClusterId(guide.scope_id);
+        }
+        if (initialScopeType === 'poi' && guide.scope_id) {
+          // Le cluster parent n'est pas stocké ; on récupérera les POIs après chargement des clusters
+        }
+      });
     }
   }, [guide]);
+
+  useEffect(() => {
+    const loadTemplates = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/api/v1/guide-templates`, { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          setGuideTemplates(data.templates || []);
+        }
+      } catch (err) {
+        console.error('Erreur chargement templates:', err);
+      }
+    };
+    loadTemplates();
+  }, []);
 
   const loadRegions = async (): Promise<RegionEntry[]> => {
     setRegionsLoading(true);
@@ -94,20 +148,20 @@ const [saving, setSaving] = useState(false);
     }
   };
 
-useEffect(() => {
-    const loadTemplates = async () => {
-      try {
-        const res = await fetch(`${apiUrl}/api/v1/guide-templates`, { credentials: 'include' });
-        if (res.ok) {
-          const data = await res.json();
-          setGuideTemplates(data.templates || []);
-        }
-      } catch (err) {
-        console.error('Erreur chargement templates:', err);
-      }
-    };
-    loadTemplates();
-  }, []);
+  const loadClusters = async (regionId: string) => {
+    if (!regionId) { setClusters([]); return; }
+    setClustersLoading(true);
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/regions/${regionId}/clusters`);
+      if (!res.ok) { setClusters([]); return; }
+      const data = await res.json();
+      setClusters(data.clusters || []);
+    } catch {
+      setClusters([]);
+    } finally {
+      setClustersLoading(false);
+    }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -115,11 +169,56 @@ useEffect(() => {
     setFormData(prev => ({ ...prev, [name]: name === 'year' ? parseInt(value) : value }));
   };
 
+  const handleScopeTypeChange = (type: ScopeType) => {
+    setScopeType(type);
+    setSelectedClusterId('');
+    setSelectedPoiId('');
+    setFormData(prev => ({ ...prev, scope_type: type, scope_id: '' }));
+    if (type !== 'region' && selectedRegionId) {
+      loadClusters(selectedRegionId);
+    }
+    setSaved(false);
+  };
+
+  const handleRegionChange = (regionId: string) => {
+    const region = regions.find(r => r.id === regionId);
+    setSelectedRegionId(regionId);
+    setSelectedClusterId('');
+    setSelectedPoiId('');
+    setClusters([]);
+    setFormData(prev => ({
+      ...prev,
+      destination_rl_id: regionId,
+      destination: region?.name ?? prev.destination,
+      wp_site_id: region?.assignedSiteIds?.[0] ?? prev.wp_site_id,
+      scope_id: '',
+    }));
+    if (scopeType !== 'region' && regionId) {
+      loadClusters(regionId);
+    }
+    setSaved(false);
+  };
+
+  const handleClusterChange = (clusterId: string) => {
+    setSelectedClusterId(clusterId);
+    setSelectedPoiId('');
+    setFormData(prev => ({
+      ...prev,
+      scope_id: scopeType === 'cluster' ? clusterId : prev.scope_id,
+    }));
+    setSaved(false);
+  };
+
+  const handlePoiChange = (poiId: string) => {
+    setSelectedPoiId(poiId);
+    setFormData(prev => ({ ...prev, scope_id: poiId }));
+    setSaved(false);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
-      // 1. Sauvegarde du guide
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -130,11 +229,10 @@ useEffect(() => {
         alert('Erreur lors de la sauvegarde');
         return;
       }
-
       setSaved(true);
       onGuideUpdated();
       setTimeout(() => setSaved(false), 3000);
-    } catch (err) {
+    } catch {
       alert('Erreur lors de la sauvegarde');
     } finally {
       setSaving(false);
@@ -150,17 +248,13 @@ useEffect(() => {
     { value: 'archived', label: 'Archivé' },
   ];
 
-  const LANGUAGE_OPTIONS = [
-    { value: 'fr', label: 'Français' },
-    { value: 'it', label: 'Italien' },
-    { value: 'es', label: 'Espagnol' },
-    { value: 'de', label: 'Allemand' },
-    { value: 'en', label: 'Anglais' },
-    { value: 'pt-pt', label: 'Portugais' },
-    { value: 'nl', label: 'Néerlandais' },
-    { value: 'da', label: 'Danois' },
-    { value: 'sv', label: 'Suédois' },
+  const SCOPE_OPTIONS: { value: ScopeType; label: string; description: string }[] = [
+    { value: 'region', label: 'Région', description: 'Guide couvrant toute la région' },
+    { value: 'cluster', label: 'Cluster', description: 'Guide ciblé sur un groupe de lieux' },
+    { value: 'poi', label: 'POI', description: 'Guide dédié à un lieu spécifique' },
   ];
+
+  const selectedClusterPois = clusters.find(c => c.id === selectedClusterId)?.pois ?? [];
 
   return (
     <div className="h-full overflow-auto bg-gray-50">
@@ -169,8 +263,8 @@ useEffect(() => {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-bold text-gray-900">⚙️ Paramétrage du guide</h2>
-            <p className="text-sm text-gray-500 mt-1">Configuration générale et image de couverture</p>
+            <h2 className="text-xl font-bold text-gray-900">Paramétrage du guide</h2>
+            <p className="text-sm text-gray-500 mt-1">Configuration générale et périmètre géographique</p>
           </div>
           <button
             type="submit"
@@ -197,7 +291,6 @@ useEffect(() => {
             <div className="bg-white rounded-xl border border-gray-200 p-4 sticky top-6">
               <h3 className="text-sm font-semibold text-gray-700 mb-3">Couverture du guide</h3>
 
-              {/* Preview livre */}
               <div className="relative mx-auto" style={{ width: '140px' }}>
                 <div className="absolute inset-0 bg-gray-400 rounded-r-lg transform translate-x-1 translate-y-2 opacity-30" />
                 <div className="absolute left-0 top-0 bottom-0 w-2 bg-gradient-to-r from-gray-300 to-gray-400 rounded-l-sm" />
@@ -228,7 +321,6 @@ useEffect(() => {
                 </div>
               </div>
 
-              {/* Champ URL image */}
               <div className="mt-4">
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">
                   <PhotoIcon className="w-3.5 h-3.5 inline mr-1" />
@@ -242,9 +334,6 @@ useEffect(() => {
                   placeholder="https://..."
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
-                <p className="mt-1 text-xs text-gray-400">
-                  Image affichée sur la couverture du guide
-                </p>
               </div>
             </div>
           </div>
@@ -306,19 +395,6 @@ useEffect(() => {
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1.5">Langue principale</label>
-                  <select
-                    name="language"
-                    value={formData.language}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    {LANGUAGE_OPTIONS.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </div>
                 {guideTemplates.length > 0 && (
                   <div className="col-span-2">
                     <label className="block text-xs font-medium text-gray-600 mb-1.5">Template de guide</label>
@@ -341,78 +417,110 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* Région Region Lovers */}
+            {/* Périmètre géographique */}
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <h3 className="text-sm font-semibold text-gray-700 mb-4 pb-2 border-b border-gray-100 flex items-center justify-between">
-                Region Lovers
-                {regionsLoading && <ArrowPathIcon className="w-4 h-4 animate-spin text-gray-400" />}
+                Périmètre géographique
+                {(regionsLoading || clustersLoading) && (
+                  <ArrowPathIcon className="w-4 h-4 animate-spin text-gray-400" />
+                )}
               </h3>
 
-              {/* Sélecteur de site */}
+              {/* Type de périmètre */}
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-gray-600 mb-2">Type de périmètre</label>
+                <div className="flex gap-2">
+                  {SCOPE_OPTIONS.map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => handleScopeTypeChange(opt.value)}
+                      title={opt.description}
+                      className={`flex-1 px-3 py-2 text-sm rounded-lg border transition-all ${
+                        scopeType === opt.value
+                          ? 'bg-blue-50 border-blue-300 text-blue-700 font-medium'
+                          : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Sélection région */}
               <div className="mb-3">
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                  Site
-                </label>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Région</label>
                 <select
-                  value={selectedSite}
-                  onChange={e => {
-                    setSelectedSite(e.target.value);
-                    // reset région et destination si on change de site
-                    setFormData(prev => ({ ...prev, destination_rl_id: '', destination: '' }));
-                  }}
+                  value={selectedRegionId}
+                  onChange={e => handleRegionChange(e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  <option value="">— Choisir un site —</option>
-                  {Array.from(new Set(regions.map(r => r.assignedSiteNames[0]).filter(Boolean)))
-                    .sort((a, b) => a.localeCompare(b, 'fr'))
-                    .map(site => (
-                      <option key={site} value={site}>{site}</option>
-                    ))}
+                  <option value="">— Choisir une région —</option>
+                  {regions.map(r => (
+                    <option key={r.id} value={r.id}>
+                      {r.assignedSiteNames[0] ? `${r.assignedSiteNames[0]} — ` : ''}{r.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
-              {/* Sélecteur de région */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                  Région
-                </label>
-                <select
-                  name="destination_rl_id"
-                  value={formData.destination_rl_id}
-                  onChange={e => {
-                    const regionId = e.target.value;
-                    const region = regions.find(r => r.id === regionId);
-                    setFormData(prev => ({
-                      ...prev,
-                      destination_rl_id: regionId,
-                      // Nom de la région → destination (utilisé dans l'export JSON)
-                      destination: region?.name ?? prev.destination,
-                      // siteId du site RL → utilisé pour le trigger ingestion articles
-                      wp_site_id: region?.assignedSiteIds?.[0] ?? prev.wp_site_id,
-                    }));
-                  }}
-                  disabled={!selectedSite}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:bg-gray-50"
-                >
-                  <option value="">— Choisir une région —</option>
-                  {regions
-                    .filter(r => r.assignedSiteNames[0] === selectedSite)
-                    .map(r => (
-                      <option key={r.id} value={r.id}>{r.name}</option>
+              {/* Sélection cluster (si scope = cluster ou poi) */}
+              {scopeType !== 'region' && (
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-gray-600 mb-1.5">Cluster</label>
+                  <select
+                    value={selectedClusterId}
+                    onChange={e => handleClusterChange(e.target.value)}
+                    disabled={!selectedRegionId || clustersLoading || clusters.length === 0}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:bg-gray-50"
+                  >
+                    <option value="">— Choisir un cluster —</option>
+                    {clusters.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
-                </select>
-                {formData.destination_rl_id && (
-                  <div className="mt-1 space-y-0.5">
-                    <p className="text-xs text-gray-400 font-mono">Région ID : {formData.destination_rl_id}</p>
-                    {formData.wp_site_id && (
-                      <p className="text-xs text-gray-400 font-mono">Site ID : {formData.wp_site_id}</p>
-                    )}
-                  </div>
-                )}
-                <p className="mt-1 text-xs text-gray-400">
-                  Utilisé pour récupérer les POIs depuis l&apos;API Region Lovers
-                </p>
-              </div>
+                  </select>
+                  {selectedRegionId && !clustersLoading && clusters.length === 0 && (
+                    <p className="mt-1 text-xs text-amber-500">Aucun cluster trouvé pour cette région</p>
+                  )}
+                </div>
+              )}
+
+              {/* Sélection POI (si scope = poi) */}
+              {scopeType === 'poi' && selectedClusterId && (
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-gray-600 mb-1.5">Lieu (POI)</label>
+                  <select
+                    value={selectedPoiId}
+                    onChange={e => handlePoiChange(e.target.value)}
+                    disabled={selectedClusterPois.length === 0}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:bg-gray-50"
+                  >
+                    <option value="">— Choisir un lieu —</option>
+                    {selectedClusterPois.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Résumé des IDs techniques */}
+              {formData.destination_rl_id && (
+                <div className="mt-2 p-2 bg-gray-50 rounded-lg space-y-0.5">
+                  <p className="text-xs text-gray-400 font-mono">
+                    Région : {formData.destination_rl_id}
+                    {formData.destination ? ` (${formData.destination})` : ''}
+                  </p>
+                  {formData.wp_site_id && (
+                    <p className="text-xs text-gray-400 font-mono">Site ID : {formData.wp_site_id}</p>
+                  )}
+                  {formData.scope_id && (
+                    <p className="text-xs text-gray-400 font-mono">
+                      {scopeType === 'cluster' ? 'Cluster' : 'POI'} ID : {formData.scope_id}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Google Drive */}
@@ -439,7 +547,6 @@ useEffect(() => {
                 </p>
               </div>
             </div>
-
 
           </div>
         </div>

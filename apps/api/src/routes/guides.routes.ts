@@ -38,6 +38,7 @@ const CreateGuideSchema = z.object({
   wp_site_id: z.string().optional(),
   scope_type: z.enum(['region', 'cluster', 'poi']).optional(),
   scope_id: z.string().optional(),
+  selected_categories: z.array(z.string()).optional(),
   guide_template_id: z.string().optional(),
   google_drive_folder_id: z.string().optional(),
   image_principale: z.string().optional(),
@@ -180,20 +181,52 @@ export async function guidesRoutes(fastify: FastifyInstance) {
   });
 
   /**
+   * GET /guides/:id/articles/categories
+   * Retourne toutes les catégories distinctes des articles du site lié au guide.
+   */
+  fastify.get<{ Params: { id: string } }>('/guides/:id/articles/categories', async (request, reply) => {
+    const { id } = request.params;
+    const db = request.server.container.db;
+
+    if (!ObjectId.isValid(id)) return reply.status(400).send({ error: 'ID invalide' });
+
+    try {
+      const guide = await db.collection(COLLECTIONS.guides).findOne(
+        { _id: new ObjectId(id) },
+        { projection: { wp_site_id: 1, selected_categories: 1 } }
+      );
+
+      if (!guide?.wp_site_id) {
+        return reply.status(400).send({ error: 'wp_site_id manquant — configurez le périmètre dans Paramétrage' });
+      }
+
+      const categories: string[] = await getArticlesDatabase()
+        .collection(COLLECTIONS.articles_raw)
+        .distinct('categories', { site_id: guide.wp_site_id });
+
+      categories.sort((a, b) => a.localeCompare(b, 'fr'));
+
+      return reply.send({
+        categories,
+        selected_categories: guide.selected_categories ?? null,
+      });
+    } catch (error) {
+      request.log.error(error);
+      return reply.status(500).send({ error: 'Erreur lors du chargement des catégories' });
+    }
+  });
+
+  /**
    * GET /guides/:id/articles
-   * Retourne les articles WordPress liés au guide.
+   * Retourne les articles WordPress du site lié au guide.
+   * Filtrage par site_id (wp_site_id) + selected_categories si définies.
    *
    * Query params:
-   *   - q      : filtre texte sur le titre (optionnel) — utilisé par PageModal
-   *   - slug   : lookup exact par slug (optionnel)
-   *   - page   : numéro de page pour la pagination (défaut: 1)
+   *   - q      : recherche texte sur le titre
+   *   - slug   : lookup exact par slug
+   *   - page   : numéro de page (défaut: 1)
    *   - limit  : taille de page (défaut: 50, max: 200)
    *   - lang   : langue pour l'URL (défaut: langue du guide)
-   *
-   * Comportement selon les paramètres :
-   *   - slug présent   → lookup exact, pas de pagination
-   *   - q présent      → recherche titre sur tous les articles de la destination, pas de pagination
-   *   - aucun          → tous les articles de la destination, avec pagination
    */
   fastify.get<{
     Params: { id: string };
@@ -203,71 +236,51 @@ export async function guidesRoutes(fastify: FastifyInstance) {
     const { id } = request.params;
     const { q, slug: slugParam, page: pageStr, limit: limitStr, lang } = request.query;
 
-    // Pagination
     const page  = Math.max(1, parseInt(pageStr  ?? '1',  10) || 1);
     const limit = Math.min(Math.max(1, parseInt(limitStr ?? '50', 10) || 50), 200);
     const skip  = (page - 1) * limit;
 
-    if (!ObjectId.isValid(id)) {
-      return reply.status(400).send({ error: 'ID invalide' });
-    }
+    if (!ObjectId.isValid(id)) return reply.status(400).send({ error: 'ID invalide' });
 
     try {
-      // 1. Récupérer guide (langue + destinations)
       const guide = await db.collection(COLLECTIONS.guides).findOne(
         { _id: new ObjectId(id) },
-        { projection: { language: 1, destination: 1, destinations: 1, wpConfig: 1 } }
+        { projection: { language: 1, wp_site_id: 1, selected_categories: 1 } }
       );
+
       const targetLang = lang || guide?.language || 'fr';
 
-      // Construire la liste des noms de destination pour filtrer par catégories.
-      // guide.destination  = nom texte (ex: "Tenerife")
-      // guide.destinations = tableau (peut contenir noms ou IDs selon la version)
-      const destNames: string[] = [];
-      if (guide?.destination && typeof guide.destination === 'string') {
-        destNames.push(guide.destination);
-      }
-      if (Array.isArray(guide?.destinations)) {
-        for (const d of guide.destinations) {
-          if (typeof d === 'string' && d.length < 60 && !destNames.includes(d)) {
-            // Garder seulement les chaînes courtes (noms), pas les ObjectIds
-            if (!/^[a-f0-9]{24}$/i.test(d)) destNames.push(d);
-          }
-        }
-      }
-
-      // 2. Construire le filtre MongoDB — toujours par catégories/destinations
+      // Filtre de base : par site_id
       const filter: Record<string, unknown> = {};
-      const categoryFilter = destNames.length > 0
-        ? { categories: { $in: destNames.map(n => new RegExp(n, 'i')) } }
-        : {};
+      if (guide?.wp_site_id) {
+        filter.site_id = guide.wp_site_id;
+      }
 
+      // Filtre catégories : si l'utilisateur a sélectionné des catégories spécifiques
+      if (Array.isArray(guide?.selected_categories) && guide.selected_categories.length > 0) {
+        filter.categories = { $in: guide.selected_categories };
+      }
+
+      // Filtre texte ou slug
       if (slugParam) {
         filter.slug = slugParam;
       } else if (q) {
         const regex = new RegExp(q, 'i');
         filter.$or = [{ title: regex }, { slug: regex }];
-        if (destNames.length > 0) Object.assign(filter, categoryFilter);
-      } else {
-        // Vue liste : tous les articles dont les catégories contiennent au moins une destination
-        if (destNames.length > 0) Object.assign(filter, categoryFilter);
       }
 
       const projection = { slug: 1, title: 1, urls_by_lang: 1, wp_source: 1, categories: 1, tags: 1, updated_at: 1 };
 
       if (slugParam || q) {
-        // Pas de pagination pour les lookups et recherches
         const rawArticles = await getArticlesDatabase()
           .collection(COLLECTIONS.articles_raw)
           .find(filter, { projection })
           .limit(200)
           .toArray();
 
-        const articles = rawArticles.map(a => normalizeArticle(a, targetLang));
-        return reply.send({ articles, total: articles.length, lang: targetLang });
+        return reply.send({ articles: rawArticles.map(a => normalizeArticle(a, targetLang)), total: rawArticles.length, lang: targetLang });
       }
 
-      // 3. Vue paginée
       const [total, rawArticles] = await Promise.all([
         getArticlesDatabase().collection(COLLECTIONS.articles_raw).countDocuments(filter),
         getArticlesDatabase().collection(COLLECTIONS.articles_raw)
@@ -278,13 +291,10 @@ export async function guidesRoutes(fastify: FastifyInstance) {
           .toArray(),
       ]);
 
-      const totalPages = Math.ceil(total / limit);
-      const articles   = rawArticles.map(a => normalizeArticle(a, targetLang));
-
       return reply.send({
-        articles,
+        articles: rawArticles.map(a => normalizeArticle(a, targetLang)),
         total,
-        pagination: { page, limit, total, totalPages },
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
         lang: targetLang,
       });
     } catch (error) {

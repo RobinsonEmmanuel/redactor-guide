@@ -805,8 +805,12 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
           setValidationPois(deduplicated_pois);
           setExcludedPoiIds(new Set());
           setShowValidationModal(true);
+        } else if (status === 'extraction_complete') {
+          // Extraction terminée mais dédoublonnage pas encore lancé (ex: après rechargement
+          // de page) → rouvrir le modal de preview pour exposer le bouton "Lancer le dédoublonnage"
+          setPendingJobRawCount(raw_count || preview_pois.length);
+          setShowPreviewModal(true);
         } else {
-          // Extraction en attente → bouton "Reprendre"
           setPendingJobRawCount(raw_count || preview_pois.length);
         }
       }

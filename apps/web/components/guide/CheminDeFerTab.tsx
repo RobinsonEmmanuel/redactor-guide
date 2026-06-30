@@ -72,7 +72,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
   // URL racine du site (wpConfig.siteUrl) pour le mode LLM
   const [guideSiteUrl, setGuideSiteUrl] = useState('');
   // Config WordPress pour l'ingestion single-url
-  const [guideWpConfig, setGuideWpConfig] = useState<{ siteUrl: string; jwtToken: string; siteId: string; destinations: string[] } | null>(null);
+  const [guideWpConfig, setGuideWpConfig] = useState<{ siteId: string; destinations: string[] } | null>(null);
 
   // Modale "Article non ingéré" (URL valide mais absente de la base)
   const [showArticleNotInDbModal, setShowArticleNotInDbModal] = useState(false);
@@ -117,11 +117,9 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (data?.wpConfig?.siteUrl) setGuideSiteUrl(data.wpConfig.siteUrl);
-        if (data?.wpConfig?.siteUrl && data?.wpConfig?.jwtToken) {
+        if (data?.wp_site_id) {
           setGuideWpConfig({
-            siteUrl:      data.wpConfig.siteUrl,
-            jwtToken:     data.wpConfig.jwtToken,
-            siteId:       data.slug ?? guideId,
+            siteId:       data.wp_site_id,
             destinations: data.destinations ?? [],
           });
         }
@@ -897,8 +895,8 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
 
   const handleIngestAndGenerate = async () => {
     if (!articleNotInDbPage || !articleNotInDbUrl) return;
-    if (!guideWpConfig?.siteUrl || !guideWpConfig?.jwtToken) {
-      setArticleIngestError('Configuration WordPress manquante sur ce guide');
+    if (!guideWpConfig?.siteId) {
+      setArticleIngestError('Site WordPress non configuré — sélectionnez une région dans le Paramétrage');
       return;
     }
 
@@ -913,8 +911,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
         credentials: 'include',
         body: JSON.stringify({
           siteId:         guideWpConfig.siteId,
-          siteUrl:        guideWpConfig.siteUrl,
-          jwtToken:       guideWpConfig.jwtToken,
           articleUrl:     articleNotInDbUrl,
           destinationIds: guideWpConfig.destinations,
         }),

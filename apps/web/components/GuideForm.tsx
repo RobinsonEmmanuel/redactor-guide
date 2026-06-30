@@ -24,7 +24,6 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
     guide_template_id: '', // ID du template de guide à utiliser
     wpConfig: {
       siteUrl: '',
-      jwtToken: '',
     },
   });
 
@@ -72,7 +71,6 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
         guide_template_id: guide.guide_template_id || '',
         wpConfig: {
           siteUrl: guide.wpConfig?.siteUrl || '',
-          jwtToken: guide.wpConfig?.jwtToken || '',
         },
       });
     }
@@ -387,25 +385,8 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
                 placeholder="https://votre-site.com"
               />
               <p className="mt-1 text-sm text-gray-500">
-                URL complète du site WordPress (avec https://)
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Token JWT WordPress *
-              </label>
-              <textarea
-                name="wpConfig.jwtToken"
-                value={formData.wpConfig.jwtToken}
-                onChange={handleChange}
-                required
-                rows={3}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
-                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-              />
-              <p className="mt-1 text-sm text-gray-500">
-                Token d'authentification JWT pour accéder à l'API REST WordPress
+                URL complète du site WordPress (avec https://). L'authentification
+                est gérée par le service d'ingestion via la région/le site connecté.
               </p>
             </div>
           </div>

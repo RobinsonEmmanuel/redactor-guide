@@ -40,7 +40,6 @@ export async function debugRoutes(fastify: FastifyInstance) {
           destination: guide.destination,
           wpConfig: guide.wpConfig ? {
             siteUrl: guide.wpConfig.siteUrl,
-            hasToken: !!guide.wpConfig.jwtToken,
           } : null,
         },
       };

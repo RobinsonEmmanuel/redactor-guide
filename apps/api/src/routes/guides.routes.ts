@@ -30,7 +30,6 @@ const CreateGuideSchema = z.object({
   image_principale: z.string().optional(),
   wpConfig: z.object({
     siteUrl: z.string().url().or(z.literal('')),
-    jwtToken: z.string().optional(), // déprécié — credentials gérés via site_connections
   }).optional(),
 });
 

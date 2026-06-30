@@ -179,6 +179,15 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * POST /guides/:guideId/pois/jobs/:jobId/retry-missing-batches
+   * Proxy → poi-service
+   */
+  fastify.post<{ Params: { guideId: string; jobId: string } }>(
+    '/guides/:guideId/pois/jobs/:jobId/retry-missing-batches',
+    (request, reply) => proxyToPoiService(request, reply, `/guides/${(request.params as any).guideId}/pois/jobs/${(request.params as any).jobId}/retry-missing-batches`)
+  );
+
+  /**
    * GET /guides/:guideId/pois/reuse-candidates
    * Liste les guides ayant le même site source et une sélection POI exploitable.
    */

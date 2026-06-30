@@ -1058,6 +1058,32 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     }
   };
 
+  const [retryingBatches, setRetryingBatches] = useState(false);
+
+  const retryMissingBatches = async () => {
+    if (!currentJobId) return;
+    setRetryingBatches(true);
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/jobs/${currentJobId}/retry-missing-batches`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.retried === 0) {
+          alert(data.message || 'Aucun batch manquant à relancer');
+        } else {
+          alert(`✅ ${data.recovered}/${data.retried} batch(es) récupéré(s)${data.still_missing > 0 ? ` — ${data.still_missing} encore manquant(s)` : ''}`);
+          await checkForPendingJob();
+        }
+      } else {
+        alert(`❌ ${data.error || 'Erreur inconnue'}`);
+      }
+    } catch (err) {
+      console.error('Erreur retry batches manquants:', err);
+      alert('❌ Erreur lors du retry des batches manquants');
+    } finally {
+      setRetryingBatches(false);
+    }
+  };
+
   const clearJobs = async () => {
     if (!confirm('Supprimer tous les jobs de génération pour ce guide ?\nL\'identification des POIs sera perdue.')) return;
     try {
@@ -1457,6 +1483,10 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
   const activePoi = activeDragId ? pois.find(p => p.poi_id === activeDragId) : null;
 
+  const multiBatches = previewBatches.filter((b: any) => !b.is_mono_batch);
+  const expectedTotalBatches = multiBatches.length > 0 ? Math.max(...multiBatches.map((b: any) => b.total_batches || 0)) : 0;
+  const missingBatchesCount = expectedTotalBatches > 0 ? expectedTotalBatches - multiBatches.length : 0;
+
   return (
     <>
     <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
@@ -1489,6 +1519,24 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                         <div className="text-gray-500 mt-0.5">Conserve les POIs extraits, relance possible</div>
                       </div>
                     </button>
+                    {missingBatchesCount > 0 && currentJobId && (
+                      <>
+                        <div className="border-t border-gray-100 my-1" />
+                        <button
+                          onClick={() => { setShowCleanMenu(false); retryMissingBatches(); }}
+                          disabled={retryingBatches}
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition-colors flex items-start gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <span className="mt-0.5">🔁</span>
+                          <div>
+                            <div className="font-medium text-blue-700">
+                              {retryingBatches ? 'Relance en cours...' : `Relancer ${missingBatchesCount} batch(es) manquant(s)`}
+                            </div>
+                            <div className="text-gray-500 mt-0.5">Récupère les batches abandonnés (échec OpenAI), sans tout recommencer</div>
+                          </div>
+                        </button>
+                      </>
+                    )}
                     <div className="border-t border-gray-100 my-1" />
                     <button
                       onClick={() => { setShowCleanMenu(false); clearJobs(); }}

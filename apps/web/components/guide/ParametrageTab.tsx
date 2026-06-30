@@ -40,6 +40,9 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
   const [clusters, setClusters] = useState<ClusterEntry[]>([]);
   const [clustersLoading, setClustersLoading] = useState(false);
 
+  // Langues WPML détectées
+  const [detectedLanguages, setDetectedLanguages] = useState<string[]>([]);
+
   // Périmètre géographique
   const [scopeType, setScopeType] = useState<ScopeType>('region');
   const [selectedRegionId, setSelectedRegionId] = useState('');
@@ -99,6 +102,10 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
         if (guide.destination_rl_id && initialScopeType !== 'region') {
           loadClusters(guide.destination_rl_id);
         }
+        // Pré-remplir les langues WPML depuis les articles déjà ingérés
+        if (guide.wp_site_id) {
+          detectLanguages();
+        }
         // Restaurer la sélection du cluster si scope = cluster
         if (initialScopeType === 'cluster' && guide.scope_id) {
           setSelectedClusterId(guide.scope_id);
@@ -145,6 +152,26 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
       return [];
     } finally {
       setRegionsLoading(false);
+    }
+  };
+
+  const detectLanguages = async () => {
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/articles/languages`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.languages?.length > 0) {
+        setDetectedLanguages(data.languages);
+        // Sauvegarde silencieuse dans availableLanguages
+        await fetch(`${apiUrl}/api/v1/guides/${guideId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ availableLanguages: data.languages }),
+        });
+      }
+    } catch {
+      // non bloquant
     }
   };
 
@@ -519,6 +546,23 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
                       {scopeType === 'cluster' ? 'Cluster' : 'POI'} ID : {formData.scope_id}
                     </p>
                   )}
+                </div>
+              )}
+
+              {/* Langues WPML détectées */}
+              {detectedLanguages.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs font-medium text-gray-600 mb-1.5">
+                    Langues WPML détectées
+                    <span className="ml-1 text-gray-400 font-normal">(depuis les articles ingérés)</span>
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {detectedLanguages.map(lang => (
+                      <span key={lang} className="px-2 py-0.5 text-xs bg-green-50 text-green-700 border border-green-200 rounded-full font-mono">
+                        {lang}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

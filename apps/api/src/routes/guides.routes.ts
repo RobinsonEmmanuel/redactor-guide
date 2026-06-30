@@ -181,6 +181,43 @@ export async function guidesRoutes(fastify: FastifyInstance) {
   });
 
   /**
+   * GET /guides/:id/articles/languages
+   * Détecte les langues WPML actives en analysant les clés urls_by_lang des articles du site.
+   */
+  fastify.get<{ Params: { id: string } }>('/guides/:id/articles/languages', async (request, reply) => {
+    const { id } = request.params;
+    const db = request.server.container.db;
+
+    if (!ObjectId.isValid(id)) return reply.status(400).send({ error: 'ID invalide' });
+
+    try {
+      const guide = await db.collection(COLLECTIONS.guides).findOne(
+        { _id: new ObjectId(id) },
+        { projection: { wp_site_id: 1 } }
+      );
+
+      if (!guide?.wp_site_id) {
+        return reply.status(400).send({ error: 'wp_site_id manquant' });
+      }
+
+      const sample = await getArticlesDatabase()
+        .collection(COLLECTIONS.articles_raw)
+        .find({ site_id: guide.wp_site_id }, { projection: { urls_by_lang: 1 } })
+        .limit(50)
+        .toArray();
+
+      const langs = [...new Set(
+        sample.flatMap((a: any) => Object.keys(a.urls_by_lang ?? {}))
+      )].sort();
+
+      return reply.send({ languages: langs, site_id: guide.wp_site_id });
+    } catch (error) {
+      request.log.error(error);
+      return reply.status(500).send({ error: 'Erreur lors de la détection des langues' });
+    }
+  });
+
+  /**
    * GET /guides/:id/articles/categories
    * Retourne toutes les catégories distinctes des articles du site lié au guide.
    */

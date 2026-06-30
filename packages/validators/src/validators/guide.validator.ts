@@ -88,7 +88,7 @@ export class GuideValidator implements IGuideValidator {
     result: ValidationResult
   ): void {
     // Règle : un guide doit avoir au moins une destination
-    if (guide.destinations.length === 0) {
+    if (!guide.destinations?.length) {
       result.errors.push('Le guide doit contenir au moins une destination');
     }
 

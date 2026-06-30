@@ -122,10 +122,24 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
     '/guides/:guideId/pois/generate',
     async (request, reply) => {
       const { guideId } = request.params;
-      const guide = await getDatabase().collection(COLLECTIONS.guides).findOne(
-        { _id: new ObjectId(guideId) },
-        { projection: { wp_site_id: 1, destination: 1, destinations: 1, selected_categories: 1 } }
-      );
+
+      const guidesDb = getDatabase();
+      const dbName = (guidesDb as any).databaseName ?? 'unknown';
+      fastify.log.info({ guideId, dbName }, '[pois/generate] lookup guide');
+
+      let guide: any = null;
+      try {
+        guide = await guidesDb.collection(COLLECTIONS.guides).findOne(
+          { _id: new ObjectId(guideId) },
+          { projection: { wp_site_id: 1, destination: 1, destinations: 1, selected_categories: 1 } }
+        );
+      } catch (err: any) {
+        fastify.log.error({ guideId, err: err.message }, '[pois/generate] erreur findOne');
+        return reply.status(500).send({ error: err.message });
+      }
+
+      fastify.log.info({ guideId, found: !!guide, wp_site_id: guide?.wp_site_id }, '[pois/generate] résultat lookup');
+
       if (!guide) return reply.status(404).send({ error: 'Guide non trouvé' });
 
       const bodyOverride = {

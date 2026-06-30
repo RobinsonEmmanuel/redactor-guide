@@ -162,13 +162,14 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
       const data = await res.json();
       if (data.languages?.length > 0) {
         setDetectedLanguages(data.languages);
-        // Sauvegarde silencieuse dans availableLanguages
-        await fetch(`${apiUrl}/api/v1/guides/${guideId}`, {
+        // Sauvegarde silencieuse dans availableLanguages + notifie le parent pour recharger le guide
+        const saved = await fetch(`${apiUrl}/api/v1/guides/${guideId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ availableLanguages: data.languages }),
         });
+        if (saved.ok) onGuideUpdated();
       }
     } catch {
       // non bloquant

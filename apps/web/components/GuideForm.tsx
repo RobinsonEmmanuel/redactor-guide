@@ -1,60 +1,69 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { XMarkIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { authFetch } from '@/lib/api-client';
 
 interface GuideFormProps {
   guide?: any;
   onClose: () => void;
 }
 
+interface RegionEntry {
+  id: string;
+  name: string;
+  assignedSiteIds: string[];
+  assignedSiteNames: string[];
+}
+
+function toSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 export default function GuideForm({ guide, onClose }: GuideFormProps) {
   const isEditing = !!guide;
-  
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+
   const [formData, setFormData] = useState({
     name: '',
     slug: '',
     year: new Date().getFullYear(),
     version: '1.0.0',
-    language: 'fr',
-    availableLanguages: ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'] as string[],
     status: 'draft',
-    destination: '', // 1 guide = 1 destination
-    destination_rl_id: '', // ID MongoDB de la destination dans Region Lovers
-    guide_template_id: '', // ID du template de guide à utiliser
-    wpConfig: {
-      siteUrl: '',
-    },
+    destination: '',
+    destination_rl_id: '',
+    wp_site_id: '',
+    guide_template_id: '',
   });
 
-
-  const [showLanguageModal, setShowLanguageModal] = useState(false);
-  const [customLanguage, setCustomLanguage] = useState({ code: '', label: '' });
-
-  const [saving, setSaving] = useState(false);
+  const [regions, setRegions] = useState<RegionEntry[]>([]);
+  const [regionsLoading, setRegionsLoading] = useState(false);
   const [guideTemplates, setGuideTemplates] = useState<any[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    // Charger les templates de guides
+    loadRegions();
+
     const loadGuideTemplates = async () => {
       setLoadingTemplates(true);
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-        const response = await fetch(`${apiUrl}/api/v1/guide-templates`, {
-          credentials: 'include',
-        });
-        if (response.ok) {
-          const data = await response.json();
+        const res = await fetch(`${apiUrl}/api/v1/guide-templates`, { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
           setGuideTemplates(data.templates || []);
         }
-      } catch (error) {
-        console.error('Erreur chargement templates:', error);
+      } catch (err) {
+        console.error('Erreur chargement templates:', err);
       } finally {
         setLoadingTemplates(false);
       }
     };
-
     loadGuideTemplates();
 
     if (guide) {
@@ -63,113 +72,77 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
         slug: guide.slug || '',
         year: guide.year || new Date().getFullYear(),
         version: guide.version || '1.0.0',
-        language: guide.language || 'fr',
-        availableLanguages: guide.availableLanguages || ['fr', 'it', 'es', 'de', 'da', 'sv', 'en', 'pt-pt', 'nl'],
         status: guide.status || 'draft',
         destination: guide.destination || '',
         destination_rl_id: guide.destination_rl_id || '',
+        wp_site_id: guide.wp_site_id || '',
         guide_template_id: guide.guide_template_id || '',
-        wpConfig: {
-          siteUrl: guide.wpConfig?.siteUrl || '',
-        },
       });
     }
   }, [guide]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+  const loadRegions = async () => {
+    setRegionsLoading(true);
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/regions/overview`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const list: RegionEntry[] = (data.data ?? data ?? []).filter(
+        (r: RegionEntry) => r.assignedSiteNames?.length > 0
+      );
+      list.sort((a, b) => {
+        const siteA = a.assignedSiteNames[0] ?? '';
+        const siteB = b.assignedSiteNames[0] ?? '';
+        return siteA.localeCompare(siteB, 'fr') || a.name.localeCompare(b.name, 'fr');
+      });
+      setRegions(list);
+    } catch (err) {
+      console.error('Erreur chargement régions:', err);
+    } finally {
+      setRegionsLoading(false);
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    
-    if (name.startsWith('wpConfig.')) {
-      const field = name.split('.')[1];
-      setFormData(prev => ({
-        ...prev,
-        wpConfig: {
-          ...prev.wpConfig,
-          [field]: value,
-        },
-      }));
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        [name]: name === 'year' ? parseInt(value) : value,
-      }));
-    }
-
-    // Auto-générer le slug depuis le nom
-    if (name === 'name' && !isEditing) {
-      const slug = value
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '');
-      setFormData(prev => ({ ...prev, slug }));
-    }
+    setFormData(prev => ({
+      ...prev,
+      [name]: name === 'year' ? parseInt(value) : value,
+      // Auto-slug depuis le nom (création uniquement)
+      ...(name === 'name' && !isEditing ? { slug: toSlug(value) } : {}),
+    }));
   };
 
-  const handleLanguageToggle = (langCode: string) => {
-    setFormData(prev => {
-      const isSelected = prev.availableLanguages.includes(langCode);
-      const newLanguages = isSelected
-        ? prev.availableLanguages.filter(l => l !== langCode)
-        : [...prev.availableLanguages, langCode];
-      
-      return { ...prev, availableLanguages: newLanguages };
-    });
+  const handleRegionChange = (regionId: string) => {
+    const region = regions.find(r => r.id === regionId);
+    setFormData(prev => ({
+      ...prev,
+      destination_rl_id: regionId,
+      destination: region?.name ?? prev.destination,
+      wp_site_id: region?.assignedSiteIds?.[0] ?? prev.wp_site_id,
+    }));
   };
-
-  const handleAddCustomLanguage = () => {
-    if (customLanguage.code && !formData.availableLanguages.includes(customLanguage.code)) {
-      setFormData(prev => ({
-        ...prev,
-        availableLanguages: [...prev.availableLanguages, customLanguage.code],
-      }));
-      setCustomLanguage({ code: '', label: '' });
-      setShowLanguageModal(false);
-    }
-  };
-
-  const defaultLanguages = [
-    { code: 'fr', label: 'Français (source)' },
-    { code: 'it', label: 'Italien' },
-    { code: 'es', label: 'Espagnol' },
-    { code: 'de', label: 'Allemand' },
-    { code: 'da', label: 'Danois' },
-    { code: 'sv', label: 'Suédois' },
-    { code: 'en', label: 'Anglais' },
-    { code: 'pt-pt', label: 'Portugais' },
-    { code: 'nl', label: 'Néerlandais' },
-  ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
       const url = isEditing
         ? `${apiUrl}/api/v1/guides/${guide._id}`
         : `${apiUrl}/api/v1/guides`;
-      
-      const method = isEditing ? 'PUT' : 'POST';
-
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      const res = await fetch(url, {
+        method: isEditing ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify(formData),
       });
-
-      if (response.ok) {
+      if (res.ok) {
         onClose();
         window.location.reload();
       } else {
         alert('Erreur lors de l\'enregistrement');
       }
-    } catch (error) {
-      console.error('Erreur:', error);
+    } catch {
       alert('Erreur lors de l\'enregistrement');
     } finally {
       setSaving(false);
@@ -178,7 +151,6 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
 
   return (
     <div className="p-8">
-      {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">
@@ -188,26 +160,19 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
             {isEditing ? 'Mettez à jour les informations du guide' : 'Créez un nouveau guide touristique'}
           </p>
         </div>
-        <button
-          onClick={onClose}
-          className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-        >
+        <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
           <XMarkIcon className="w-6 h-6" />
         </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="max-w-4xl">
-        {/* Informations générales */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Informations générales
-          </h2>
+      <form onSubmit={handleSubmit} className="max-w-2xl space-y-6">
 
-          <div className="grid grid-cols-2 gap-6">
+        {/* Informations générales */}
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Informations générales</h2>
+          <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Titre du guide *
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Titre du guide *</label>
               <input
                 type="text"
                 name="name"
@@ -215,140 +180,35 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
                 onChange={handleChange}
                 required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="Guide Paris 2024"
+                placeholder="Guide Côte d'Azur 2026"
               />
             </div>
-
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Slug *
-              </label>
-              <input
-                type="text"
-                name="slug"
-                value={formData.slug}
-                onChange={handleChange}
-                required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="guide-paris-2024"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Destination *
-              </label>
-              <input
-                type="text"
-                name="destination"
-                value={formData.destination}
-                onChange={handleChange}
-                required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="Ex: Tenerife, Gran Canaria, Lanzarote..."
-              />
-              <p className="mt-1 text-xs text-gray-500">
-                🔍 Les articles WordPress seront automatiquement filtrés par cette catégorie
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                ID Region Lovers
-              </label>
-              <input
-                type="text"
-                name="destination_rl_id"
-                value={formData.destination_rl_id}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
-                placeholder="68c2aaeb5a239cd1cfe753f0"
-              />
-              <p className="mt-1 text-xs text-gray-500">
-                🔗 ID MongoDB de la destination dans la base Region Lovers
-              </p>
-            </div>
-
-            <div className="col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Template de guide
-              </label>
-              <select
-                name="guide_template_id"
-                value={formData.guide_template_id}
-                onChange={handleChange}
-                disabled={loadingTemplates}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
-              >
-                <option value="">
-                  {loadingTemplates ? 'Chargement...' : 'Sélectionner un template (optionnel)'}
-                </option>
-                {guideTemplates.map((template) => (
-                  <option key={template._id} value={template._id}>
-                    {template.name}
-                    {template.is_default ? ' (par défaut)' : ''}
-                    {template.description ? ` - ${template.description}` : ''}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-gray-500">
-                📋 Définit la structure automatique du chemin de fer (pages fixes, sections dynamiques). Si non sélectionné, le template par défaut sera utilisé.
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Année *
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Année *</label>
               <input
                 type="number"
                 name="year"
                 value={formData.year}
                 onChange={handleChange}
                 required
+                min={2020}
+                max={2100}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
-
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Version
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Version</label>
               <input
                 type="text"
                 name="version"
                 value={formData.version}
                 onChange={handleChange}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="1.0.0"
               />
             </div>
-
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Langue
-              </label>
-              <select
-                name="language"
-                value={formData.language}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="fr">Français</option>
-                <option value="en">English</option>
-                <option value="de">Deutsch</option>
-                <option value="es">Español</option>
-                <option value="it">Italiano</option>
-                <option value="pt">Português</option>
-                <option value="nl">Nederlands</option>
-                <option value="pl">Polski</option>
-                <option value="ru">Русский</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Statut
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Statut</label>
               <select
                 name="status"
                 value={formData.status}
@@ -361,168 +221,57 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
                 <option value="published">Publié</option>
               </select>
             </div>
+            {guideTemplates.length > 0 && (
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Template de guide</label>
+                <select
+                  name="guide_template_id"
+                  value={formData.guide_template_id}
+                  onChange={handleChange}
+                  disabled={loadingTemplates}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                >
+                  <option value="">{loadingTemplates ? 'Chargement...' : '— Sélectionner un template —'}</option>
+                  {guideTemplates.map(t => (
+                    <option key={t._id} value={t._id}>
+                      {t.name}{t.is_default ? ' (défaut)' : ''}{t.description ? ` — ${t.description}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Configuration WordPress */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Configuration WordPress
+        {/* Périmètre géographique */}
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-1 flex items-center justify-between">
+            Périmètre géographique
+            {regionsLoading && <ArrowPathIcon className="w-4 h-4 animate-spin text-gray-400" />}
           </h2>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                URL du site WordPress *
-              </label>
-              <input
-                type="url"
-                name="wpConfig.siteUrl"
-                value={formData.wpConfig.siteUrl}
-                onChange={handleChange}
-                required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="https://votre-site.com"
-              />
-              <p className="mt-1 text-sm text-gray-500">
-                URL complète du site WordPress (avec https://). L'authentification
-                est gérée par le service d'ingestion via la région/le site connecté.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Langues disponibles */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">
-                Langues à récupérer
-              </h2>
-              <p className="text-sm text-gray-500 mt-1">
-                Sélectionnez les langues disponibles sur votre site WordPress
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowLanguageModal(true)}
-              className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-            >
-              + Ajouter une langue
-            </button>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            {defaultLanguages.map(lang => (
-              <label
-                key={lang.code}
-                className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
-              >
-                <input
-                  type="checkbox"
-                  checked={formData.availableLanguages.includes(lang.code)}
-                  onChange={() => handleLanguageToggle(lang.code)}
-                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                />
-                <span className="text-sm text-gray-700">{lang.label}</span>
-              </label>
-            ))}
-            
-            {formData.availableLanguages
-              .filter(code => !defaultLanguages.some(l => l.code === code))
-              .map(code => (
-                <label
-                  key={code}
-                  className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
-                >
-                  <input
-                    type="checkbox"
-                    checked={true}
-                    onChange={() => handleLanguageToggle(code)}
-                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                  />
-                  <span className="text-sm text-gray-700">{code.toUpperCase()}</span>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      handleLanguageToggle(code);
-                    }}
-                    className="ml-auto text-red-600 hover:text-red-700"
-                  >
-                    ×
-                  </button>
-                </label>
-              ))}
-          </div>
-
-          <p className="mt-3 text-xs text-gray-500">
-            {formData.availableLanguages.length} langue(s) sélectionnée(s)
+          <p className="text-sm text-gray-500 mb-4">
+            Sélectionnez la région Region Lovers — le site et la destination sont remplis automatiquement.
           </p>
+          <select
+            value={formData.destination_rl_id}
+            onChange={e => handleRegionChange(e.target.value)}
+            required
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          >
+            <option value="">— Choisir une région —</option>
+            {regions.map(r => (
+              <option key={r.id} value={r.id}>
+                {r.assignedSiteNames[0] ? `${r.assignedSiteNames[0]} — ` : ''}{r.name}
+              </option>
+            ))}
+          </select>
+          {formData.destination && (
+            <p className="mt-2 text-xs text-gray-400">
+              Destination : <strong>{formData.destination}</strong>
+              {formData.wp_site_id && <> · Site ID : <span className="font-mono">{formData.wp_site_id}</span></>}
+            </p>
+          )}
         </div>
-
-        {/* Modale Ajouter langue */}
-        {showLanguageModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                Ajouter une langue personnalisée
-              </h3>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Code langue WPML *
-                  </label>
-                  <input
-                    type="text"
-                    value={customLanguage.code}
-                    onChange={(e) => setCustomLanguage(prev => ({ ...prev, code: e.target.value.toLowerCase() }))}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="pl ou pt-pt"
-                  />
-                  <p className="mt-1 text-xs text-gray-500">
-                    Utilisez le code exact de WPML (ex: pl, ru, zh-hans, pt-pt)
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Nom de la langue (optionnel)
-                  </label>
-                  <input
-                    type="text"
-                    value={customLanguage.label}
-                    onChange={(e) => setCustomLanguage(prev => ({ ...prev, label: e.target.value }))}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Polski"
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-3 mt-6">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowLanguageModal(false);
-                    setCustomLanguage({ code: '', label: '' });
-                  }}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Annuler
-                </button>
-                <button
-                  type="button"
-                  onClick={handleAddCustomLanguage}
-                  disabled={!customLanguage.code}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-                >
-                  Ajouter
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Actions */}
         <div className="flex gap-4">
@@ -535,12 +284,13 @@ export default function GuideForm({ guide, onClose }: GuideFormProps) {
           </button>
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || !formData.destination_rl_id}
             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
           >
-            {saving ? 'Enregistrement...' : (isEditing ? 'Mettre à jour' : 'Créer le guide')}
+            {saving ? 'Enregistrement...' : isEditing ? 'Mettre à jour' : 'Créer le guide'}
           </button>
         </div>
+
       </form>
     </div>
   );

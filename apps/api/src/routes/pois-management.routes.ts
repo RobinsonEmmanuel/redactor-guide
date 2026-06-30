@@ -113,11 +113,29 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
 
   /**
    * POST /guides/:guideId/pois/generate
-   * Proxy → poi-service
+   * Enrichit le body avec les données du guide avant de proxifier vers le poi-service,
+   * afin que le poi-service n'ait pas besoin d'accéder à la base redactor_guide.
    */
   fastify.post<{ Params: { guideId: string } }>(
     '/guides/:guideId/pois/generate',
-    (request, reply) => proxyToPoiService(request, reply, `/guides/${(request.params as any).guideId}/pois/generate`)
+    async (request, reply) => {
+      const { guideId } = request.params;
+      const guide = await db.collection(COLLECTIONS.guides).findOne(
+        { _id: new ObjectId(guideId) },
+        { projection: { wp_site_id: 1, destination: 1, destinations: 1, selected_categories: 1 } }
+      );
+      if (!guide) return reply.status(404).send({ error: 'Guide non trouvé' });
+
+      const enrichedRequest = {
+        ...request,
+        body: {
+          wp_site_id: guide.wp_site_id,
+          destination: guide.destination ?? guide.destinations?.[0] ?? '',
+          selected_categories: guide.selected_categories ?? [],
+        },
+      };
+      return proxyToPoiService(enrichedRequest, reply, `/guides/${guideId}/pois/generate`);
+    }
   );
 
   /**

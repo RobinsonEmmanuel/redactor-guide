@@ -454,20 +454,15 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { guideId } = request.params;
       try {
-        // Marquer les jobs en cours comme "cancelled" pour que le worker s'arrête proprement
-        const cancelResult = await db.collection(COLLECTIONS.pois_generation_jobs).updateMany(
-          { guide_id: guideId, status: { $in: ['pending', 'processing', 'deduplicating'] } },
-          { $set: { status: 'cancelled', updated_at: new Date() } }
-        );
-
-        // Supprimer les jobs terminés ou échoués (historique)
+        // Supprimer TOUS les jobs d'un coup — pas de passage par "cancelled" pour éviter
+        // la race condition où QStash relivrerait un vieux message entre le updateMany et le deleteMany
+        // Le worker gère désormais les jobs supprimés (matchedCount === 0 → skipped)
         const deleteResult = await db.collection(COLLECTIONS.pois_generation_jobs).deleteMany(
-          { guide_id: guideId, status: { $in: ['completed', 'failed', 'cancelled', 'extraction_complete', 'dedup_complete'] } }
+          { guide_id: guideId }
         );
 
-        const total = cancelResult.modifiedCount + deleteResult.deletedCount;
-        console.log(`🧹 [POIs] ${cancelResult.modifiedCount} job(s) annulé(s), ${deleteResult.deletedCount} supprimé(s) pour guide ${guideId}`);
-        return reply.send({ cancelled: cancelResult.modifiedCount, deleted: deleteResult.deletedCount, total });
+        console.log(`🧹 [POIs] ${deleteResult.deletedCount} job(s) supprimé(s) pour guide ${guideId}`);
+        return reply.send({ cancelled: 0, deleted: deleteResult.deletedCount, total: deleteResult.deletedCount });
       } catch (error: any) {
         return reply.code(500).send({ error: error.message });
       }

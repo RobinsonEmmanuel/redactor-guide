@@ -1088,8 +1088,8 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     if (!confirm('Supprimer tous les jobs de génération pour ce guide ?\nL\'identification des POIs sera perdue.')) return;
     try {
       const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/jobs`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        const data = await res.json();
         setCurrentJobId(null);
         setJobStatus(null);
         setPendingJobRawCount(null);
@@ -1097,9 +1097,12 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         setPreviewBatches([]);
         setDedupPois([]);
         alert(`✅ ${data.total} job(s) supprimé(s)`);
+      } else {
+        alert(`❌ Erreur lors du nettoyage : ${data.error || res.status}`);
       }
     } catch (err) {
       console.error('Erreur nettoyage jobs:', err);
+      alert('❌ Erreur lors du nettoyage des jobs (voir console)');
     }
   };
 

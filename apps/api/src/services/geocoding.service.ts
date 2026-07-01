@@ -15,6 +15,22 @@ export interface GeocodingResult {
   importance: number;
 }
 
+/** Distance en kilomètres entre deux points GPS (formule de haversine). */
+export function haversineDistanceKm(
+  a: { lat: number; lon: number },
+  b: { lat: number; lon: number }
+): number {
+  const R = 6371; // rayon terrestre moyen en km
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLon = ((b.lon - a.lon) * Math.PI) / 180;
+  const lat1 = (a.lat * Math.PI) / 180;
+  const lat2 = (b.lat * Math.PI) / 180;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
 export interface MapUrls {
   /** Google Maps — standard universel web, fonctionne sur tous les appareils */
   google_maps: string;

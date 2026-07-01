@@ -2,6 +2,19 @@ import { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { env } from '../config/env.js';
 import { COLLECTIONS } from '../config/collections.js';
+import { GeocodingService, haversineDistanceKm } from '../services/geocoding.service.js';
+import { buildSelectionPoiGeocodingQuery, getGuideDestination } from '../services/poi-geocoding.service.js';
+
+const geocodingService = new GeocodingService();
+
+/** Distance max pour valider qu'un match par nom (confiance < high) pointe bien vers le même lieu. */
+const GEO_VALIDATION_MAX_KM = 3;
+/** Distance max pour affecter un POI non matché par nom à la place instance la plus proche. */
+const GEO_FALLBACK_MAX_KM = 15;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 /**
  * Routes de matching clusters.
@@ -88,24 +101,96 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
       const data: any = await res.json().catch(() => ({ error: 'Réponse non-JSON du microservice' }));
       if (!res.ok) return reply.status(res.status).send(data);
 
-      fastify.log.info({
-        keys: Object.keys(data || {}),
-        updatedPoisIsArray: Array.isArray(data?.updated_pois),
-        updatedPoisLength: Array.isArray(data?.updated_pois) ? data.updated_pois.length : null,
-        statsAssigned: data?.stats?.assigned,
-      }, '[MATCHING] Diagnostic réponse poi-service');
+      let updatedPois: any[] = Array.isArray(data.updated_pois) ? data.updated_pois : [];
+      const placeInstances: any[] = Array.isArray(data.place_instances) ? data.place_instances : [];
+
+      if (updatedPois.length > 0) {
+        const destination = getGuideDestination(guide);
+        const country = destination ? geocodingService.getCountryFromDestination(destination) : undefined;
+        const geoBias = destination ? geocodingService.getBiasFromDestination(destination) : undefined;
+
+        // ── Passe 1 : valide les matchs par nom de confiance < high via géocodage Photon ──
+        // Un match "low"/"medium" peut être une coïncidence de texte (ex: "Quais du Rhône" vs
+        // "Camping du Pylône" à 47%) — on géocode le POI et on vérifie qu'il est bien proche de
+        // la place instance matchée. Sinon, on le repasse "non affecté" en gardant les coordonnées
+        // Photon fraîchement obtenues, réutilisables par la passe 2.
+        const toValidate = updatedPois.filter(p => p.matched_automatically && p.confidence !== 'high');
+        for (let i = 0; i < toValidate.length; i++) {
+          const poi = toValidate[i];
+          try {
+            const query = buildSelectionPoiGeocodingQuery(poi, guide).trim();
+            const resolved = query ? await geocodingService.resolveWithPlaceMatch(query, country, geoBias) : null;
+            if (resolved && poi.coordinates) {
+              const distanceKm = haversineDistanceKm(resolved, poi.coordinates);
+              if (distanceKm > GEO_VALIDATION_MAX_KM) {
+                fastify.log.info({ poi_id: poi.poi_id, nom: poi.nom, distanceKm, score: poi.score }, '[MATCHING] Match invalidé par géo-validation');
+                poi.cluster_id = null;
+                poi.cluster_name = null;
+                poi.matched_automatically = false;
+                poi.confidence = null;
+                poi.score = null;
+                poi.place_instance_id = null;
+                poi.coordinates = { lat: resolved.lat, lon: resolved.lon, display_name: resolved.display_name };
+              }
+            }
+          } catch (err: any) {
+            fastify.log.warn({ err: err.message, poi_id: poi.poi_id }, '[MATCHING] Erreur géo-validation POI');
+          }
+          if (i < toValidate.length - 1) await sleep(300);
+        }
+
+        // ── Passe 2 : affecte au cluster le plus proche les POIs non matchés par nom mais déjà
+        // géolocalisés (via le bouton "3. Géolocaliser" ou rétrogradés à la passe 1) ──
+        const placeInstancesWithCoords = placeInstances.filter(pi => pi.coordinates);
+        for (const poi of updatedPois) {
+          if (poi.cluster_id || !poi.coordinates) continue;
+
+          let nearest: any = null;
+          let nearestDistanceKm = Infinity;
+          for (const pi of placeInstancesWithCoords) {
+            const distanceKm = haversineDistanceKm(poi.coordinates, pi.coordinates);
+            if (distanceKm < nearestDistanceKm) {
+              nearestDistanceKm = distanceKm;
+              nearest = pi;
+            }
+          }
+
+          if (nearest && nearestDistanceKm <= GEO_FALLBACK_MAX_KM) {
+            poi.cluster_id = nearest.cluster_id;
+            poi.cluster_name = nearest.cluster_name;
+            poi.place_instance_id = nearest.place_instance_id;
+            poi.matched_automatically = true;
+            poi.confidence = 'geo';
+            poi.score = null;
+            fastify.log.info({ poi_id: poi.poi_id, nom: poi.nom, cluster_name: nearest.cluster_name, distanceKm: nearestDistanceKm }, '[MATCHING] Affecté par proximité géo');
+          }
+        }
+      }
+
+      // Stats recalculées après ajustements géo (data.stats ne reflète que la passe par nom).
+      const finalStats = {
+        total_pois: updatedPois.length,
+        assigned: updatedPois.filter(p => p.cluster_id).length,
+        unassigned: updatedPois.filter(p => !p.cluster_id).length,
+        auto_matched: updatedPois.filter(p => p.matched_automatically).length,
+        manual_matched: 0,
+        by_cluster: updatedPois.filter(p => p.cluster_id).reduce((acc: Record<string, number>, p: any) => {
+          acc[p.cluster_id] = (acc[p.cluster_id] || 0) + 1;
+          return acc;
+        }, {}),
+      };
 
       const now = new Date();
       await db.collection(COLLECTIONS.cluster_assignments).updateOne(
         { guide_id: guideId },
-        { $set: { guide_id: guideId, assignment: data.assignment, stats: data.stats, clusters_metadata: data.clusters_metadata, matched_at: now, updated_at: now } },
+        { $set: { guide_id: guideId, assignment: data.assignment, stats: finalStats, clusters_metadata: data.clusters_metadata, matched_at: now, updated_at: now } },
         { upsert: true }
       );
-      if (Array.isArray(data.updated_pois)) {
-        await db.collection(COLLECTIONS.pois_selection).updateOne({ guide_id: guideId }, { $set: { pois: data.updated_pois, updated_at: now } });
+      if (updatedPois.length > 0) {
+        await db.collection(COLLECTIONS.pois_selection).updateOne({ guide_id: guideId }, { $set: { pois: updatedPois, updated_at: now } });
       }
 
-      return reply.send({ assignment: data.assignment, stats: data.stats, clusters_metadata: data.clusters_metadata });
+      return reply.send({ assignment: data.assignment, stats: finalStats, clusters_metadata: data.clusters_metadata });
     } catch (error: any) {
       fastify.log.error({ error: error.message }, 'Erreur matching');
       return reply.status(502).send({ error: 'Erreur de communication avec le POI service', details: error.message });

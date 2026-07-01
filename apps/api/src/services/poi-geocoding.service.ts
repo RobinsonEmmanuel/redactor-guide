@@ -116,7 +116,7 @@ export function buildPoiGeocodingQuery(
   return query;
 }
 
-function hasCoordinates(page: Record<string, any>): boolean {
+export function hasCoordinates(page: Record<string, any>): boolean {
   const c = page.coordinates;
   return c?.lat != null && c?.lon != null && !isNaN(c.lat) && !isNaN(c.lon);
 }
@@ -134,7 +134,7 @@ function isPoiGeocodeResolved(page: Record<string, any>): boolean {
   return hasCoordinates(page) || isGpsNotApplicable(page);
 }
 
-function getGuideDestination(guide: Record<string, any>): string {
+export function getGuideDestination(guide: Record<string, any>): string {
   return guide.destination ?? guide.destinations?.[0] ?? guide.name ?? '';
 }
 
@@ -406,7 +406,7 @@ export interface GeocodeMissingPoisSelectionResult {
   results: PoiSelectionGeocodeEntryResult[];
 }
 
-function buildSelectionPoiGeocodingQuery(poi: Record<string, any>, guide: Record<string, any>): string {
+export function buildSelectionPoiGeocodingQuery(poi: Record<string, any>, guide: Record<string, any>): string {
   const query: string = poi.nom || '';
   const destination = getGuideDestination(guide);
   const clusterName: string = poi.cluster_name?.trim() ?? '';

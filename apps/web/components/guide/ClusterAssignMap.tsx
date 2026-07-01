@@ -167,6 +167,20 @@ export default function ClusterAssignMap({ pois, clusters, apiUrl, guideId, onAs
         </label>
       </div>
 
+      {/* Légende des clusters */}
+      <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-100 overflow-x-auto text-xs">
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <span className="inline-block h-3 w-3 rounded-full border-2 border-white shadow ring-1 ring-gray-300" style={{ backgroundColor: '#9ca3af' }} />
+          <span className="text-gray-500">Non affecté</span>
+        </div>
+        {clusters.map(c => (
+          <div key={c.cluster_id} className="flex items-center gap-1.5 flex-shrink-0">
+            <span className="inline-block h-3 w-3 rounded-full border-2 border-white shadow" style={{ backgroundColor: colorForCluster(c.cluster_name) }} />
+            <span className="text-gray-600 whitespace-nowrap">{c.cluster_name}</span>
+          </div>
+        ))}
+      </div>
+
       <div
         ref={mapRef}
         className="relative cursor-grab overflow-hidden bg-slate-100 active:cursor-grabbing"
@@ -209,18 +223,24 @@ export default function ClusterAssignMap({ pois, clusters, apiUrl, guideId, onAs
           const coords = poi.coordinates!;
           const pos = project(coords.lat, coords.lon);
           const selected = poi.poi_id === selectedPoiId;
+          const isUnassigned = !poi.cluster_id;
           const color = colorForCluster(poi.cluster_name);
           return (
             <button
               key={poi.poi_id}
               type="button"
-              onClick={(event) => { event.stopPropagation(); if (!dragMovedRef.current) handleSelect(poi); }}
+              onClick={(event) => { event.stopPropagation(); handleSelect(poi); }}
               className={`absolute -translate-x-1/2 -translate-y-full transition-transform ${selected ? 'scale-125 z-20' : 'z-10 hover:scale-110'}`}
               style={{ left: pos.left, top: pos.top }}
               title={`${poi.nom}${poi.cluster_name ? ` — ${poi.cluster_name}` : ' — non affecté'}`}
             >
               {selected ? (
                 <MapPinSolidIcon className="h-8 w-8 drop-shadow-md" style={{ color }} />
+              ) : isUnassigned ? (
+                <span className="relative flex h-5 w-5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60" style={{ backgroundColor: color }} />
+                  <span className="relative inline-flex h-5 w-5 rounded-full border-2 border-white shadow" style={{ backgroundColor: color }} />
+                </span>
               ) : (
                 <span className="block h-4 w-4 rounded-full border-2 border-white shadow" style={{ backgroundColor: color }} />
               )}
@@ -262,6 +282,12 @@ export default function ClusterAssignMap({ pois, clusters, apiUrl, guideId, onAs
             {saving ? 'Enregistrement...' : 'Valider'}
           </button>
           <button onClick={() => setSelectedPoiId(null)} className="text-xs text-gray-500 hover:text-gray-700">Annuler</button>
+        </div>
+      )}
+
+      {!selectedPoi && points.length > 0 && (
+        <div className="px-4 py-2.5 border-t border-gray-100 text-xs text-gray-500 flex items-center gap-1.5">
+          👆 Cliquez sur un point de la carte pour voir son nom et l'affecter à un cluster.
         </div>
       )}
 

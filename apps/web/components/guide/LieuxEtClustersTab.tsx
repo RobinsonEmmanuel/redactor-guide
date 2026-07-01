@@ -1587,24 +1587,6 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                         </button>
                       </>
                     )}
-                    {pois.length > 0 && poisWithoutCoords > 0 && (
-                      <>
-                        <div className="border-t border-gray-100 my-1" />
-                        <button
-                          onClick={() => { setShowCleanMenu(false); geocodeMissingPois(); }}
-                          disabled={geocodingPois}
-                          className="w-full text-left px-3 py-2 text-xs hover:bg-orange-50 transition-colors flex items-start gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          <span className="mt-0.5">📍</span>
-                          <div>
-                            <div className="font-medium text-orange-700">
-                              {geocodingPois ? 'Géolocalisation en cours...' : `Géolocaliser ${poisWithoutCoords} POI(s)`}
-                            </div>
-                            <div className="text-gray-500 mt-0.5">Via Photon — nécessaire pour la ventilation géographique et la carte</div>
-                          </div>
-                        </button>
-                      </>
-                    )}
                     <div className="border-t border-gray-100 my-1" />
                     <button
                       onClick={() => { setShowCleanMenu(false); clearJobs(); }}
@@ -1694,6 +1676,24 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                 <><ArrowPathIcon className="w-3.5 h-3.5" />2. Ventiler dans les clusters</>
               )}
             </button>
+
+            {/* Étape 3 : Géolocalisation des POIs restants */}
+            {pois.length > 0 && poisWithoutCoords > 0 && (
+              <>
+                <div className="w-px h-5 bg-gray-200" />
+                <button
+                  onClick={geocodeMissingPois}
+                  disabled={geocodingPois}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+                >
+                  {geocodingPois ? (
+                    <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Géolocalisation...</>
+                  ) : (
+                    <><MapPinIcon className="w-3.5 h-3.5" />3. Géolocaliser {poisWithoutCoords} POI(s)</>
+                  )}
+                </button>
+              </>
+            )}
 
             <div className="ml-auto text-xs text-gray-600">
               {stats.assigned}/{stats.total} affectés • {stats.unassigned} non affectés

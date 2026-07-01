@@ -56,12 +56,14 @@ async function normalizeLieuxAssocies(
           normalized.push(newId);
           continue;
         }
-        // Nom connu mais pas dans pois_selection (POI non confirmé en étape 2)
-        console.warn(`⚠️ [inspirations] POI "${id}" (nom: "${nom}") absent de pois_selection, conservé`);
+        // Nom connu mais pas dans pois_selection (POI non confirmé en étape 2) — supprimé, pas de page possible.
+        console.warn(`⚠️ [inspirations] POI "${id}" (nom: "${nom}") absent de pois_selection, retiré`);
       } else {
-        console.warn(`⚠️ [inspirations] POI "${id}" inconnu des deux référentiels, conservé`);
+        // Probable hallucination IA (lieu hors de la liste fournie) — supprimé, pas de page possible.
+        console.warn(`⚠️ [inspirations] POI "${id}" inconnu des deux référentiels, retiré`);
       }
-      normalized.push(id);
+      // Ne pas conserver un ID qui ne résout vers aucun POI réel : mieux vaut une inspiration
+      // avec un lieu de moins qu'une référence vers une page qui n'existera jamais.
     }
 
     // Dédoublonnage (deux vieux IDs peuvent pointer vers le même pois_selection ID)

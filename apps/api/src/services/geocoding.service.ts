@@ -384,9 +384,28 @@ export class GeocodingService {
       }
     }
 
-    // Défaut : essayer avec le nom brut
-    return destination;
+    // Défaut : France — la grande majorité des destinations non listées ci-dessus
+    // (régions/villes françaises) doivent au moins être contraintes au bon pays,
+    // plutôt que de laisser Photon choisir un résultat homonyme à l'étranger.
+    return 'France';
   }
+
+  /**
+   * Zones françaises connues avec une bounding box resserrée — améliore la précision
+   * par rapport au repli générique "France entière" (voir plus bas).
+   */
+  private readonly FRENCH_REGION_BOUNDS: Record<string, GeoBounds> = {
+    'côte d\'azur':    { minLat: 43.10, maxLat: 43.95, minLon: 6.40, maxLon: 7.75 },
+    'provence':        { minLat: 43.10, maxLat: 44.40, minLon: 4.20, maxLon: 6.90 },
+    'corse':           { minLat: 41.35, maxLat: 43.05, minLon: 8.50, maxLon: 9.60 },
+    'bretagne':        { minLat: 47.25, maxLat: 48.90, minLon: -5.20, maxLon: -1.00 },
+    'normandie':       { minLat: 48.45, maxLat: 50.10, minLon: -1.95, maxLon: 1.85 },
+    'alsace':          { minLat: 47.40, maxLat: 49.10, minLon: 6.80, maxLon: 8.25 },
+    'pays basque':     { minLat: 43.15, maxLat: 43.70, minLon: -1.80, maxLon: -0.80 },
+  };
+
+  /** Bounding box couvrant la France métropolitaine — repli si aucune zone plus précise ne correspond. */
+  private readonly FRANCE_BOUNDS: GeoBounds = { minLat: 41.30, maxLat: 51.10, minLon: -5.20, maxLon: 9.70 };
 
   getBiasFromDestination(destination: string): GeocodingBias | undefined {
     const key = destination.toLowerCase().trim();
@@ -402,6 +421,21 @@ export class GeocodingService {
         },
       };
     }
+
+    for (const [region, bounds] of Object.entries(this.FRENCH_REGION_BOUNDS)) {
+      if (key.includes(region)) {
+        return { countryCode: 'FR', destinationLabel: destination, bounds };
+      }
+    }
+
+    // Repli générique : si la destination n'est reconnue nulle part ailleurs (Canaries,
+    // Maroc, Portugal), on suppose une destination française plutôt que de ne poser
+    // aucune contrainte géographique — mieux vaut un résultat un peu large que faux pays.
+    const knownForeignCountry = this.getCountryFromDestination(destination) !== 'France';
+    if (!knownForeignCountry) {
+      return { countryCode: 'FR', destinationLabel: destination, bounds: this.FRANCE_BOUNDS };
+    }
+
     return undefined;
   }
 }

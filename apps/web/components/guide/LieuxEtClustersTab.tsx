@@ -2339,18 +2339,23 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
             {/* ── En-tête ── */}
             <div className="flex items-start justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
-              <div>
-                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                  <span>🔍</span> Validation de la liste des POIs
-                </h2>
-                <p className="text-sm text-gray-500 mt-0.5">
-                  Revoyez chaque entrée avant de confirmer. Les lignes supprimées ne seront pas sauvegardées.
-                </p>
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center flex-shrink-0">
+                  <MagnifyingGlassIcon className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900">Validation de la liste des POIs</h2>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    Revoyez chaque entrée avant de confirmer. Les lignes supprimées ne seront pas sauvegardées.
+                  </p>
+                </div>
               </div>
               <button
                 onClick={() => setShowValidationModal(false)}
-                className="text-gray-400 hover:text-gray-600 text-2xl leading-none px-1 mt-0.5"
-              >×</button>
+                className="text-gray-400 hover:text-gray-600 transition-colors p-1 -mt-1 -mr-1"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
             </div>
 
             {/* ── Bandeau statistiques ── */}
@@ -2362,9 +2367,9 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               </div>
               <span className="text-gray-300">→</span>
               <div className="flex items-center gap-1.5 text-sm">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-400 inline-block" />
+                <span className="w-2.5 h-2.5 rounded-full bg-orange-400 inline-block" />
                 <span className="text-gray-500">Après dédup :</span>
-                <span className="font-semibold text-blue-700">{validationPois.length}</span>
+                <span className="font-semibold text-orange-700">{validationPois.length}</span>
                 {previewPois.length > 0 && (
                   <span className="text-xs text-gray-400">
                     (−{previewPois.length - validationPois.length} doublons)
@@ -2384,17 +2389,20 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
             {/* ── Filtres ── */}
             <div className="flex items-center gap-3 px-6 py-3 border-b border-gray-100 flex-shrink-0 flex-wrap">
-              <input
-                type="text"
-                value={validationSearch}
-                onChange={e => setValidationSearch(e.target.value)}
-                placeholder="Rechercher par nom ou source…"
-                className="flex-1 min-w-48 px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+              <div className="relative flex-1 min-w-48">
+                <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <input
+                  type="text"
+                  value={validationSearch}
+                  onChange={e => setValidationSearch(e.target.value)}
+                  placeholder="Rechercher par nom ou source…"
+                  className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                />
+              </div>
               <div className="flex items-center gap-1 flex-shrink-0 flex-wrap">
                 <button
                   onClick={() => setValidationTypeFilter('all')}
-                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${validationTypeFilter === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${validationTypeFilter === 'all' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                 >
                   Tous ({validationPois.length})
                 </button>
@@ -2518,19 +2526,19 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setShowValidationModal(false)}
-                  className="px-4 py-2 text-sm text-gray-600 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+                  className="px-4 py-2 text-sm text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
                 >
                   Annuler
                 </button>
                 <button
                   onClick={() => confirmSave(activePois)}
                   disabled={confirming || activePois.length === 0}
-                  className="flex items-center gap-2 px-5 py-2 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                  className="flex items-center gap-2 px-5 py-2 bg-orange-500 text-white text-sm font-semibold rounded-lg hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
                 >
                   {confirming ? (
                     <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Sauvegarde…</>
                   ) : (
-                    <>✅ Confirmer et sauvegarder ({activePois.length} POIs)</>
+                    <><CheckCircleIcon className="w-4 h-4" />Confirmer et sauvegarder ({activePois.length} POIs)</>
                   )}
                 </button>
               </div>

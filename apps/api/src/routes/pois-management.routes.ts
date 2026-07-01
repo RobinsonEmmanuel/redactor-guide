@@ -375,13 +375,9 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       try {
         if (!ObjectId.isValid(jobId)) return reply.code(400).send({ error: 'Job ID invalide' });
 
-        const job = await db.collection(COLLECTIONS.pois_generation_jobs).findOne({ _id: new ObjectId(jobId) });
-        if (!job) return reply.code(404).send({ error: 'Job non trouvé' });
-
-        // Si une liste validée est fournie par l'UI, on l'utilise directement
-        const rawDedupPois: any[] = validatedPois?.length
-          ? validatedPois
-          : (job.deduplicated_pois || job.preview_pois || []);
+        // Les jobs de génération POI vivent dans la base du poi-service, pas ici — on se base
+        // uniquement sur les POIs validés fournis par l'UI plutôt que de relire le job localement.
+        const rawDedupPois: any[] = validatedPois || [];
         if (rawDedupPois.length === 0) return reply.code(400).send({ error: 'Aucun POI à sauvegarder' });
 
         const pois = rawDedupPois.map((poi: any) => ({
@@ -406,10 +402,21 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
           { upsert: true }
         );
 
-        await db.collection(COLLECTIONS.pois_generation_jobs).updateOne(
-          { _id: new ObjectId(jobId) },
-          { $set: { status: 'completed', count: pois.length, updated_at: new Date() } }
-        );
+        // Synchronise le statut du job côté poi-service (sa base, pas la nôtre) — best-effort,
+        // ne doit pas faire échouer la sauvegarde si le poi-service est indisponible.
+        if (env.POI_SERVICE_URL) {
+          try {
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (env.POI_SERVICE_API_KEY) headers['X-Api-Key'] = env.POI_SERVICE_API_KEY;
+            await fetch(`${env.POI_SERVICE_URL.replace(/\/$/, '')}/api/v1/guides/${guideId}/pois/jobs/${jobId}/complete`, {
+              method: 'PATCH',
+              headers,
+              body: JSON.stringify({ count: pois.length }),
+            });
+          } catch (err: any) {
+            fastify.log.warn({ err: err.message }, '[CONFIRM] Impossible de marquer le job comme complété côté poi-service');
+          }
+        }
 
         console.log(`✅ [CONFIRM] ${pois.length} POIs sauvegardés dans pois_selection pour guide ${guideId}`);
         return reply.send({ success: true, count: pois.length });

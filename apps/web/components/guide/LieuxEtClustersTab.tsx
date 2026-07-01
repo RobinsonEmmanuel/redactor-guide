@@ -2388,18 +2388,26 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             </div>
 
             {/* ── Filtres ── */}
-            <div className="flex items-center gap-3 px-6 py-3 border-b border-gray-100 flex-shrink-0 flex-wrap">
-              <div className="relative flex-1 min-w-48">
-                <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                <input
-                  type="text"
-                  value={validationSearch}
-                  onChange={e => setValidationSearch(e.target.value)}
-                  placeholder="Rechercher par nom ou source…"
-                  className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                />
+            <div className="flex flex-col gap-2.5 px-6 py-3 border-b border-gray-100 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="relative flex-1 min-w-48">
+                  <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                  <input
+                    type="text"
+                    value={validationSearch}
+                    onChange={e => setValidationSearch(e.target.value)}
+                    placeholder="Rechercher par nom ou source…"
+                    className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                  />
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button onClick={restoreAll} className="text-xs text-blue-600 hover:text-blue-800 underline">Tout restaurer</button>
+                  <span className="text-gray-300">|</span>
+                  <button onClick={excludeAll} className="text-xs text-red-500 hover:text-red-700 underline">Tout exclure</button>
+                  <span className="text-gray-400 text-xs ml-1 whitespace-nowrap">{activeInView}/{filteredPois.length} visibles</span>
+                </div>
               </div>
-              <div className="flex items-center gap-1 flex-shrink-0 flex-wrap">
+              <div className="flex items-center gap-1 flex-wrap">
                 <button
                   onClick={() => setValidationTypeFilter('all')}
                   className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${validationTypeFilter === 'all' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
@@ -2419,12 +2427,6 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                     </button>
                   );
                 })}
-              </div>
-              <div className="flex items-center gap-2 ml-auto flex-shrink-0">
-                <button onClick={restoreAll} className="text-xs text-blue-600 hover:text-blue-800 underline">Tout restaurer</button>
-                <span className="text-gray-300">|</span>
-                <button onClick={excludeAll} className="text-xs text-red-500 hover:text-red-700 underline">Tout exclure</button>
-                <span className="text-gray-400 text-xs ml-1">{activeInView}/{filteredPois.length} visibles</span>
               </div>
             </div>
 

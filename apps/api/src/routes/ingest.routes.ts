@@ -34,9 +34,7 @@ export async function ingestRoutes(fastify: FastifyInstance) {
     const reqMethod = method || request.method;
 
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
+      const headers: Record<string, string> = {};
       if (apiKey) headers['X-Api-Key'] = apiKey;
 
       // Timeout long pour les routes d'ingestion synchrone (jusqu'à 15 min pour 200+ articles)
@@ -47,6 +45,7 @@ export async function ingestRoutes(fastify: FastifyInstance) {
         signal: isLongRunning ? AbortSignal.timeout(15 * 60 * 1000) : AbortSignal.timeout(30_000),
       };
       if (reqMethod !== 'GET' && reqMethod !== 'HEAD' && request.body) {
+        headers['Content-Type'] = 'application/json';
         fetchOptions.body = JSON.stringify(request.body);
       }
 

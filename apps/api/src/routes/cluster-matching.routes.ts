@@ -62,9 +62,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
     const reqMethod = method || request.method;
 
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
+      const headers: Record<string, string> = {};
       if (apiKey) headers['X-Api-Key'] = apiKey;
 
       // Transmettre les cookies/auth pour la validation JWT Region Lovers
@@ -75,6 +73,7 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
 
       const fetchOptions: RequestInit = { method: reqMethod, headers };
       if (reqMethod !== 'GET' && reqMethod !== 'HEAD' && request.body) {
+        headers['Content-Type'] = 'application/json';
         fetchOptions.body = JSON.stringify(request.body);
       }
 

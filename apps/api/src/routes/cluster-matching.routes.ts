@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import { ObjectId } from 'mongodb';
 import { env } from '../config/env.js';
 import { COLLECTIONS } from '../config/collections.js';
 
@@ -88,8 +89,59 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
 
   const guideParam = '/guides/:guideId';
 
+  /**
+   * POST /guides/:guideId/matching
+   * guides/pois_selection vivent dans notre base, pas dans celle du poi-service : on les lit ici
+   * et on les envoie dans le body au poi-service (qui fait le calcul + l'appel Region Lovers),
+   * puis on persiste le résultat localement — le poi-service ne touche pas notre base.
+   */
+  fastify.post(`${guideParam}/matching`, async (request: any, reply: any) => {
+    const guideId = request.params.guideId;
+    if (!serviceUrl) {
+      return reply.status(503).send({ error: 'POI service non disponible', message: 'POI_SERVICE_URL doit être configuré.' });
+    }
+    try {
+      const db = request.server.container.db;
+      if (!ObjectId.isValid(guideId)) return reply.code(400).send({ error: 'Guide ID invalide' });
+
+      const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
+      if (!guide) return reply.code(404).send({ error: 'Guide non trouvé' });
+      if (!guide.destination_rl_id) return reply.code(400).send({ error: 'destination_rl_id manquant' });
+
+      const poisSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
+      if (!poisSelection?.pois?.length) return reply.code(400).send({ error: 'Aucun POI sélectionné' });
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (apiKey) headers['X-Api-Key'] = apiKey;
+      if (request.headers?.cookie) headers['Cookie'] = request.headers.cookie;
+      if (request.headers?.authorization) headers['Authorization'] = request.headers.authorization;
+
+      const res = await fetch(`${serviceUrl.replace(/\/$/, '')}/api/v1/guides/${guideId}/matching`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ guide_destination_rl_id: guide.destination_rl_id, pois: poisSelection.pois }),
+      });
+      const data: any = await res.json().catch(() => ({ error: 'Réponse non-JSON du microservice' }));
+      if (!res.ok) return reply.status(res.status).send(data);
+
+      const now = new Date();
+      await db.collection(COLLECTIONS.cluster_assignments).updateOne(
+        { guide_id: guideId },
+        { $set: { guide_id: guideId, assignment: data.assignment, stats: data.stats, clusters_metadata: data.clusters_metadata, matched_at: now, updated_at: now } },
+        { upsert: true }
+      );
+      if (Array.isArray(data.updated_pois)) {
+        await db.collection(COLLECTIONS.pois_selection).updateOne({ guide_id: guideId }, { $set: { pois: data.updated_pois, updated_at: now } });
+      }
+
+      return reply.send({ assignment: data.assignment, stats: data.stats, clusters_metadata: data.clusters_metadata });
+    } catch (error: any) {
+      fastify.log.error({ error: error.message }, 'Erreur matching');
+      return reply.status(502).send({ error: 'Erreur de communication avec le POI service', details: error.message });
+    }
+  });
+
   fastify.post(`${guideParam}/matching/generate`, (req, reply) => proxyRequest(req, reply, `/guides/${(req.params as any).guideId}/matching/generate`));
-  fastify.post(`${guideParam}/matching`, (req, reply) => proxyRequest(req, reply, `/guides/${(req.params as any).guideId}/matching`));
   fastify.get(`${guideParam}/matching`, async (req, reply) => {
     if (await sendLocalMatchingIfAvailable(req, reply)) return;
     return proxyRequest(req, reply, `/guides/${(req.params as any).guideId}/matching`, 'GET');

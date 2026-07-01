@@ -642,6 +642,26 @@ function PoiPreviewList({ batches, poisFallback }: { batches: any[]; poisFallbac
   );
 }
 
+/**
+ * Filet de sécurité : fusionne les POIs partageant le même poi_id (ex: deux POIs
+ * homonymes que la passe de dédoublonnage IA n'a pas fusionnés). Sans ça, une clé
+ * React dupliquée fait que le bouton "Exclure" d'une ligne agit aussi sur son doublon.
+ */
+function dedupeByPoiId(pois: any[]): any[] {
+  const merged = new Map<string, any>();
+  for (const poi of pois) {
+    const existing = merged.get(poi.poi_id);
+    if (!existing) {
+      merged.set(poi.poi_id, poi);
+      continue;
+    }
+    const mentions = new Set<string>([...(existing.autres_articles_mentions || []), ...(poi.autres_articles_mentions || [])]);
+    if (poi.article_source && poi.article_source !== existing.article_source) mentions.add(poi.article_source);
+    merged.set(poi.poi_id, { ...existing, autres_articles_mentions: Array.from(mentions) });
+  }
+  return Array.from(merged.values());
+}
+
 export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtClustersTabProps) {
   // États POIs
   const [pois, setPois] = useState<POI[]>([]);
@@ -801,8 +821,9 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
         if (status === 'dedup_complete' && deduplicated_pois.length) {
           // Ouvrir directement le modal de validation
-          setDedupPois(deduplicated_pois);
-          setValidationPois(deduplicated_pois);
+          const deduped = dedupeByPoiId(deduplicated_pois);
+          setDedupPois(deduped);
+          setValidationPois(deduped);
           setExcludedPoiIds(new Set());
           setShowValidationModal(true);
         } else if (status === 'extraction_complete') {
@@ -873,7 +894,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
             if (status.status === 'dedup_complete') {
               clearInterval(pollInterval);
-              const finalPois = status.deduplicated_pois || [];
+              const finalPois = dedupeByPoiId(status.deduplicated_pois || []);
               if (finalPois.length) {
                 setDedupPois(finalPois);
                 setValidationPois(finalPois);
@@ -994,7 +1015,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
           if (status.status === 'dedup_complete') {
             clearInterval(dedupPoll);
-            const finalPois = status.deduplicated_pois || [];
+            const finalPois = dedupeByPoiId(status.deduplicated_pois || []);
             if (finalPois.length) {
               setDedupPois(finalPois);
               setValidationPois(finalPois);
@@ -2283,13 +2304,18 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
       };
       const allTypes = Array.from(new Set(validationPois.map(p => p.type || 'POI'))).sort();
       const activePois = validationPois.filter(p => !excludedPoiIds.has(p.poi_id));
-      const filteredPois = validationPois.filter(p => {
-        const matchesType = validationTypeFilter === 'all' || p.type === validationTypeFilter;
-        const matchesSearch = !validationSearch.trim()
-          || p.nom?.toLowerCase().includes(validationSearch.toLowerCase())
-          || p.article_source?.toLowerCase().includes(validationSearch.toLowerCase());
-        return matchesType && matchesSearch;
-      });
+      const filteredPois = validationPois
+        .filter(p => {
+          const matchesType = validationTypeFilter === 'all' || p.type === validationTypeFilter;
+          const matchesSearch = !validationSearch.trim()
+            || p.nom?.toLowerCase().includes(validationSearch.toLowerCase())
+            || p.article_source?.toLowerCase().includes(validationSearch.toLowerCase());
+          return matchesType && matchesSearch;
+        })
+        .sort((a, b) => {
+          const typeCompare = (a.type || 'POI').localeCompare(b.type || 'POI');
+          return typeCompare !== 0 ? typeCompare : (a.nom || '').localeCompare(b.nom || '');
+        });
       const excludedInView = filteredPois.filter(p => excludedPoiIds.has(p.poi_id)).length;
       const activeInView = filteredPois.length - excludedInView;
 

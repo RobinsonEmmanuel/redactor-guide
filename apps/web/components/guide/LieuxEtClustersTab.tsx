@@ -2333,6 +2333,22 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         return next;
       });
 
+      const openPoiArticle = async (poi: any) => {
+        if (!poi.url_source) return;
+        if (poi.url_source.startsWith('http')) { window.open(poi.url_source, '_blank', 'noopener'); return; }
+        try {
+          const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/articles?slug=${encodeURIComponent(poi.url_source)}`, { credentials: 'include' });
+          if (res.ok) {
+            const data = await res.json();
+            const article = Array.isArray(data) ? data[0] : data.articles?.[0] ?? data;
+            const url = article?.urls_by_lang?.fr || article?.urls_by_lang?.en;
+            if (url) window.open(url, '_blank', 'noopener');
+          }
+        } catch (err) {
+          console.error('Erreur ouverture article:', err);
+        }
+      };
+
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col mx-4">
@@ -2477,12 +2493,24 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                               {c.label}
                             </span>
                           </td>
-                          <td className="px-4 py-2 text-gray-500 truncate max-w-xs" title={poi.article_source}>
-                            {poi.article_source || '—'}
+                          <td className="px-4 py-2 max-w-xs">
+                            {poi.url_source ? (
+                              <button
+                                onClick={() => openPoiArticle(poi)}
+                                title={`Ouvrir l'article : ${poi.article_source}`}
+                                className="text-orange-600 hover:text-orange-700 hover:underline truncate max-w-xs text-left block"
+                              >
+                                {poi.article_source || '—'}
+                              </button>
+                            ) : (
+                              <span className="text-gray-500 truncate max-w-xs block" title={poi.article_source}>
+                                {poi.article_source || '—'}
+                              </span>
+                            )}
                           </td>
                           <td className="px-4 py-2">
-                            <span className={`text-xs ${poi.mentions === 'principal' ? 'text-green-700 font-medium' : 'text-gray-400'}`}>
-                              {poi.mentions === 'principal' ? '★ Principal' : 'Secondaire'}
+                            <span className={`text-xs ${poi.mentions === 'principale' ? 'text-green-700 font-medium' : 'text-gray-400'}`}>
+                              {poi.mentions === 'principale' ? '★ Principal' : 'Secondaire'}
                             </span>
                           </td>
                           <td className="px-4 py-2 text-center">

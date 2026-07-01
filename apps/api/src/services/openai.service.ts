@@ -28,6 +28,9 @@ export class OpenAIService {
     this.client = new OpenAI({
       apiKey: config.apiKey,
       timeout: 55_000,
+      // Le retry applicatif (generateJSON) gère déjà les tentatives avec backoff —
+      // désactiver le retry interne du SDK pour éviter un cumul de 3x le timeout par tentative.
+      maxRetries: 0,
     });
     this.model = config.model || 'gpt-5-mini';
     this.reasoningEffort = config.reasoningEffort || 'medium';

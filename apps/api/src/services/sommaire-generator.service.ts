@@ -132,7 +132,14 @@ export class SommaireGeneratorService {
       // Fallback sur sommaire_proposals uniquement si pois_selection est vide (guide très récent)
       let pois: SommairePOI[] = [];
       const poisSelectionDoc = await this.db.collection('pois_selection').findOne({ guide_id: guideId });
-      const confirmedPois: any[] = poisSelectionDoc?.pois ?? [];
+      const allConfirmedPois: any[] = poisSelectionDoc?.pois ?? [];
+      // Ne garder que les POIs affectés à un cluster : les non affectés n'auront jamais de page
+      // dédiée (voir chemin-de-fer-builder.service.ts), les inclure créerait des inspirations
+      // référençant des lieux sans page dans le guide final.
+      const confirmedPois = allConfirmedPois.filter((p: any) => p.cluster_id);
+      if (allConfirmedPois.length > confirmedPois.length) {
+        console.log(`⏭️ [inspirations] ${allConfirmedPois.length - confirmedPois.length} POI(s) non affecté(s) à un cluster ignoré(s)`);
+      }
 
       if (confirmedPois.length > 0) {
         // Convertir au format SommairePOI (même structure, poi_id est déjà stable)

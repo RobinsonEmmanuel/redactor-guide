@@ -1446,8 +1446,9 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
 
       const openaiService = new OpenAIService({
         apiKey: openaiApiKey,
-        model: 'gpt-5-mini',
-        reasoningEffort: 'medium', // Raisonnement modéré pour équilibre qualité/coût
+        // gpt-4.1-mini : pas de reasoning nécessaire pour structurer des sections/POIs/inspirations
+        // depuis une liste d'articles déjà fournie — plus rapide et moins cher que gpt-5-mini.
+        model: 'gpt-4.1-mini',
       });
 
       const sommaireGenerator = new SommaireGeneratorService({

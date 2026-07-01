@@ -88,6 +88,13 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
       const data: any = await res.json().catch(() => ({ error: 'Réponse non-JSON du microservice' }));
       if (!res.ok) return reply.status(res.status).send(data);
 
+      fastify.log.info({
+        keys: Object.keys(data || {}),
+        updatedPoisIsArray: Array.isArray(data?.updated_pois),
+        updatedPoisLength: Array.isArray(data?.updated_pois) ? data.updated_pois.length : null,
+        statsAssigned: data?.stats?.assigned,
+      }, '[MATCHING] Diagnostic réponse poi-service');
+
       const now = new Date();
       await db.collection(COLLECTIONS.cluster_assignments).updateOne(
         { guide_id: guideId },

@@ -388,6 +388,128 @@ export async function enrichMissingPlaceIdentities(
   return enriched;
 }
 
+export interface PoiSelectionGeocodeEntryResult {
+  poi_id: string;
+  nom: string;
+  status: 'geocoded' | 'failed' | 'skipped';
+  query?: string;
+  coordinates?: { lat: number; lon: number; display_name: string };
+  error?: string;
+}
+
+export interface GeocodeMissingPoisSelectionResult {
+  total_pois: number;
+  missing_before: number;
+  geocoded: number;
+  failed: number;
+  already_had_coords: number;
+  results: PoiSelectionGeocodeEntryResult[];
+}
+
+function buildSelectionPoiGeocodingQuery(poi: Record<string, any>, guide: Record<string, any>): string {
+  const query: string = poi.nom || '';
+  const destination = getGuideDestination(guide);
+  const clusterName: string = poi.cluster_name?.trim() ?? '';
+
+  if (clusterName && destination) return `${query}, ${clusterName}, ${destination}`;
+  if (destination) return `${query}, ${destination}`;
+  return query;
+}
+
+/**
+ * Géocode via Photon les POIs de pois_selection sans coordonnées (étape 3, avant que
+ * les "pages" n'existent). Les POIs déjà auto-affectés à un cluster ont normalement déjà
+ * leurs coordonnées copiées depuis Region Lovers (voir /guides/:guideId/matching) — cette
+ * fonction ne traite donc en pratique que les POIs restés "non affectés".
+ */
+export async function geocodeMissingPoisInSelection(
+  db: Db,
+  guideId: string,
+  geocodingService: GeocodingService
+): Promise<GeocodeMissingPoisSelectionResult> {
+  if (!ObjectId.isValid(guideId)) throw new Error('guideId invalide');
+
+  const guide = await db.collection(COLLECTIONS.guides).findOne({ _id: new ObjectId(guideId) });
+  if (!guide) throw new Error('Guide non trouvé');
+
+  const selection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
+  const pois: any[] = selection?.pois ?? [];
+  if (pois.length === 0) throw new Error('Aucun POI sélectionné pour ce guide');
+
+  const destination = getGuideDestination(guide);
+  const country = destination ? geocodingService.getCountryFromDestination(destination) : undefined;
+  const geoBias = destination ? geocodingService.getBiasFromDestination(destination) : undefined;
+
+  const results: PoiSelectionGeocodeEntryResult[] = [];
+  let missingBefore = 0;
+  let geocoded = 0;
+  let failed = 0;
+  let alreadyHadCoords = 0;
+
+  console.log(`🌍 [GEOCODE-SELECTION] Guide ${guideId} — ${pois.length} POI(s) à analyser`);
+
+  const updatedPois = [...pois];
+  for (let i = 0; i < updatedPois.length; i++) {
+    const poi = updatedPois[i];
+    const titre = String(poi.nom || poi.poi_id);
+
+    if (hasCoordinates(poi)) {
+      alreadyHadCoords++;
+      results.push({ poi_id: poi.poi_id, nom: titre, status: 'skipped' });
+      continue;
+    }
+
+    missingBefore++;
+    const query = buildSelectionPoiGeocodingQuery(poi, guide).trim();
+
+    if (!query) {
+      failed++;
+      results.push({ poi_id: poi.poi_id, nom: titre, status: 'failed', error: 'Nom du lieu introuvable' });
+      continue;
+    }
+
+    const payload = await buildPlaceIdentityFromGeocodeQuery(geocodingService, query, country, geoBias);
+
+    if (!payload) {
+      failed++;
+      results.push({ poi_id: poi.poi_id, nom: titre, status: 'failed', query, error: 'Aucun résultat Photon' });
+      if (i < updatedPois.length - 1) await sleep(PHOTON_RATE_LIMIT_MS);
+      continue;
+    }
+
+    updatedPois[i] = { ...poi, coordinates: payload.coordinates, place_identity: payload.place_identity };
+    geocoded++;
+    results.push({ poi_id: poi.poi_id, nom: titre, status: 'geocoded', query, coordinates: payload.coordinates });
+
+    console.log(
+      `✅ [GEOCODE-SELECTION] ${titre} → ${payload.coordinates.lat}, ${payload.coordinates.lon}` +
+      (payload.place_identity.local_name ? ` (${payload.place_identity.local_name})` : '')
+    );
+
+    if (i < updatedPois.length - 1) await sleep(PHOTON_RATE_LIMIT_MS);
+  }
+
+  if (geocoded > 0) {
+    await db.collection(COLLECTIONS.pois_selection).updateOne(
+      { guide_id: guideId },
+      { $set: { pois: updatedPois, updated_at: new Date() } }
+    );
+  }
+
+  console.log(
+    `📍 [GEOCODE-SELECTION] Terminé : ${geocoded} géolocalisé(s), ${failed} échec(s), ${alreadyHadCoords} déjà OK`
+  );
+
+  return {
+    total_pois: pois.length,
+    missing_before: missingBefore,
+    geocoded,
+    failed,
+    already_had_coords: alreadyHadCoords,
+    results,
+  };
+}
+
 /**
  * Géocode via Photon les pages POI sans coordonnées, enrichit place_identity OSM,
  * puis backfill les POIs déjà coordonnés sans identité.

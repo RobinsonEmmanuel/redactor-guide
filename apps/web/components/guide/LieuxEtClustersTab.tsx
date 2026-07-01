@@ -1109,6 +1109,27 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     }
   };
 
+  const [geocodingPois, setGeocodingPois] = useState(false);
+
+  const geocodeMissingPois = async () => {
+    setGeocodingPois(true);
+    try {
+      const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/geocode-missing`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`✅ ${data.geocoded}/${data.missing_before} POI(s) géolocalisé(s)${data.failed > 0 ? ` — ${data.failed} échec(s)` : ''} (${data.already_had_coords} déjà OK)`);
+        await loadPois();
+      } else {
+        alert(`❌ ${data.error || 'Erreur inconnue'}`);
+      }
+    } catch (err) {
+      console.error('Erreur géocodage POIs:', err);
+      alert('❌ Erreur lors du géocodage des POIs');
+    } finally {
+      setGeocodingPois(false);
+    }
+  };
+
   const clearJobs = async () => {
     if (!confirm('Supprimer tous les jobs de génération pour ce guide ?\nL\'identification des POIs sera perdue.')) return;
     try {
@@ -1490,6 +1511,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   // Groupement pour la colonne de droite
   const unassignedPois = pois.filter(p => !p.cluster_id);
   const assignedPois = pois.filter(p => p.cluster_id);
+  const poisWithoutCoords = pois.filter(p => !p.coordinates).length;
 
   const poisByCluster: Record<string, POI[]> = {};
   assignedPois.forEach(poi => {
@@ -1561,6 +1583,24 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                               {retryingBatches ? 'Relance en cours...' : `Relancer ${missingBatchesCount} batch(es) manquant(s)`}
                             </div>
                             <div className="text-gray-500 mt-0.5">Récupère les batches abandonnés (échec OpenAI), sans tout recommencer</div>
+                          </div>
+                        </button>
+                      </>
+                    )}
+                    {pois.length > 0 && poisWithoutCoords > 0 && (
+                      <>
+                        <div className="border-t border-gray-100 my-1" />
+                        <button
+                          onClick={() => { setShowCleanMenu(false); geocodeMissingPois(); }}
+                          disabled={geocodingPois}
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-orange-50 transition-colors flex items-start gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <span className="mt-0.5">📍</span>
+                          <div>
+                            <div className="font-medium text-orange-700">
+                              {geocodingPois ? 'Géolocalisation en cours...' : `Géolocaliser ${poisWithoutCoords} POI(s)`}
+                            </div>
+                            <div className="text-gray-500 mt-0.5">Via Photon — nécessaire pour la ventilation géographique et la carte</div>
                           </div>
                         </button>
                       </>

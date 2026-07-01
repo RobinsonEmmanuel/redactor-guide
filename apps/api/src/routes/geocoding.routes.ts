@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { GeocodingService } from '../services/geocoding.service.js';
 import {
   geocodeMissingPoiPages,
+  geocodeMissingPoisInSelection,
   getPoiGeocodeQualityReport,
   listPoisMissingCoordinates,
   regeocodePoiPage,
@@ -206,6 +207,37 @@ export async function geocodingRoutes(fastify: FastifyInstance) {
           error.message === 'Guide non trouvé' ||
           error.message === 'Chemin de fer non trouvé pour ce guide'
         ) {
+          return reply.status(404).send({ error: error.message });
+        }
+        request.log.error(error);
+        return reply.status(500).send({ error: 'Erreur lors du géocodage des POIs' });
+      }
+    }
+  );
+
+  /**
+   * POST /guides/:guideId/pois/geocode-missing
+   *
+   * Géocode via Photon les POIs de pois_selection sans coordonnées (étape 3, avant
+   * la création des "pages"). Les POIs déjà auto-affectés à un cluster ont déjà leurs
+   * coordonnées copiées depuis Region Lovers lors du matching — seuls les POIs restés
+   * "non affectés" nécessitent réellement un géocodage ici.
+   */
+  fastify.post<{ Params: { guideId: string } }>(
+    '/guides/:guideId/pois/geocode-missing',
+    async (request, reply) => {
+      const db = request.server.container.db;
+      const { guideId } = request.params;
+
+      if (!ObjectId.isValid(guideId)) {
+        return reply.status(400).send({ error: 'guideId invalide' });
+      }
+
+      try {
+        const result = await geocodeMissingPoisInSelection(db, guideId, geocodingService);
+        return reply.send(result);
+      } catch (error: any) {
+        if (error.message === 'Guide non trouvé' || error.message === 'Aucun POI sélectionné pour ce guide') {
           return reply.status(404).send({ error: error.message });
         }
         request.log.error(error);

@@ -1743,6 +1743,10 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
           content:          {},
           metadata:         finalMetadata,
           fields:           p.fields   ?? [],
+          // Coordonnées GPS déjà résolues à l'étape 3 (matching Region Lovers ou Photon sur
+          // pois_selection) — évite de re-géocoder lors de l'export carte à l'étape 6.
+          coordinates:      p.coordinates ?? null,
+          place_identity:   p.place_identity ?? null,
           created_at:       p.created_at,
           updated_at:       p.updated_at,
         };

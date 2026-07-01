@@ -19,6 +19,9 @@ interface PageDocument {
   section_id?: string;
   section_name?: string;
   status: string;
+  /** Copié depuis pois_selection.pois[].coordinates si déjà géolocalisé à l'étape 3. */
+  coordinates?: { lat: number; lon: number; display_name?: string } | null;
+  place_identity?: Record<string, any> | null;
   metadata: {
     cluster_id?: string;
     cluster_name?: string;
@@ -251,6 +254,10 @@ export class CheminDeFerBuilderService {
         );
         poiPage.page_id = `poi_${poi.poi_id}`;
         poiPage.section_id = sectionId;
+        // Coordonnées déjà géolocalisées à l'étape 3 (matching Region Lovers ou Photon sur
+        // pois_selection) — évite un re-géocodage lors de l'export carte à l'étape 6.
+        poiPage.coordinates = poi.coordinates ?? null;
+        poiPage.place_identity = poi.place_identity ?? null;
         poiPage.metadata = {
           ...poiPage.metadata,
           cluster_id:               cluster.cluster_id,

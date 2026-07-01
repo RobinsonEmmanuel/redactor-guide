@@ -20,6 +20,7 @@ import {
 import { CheckCircleIcon as CheckCircleSolid } from '@heroicons/react/24/solid';
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, useDraggable, useDroppable } from '@dnd-kit/core';
 import { authFetch } from '@/lib/api-client';
+import ClusterAssignMap from './ClusterAssignMap';
 
 interface POI {
   _id?: string;
@@ -688,6 +689,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   // États modals
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showCleanMenu, setShowCleanMenu] = useState(false);
+  const [showAssignMap, setShowAssignMap] = useState(false);
   const [showManualModal, setShowManualModal] = useState(false);
   const [showLibraryModal, setShowLibraryModal] = useState(false);
   const [showClusterModal, setShowClusterModal] = useState(false);
@@ -1875,6 +1877,33 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             </div>
           </div>
         </div>
+
+        {/* Carte d'aide à l'affectation — repliable, pour ne pas gêner l'usage courant */}
+        {pois.length > 0 && (
+          <div className="flex-shrink-0 border-t border-gray-200 bg-gray-50 px-4 py-2">
+            <button
+              onClick={() => setShowAssignMap(v => !v)}
+              className="flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              <MapPinIcon className="w-3.5 h-3.5" />
+              {showAssignMap ? 'Masquer la carte' : "Afficher la carte d'aide à l'affectation"}
+              <ChevronDownIcon className={`w-3 h-3 transition-transform ${showAssignMap ? 'rotate-180' : ''}`} />
+            </button>
+            {showAssignMap && (
+              <div className="mt-2">
+                <ClusterAssignMap
+                  pois={pois}
+                  clusters={displayClusters.map(c => ({ cluster_id: c.cluster_id, cluster_name: c.cluster_name }))}
+                  apiUrl={apiUrl}
+                  guideId={guideId}
+                  onAssigned={(poiId, clusterId, clusterName) => {
+                    setPois(prev => prev.map(p => p.poi_id === poiId ? { ...p, cluster_id: clusterId, cluster_name: clusterName ?? undefined } : p));
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Drag Overlay */}

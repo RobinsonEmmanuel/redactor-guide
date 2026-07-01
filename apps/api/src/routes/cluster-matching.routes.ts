@@ -51,42 +51,6 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
     }), true;
   }
 
-  async function proxyRequest(request: any, reply: any, targetPath: string, method?: string) {
-    if (!serviceUrl) {
-      return reply.status(503).send({
-        error: 'POI service non disponible',
-        message: 'POI_SERVICE_URL doit être configuré.',
-      });
-    }
-
-    const targetUrl = `${serviceUrl.replace(/\/$/, '')}/api/v1${targetPath}`;
-    const reqMethod = method || request.method;
-
-    try {
-      const headers: Record<string, string> = {};
-      if (apiKey) headers['X-Api-Key'] = apiKey;
-
-      // Transmettre les cookies/auth pour la validation JWT Region Lovers
-      const cookieHeader = request.headers?.cookie;
-      if (cookieHeader) headers['Cookie'] = cookieHeader;
-      const authHeader = request.headers?.authorization;
-      if (authHeader) headers['Authorization'] = authHeader;
-
-      const fetchOptions: RequestInit = { method: reqMethod, headers };
-      if (reqMethod !== 'GET' && reqMethod !== 'HEAD' && request.body) {
-        headers['Content-Type'] = 'application/json';
-        fetchOptions.body = JSON.stringify(request.body);
-      }
-
-      const res = await fetch(targetUrl, fetchOptions);
-      const data = await res.json().catch(() => ({ error: 'Réponse non-JSON du microservice' }));
-      return reply.status(res.status).send(data);
-    } catch (error: any) {
-      fastify.log.error({ error: error.message, targetUrl }, 'Proxy poi-service error');
-      return reply.status(502).send({ error: 'Erreur de communication avec le POI service', details: error.message });
-    }
-  }
-
   const guideParam = '/guides/:guideId';
 
   /**
@@ -141,13 +105,58 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
     }
   });
 
-  fastify.post(`${guideParam}/matching/generate`, (req, reply) => proxyRequest(req, reply, `/guides/${(req.params as any).guideId}/matching/generate`));
+  /**
+   * GET /guides/:guideId/matching
+   * cluster_assignments vit dans notre base — pas de repli vers le poi-service (sa copie locale
+   * est structurellement vide/obsolète). Absence de matching = état initial, pas une erreur.
+   */
   fastify.get(`${guideParam}/matching`, async (req, reply) => {
     if (await sendLocalMatchingIfAvailable(req, reply)) return;
-    return proxyRequest(req, reply, `/guides/${(req.params as any).guideId}/matching`, 'GET');
+    return reply.send({
+      assignment: { clusters: {}, unassigned: [] },
+      stats: null,
+      clusters_metadata: [],
+      created_at: null,
+      updated_at: null,
+    });
   });
-  fastify.post(`${guideParam}/matching/save`, (req, reply) => proxyRequest(req, reply, `/guides/${(req.params as any).guideId}/matching/save`));
-  fastify.post(`${guideParam}/clusters`, (req, reply) => proxyRequest(req, reply, `/guides/${(req.params as any).guideId}/clusters`));
-  fastify.delete(`${guideParam}/clusters/:clusterId`, (req, reply) => proxyRequest(req, reply, `/guides/${(req.params as any).guideId}/clusters/${(req.params as any).clusterId}`, 'DELETE'));
-  fastify.patch(`${guideParam}/clusters/:clusterId`, (req, reply) => proxyRequest(req, reply, `/guides/${(req.params as any).guideId}/clusters/${(req.params as any).clusterId}`, 'PATCH'));
+
+  /**
+   * POST /guides/:guideId/clusters
+   * Crée un cluster manuel. cluster_assignments vit dans notre base — géré ici en local,
+   * pas de proxy vers le poi-service (qui n'a pas accès à cette donnée).
+   */
+  fastify.post(`${guideParam}/clusters`, async (request: any, reply: any) => {
+    const guideId = request.params.guideId;
+    const { cluster_name } = (request.body || {}) as { cluster_name?: string };
+    if (!cluster_name?.trim()) return reply.code(400).send({ error: 'Le nom du cluster est requis' });
+
+    try {
+      const db = request.server.container.db;
+      const clusterId = `manual_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      const newCluster = { cluster_id: clusterId, cluster_name: cluster_name.trim(), place_count: 0, is_manual: true, created_at: new Date() };
+
+      const existingAssignment = await db.collection(COLLECTIONS.cluster_assignments).findOne({ guide_id: guideId });
+      if (existingAssignment) {
+        await db.collection(COLLECTIONS.cluster_assignments).updateOne(
+          { guide_id: guideId },
+          { $push: { clusters_metadata: newCluster } as any, $set: { updated_at: new Date() } }
+        );
+      } else {
+        await db.collection(COLLECTIONS.cluster_assignments).insertOne({
+          guide_id: guideId,
+          clusters_metadata: [newCluster],
+          assignment: { clusters: {}, unassigned: [] },
+          stats: { total_pois: 0, assigned: 0, unassigned: 0, auto_matched: 0, manual_matched: 0, by_cluster: {} },
+          created_at: new Date(),
+          updated_at: new Date(),
+        });
+      }
+
+      return reply.send({ success: true, cluster: newCluster });
+    } catch (error: any) {
+      fastify.log.error({ error: error.message }, 'Erreur création cluster manuel');
+      return reply.code(500).send({ error: error.message });
+    }
+  });
 }

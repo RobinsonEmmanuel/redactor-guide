@@ -1391,25 +1391,12 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: 'Aucune destination définie pour ce guide' });
     }
 
-    // Récupérer le site depuis wp_site_id (ou fallback wpConfig.siteUrl pour les anciens guides)
-    if (!guide.wp_site_id && !guide.wpConfig?.siteUrl) {
-      return reply.code(400).send({ error: 'Aucun site WordPress configuré pour ce guide' });
-    }
-
-    const site = guide.wp_site_id
-      ? await db.collection(COLLECTIONS.sites).findOne({
-          $or: [{ _id: guide.wp_site_id }, { rl_id: guide.wp_site_id }],
-        })
-      : await db.collection(COLLECTIONS.sites).findOne({ url: guide.wpConfig.siteUrl });
-    if (!site) {
-      return reply.code(400).send({ error: 'Site WordPress non trouvé dans la base' });
-    }
-
     const partsOnlyInspirations =
       partsToGenerate.length === 1 && partsToGenerate[0] === 'inspirations';
 
     if (partsOnlyInspirations) {
-      // Étape 4 : les inspirations s'appuient sur les POIs confirmés (étape 3), pas sur les articles WP
+      // Étape 4 : les inspirations s'appuient sur les POIs confirmés (étape 3), pas sur les articles WP —
+      // aucun besoin du site WordPress ici, on ne le vérifie donc pas pour ce cas.
       const poisSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
       const poiCount = poisSelection?.pois?.length ?? 0;
       if (poiCount === 0) {
@@ -1419,6 +1406,21 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
         });
       }
     } else {
+      // Sections / POIs : nécessitent les articles WP du site — récupérer le site depuis wp_site_id
+      // (ou fallback wpConfig.siteUrl pour les anciens guides).
+      if (!guide.wp_site_id && !guide.wpConfig?.siteUrl) {
+        return reply.code(400).send({ error: 'Aucun site WordPress configuré pour ce guide' });
+      }
+
+      const site = guide.wp_site_id
+        ? await db.collection(COLLECTIONS.sites).findOne({
+            $or: [{ _id: guide.wp_site_id }, { rl_id: guide.wp_site_id }],
+          })
+        : await db.collection(COLLECTIONS.sites).findOne({ url: guide.wpConfig.siteUrl });
+      if (!site) {
+        return reply.code(400).send({ error: 'Site WordPress non trouvé dans la base' });
+      }
+
       // Sections / POIs : articles WP du site, filtre souple sur les catégories (comme l'onglet Articles)
       const articlesCount = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).countDocuments({
         site_id: site._id.toString(),

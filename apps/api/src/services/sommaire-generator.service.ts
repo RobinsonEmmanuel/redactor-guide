@@ -273,15 +273,40 @@ export class SommaireGeneratorService {
     pois: SommairePOI[]
   ): Promise<{ inspirations: SommaireInspiration[] }> {
     const sectionsJson = JSON.stringify(sections, null, 2);
-    const poisJson = JSON.stringify(pois.map(p => ({ poi_id: p.poi_id, nom: p.nom, type: p.type })), null, 2);
+    // Liste numérotée plutôt que des poi_id à recopier : un index hors plage est trivialement
+    // détectable et rejeté, alors qu'une chaîne de caractères plausible peut être "hallucinée"
+    // de façon convaincante par le modèle (lieu réel mais absent de la liste fournie).
+    const poisNumbered = pois.map((p, i) => `${i}. ${p.nom} (${p.type})`).join('\n');
 
     const prompt = this.openaiService.replaceVariables(promptTemplate, {
       DESTINATION: destination,
       SECTIONS: sectionsJson,
-      POIS: poisJson,
+      POIS: poisNumbered,
     });
 
-    return await this.openaiService.generateJSON(prompt, 12000);
+    const raw = await this.openaiService.generateJSON(prompt, 12000);
+    const rawInspirations: any[] = Array.isArray(raw?.inspirations) ? raw.inspirations : [];
+
+    const inspirations: SommaireInspiration[] = rawInspirations.map((insp: any) => {
+      const rawIndices: any[] = Array.isArray(insp.lieux_associes) ? insp.lieux_associes : [];
+      const lieux_associes = rawIndices
+        .filter((idx: any) => Number.isInteger(idx) && idx >= 0 && idx < pois.length)
+        .map((idx: number) => pois[idx].poi_id);
+
+      const invalidCount = rawIndices.length - lieux_associes.length;
+      if (invalidCount > 0) {
+        console.warn(`⚠️ [inspirations] "${insp.titre}" : ${invalidCount} index(s) invalide(s) ignoré(s)`);
+      }
+
+      return {
+        theme_id: insp.theme_id,
+        titre: insp.titre,
+        angle_editorial: insp.angle_editorial,
+        lieux_associes,
+      };
+    });
+
+    return { inspirations };
   }
 
   /**

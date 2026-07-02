@@ -1531,82 +1531,68 @@ export default function ContentEditorModal({
           {/* ── Coordonnées GPS (pages POI uniquement) ──────────────────────── */}
           {requiresUrlForGeneration && !isClusterPage && (
             <div className="px-6 pt-5 max-w-3xl mx-auto">
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  <span className="text-sm font-semibold text-emerald-800">Coordonnées GPS</span>
-                  {gpsNotApplicable && (
-                    <span className="text-[10px] font-medium uppercase tracking-wide text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">
-                      Sans GPS
-                    </span>
-                  )}
-                  {page.coordinates?.lat != null && page.coordinates?.lon != null && !gpsNotApplicable && (
+              <div className="rounded-lg border border-gray-200 bg-white">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                  <span className="text-sm font-medium text-gray-700">Coordonnées GPS</span>
+                  {gpsNotApplicable ? (
+                    <span className="text-xs text-gray-400 italic">exclu du géocodage</span>
+                  ) : page.coordinates?.lat != null && page.coordinates?.lon != null ? (
                     <a
                       href={`https://www.google.com/maps?q=${page.coordinates.lat},${page.coordinates.lon}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="ml-auto text-xs text-emerald-600 hover:text-emerald-800 underline decoration-dotted flex items-center gap-1"
+                      className="text-xs text-gray-400 hover:text-gray-600 underline decoration-dotted transition-colors"
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                      </svg>
                       Voir sur Maps
                     </a>
+                  ) : null}
+                </div>
+                <div className="px-4 py-3">
+                  {gpsNotApplicable ? (
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-gray-500">
+                        Ce POI n'a pas de coordonnées — il sera exporté avec <code className="text-[11px] bg-gray-100 px-1 rounded">geometry: null</code>.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={restoreGpsApplicable}
+                        disabled={coordSaving}
+                        className="ml-4 shrink-0 text-xs text-gray-500 hover:text-gray-700 underline decoration-dotted disabled:opacity-50 transition-colors"
+                      >
+                        Réactiver
+                      </button>
+                    </div>
+                  ) : page.coordinates?.lat != null && page.coordinates?.lon != null ? (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-mono text-gray-700">
+                        {page.coordinates.lat}, {page.coordinates.lon}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={markGpsNotApplicable}
+                        disabled={coordSaving}
+                        className="ml-4 shrink-0 px-2.5 py-1 text-xs font-medium rounded border border-gray-200 text-gray-500 hover:text-gray-700 hover:border-gray-300 bg-white transition-colors disabled:opacity-50"
+                      >
+                        Pas de GPS
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-gray-400">Non renseignées — à compléter à l'étape Carte</p>
+                      <button
+                        type="button"
+                        onClick={markGpsNotApplicable}
+                        disabled={coordSaving}
+                        className="ml-4 shrink-0 px-2.5 py-1 text-xs font-medium rounded border border-gray-200 text-gray-500 hover:text-gray-700 hover:border-gray-300 bg-white transition-colors disabled:opacity-50"
+                      >
+                        Pas de GPS
+                      </button>
+                    </div>
+                  )}
+                  {coordError && (
+                    <p className="mt-2 text-xs text-red-500">{coordError}</p>
                   )}
                 </div>
-                {gpsNotApplicable ? (
-                  <div className="space-y-3">
-                    <p className="text-xs text-gray-600 leading-relaxed">
-                      Ce POI est exclu du géocodage (marché, lieu non ponctuel…). Il apparaîtra dans le GeoJSON avec{' '}
-                      <code className="text-[11px] bg-white/80 px-1 rounded">geometry: null</code>.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={restoreGpsApplicable}
-                      disabled={coordSaving}
-                      className="px-3 py-1.5 text-xs font-medium rounded-lg border border-emerald-300 text-emerald-800 bg-white hover:bg-emerald-50 transition-colors disabled:opacity-50"
-                    >
-                      Réactiver les coordonnées GPS
-                    </button>
-                  </div>
-                ) : page.coordinates?.lat != null && page.coordinates?.lon != null ? (
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-mono text-emerald-900">
-                      {page.coordinates.lat}, {page.coordinates.lon}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={markGpsNotApplicable}
-                      disabled={coordSaving}
-                      className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50 whitespace-nowrap"
-                    >
-                      Pas de GPS
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs text-amber-700 flex items-center gap-1.5">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      Non renseignées — à compléter à l'étape Carte
-                    </p>
-                    <button
-                      type="button"
-                      onClick={markGpsNotApplicable}
-                      disabled={coordSaving}
-                      className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50 whitespace-nowrap"
-                    >
-                      Pas de GPS
-                    </button>
-                  </div>
-                )}
-                {coordError && (
-                  <p className="mt-2 text-xs text-red-600 font-medium">{coordError}</p>
-                )}
               </div>
             </div>
           )}

@@ -160,15 +160,6 @@ function RichTextArea({ value, onChange, rows = 4, className }: RichTextAreaProp
         </button>
         <button
           type="button"
-          onMouseDown={(e) => { e.preventDefault(); applyStyle('^', '^'); }}
-          title="Chiffre — style InDesign &quot;Chiffre&quot; (18pt)"
-          className="px-2 py-0.5 border border-purple-400 rounded text-purple-700 bg-purple-50 hover:bg-purple-100 active:bg-purple-200 transition-colors select-none font-semibold"
-          style={{ fontSize: '15px' }}
-        >
-          C
-        </button>
-        <button
-          type="button"
           onMouseDown={(e) => { e.preventDefault(); applyStyle('~', '~'); }}
           title="Gras-orange — style InDesign &quot;Gras-orange&quot; (gras + #f39428)"
           className="px-2 py-0.5 text-sm font-bold border rounded hover:opacity-80 active:opacity-60 transition-colors select-none"
@@ -177,7 +168,7 @@ function RichTextArea({ value, onChange, rows = 4, className }: RichTextAreaProp
           GO
         </button>
         <span className="text-xs text-gray-400 ml-1">
-          Sélectionner du texte puis <strong>G</strong> gras · <span style={{ color: '#f39428' }}>O</span> orange · <span className="text-purple-600">C</span> chiffre · <span style={{ color: '#f39428', fontWeight: 900 }}>GO</span> gras-orange
+          Sélectionner du texte puis <strong>G</strong> gras · <span style={{ color: '#f39428' }}>O</span> orange · <span style={{ color: '#f39428', fontWeight: 900 }}>GO</span> gras-orange
         </span>
       </div>
 
@@ -758,7 +749,7 @@ export default function ContentEditorModal({
         const isTitleOverLimit = field.max_chars && fieldValue.length > field.max_chars;
         return (
           <div key={field.name} className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
               {field.label}
               <ValidationBadge fieldName={field.name} />
             </label>
@@ -796,7 +787,7 @@ export default function ContentEditorModal({
         const isOverLimit = field.max_chars ? plainLength > field.max_chars : false;
         return (
           <div key={field.name} className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
               {field.label}
               <ValidationBadge fieldName={field.name} />
             </label>
@@ -832,85 +823,66 @@ export default function ContentEditorModal({
 
       case 'image':
         return (
-          <div key={field.name} className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+          <div key={field.name} className="mb-6">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
               {field.label}
             </label>
-            {field.description && (
-              <p className="text-xs text-gray-500 mb-2">{field.description}</p>
-            )}
-            
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={fieldValue}
-                onChange={(e) => handleFieldChange(field.name, e.target.value)}
-                placeholder="URL de l'image ou chemin local"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              {fieldValue && (
+
+            {fieldValue && !imageErrors.has(field.name) ? (
+              <div
+                key={`${field.name}-preview-${fieldValue}`}
+                className="relative group cursor-pointer"
+                onClick={() => { setImageErrors(prev => { const s = new Set(prev); s.delete(field.name); return s; }); handleOpenImageSelector(field.name); }}
+              >
+                <img
+                  src={fieldValue}
+                  alt={field.label}
+                  className="w-full rounded-lg border border-gray-200 block"
+                  referrerPolicy="no-referrer"
+                  onError={() => setImageErrors(prev => new Set([...prev, field.name]))}
+                />
+                <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition-all rounded-lg pointer-events-none">
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                    <PhotoIcon className="h-4 w-4" />
+                    Changer l'image
+                  </div>
+                </div>
                 <button
                   type="button"
-                  onClick={() => { handleFieldChange(field.name, ''); setImageErrors(prev => { const s = new Set(prev); s.delete(field.name); return s; }); }}
-                  className="px-3 py-2 bg-red-50 text-red-500 border border-red-200 rounded-lg hover:bg-red-100 transition-colors flex items-center gap-1.5 whitespace-nowrap"
-                  title="Supprimer l'image (laisser vide)"
+                  onClick={(e) => { e.stopPropagation(); handleFieldChange(field.name, ''); setImageErrors(prev => { const s = new Set(prev); s.delete(field.name); return s; }); }}
+                  className="absolute top-2 right-2 p-1.5 bg-white border border-gray-200 rounded-full shadow-sm text-gray-500 hover:text-red-500 hover:border-red-200 transition-colors z-10"
+                  title="Supprimer l'image"
                 >
-                  <XMarkIcon className="h-5 w-5" />
+                  <XMarkIcon className="h-4 w-4" />
                 </button>
-              )}
+              </div>
+            ) : fieldValue && imageErrors.has(field.name) ? (
+              <div
+                className="flex items-center gap-3 px-4 py-4 bg-gray-50 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors"
+                onClick={() => { setImageErrors(prev => { const s = new Set(prev); s.delete(field.name); return s; }); handleOpenImageSelector(field.name); }}
+              >
+                <PhotoIcon className="w-6 h-6 text-gray-400 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-gray-600">Image non prévisualisable</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5 truncate">{fieldValue}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); handleFieldChange(field.name, ''); setImageErrors(prev => { const s = new Set(prev); s.delete(field.name); return s; }); }}
+                  className="p-1.5 text-gray-400 hover:text-red-500 transition-colors flex-shrink-0"
+                >
+                  <XMarkIcon className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
               <button
                 type="button"
                 onClick={() => handleOpenImageSelector(field.name)}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2 whitespace-nowrap"
-                title="Choisir parmi les images analysées"
+                className="w-full py-8 border-2 border-dashed border-gray-200 rounded-lg flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-gray-300 hover:text-gray-500 transition-colors"
               >
-                <PhotoIcon className="h-5 w-5" />
-                Choisir
+                <PhotoIcon className="h-7 w-7" />
+                <span className="text-sm">Choisir une image</span>
               </button>
-            </div>
-
-            {fieldValue && (
-              // key forcé : force le remontage React lors du passage null → image
-              <div
-                key={`${field.name}-preview-${fieldValue}`}
-                className="mt-3 cursor-pointer"
-                onClick={() => { setImageErrors(prev => { const s = new Set(prev); s.delete(field.name); return s; }); handleOpenImageSelector(field.name); }}
-              >
-                {imageErrors.has(field.name) ? (
-                  <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors">
-                    <PhotoIcon className="w-8 h-8 text-gray-400 flex-shrink-0" />
-                    <div>
-                      <p className="text-xs font-medium text-gray-700">Image non prévisualisable</p>
-                      <p className="text-[11px] text-gray-400 mt-0.5 break-all line-clamp-1">{fieldValue}</p>
-                      <p className="text-[11px] text-purple-600 mt-1">Cliquer pour changer →</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="relative group inline-block">
-                    <img
-                      src={fieldValue}
-                      alt={field.label}
-                      className="max-h-48 rounded-lg border border-gray-200 shadow-sm group-hover:opacity-80 transition-opacity block"
-                      referrerPolicy="no-referrer"
-                      onError={() => setImageErrors(prev => new Set([...prev, field.name]))}
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition-all rounded-lg pointer-events-none">
-                      <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5">
-                        <PhotoIcon className="h-4 w-4" />
-                        Changer l'image
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); handleFieldChange(field.name, ''); setImageErrors(prev => { const s = new Set(prev); s.delete(field.name); return s; }); }}
-                      className="absolute top-1.5 right-1.5 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10"
-                      title="Supprimer l'image"
-                    >
-                      <XMarkIcon className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                )}
-              </div>
             )}
           </div>
         );
@@ -943,7 +915,7 @@ export default function ContentEditorModal({
           // ── Lien simple (comportement legacy) ─────────────────────────────
           return (
             <div key={field.name} className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
                 {field.label}
               </label>
               {field.description && <p className="text-xs text-gray-500 mb-2">{field.description}</p>}
@@ -973,7 +945,7 @@ export default function ContentEditorModal({
         return (
           <div key={field.name} className="mb-4">
             <div className="flex items-center justify-between mb-1">
-              <label className="block text-sm font-medium text-gray-700">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
                 {field.label}
               </label>
               {field.service_id && (
@@ -1052,7 +1024,7 @@ export default function ContentEditorModal({
         const isMetaOverLimit = field.max_chars && fieldValue.length > field.max_chars;
         return (
           <div key={field.name} className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
               {field.label}
               <ValidationBadge fieldName={field.name} />
             </label>
@@ -1089,7 +1061,7 @@ export default function ContentEditorModal({
       case 'liste':
         return (
           <div key={field.name} className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
               {field.label}
               <ValidationBadge fieldName={field.name} />
             </label>
@@ -1114,7 +1086,7 @@ export default function ContentEditorModal({
       case 'picto':
         return (
           <div key={field.name} className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
               {field.label}
               <ValidationBadge fieldName={field.name} />
             </label>
@@ -1185,7 +1157,7 @@ export default function ContentEditorModal({
         return (
           <div key={field.name} className="mb-4">
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-medium text-gray-700">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
                 {field.label || field.name}
                 <span className="ml-2 text-xs font-normal text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-full">
                   répétitif · {items.length}/{maxRep}

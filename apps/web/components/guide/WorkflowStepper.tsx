@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircleIcon, ClockIcon, LockClosedIcon } from '@heroicons/react/24/solid';
+import { CheckIcon, LockClosedIcon } from '@heroicons/react/24/solid';
 
 interface Step {
   id: number;
@@ -21,7 +21,7 @@ const WORKFLOW_STEPS: Step[] = [
   {
     id: 1,
     label: '1. Paramétrage',
-    shortLabel: 'Config',
+    shortLabel: 'Paramétrage',
     icon: '⚙️',
     tabId: 'config',
     description: 'Configuration du guide et destination'
@@ -45,7 +45,7 @@ const WORKFLOW_STEPS: Step[] = [
   {
     id: 4,
     label: '4. Lieux & Inspirations',
-    shortLabel: 'Inspir.',
+    shortLabel: 'Inspirations',
     icon: '💡',
     tabId: 'lieux-et-inspirations',
     description: 'Affectation des lieux aux inspirations thématiques'
@@ -53,7 +53,7 @@ const WORKFLOW_STEPS: Step[] = [
   {
     id: 5,
     label: '5. Chemin de fer',
-    shortLabel: 'CdF',
+    shortLabel: 'Chemin de fer',
     icon: '🛤️',
     tabId: 'chemin-de-fer',
     description: 'Génération du sommaire et construction des pages'
@@ -81,87 +81,79 @@ export default function WorkflowStepper({ currentStep, completedSteps, onStepCli
     if (completedSteps.has(stepId)) return 'completed';
     if (stepId === currentStep) return 'current';
     if (stepId < currentStep) return 'completed';
-    
+
     // Vérifier si l'étape précédente est complétée
     const previousStepCompleted = stepId === 1 || completedSteps.has(stepId - 1);
     if (!previousStepCompleted) return 'locked';
-    
+
     return 'upcoming';
   };
 
-  const getStepStyles = (status: string) => {
+  const circleClasses = (status: string) => {
     switch (status) {
       case 'completed':
-        return {
-          container: 'bg-green-50 border-green-300',
-          icon: 'bg-green-500 text-white',
-          text: 'text-green-700',
-          badge: <CheckCircleIcon className="w-4 h-4 text-green-600" />,
-        };
+        return 'bg-slate-800 text-white';
       case 'current':
-        return {
-          container: 'bg-blue-50 border-blue-400 shadow-md',
-          icon: 'bg-blue-500 text-white animate-pulse',
-          text: 'text-blue-700 font-semibold',
-          badge: <ClockIcon className="w-4 h-4 text-blue-600" />,
-        };
+        return 'bg-orange-500 text-white ring-2 ring-orange-200';
       case 'locked':
-        return {
-          container: 'bg-gray-100 border-gray-200 opacity-50 cursor-not-allowed',
-          icon: 'bg-gray-300 text-gray-500',
-          text: 'text-gray-400',
-          badge: <LockClosedIcon className="w-4 h-4 text-gray-400" />,
-        };
+        return 'bg-gray-100 text-gray-300';
       default: // upcoming
-        return {
-          container: 'bg-white border-gray-300 hover:border-blue-300 cursor-pointer',
-          icon: 'bg-gray-200 text-gray-600',
-          text: 'text-gray-600',
-          badge: <ClockIcon className="w-4 h-4 text-gray-400" />,
-        };
+        return 'bg-gray-200 text-gray-500';
+    }
+  };
+
+  const labelClasses = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return 'text-slate-700';
+      case 'current':
+        return 'text-orange-600 font-semibold';
+      case 'locked':
+        return 'text-gray-300';
+      default: // upcoming
+        return 'text-gray-500';
     }
   };
 
   return (
-    <div className="bg-white border-b border-gray-200 px-6 py-2">
-      {/* Stepper horizontal */}
-      <div className="flex items-start gap-2 overflow-x-auto">
+    <div className="bg-white border-b border-gray-200 px-6 py-3">
+      <div className="flex items-start overflow-x-auto">
         {WORKFLOW_STEPS.map((step, index) => {
           const status = getStepStatus(step.id);
-          const styles = getStepStyles(status);
           const isClickable = status !== 'locked';
 
           return (
-            <div key={step.id} className="flex items-start gap-2">
+            <div key={step.id} className="flex items-start flex-shrink-0">
               {/* Étape */}
               <div
                 onClick={() => isClickable && onStepClick(step.id, step.tabId)}
-                className={`
-                  flex-shrink-0 w-28 border-2 rounded-lg p-2 transition-all
-                  ${styles.container}
-                `}
+                className={`flex flex-col items-center gap-1.5 w-20 ${isClickable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                 title={step.description}
               >
-                {/* Header */}
-                <div className="flex items-center justify-between mb-1">
-                  <span className={`text-base ${styles.icon} w-6 h-6 rounded-full flex items-center justify-center`}>
-                    {step.icon}
-                  </span>
-                  {styles.badge}
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm transition-colors ${circleClasses(status)}`}
+                >
+                  {status === 'completed' ? (
+                    <CheckIcon className="w-5 h-5" strokeWidth={2.5} />
+                  ) : status === 'locked' ? (
+                    <LockClosedIcon className="w-4 h-4" />
+                  ) : (
+                    step.id
+                  )}
                 </div>
-
-                {/* Label */}
-                <div className={`text-xs ${styles.text} line-clamp-2 leading-tight`}>
-                  {step.label}
+                <div className={`text-xs text-center leading-tight ${labelClasses(status)}`}>
+                  {step.shortLabel}
                 </div>
               </div>
 
               {/* Connecteur */}
               {index < WORKFLOW_STEPS.length - 1 && (
-                <div className="flex items-center h-10 pt-2">
-                  <div className={`w-3 h-0.5 ${
-                    completedSteps.has(step.id) ? 'bg-green-400' : 'bg-gray-300'
-                  }`} />
+                <div className="flex items-center h-10 mt-5 -mx-1">
+                  <div
+                    className={`h-0.5 w-6 transition-colors ${
+                      completedSteps.has(step.id) ? 'bg-slate-800' : 'bg-gray-200'
+                    }`}
+                  />
                 </div>
               )}
             </div>

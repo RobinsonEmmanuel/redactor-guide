@@ -1377,7 +1377,7 @@ export default function ContentEditorModal({
       <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
 
         {/* ── Header compact ────────────────────────────────────────────────── */}
-        <div className="bg-[#1e2430] px-6 py-4 text-white flex-shrink-0">
+        <div className="bg-[#191E55] px-6 py-4 text-white flex-shrink-0">
           <div className="flex items-start justify-between gap-4">
             {/* Titre */}
             <div className="min-w-0">
@@ -1746,7 +1746,7 @@ export default function ContentEditorModal({
           <button
             type="button"
             onClick={handleValidatePage}
-            className="flex-1 px-6 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
+            className="flex-1 px-6 py-2 bg-[#191E55] text-white rounded-lg hover:bg-[#151a47] transition-colors text-sm font-medium"
             title="Enregistrer le contenu et marquer la page comme validée"
           >
             Valider la page

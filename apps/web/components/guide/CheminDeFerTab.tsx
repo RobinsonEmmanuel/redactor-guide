@@ -1244,24 +1244,24 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
         onDragEnd={handleDragEnd}
       >
         {/* COLONNE GAUCHE : Pages suggérées */}
-        <div className="w-72 flex-shrink-0 bg-gradient-to-b from-gray-50 to-gray-100 border-r-2 border-gray-300 flex flex-col overflow-hidden">
+        <div className="w-72 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
           {/* Section Pages suggérées du template */}
           <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="p-3 border-b border-gray-300 bg-white flex-shrink-0">
+            <div className="p-3 border-b border-gray-200 bg-white flex-shrink-0">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <div className="p-1 bg-blue-100 rounded">
-                    <DocumentTextIcon className="w-4 h-4 text-blue-600" />
+                  <div className="p-1 bg-[#191E55]/10 rounded">
+                    <DocumentTextIcon className="w-4 h-4 text-[#191E55]" />
                   </div>
                   <h3 className="text-xs font-bold text-gray-900">Pages suggérées</h3>
                 </div>
                 <button
                   onClick={loadTemplateProposals}
                   disabled={loadingTemplateProposals}
-                  className="flex items-center gap-1 px-2 py-1 bg-blue-600 text-white text-xs font-medium rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 bg-[#191E55] text-white text-xs font-medium rounded hover:bg-[#151a47] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                 >
                   <ArrowPathIcon className={`h-3 w-3 ${loadingTemplateProposals ? 'animate-spin' : ''}`} />
-                  {loadingTemplateProposals ? 'Chargement...' : 'Actualiser'}
+                  {loadingTemplateProposals ? '…' : 'Actualiser'}
                 </button>
               </div>
               {pages.length > 0 && (
@@ -1293,7 +1293,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
 
               {loadingTemplateProposals && (
                 <div className="text-center py-6">
-                  <ArrowPathIcon className="w-8 h-8 text-blue-600 mx-auto mb-2 animate-spin" />
+                  <ArrowPathIcon className="w-8 h-8 text-[#191E55] mx-auto mb-2 animate-spin" />
                   <p className="text-xs text-gray-500">Chargement...</p>
                 </div>
               )}
@@ -1327,7 +1327,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                     return (
                       <div>
                         <div className="flex items-center gap-1.5 mb-1.5">
-                          <DocumentTextIcon className="w-3 h-3 text-blue-600" />
+                          <DocumentTextIcon className="w-3 h-3 text-gray-400" />
                           <h4 className="font-semibold text-gray-700 text-xs">
                             Pages fixes ({templateProposals.proposals.fixed_pages.length})
                           </h4>
@@ -1373,7 +1373,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                   {templateProposals.proposals?.cluster_pages && templateProposals.proposals.cluster_pages.length > 0 && (
                     <div>
                       <div className="flex items-center gap-1.5 mb-1.5">
-                        <RectangleStackIcon className="w-3 h-3 text-green-600" />
+                        <RectangleStackIcon className="w-3 h-3 text-gray-400" />
                         <h4 className="font-semibold text-gray-700 text-xs">
                           Clusters et Lieux ({templateProposals.proposals.cluster_pages.length} clusters, {templateProposals.proposals.poi_pages?.length || 0} POIs)
                         </h4>
@@ -1386,7 +1386,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                           ) || [];
                           
                           return (
-                            <div key={clusterPage.page_id} className="border border-green-200 rounded-md bg-green-50/30 p-2">
+                            <div key={clusterPage.page_id} className="border border-gray-100 rounded-md bg-gray-50/30 p-2">
                               {/* Page cluster */}
                               <ProposalCardMini
                                 id={clusterPage.page_id}
@@ -1403,7 +1403,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                               
                               {/* POIs du cluster */}
                               {clusterPois.length > 0 && (
-                                <div className="mt-1.5 ml-3 pl-2 border-l-2 border-green-300 space-y-1">
+                                <div className="mt-1.5 ml-3 pl-2 border-l-2 border-gray-200 space-y-1">
                                   {clusterPois.map((poi: any) => (
                                     <ProposalCardMini
                                       key={poi.page_id}
@@ -1432,7 +1432,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                   {templateProposals.proposals?.inspiration_pages && templateProposals.proposals.inspiration_pages.length > 0 && (
                     <div>
                       <div className="flex items-center gap-1.5 mb-1.5">
-                        <LightBulbIcon className="w-3 h-3 text-orange-600" />
+                        <LightBulbIcon className="w-3 h-3 text-gray-400" />
                         <h4 className="font-semibold text-gray-700 text-xs">
                           Inspirations ({templateProposals.proposals.inspiration_pages.length})
                         </h4>
@@ -1459,7 +1459,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                   {templateProposals.proposals?.saison_pages && templateProposals.proposals.saison_pages.length > 0 && (
                     <div>
                       <div className="flex items-center gap-1.5 mb-1.5">
-                        <SparklesIcon className="w-3 h-3 text-purple-600" />
+                        <SparklesIcon className="w-3 h-3 text-gray-400" />
                         <h4 className="font-semibold text-gray-700 text-xs">
                           Saisons ({templateProposals.proposals.saison_pages.length})
                         </h4>
@@ -1539,8 +1539,8 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
               <div className="h-full flex items-center justify-center p-6">
                 <div className="w-full max-w-3xl">
                   <div className="text-center mb-8">
-                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-purple-100 to-blue-100 mb-4">
-                      <DocumentTextIcon className="w-8 h-8 text-purple-600" />
+                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[#191E55]/10 mb-4">
+                      <DocumentTextIcon className="w-8 h-8 text-[#191E55]" />
                     </div>
                     <h3 className="text-xl font-bold text-gray-900 mb-1">
                       Votre chemin de fer est vide
@@ -1558,14 +1558,14 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     {/* Option 1 — Générer depuis le template */}
-                    <div className="relative flex flex-col bg-white border-2 border-purple-200 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-purple-400 transition-all group">
+                    <div className="relative flex flex-col bg-white border-2 border-[#191E55]/20 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-[#191E55]/50 transition-all group">
                       <div className="flex items-center gap-3 mb-3">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center flex-shrink-0">
+                        <div className="w-10 h-10 rounded-xl bg-[#191E55] flex items-center justify-center flex-shrink-0">
                           <SparklesIcon className="w-5 h-5 text-white" />
                         </div>
                         <div>
                           <div className="font-semibold text-gray-900">Depuis le template</div>
-                          <div className="text-xs text-purple-600 font-medium">Recommandé</div>
+                          <div className="text-xs text-[#191E55] font-medium">Recommandé</div>
                         </div>
                       </div>
                       <p className="text-sm text-gray-600 mb-5 flex-1">
@@ -1573,14 +1573,14 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                       </p>
                       <div className="grid grid-cols-2 gap-1.5 mb-5">
                         {[
-                          { color: 'blue', label: 'Pages fixes' },
-                          { color: 'green', label: 'Clusters & POIs' },
-                          { color: 'orange', label: 'Inspirations' },
-                          { color: 'purple', label: 'Saisons' },
-                        ].map(({ color, label }) => (
+                          { label: 'Pages fixes' },
+                          { label: 'Clusters & POIs' },
+                          { label: 'Inspirations' },
+                          { label: 'Saisons' },
+                        ].map(({ label }) => (
                           <div key={label} className="flex items-center gap-1.5">
-                            <div className={`w-4 h-4 rounded-full bg-${color}-100 flex items-center justify-center flex-shrink-0`}>
-                              <span className={`text-${color}-600 text-xs font-bold leading-none`}>✓</span>
+                            <div className="w-4 h-4 rounded-full bg-[#191E55]/10 flex items-center justify-center flex-shrink-0">
+                              <span className="text-[#191E55] text-xs font-bold leading-none">✓</span>
                             </div>
                             <span className="text-xs text-gray-600">{label}</span>
                           </div>
@@ -1589,7 +1589,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                       <button
                         onClick={generateStructure}
                         disabled={generatingStructure}
-                        className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-sm font-semibold rounded-xl hover:from-purple-700 hover:to-blue-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all shadow hover:shadow-md flex items-center justify-center gap-2"
+                        className="w-full py-2.5 bg-[#191E55] text-white text-sm font-semibold rounded-xl hover:bg-[#151a47] disabled:bg-gray-300 disabled:cursor-not-allowed transition-all shadow hover:shadow-md flex items-center justify-center gap-2"
                       >
                         {generatingStructure ? (
                           <>
@@ -1663,7 +1663,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
         {/* Overlay pour le drag */}
         <DragOverlay>
           {activeId ? (
-            <div className="bg-white border-2 border-blue-500 rounded-lg p-3 shadow-2xl opacity-90">
+            <div className="bg-white border-2 border-[#191E55] rounded-lg p-3 shadow-2xl opacity-90">
               <div className="text-sm font-medium text-gray-900">Déplacement...</div>
             </div>
           ) : null}
@@ -1724,13 +1724,13 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                   onChange={e => setNoUrlInput(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && noUrlInput.trim() && handleGenerateWithUrl()}
                   placeholder="https://monsite.fr/mon-article/"
-                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#191E55]/40 focus:border-transparent"
                   autoFocus
                 />
                 <button
                   onClick={handleGenerateWithUrl}
                   disabled={!noUrlInput.trim() || noUrlSaving}
-                  className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed whitespace-nowrap"
+                  className="px-4 py-2 bg-[#191E55] text-white text-sm font-medium rounded-lg hover:bg-[#151a47] transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed whitespace-nowrap"
                 >
                   {noUrlSaving ? 'Enregistrement…' : 'Générer'}
                 </button>
@@ -1751,7 +1751,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
               </p>
               <button
                 onClick={handleGenerateWithLlm}
-                className="w-full px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-lg transition-colors"
+                className="w-full px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg transition-colors"
               >
                 Générer depuis la base de connaissance
               </button>
@@ -1786,7 +1786,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
             </div>
 
             <p className="text-sm text-gray-600 mb-1">URL source :</p>
-            <p className="text-xs font-mono text-blue-700 bg-blue-50 rounded px-3 py-2 mb-5 break-all">
+            <p className="text-xs font-mono text-[#191E55] bg-[#191E55]/5 rounded px-3 py-2 mb-5 break-all">
               {articleNotInDbUrl}
             </p>
 
@@ -1796,11 +1796,11 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
             </p>
 
             {/* Option A : ingérer l'article puis générer */}
-            <div className="border border-blue-200 bg-blue-50 rounded-lg p-4 mb-3">
-              <p className="text-sm font-medium text-blue-900 mb-1">
+            <div className="border border-[#191E55]/20 bg-[#191E55]/5 rounded-lg p-4 mb-3">
+              <p className="text-sm font-medium text-[#191E55] mb-1">
                 Importer l&apos;article et générer
               </p>
-              <p className="text-xs text-blue-700 mb-3">
+              <p className="text-xs text-[#191E55]/70 mb-3">
                 L&apos;article sera importé depuis WordPress (texte + images + traductions), puis la génération sera lancée automatiquement.
               </p>
               {articleIngestError && (
@@ -1811,7 +1811,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
               <button
                 onClick={handleIngestAndGenerate}
                 disabled={articleIngestLoading}
-                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="w-full px-4 py-2 bg-[#191E55] hover:bg-[#151a47] text-white text-sm font-medium rounded-lg transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {articleIngestLoading ? (
                   <>
@@ -1834,7 +1834,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
               <button
                 onClick={handleGenerateFromNotInDbWithLlm}
                 disabled={articleIngestLoading}
-                className="w-full px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                className="w-full px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
               >
                 Générer depuis la base de connaissance
               </button>
@@ -1901,21 +1901,21 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color, art
   });
 
   const colorClasses = {
-    blue: 'border-blue-200 hover:border-blue-400 bg-blue-50/40',
-    green: 'border-green-200 hover:border-green-400 bg-green-50/40',
-    orange: 'border-orange-200 hover:border-orange-400 bg-orange-50/40',
-    purple: 'border-purple-200 hover:border-purple-400 bg-purple-50/40',
+    blue: 'border-gray-200 hover:border-[#191E55]/30 bg-white',
+    green: 'border-gray-200 hover:border-[#191E55]/30 bg-white',
+    orange: 'border-gray-200 hover:border-[#191E55]/30 bg-white',
+    purple: 'border-gray-200 hover:border-[#191E55]/30 bg-white',
   };
 
   const iconColorClasses = {
-    blue: 'bg-blue-100 text-blue-600',
-    green: 'bg-green-100 text-green-600',
-    orange: 'bg-orange-100 text-orange-600',
-    purple: 'bg-purple-100 text-purple-600',
+    blue: 'bg-gray-100 text-gray-500',
+    green: 'bg-gray-100 text-gray-500',
+    orange: 'bg-gray-100 text-gray-500',
+    purple: 'bg-gray-100 text-gray-500',
   };
 
   const placedClass = isPlaced
-    ? 'border-emerald-300 bg-emerald-50/60 opacity-70'
+    ? 'border-gray-300 bg-gray-50 opacity-70'
     : '';
 
   const hasOtherArticles = autresArticlesMentions && autresArticlesMentions.length > 0;
@@ -1931,18 +1931,18 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color, art
         } ${isPlaced ? placedClass : `bg-white ${colorClasses[color as keyof typeof colorClasses]}`}`}
       >
         <div className="flex items-center gap-1.5">
-          <div className={`p-0.5 rounded flex-shrink-0 ${isPlaced ? 'bg-emerald-100 text-emerald-600' : iconColorClasses[color as keyof typeof iconColorClasses]}`}>
+          <div className={`p-0.5 rounded flex-shrink-0 ${isPlaced ? 'bg-gray-100 text-gray-400' : iconColorClasses[color as keyof typeof iconColorClasses]}`}>
             <Icon className="w-3 h-3" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1">
-              <h4 className={`font-medium text-xs line-clamp-1 ${isPlaced ? 'text-emerald-700' : 'text-gray-900'}`}>{title}</h4>
+              <h4 className={`font-medium text-xs line-clamp-1 ${isPlaced ? 'text-gray-400' : 'text-gray-900'}`}>{title}</h4>
               {isPlaced && (
-                <span className="flex-shrink-0 text-[9px] font-semibold text-emerald-600 bg-emerald-100 px-1 py-0.5 rounded-full leading-none">✓</span>
+                <span className="flex-shrink-0 text-[9px] font-semibold text-[#191E55] bg-[#191E55]/10 px-1 py-0.5 rounded-full leading-none">✓</span>
               )}
             </div>
             {description && (
-              <p className={`text-xs line-clamp-1 ${isPlaced ? 'text-emerald-600/70' : 'text-gray-500'}`}>{description}</p>
+              <p className={`text-xs line-clamp-1 ${isPlaced ? 'text-gray-400' : 'text-gray-500'}`}>{description}</p>
             )}
             {coordinates && (
               <p className="text-[10px] text-gray-400 font-mono">
@@ -1957,7 +1957,7 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color, art
               onClick={handleOpenArticle}
               disabled={openingArticle}
               title="Ouvrir l'article source"
-              className="flex-shrink-0 text-gray-400 hover:text-blue-600 disabled:opacity-40 transition-colors"
+              className="flex-shrink-0 text-gray-400 hover:text-[#191E55] disabled:opacity-40 transition-colors"
             >
               <ArrowTopRightOnSquareIcon className="w-3 h-3" />
             </button>
@@ -1995,7 +1995,7 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color, art
               <a
                 key={idx}
                 href={`#article-${slug}`}
-                className="block text-blue-600 hover:text-blue-800 hover:underline truncate"
+                className="block text-[#191E55] hover:text-[#151a47] hover:underline truncate"
                 title={slug}
               >
                 📄 {slug}
@@ -2021,11 +2021,11 @@ function EmptySlot({ ordre, isGlobalOver }: { ordre: number; isGlobalOver: boole
     <div
       ref={setNodeRef}
       className={`relative bg-gray-50 rounded-lg border-2 border-dashed transition-all ${
-        isOver 
-          ? 'border-blue-500 bg-blue-200 scale-105' 
+        isOver
+          ? 'border-[#191E55] bg-[#191E55]/10 scale-105'
           : isGlobalOver
-          ? 'border-blue-400 bg-blue-100'
-          : 'border-gray-300 hover:border-blue-300 hover:bg-blue-50'
+          ? 'border-[#191E55]/50 bg-[#191E55]/5'
+          : 'border-gray-300 hover:border-[#191E55]/30 hover:bg-[#191E55]/5'
       }`}
       style={{ minHeight: '180px' }}
     >
@@ -2033,12 +2033,12 @@ function EmptySlot({ ordre, isGlobalOver }: { ordre: number; isGlobalOver: boole
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="text-center">
           <div className={`text-5xl font-black leading-none ${
-            isOver ? 'text-blue-600' : 'text-gray-300'
+            isOver ? 'text-[#191E55]' : 'text-gray-300'
           }`}>
             {ordre}
           </div>
           <div className={`text-xs font-semibold mt-1 ${
-            isOver ? 'text-blue-700' : 'text-gray-400'
+            isOver ? 'text-[#191E55]' : 'text-gray-400'
           }`}>
             {isOver ? 'Placer ici' : 'Libre'}
           </div>
@@ -2154,7 +2154,7 @@ function QuickTemplateButton({ template }: { template: any }) {
       {...listeners}
       className={`
         flex-shrink-0 px-3 py-1.5 rounded-md text-xs font-medium
-        bg-white border border-gray-300 hover:border-blue-400 hover:bg-blue-50
+        bg-white border border-gray-300 hover:border-[#191E55]/40 hover:bg-[#191E55]/5
         cursor-grab active:cursor-grabbing
         transition-all
         ${isDragging ? 'shadow-lg' : 'shadow-sm'}
@@ -2176,17 +2176,17 @@ function AddPagesCard({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="relative bg-gradient-to-br from-green-50 to-green-100 rounded-lg border-2 border-dashed border-green-300 hover:border-green-500 hover:from-green-100 hover:to-green-200 transition-all cursor-pointer group"
+      className="relative bg-white rounded-lg border-2 border-dashed border-gray-300 hover:border-[#191E55]/40 hover:bg-[#191E55]/5 transition-all cursor-pointer group"
       style={{ minHeight: '180px' }}
     >
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-        <div className="w-12 h-12 rounded-full bg-green-500 group-hover:bg-green-600 flex items-center justify-center transition-colors shadow-md">
+        <div className="w-12 h-12 rounded-full bg-[#191E55] group-hover:bg-[#151a47] flex items-center justify-center transition-colors shadow-md">
           <PlusIcon className="w-7 h-7 text-white" />
         </div>
-        <div className="text-sm font-semibold text-green-700 group-hover:text-green-800">
+        <div className="text-sm font-semibold text-gray-600 group-hover:text-gray-800">
           Ajouter cases
         </div>
-        <div className="text-xs text-green-600">
+        <div className="text-xs text-gray-400">
           Vides
         </div>
       </div>
@@ -2235,7 +2235,7 @@ function AddPagesModal({
               max="100"
               value={count}
               onChange={(e) => setCount(parseInt(e.target.value) || 1)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-center text-2xl font-bold"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#191E55]/40 focus:border-transparent text-center text-2xl font-bold"
               required
             />
             <p className="mt-2 text-xs text-gray-500">
@@ -2254,7 +2254,7 @@ function AddPagesModal({
             </button>
             <button
               type="submit"
-              className="flex-1 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+              className="flex-1 px-6 py-2 bg-[#191E55] text-white rounded-lg hover:bg-[#151a47] transition-colors flex items-center justify-center gap-2"
             >
               <PlusIcon className="w-4 h-4" />
               Ajouter {count} case{count > 1 ? 's' : ''}

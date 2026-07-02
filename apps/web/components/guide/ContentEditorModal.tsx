@@ -287,7 +287,13 @@ export default function ContentEditorModal({
         f.type === 'lien' && (f.label?.toLowerCase().includes('maps') || f.label?.toLowerCase().includes('google'))
       );
       if (mapsField) {
-        handleFieldChange(mapsField.name, JSON.stringify({ label: 'Voir sur Google Maps', url: `https://www.google.com/maps?q=${lat},${lon}` }));
+        // Préserver l'intitulé existant si l'utilisateur l'a modifié
+        let existingLabel = 'Voir sur Google Maps';
+        try {
+          const raw = formData[mapsField.name];
+          if (raw) { const p = JSON.parse(raw); if (p.label) existingLabel = p.label; }
+        } catch { /* garder le défaut */ }
+        handleFieldChange(mapsField.name, JSON.stringify({ label: existingLabel, url: `https://www.google.com/maps?q=${lat},${lon}` }));
       }
     } catch (err: any) {
       setCoordError(err.message || 'Erreur réseau');
@@ -978,24 +984,21 @@ export default function ContentEditorModal({
                 placeholder="Intitulé (ex : En savoir plus →)"
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
               />
-              <input
-                type="url"
-                value={linkUrlVal}
-                onChange={(e) => handleLinkPartChange('url', e.target.value)}
-                placeholder="https://..."
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-gray-400 focus:border-gray-400 font-mono"
-              />
-              {(linkLabelVal || previewUrl) && (
-                <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100 text-sm">
-                  {previewUrl ? (
-                    <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="text-gray-600 hover:text-gray-900 hover:underline truncate">
-                      {linkLabelVal || previewUrl}
-                    </a>
-                  ) : (
-                    <span className="text-gray-500 truncate">{linkLabelVal}</span>
-                  )}
-                </div>
-              )}
+              <div className="flex gap-2 items-center">
+                <input
+                  type="url"
+                  value={linkUrlVal}
+                  onChange={(e) => handleLinkPartChange('url', e.target.value)}
+                  placeholder="https://..."
+                  className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-gray-400 focus:border-gray-400 font-mono"
+                />
+                {previewUrl && (
+                  <a href={previewUrl} target="_blank" rel="noopener noreferrer"
+                    className="shrink-0 px-3 py-2 text-xs border border-gray-200 rounded-lg text-[#191E55] hover:bg-gray-50 transition-colors whitespace-nowrap">
+                    Ouvrir ↗
+                  </a>
+                )}
+              </div>
             </div>
           </div>
         );
@@ -1319,15 +1322,42 @@ export default function ContentEditorModal({
         {/* ── Header compact ────────────────────────────────────────────────── */}
         <div className="bg-[#191E55] px-6 py-4 text-white flex-shrink-0">
           <div className="flex items-start justify-between gap-4">
-            {/* Titre */}
+            {/* Titre + liens discrets */}
             <div className="min-w-0">
               <h2 className="text-lg font-semibold leading-tight">Rédaction de la page</h2>
               <p className="text-sm text-gray-400 mt-0.5 truncate">
                 {page.titre} • Template : {template.name}
               </p>
+              {/* Liens secondaires sous le sous-titre */}
+              {(localUrlSource || showImageAnalysisButton) && (
+                <div className="flex items-center gap-3 mt-1.5">
+                  {localUrlSource && (
+                    <button
+                      type="button"
+                      onClick={() => window.open(localUrlSource, '_blank', 'noopener,noreferrer')}
+                      title={`Ouvrir l'article source : ${localUrlSource}`}
+                      className="flex items-center gap-1 text-xs text-white/40 hover:text-white/70 border border-white/15 rounded px-2 py-0.5 transition-colors"
+                    >
+                      <ArrowTopRightOnSquareIcon className="h-3 w-3" />
+                      Article source
+                    </button>
+                  )}
+                  {showImageAnalysisButton && (
+                    <button
+                      type="button"
+                      onClick={() => setShowImageAnalysis(true)}
+                      title="Voir les analyses d'images"
+                      className="flex items-center gap-1 text-xs text-white/40 hover:text-white/70 border border-white/15 rounded px-2 py-0.5 transition-colors"
+                    >
+                      <PhotoIcon className="h-3 w-3" />
+                      Images
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Actions + fermer sur la même ligne */}
+            {/* Actions principales + fermer */}
             <div className="flex items-center gap-2 flex-shrink-0">
               <button
                 type="button"
@@ -1337,7 +1367,7 @@ export default function ContentEditorModal({
                   || (isInspirationPage && template?.info_source === 'inspiration_auto_match'
                       && (page.metadata?.inspiration_pois ?? []).some((p: InspirationPoi) => !p.url_source))
                 }
-                title={generating ? 'Génération en cours…' : requiresUrlForGeneration && !localUrlSource ? 'Générer sans article source (base de connaissance LLM)' : 'Générer le contenu automatiquement'}
+                title={generating ? 'Génération en cours…' : requiresUrlForGeneration && !localUrlSource ? 'Générer sans article source (base de connaissance LLM)' : 'Re-générer le contenu'}
                 className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm ${
                   requiresUrlForGeneration && !localUrlSource
                     ? 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-300/50'
@@ -1347,40 +1377,16 @@ export default function ContentEditorModal({
                 {generating
                   ? <><ArrowPathIcon className="h-4 w-4 animate-spin" /><span className="hidden sm:inline">Génération…</span></>
                   : requiresUrlForGeneration && !localUrlSource
-                    ? <><ExclamationTriangleIcon className="h-4 w-4" /><span className="hidden sm:inline">Générer</span></>
-                    : <><SparklesIcon className="h-4 w-4" /><span className="hidden sm:inline">Générer</span></>}
+                    ? <><ExclamationTriangleIcon className="h-4 w-4" /><span className="hidden sm:inline">Re-générer</span></>
+                    : <><SparklesIcon className="h-4 w-4" /><span className="hidden sm:inline">Re-générer</span></>}
               </button>
-
-              {localUrlSource && (
-                <button
-                  type="button"
-                  onClick={() => window.open(localUrlSource, '_blank', 'noopener,noreferrer')}
-                  title={`Ouvrir l'article source : ${localUrlSource}`}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors text-sm"
-                >
-                  <ArrowTopRightOnSquareIcon className="h-4 w-4" />
-                  <span className="hidden sm:inline">URL</span>
-                </button>
-              )}
-
-              {showImageAnalysisButton && (
-                <button
-                  type="button"
-                  onClick={() => setShowImageAnalysis(true)}
-                  title="Voir les analyses d'images"
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors text-sm"
-                >
-                  <PhotoIcon className="h-4 w-4" />
-                  <span className="hidden sm:inline">Images</span>
-                </button>
-              )}
 
               <button
                 type="button"
                 onClick={handleValidateContent}
                 disabled={validating || Object.keys(formData).length === 0}
                 title={validating ? 'Vérification en cours…' : 'Contrôler le contenu'}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600/30 hover:bg-green-600/50 border border-green-400/40 rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed text-green-100"
               >
                 {validating
                   ? <><ArrowPathIcon className="h-4 w-4 animate-spin" /><span className="hidden sm:inline">Contrôle…</span></>
@@ -1392,19 +1398,6 @@ export default function ContentEditorModal({
               </button>
             </div>
           </div>
-
-          {/* Saisie / modification de l'URL source pour les pages POI et Cluster */}
-          {(requiresUrlForGeneration || isClusterPage) && (
-            <div className="mt-2 flex items-center gap-2">
-              <input
-                type="text"
-                value={localUrlSource}
-                onChange={(e) => { setLocalUrlSource(e.target.value); setShowLlmKnowledgeConfirm(false); }}
-                placeholder="URL article WordPress source (ex: https://...)"
-                className="flex-1 px-2 py-1 text-xs rounded bg-white/10 border border-white/30 text-white placeholder-white/40 focus:outline-none focus:border-white/60"
-              />
-            </div>
-          )}
           {/* Confirmation génération sans article source */}
           {showLlmKnowledgeConfirm && (
             <div className="mt-2 px-3 py-2.5 rounded bg-white/8 border border-white/15 text-white text-xs">
@@ -1596,73 +1589,121 @@ export default function ContentEditorModal({
           {/* Champs du formulaire */}
           <div className="px-6 max-w-3xl mx-auto">
             <div className="divide-y divide-gray-100 pt-2 pb-4">
-              {template.fields.map((field) => renderField(field))}
+              {template.fields
+                .filter((f) => !(f.type === 'lien' && (f.label?.toLowerCase().includes('maps') || f.label?.toLowerCase().includes('google'))))
+                .map((field) => renderField(field))}
             </div>
           </div>
 
-          {/* ── Coordonnées GPS — en bas, avec lien Maps ──────────────────────── */}
-          {requiresUrlForGeneration && !isClusterPage && (
-            <div className="px-6 pb-6 max-w-3xl mx-auto">
-              <div className="divide-y divide-gray-100 border-t border-gray-100">
-                <div className="grid grid-cols-[180px_1fr] gap-x-8 py-5 items-start">
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">Coordonnées GPS</p>
-                    {localLat && localLon && !gpsNotApplicable && (
-                      <a
-                        href={`https://www.google.com/maps?q=${localLat.replace(',', '.')},${localLon.replace(',', '.')}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-gray-400 hover:text-gray-600 underline decoration-dotted transition-colors mt-1 block"
-                      >
-                        Voir sur Maps
-                      </a>
-                    )}
-                  </div>
-                  <div>
-                    {gpsNotApplicable ? (
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs text-gray-400 italic">
-                          Exclu du géocodage — exporté avec <code className="text-[11px] bg-gray-100 px-1 rounded">geometry: null</code>.
-                        </p>
-                        <button type="button" onClick={restoreGpsApplicable} disabled={coordSaving}
-                          className="ml-4 shrink-0 text-xs text-gray-500 hover:text-gray-700 underline decoration-dotted disabled:opacity-50">
-                          Réactiver
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <div className="flex gap-2">
-                          <input
-                            type="number" step="any"
-                            value={localLat}
-                            onChange={(e) => setLocalLat(e.target.value)}
-                            placeholder="Latitude (ex : 43.5643)"
-                            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                          />
-                          <input
-                            type="number" step="any"
-                            value={localLon}
-                            onChange={(e) => setLocalLon(e.target.value)}
-                            placeholder="Longitude (ex : 7.1327)"
-                            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                          />
-                          <button type="button" onClick={saveCoordinates} disabled={coordSaving || (!localLat && !localLon)}
-                            className="px-3 py-2 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap transition-colors">
-                            {coordSaving ? 'Enreg…' : 'Enregistrer'}
-                          </button>
-                          <button type="button" onClick={markGpsNotApplicable} disabled={coordSaving}
-                            className="px-2.5 py-2 text-xs border border-gray-200 rounded-lg text-gray-400 hover:border-gray-300 hover:text-gray-600 bg-white disabled:opacity-50 whitespace-nowrap transition-colors">
-                            Pas de GPS
+          {/* ── Coordonnées GPS + Lien Google Maps (bloc unifié) ──────────────── */}
+          {requiresUrlForGeneration && !isClusterPage && (() => {
+            const mapsFieldDef = template?.fields.find((f: any) =>
+              f.type === 'lien' && (f.label?.toLowerCase().includes('maps') || f.label?.toLowerCase().includes('google'))
+            );
+            let mapsLabel = 'Voir sur Google Maps';
+            let mapsUrl   = '';
+            if (mapsFieldDef) {
+              try {
+                const raw = formData[mapsFieldDef.name];
+                if (raw) { const p = JSON.parse(raw); mapsLabel = p.label ?? mapsLabel; mapsUrl = p.url ?? mapsUrl; }
+              } catch { /* garder les défauts */ }
+            }
+            const handleMapsChange = (part: 'label' | 'url', val: string) => {
+              if (!mapsFieldDef) return;
+              handleFieldChange(mapsFieldDef.name, JSON.stringify({ label: mapsLabel, url: mapsUrl, [part]: val }));
+            };
+
+            return (
+              <div className="px-6 pb-6 max-w-3xl mx-auto">
+                <div className="divide-y divide-gray-100 border-t border-gray-100">
+                  {/* Ligne GPS */}
+                  <div className="grid grid-cols-[180px_1fr] gap-x-8 py-5 items-start">
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Coordonnées GPS</p>
+                      <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+                        Génère automatiquement le lien Google Maps ci-dessous.
+                      </p>
+                    </div>
+                    <div>
+                      {gpsNotApplicable ? (
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs text-gray-400 italic">
+                            Exclu du géocodage — exporté avec <code className="text-[11px] bg-gray-100 px-1 rounded">geometry: null</code>.
+                          </p>
+                          <button type="button" onClick={restoreGpsApplicable} disabled={coordSaving}
+                            className="ml-4 shrink-0 text-xs text-gray-500 hover:text-gray-700 underline decoration-dotted disabled:opacity-50">
+                            Réactiver
                           </button>
                         </div>
-                        {coordError && <p className="text-xs text-red-500">{coordError}</p>}
-                      </div>
-                    )}
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="flex gap-2">
+                            <input
+                              type="number" step="any"
+                              value={localLat}
+                              onChange={(e) => setLocalLat(e.target.value)}
+                              onBlur={() => { if (localLat && localLon) saveCoordinates(); }}
+                              placeholder="Latitude (ex : 43.5643)"
+                              className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                            />
+                            <input
+                              type="number" step="any"
+                              value={localLon}
+                              onChange={(e) => setLocalLon(e.target.value)}
+                              onBlur={() => { if (localLat && localLon) saveCoordinates(); }}
+                              placeholder="Longitude (ex : 7.1327)"
+                              className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                            />
+                            <button type="button" onClick={markGpsNotApplicable} disabled={coordSaving}
+                              className="px-2.5 py-2 text-xs border border-gray-200 rounded-lg text-gray-400 hover:border-gray-300 hover:text-gray-600 bg-white disabled:opacity-50 whitespace-nowrap transition-colors">
+                              {coordSaving ? '…' : 'Pas de GPS'}
+                            </button>
+                          </div>
+                          {coordError && <p className="text-xs text-red-500">{coordError}</p>}
+                        </div>
+                      )}
+                    </div>
                   </div>
+
+                  {/* Ligne lien Google Maps — toujours éditable */}
+                  {mapsFieldDef && !gpsNotApplicable && (
+                    <div className="grid grid-cols-[180px_1fr] gap-x-8 py-5 items-start">
+                      <div>
+                        <p className="text-sm font-medium text-gray-700">Lien Google Maps</p>
+                        <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+                          Généré depuis les GPS, modifiable manuellement.
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={mapsLabel}
+                          onChange={(e) => handleMapsChange('label', e.target.value)}
+                          placeholder="Intitulé du lien (ex : Voir sur Google Maps)"
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                        />
+                        <div className="flex gap-2 items-center">
+                          <input
+                            type="url"
+                            value={mapsUrl}
+                            onChange={(e) => handleMapsChange('url', e.target.value)}
+                            placeholder="https://www.google.com/maps?q=..."
+                            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400 font-mono text-xs"
+                          />
+                          {mapsUrl && (
+                            <a href={mapsUrl} target="_blank" rel="noopener noreferrer"
+                              className="shrink-0 px-3 py-2 text-xs border border-gray-200 rounded-lg text-[#191E55] hover:bg-gray-50 transition-colors whitespace-nowrap">
+                              Ouvrir ↗
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </form>
 
         {/* ── Footer ────────────────────────────────────────────────────────── */}

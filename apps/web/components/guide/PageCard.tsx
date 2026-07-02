@@ -30,14 +30,14 @@ interface PageCardProps {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-gray-100 text-gray-700',
-  generee_ia: 'bg-blue-100 text-blue-700',
+  draft: 'bg-gray-100 text-gray-600',
+  generee_ia: 'bg-[#191E55]/10 text-[#191E55]',
   relue: 'bg-yellow-100 text-yellow-700',
   validee: 'bg-green-100 text-green-700',
-  texte_coule: 'bg-cyan-100 text-cyan-700',
-  visuels_montes: 'bg-purple-100 text-purple-700',
+  texte_coule: 'bg-gray-100 text-gray-600',
+  visuels_montes: 'bg-gray-100 text-gray-600',
   texte_recu: 'bg-orange-100 text-orange-700',
-  en_attente: 'bg-pink-100 text-pink-700',
+  en_attente: 'bg-gray-100 text-gray-500',
   non_conforme: 'bg-red-100 text-red-700',
 };
 
@@ -61,18 +61,18 @@ function getPageTypeMeta(page: Page): { label: string; leftBorder: string; badge
   const type = (page.type_de_page || '').toLowerCase();
 
   if (type.startsWith('poi') || tpl.startsWith('POI') || tpl.match(/^[A-Z]-POI/)) {
-    return { label: 'POI', leftBorder: 'border-l-4 border-l-blue-400', badgeClass: 'bg-blue-100 text-blue-700', thumbBg: 'bg-blue-50' };
+    return { label: 'POI', leftBorder: 'border-l-4 border-l-[#191E55]/50', badgeClass: 'bg-[#191E55]/10 text-[#191E55]', thumbBg: 'bg-gray-50' };
   }
   if (type === 'cluster' || tpl.includes('CLUSTER')) {
-    return { label: 'Cluster', leftBorder: 'border-l-4 border-l-green-400', badgeClass: 'bg-green-100 text-green-700', thumbBg: 'bg-green-50' };
+    return { label: 'Cluster', leftBorder: 'border-l-4 border-l-gray-400', badgeClass: 'bg-gray-100 text-gray-600', thumbBg: 'bg-gray-50' };
   }
   if (type === 'inspiration' || tpl.startsWith('INSPIRATION') || tpl.match(/^[A-Z]-INSPIRATION/)) {
     return { label: 'Inspiration', leftBorder: 'border-l-4 border-l-orange-400', badgeClass: 'bg-orange-100 text-orange-700', thumbBg: 'bg-orange-50' };
   }
   if (tpl.startsWith('SAISON') || tpl.match(/^[A-Z]-SAISON/) || tpl.match(/^I-SAISON/)) {
-    return { label: 'Saison', leftBorder: 'border-l-4 border-l-purple-400', badgeClass: 'bg-purple-100 text-purple-700', thumbBg: 'bg-purple-50' };
+    return { label: 'Saison', leftBorder: 'border-l-4 border-l-gray-400', badgeClass: 'bg-gray-100 text-gray-600', thumbBg: 'bg-gray-50' };
   }
-  return { label: '', leftBorder: 'border-l-4 border-l-gray-300', badgeClass: 'bg-gray-100 text-gray-600', thumbBg: 'bg-gray-100' };
+  return { label: '', leftBorder: 'border-l-4 border-l-gray-200', badgeClass: 'bg-gray-100 text-gray-600', thumbBg: 'bg-gray-100' };
 }
 
 export default function PageCard({ page, onEdit, onDelete, onOpenContent, onReset }: PageCardProps) {
@@ -106,13 +106,13 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
   let cardExtraClass = '';
   
   if (isGenerating) {
-    cardBorderClass = 'border-blue-300 shadow-blue-100';
-    cardExtraClass = 'animate-pulse-slow ring-2 ring-blue-200';
+    cardBorderClass = 'border-[#191E55]/30';
+    cardExtraClass = 'animate-pulse-slow ring-2 ring-[#191E55]/10';
   } else if (isNonConforme) {
     cardBorderClass = 'border-red-300';
     cardExtraClass = 'ring-1 ring-red-200';
   } else if (isGenerated) {
-    cardBorderClass = 'border-blue-200';
+    cardBorderClass = 'border-[#191E55]/20';
   } else if (isValidated) {
     cardBorderClass = 'border-green-300';
     cardExtraClass = 'ring-1 ring-green-100';
@@ -213,7 +213,7 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
                   <button
                     onClick={onOpenContent}
                     disabled
-                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded cursor-wait"
+                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-[#191E55] bg-[#191E55]/5 rounded cursor-wait"
                     title="Génération en cours..."
                   >
                     <svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
@@ -272,7 +272,7 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
                 <>
                   <button
                     onClick={onOpenContent}
-                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-green-600 hover:bg-green-50 rounded transition-colors"
+                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-[#191E55] hover:bg-[#191E55]/5 rounded transition-colors"
                     title="Modifier le contenu généré"
                   >
                     <DocumentTextIcon className="h-3.5 w-3.5" />
@@ -293,7 +293,7 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
               <>
                 <button
                   onClick={onOpenContent}
-                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-[#191E55] hover:bg-[#191E55]/5 rounded transition-colors"
                   title="Générer le contenu automatiquement"
                 >
                   <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

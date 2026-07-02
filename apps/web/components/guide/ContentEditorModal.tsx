@@ -41,15 +41,15 @@ interface TemplateField {
 }
 
 // Labels et icônes pour les valeurs de picto
-const PICTO_OPTION_CONFIG: Record<string, { label: string; icon: string; color: string }> = {
-  incontournable: { label: 'Incontournable', icon: '😄', color: 'bg-green-100 border-green-400 text-green-800' },
-  interessant:    { label: 'Intéressant',    icon: '😊', color: 'bg-blue-100 border-blue-400 text-blue-800' },
-  a_voir:         { label: 'À voir',         icon: '🙂', color: 'bg-gray-100 border-gray-400 text-gray-700' },
-  '100':          { label: 'Accessible 100%', icon: '♿', color: 'bg-green-100 border-green-400 text-green-800' },
-  '50':           { label: 'Partiellement',   icon: '♿', color: 'bg-yellow-100 border-yellow-400 text-yellow-800' },
-  '0':            { label: 'Non accessible',  icon: '🚫', color: 'bg-red-100 border-red-400 text-red-800' },
-  oui:            { label: 'Oui',             icon: '✅', color: 'bg-green-100 border-green-400 text-green-800' },
-  non:            { label: 'Non',             icon: '❌', color: 'bg-gray-100 border-gray-400 text-gray-600' },
+const PICTO_OPTION_CONFIG: Record<string, { label: string }> = {
+  incontournable: { label: 'Incontournable' },
+  interessant:    { label: 'Intéressant'    },
+  a_voir:         { label: 'À voir'         },
+  '100':          { label: 'Accessible 100%' },
+  '50':           { label: 'Partiellement'   },
+  '0':            { label: 'Non accessible'  },
+  oui:            { label: 'Oui'             },
+  non:            { label: 'Non'             },
 };
 
 interface InspirationPoi {
@@ -748,37 +748,28 @@ export default function ContentEditorModal({
       case 'titre':
         const isTitleOverLimit = field.max_chars && fieldValue.length > field.max_chars;
         return (
-          <div key={field.name} className="mb-4">
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              {field.label}
-              <ValidationBadge fieldName={field.name} />
-            </label>
-            {field.description && (
-              <p className="text-xs text-gray-500 mb-2">{field.description}</p>
-            )}
-            <input
-              type="text"
-              value={fieldValue}
-              onChange={(e) => handleFieldChange(field.name, e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                isTitleOverLimit 
-                  ? 'border-red-500 bg-red-50 text-red-900' 
-                  : validationByField[field.name]?.status === 'invalid' ? 'border-red-400'
-                  : validationByField[field.name]?.status === 'uncertain' ? 'border-amber-400'
-                  : 'border-gray-300'
-              }`}
-            />
-            <FieldValidationBlock fieldName={field.name} />
-            {field.max_chars && (
-              <div className="mt-1 text-right">
-                {getCharacterCount(field.name, field.max_chars)}
-              </div>
-            )}
-            {isTitleOverLimit && (
-              <p className="mt-1 text-xs text-red-600 font-medium">
-                ⚠️ Titre en dépassement de {fieldValue.length - field.max_chars!} caractères
-              </p>
-            )}
+          <div key={field.name} className="grid grid-cols-[180px_1fr] gap-x-8 py-5 items-start">
+            <div>
+              <p className="text-sm font-medium text-gray-700 leading-snug">{field.label}<ValidationBadge fieldName={field.name} /></p>
+              {field.description && <p className="text-xs text-gray-400 mt-1 leading-relaxed">{field.description}</p>}
+            </div>
+            <div>
+              <input
+                type="text"
+                value={fieldValue}
+                onChange={(e) => handleFieldChange(field.name, e.target.value)}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm ${
+                  isTitleOverLimit
+                    ? 'border-red-400 bg-red-50 text-red-900'
+                    : validationByField[field.name]?.status === 'invalid' ? 'border-red-400'
+                    : validationByField[field.name]?.status === 'uncertain' ? 'border-amber-400'
+                    : 'border-gray-200'
+                }`}
+              />
+              <FieldValidationBlock fieldName={field.name} />
+              {field.max_chars && <div className="mt-1 text-right">{getCharacterCount(field.name, field.max_chars)}</div>}
+              {isTitleOverLimit && <p className="mt-1 text-xs text-red-500">Dépassement de {fieldValue.length - field.max_chars!} caractères</p>}
+            </div>
           </div>
         );
 
@@ -786,47 +777,36 @@ export default function ContentEditorModal({
         const plainLength = String(fieldValue).replace(/\*\*|\{|\}|\^/g, '').length;
         const isOverLimit = field.max_chars ? plainLength > field.max_chars : false;
         return (
-          <div key={field.name} className="mb-4">
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              {field.label}
-              <ValidationBadge fieldName={field.name} />
-            </label>
-            {field.description && (
-              <p className="text-xs text-gray-500 mb-2">{field.description}</p>
-            )}
-            <RichTextArea
-              value={fieldValue}
-              onChange={(val) => handleFieldChange(field.name, val)}
-              rows={4}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                isOverLimit
-                  ? 'border-red-500 bg-red-50 text-red-900'
-                  : validationByField[field.name]?.status === 'invalid' ? 'border-red-400'
-                  : validationByField[field.name]?.status === 'uncertain' ? 'border-amber-400'
-                  : 'border-gray-300'
-              }`}
-            />
-            <FieldValidationBlock fieldName={field.name} />
-            {field.max_chars && (
-              <div className="mt-1 text-right">
-                {getCharacterCount(field.name, field.max_chars)}
-              </div>
-            )}
-            {isOverLimit && (
-              <p className="mt-1 text-xs text-red-600 font-medium">
-                ⚠️ Texte en dépassement de {plainLength - field.max_chars!} caractères
-              </p>
-            )}
+          <div key={field.name} className="grid grid-cols-[180px_1fr] gap-x-8 py-5 items-start">
+            <div>
+              <p className="text-sm font-medium text-gray-700 leading-snug">{field.label}<ValidationBadge fieldName={field.name} /></p>
+              {field.description && <p className="text-xs text-gray-400 mt-1 leading-relaxed">{field.description}</p>}
+            </div>
+            <div>
+              <RichTextArea
+                value={fieldValue}
+                onChange={(val) => handleFieldChange(field.name, val)}
+                rows={4}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm ${
+                  isOverLimit
+                    ? 'border-red-400 bg-red-50 text-red-900'
+                    : validationByField[field.name]?.status === 'invalid' ? 'border-red-400'
+                    : validationByField[field.name]?.status === 'uncertain' ? 'border-amber-400'
+                    : 'border-gray-200'
+                }`}
+              />
+              <FieldValidationBlock fieldName={field.name} />
+              {field.max_chars && <div className="mt-1 text-right">{getCharacterCount(field.name, field.max_chars)}</div>}
+              {isOverLimit && <p className="mt-1 text-xs text-red-500">Dépassement de {plainLength - field.max_chars!} caractères</p>}
+            </div>
           </div>
         );
       }
 
       case 'image':
         return (
-          <div key={field.name} className="mb-6">
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              {field.label}
-            </label>
+          <div key={field.name} className="py-5">
+            <p className="text-sm font-medium text-gray-700 mb-3">{field.label}</p>
 
             {fieldValue && !imageErrors.has(field.name) ? (
               <div
@@ -943,76 +923,46 @@ export default function ContentEditorModal({
         const isRecalculating = recalculatingFields.has(field.name);
 
         return (
-          <div key={field.name} className="mb-4">
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                {field.label}
-              </label>
+          <div key={field.name} className="grid grid-cols-[180px_1fr] gap-x-8 py-5 items-start">
+            <div>
+              <p className="text-sm font-medium text-gray-700 leading-snug">{field.label}</p>
+              {field.description && <p className="text-xs text-gray-400 mt-1 leading-relaxed">{field.description}</p>}
               {field.service_id && (
                 <button
                   type="button"
                   onClick={() => handleRecalculate(field)}
                   disabled={isRecalculating}
-                  title={`Recalculer via le service "${field.service_id}"`}
-                  className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-sky-600 border border-sky-300 rounded-lg hover:bg-sky-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="mt-2 flex items-center gap-1 px-2 py-1 text-xs text-gray-500 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50 transition-colors"
                 >
-                  <ArrowPathIcon className={`h-3.5 w-3.5 ${isRecalculating ? 'animate-spin' : ''}`} />
+                  <ArrowPathIcon className={`h-3 w-3 ${isRecalculating ? 'animate-spin' : ''}`} />
                   {isRecalculating ? 'Calcul…' : 'Recalculer'}
                 </button>
               )}
             </div>
-            {field.description && <p className="text-xs text-gray-500 mb-2">{field.description}</p>}
-
-            <div className="rounded-xl border border-orange-200 bg-orange-50/30 overflow-hidden">
-              {/* Intitulé */}
-              <div className="px-4 pt-3 pb-2">
-                <label className="block text-xs font-semibold text-orange-700 mb-1 uppercase tracking-wide">
-                  Intitulé
-                </label>
-                <input
-                  type="text"
-                  value={linkLabelVal}
-                  onChange={(e) => handleLinkPartChange('label', e.target.value)}
-                  placeholder="Ex : En savoir plus →"
-                  className="w-full px-3 py-2 text-sm border border-orange-200 rounded-lg bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent"
-                />
-              </div>
-
-              {/* Divider */}
-              <div className="border-t border-orange-100 mx-4" />
-
-              {/* URL */}
-              <div className="px-4 pt-2 pb-3">
-                <label className="block text-xs font-semibold text-orange-700 mb-1 uppercase tracking-wide">
-                  URL
-                </label>
-                <input
-                  type="url"
-                  value={linkUrlVal}
-                  onChange={(e) => handleLinkPartChange('url', e.target.value)}
-                  placeholder="https://..."
-                  className="w-full px-3 py-2 text-sm border border-orange-200 rounded-lg bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent font-mono"
-                />
-              </div>
-
-              {/* Aperçu */}
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={linkLabelVal}
+                onChange={(e) => handleLinkPartChange('label', e.target.value)}
+                placeholder="Intitulé (ex : En savoir plus →)"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+              />
+              <input
+                type="url"
+                value={linkUrlVal}
+                onChange={(e) => handleLinkPartChange('url', e.target.value)}
+                placeholder="https://..."
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-gray-400 focus:border-gray-400 font-mono"
+              />
               {(linkLabelVal || previewUrl) && (
-                <div className="px-4 pb-3">
-                  <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-orange-100 text-sm">
-                    <span className="text-orange-400">🔗</span>
-                    {previewUrl ? (
-                      <a
-                        href={previewUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline truncate"
-                      >
-                        {linkLabelVal || previewUrl}
-                      </a>
-                    ) : (
-                      <span className="text-gray-500 truncate">{linkLabelVal}</span>
-                    )}
-                  </div>
+                <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100 text-sm">
+                  {previewUrl ? (
+                    <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="text-gray-600 hover:text-gray-900 hover:underline truncate">
+                      {linkLabelVal || previewUrl}
+                    </a>
+                  ) : (
+                    <span className="text-gray-500 truncate">{linkLabelVal}</span>
+                  )}
                 </div>
               )}
             </div>
@@ -1023,95 +973,81 @@ export default function ContentEditorModal({
       case 'meta':
         const isMetaOverLimit = field.max_chars && fieldValue.length > field.max_chars;
         return (
-          <div key={field.name} className="mb-4">
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              {field.label}
-              <ValidationBadge fieldName={field.name} />
-            </label>
-            {field.description && (
-              <p className="text-xs text-gray-500 mb-2">{field.description}</p>
-            )}
-            <input
-              type="text"
-              value={fieldValue}
-              onChange={(e) => handleFieldChange(field.name, e.target.value)}
-              placeholder="Valeur courte et normée"
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                isMetaOverLimit
-                  ? 'border-red-500 bg-red-50 text-red-900'
-                  : validationByField[field.name]?.status === 'invalid' ? 'border-red-400'
-                  : validationByField[field.name]?.status === 'uncertain' ? 'border-amber-400'
-                  : 'border-gray-300'
-              }`}
-            />
-            <FieldValidationBlock fieldName={field.name} />
-            {field.max_chars && (
-              <div className="mt-1 text-right">
-                {getCharacterCount(field.name, field.max_chars)}
-              </div>
-            )}
-            {isMetaOverLimit && (
-              <p className="mt-1 text-xs text-red-600 font-medium">
-                ⚠️ Métadonnée en dépassement de {fieldValue.length - field.max_chars!} caractères
-              </p>
-            )}
+          <div key={field.name} className="grid grid-cols-[180px_1fr] gap-x-8 py-5 items-start">
+            <div>
+              <p className="text-sm font-medium text-gray-700 leading-snug">{field.label}<ValidationBadge fieldName={field.name} /></p>
+              {field.description && <p className="text-xs text-gray-400 mt-1 leading-relaxed">{field.description}</p>}
+            </div>
+            <div>
+              <input
+                type="text"
+                value={fieldValue}
+                onChange={(e) => handleFieldChange(field.name, e.target.value)}
+                placeholder="Valeur courte et normée"
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm ${
+                  isMetaOverLimit
+                    ? 'border-red-400 bg-red-50 text-red-900'
+                    : validationByField[field.name]?.status === 'invalid' ? 'border-red-400'
+                    : validationByField[field.name]?.status === 'uncertain' ? 'border-amber-400'
+                    : 'border-gray-200'
+                }`}
+              />
+              <FieldValidationBlock fieldName={field.name} />
+              {field.max_chars && <div className="mt-1 text-right">{getCharacterCount(field.name, field.max_chars)}</div>}
+              {isMetaOverLimit && <p className="mt-1 text-xs text-red-500">Dépassement de {fieldValue.length - field.max_chars!} caractères</p>}
+            </div>
           </div>
         );
 
       case 'liste':
         return (
-          <div key={field.name} className="mb-4">
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              {field.label}
-              <ValidationBadge fieldName={field.name} />
-            </label>
-            {field.description && (
-              <p className="text-xs text-gray-500 mb-2">{field.description}</p>
-            )}
-            <RichTextArea
-              value={fieldValue}
-              onChange={(val) => handleFieldChange(field.name, val)}
-              rows={Math.max(3, (fieldValue || '').split('\n').filter(Boolean).length + 1)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none font-mono text-sm ${
-                validationByField[field.name]?.status === 'invalid'   ? 'border-red-400'
-                : validationByField[field.name]?.status === 'uncertain' ? 'border-amber-400'
-                : 'border-gray-300'
-              }`}
-            />
-            <p className="mt-1 text-xs text-gray-400">Un élément par ligne</p>
-            <FieldValidationBlock fieldName={field.name} />
+          <div key={field.name} className="grid grid-cols-[180px_1fr] gap-x-8 py-5 items-start">
+            <div>
+              <p className="text-sm font-medium text-gray-700 leading-snug">{field.label}<ValidationBadge fieldName={field.name} /></p>
+              {field.description && <p className="text-xs text-gray-400 mt-1 leading-relaxed">{field.description}</p>}
+            </div>
+            <div>
+              <RichTextArea
+                value={fieldValue}
+                onChange={(val) => handleFieldChange(field.name, val)}
+                rows={Math.max(3, (fieldValue || '').split('\n').filter(Boolean).length + 1)}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400 resize-none font-mono text-sm ${
+                  validationByField[field.name]?.status === 'invalid'   ? 'border-red-400'
+                  : validationByField[field.name]?.status === 'uncertain' ? 'border-amber-400'
+                  : 'border-gray-200'
+                }`}
+              />
+              <p className="mt-1 text-xs text-gray-400">Un élément par ligne</p>
+              <FieldValidationBlock fieldName={field.name} />
+            </div>
           </div>
         );
 
       case 'picto':
         return (
-          <div key={field.name} className="mb-4">
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              {field.label}
-              <ValidationBadge fieldName={field.name} />
-            </label>
-            {field.description && (
-              <p className="text-xs text-gray-500 mb-2">{field.description}</p>
-            )}
+          <div key={field.name} className="grid grid-cols-[180px_1fr] gap-x-8 py-5 items-start">
+            <div>
+              <p className="text-sm font-medium text-gray-700 leading-snug">{field.label}<ValidationBadge fieldName={field.name} /></p>
+              {field.description && <p className="text-xs text-gray-400 mt-1 leading-relaxed">{field.description}</p>}
+            </div>
+            <div>
             {field.options && field.options.length > 0 ? (
               <div className="flex flex-wrap gap-2">
                 {field.options.map((option) => {
-                  const config = PICTO_OPTION_CONFIG[option] || { label: option, icon: '●', color: 'bg-gray-100 border-gray-300 text-gray-700' };
+                  const config = PICTO_OPTION_CONFIG[option] || { label: option };
                   const isSelected = fieldValue === option;
                   return (
                     <button
                       key={option}
                       type="button"
                       onClick={() => handleFieldChange(field.name, option)}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all cursor-pointer ${
+                      className={`px-4 py-1.5 rounded-lg border text-sm transition-all cursor-pointer ${
                         isSelected
-                          ? `${config.color} shadow-sm scale-105`
-                          : 'bg-white border-gray-200 text-gray-500 hover:border-gray-400'
+                          ? 'border-[#191E55] bg-[#191E55]/5 text-[#191E55] font-medium'
+                          : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'
                       }`}
                     >
-                      <span className="text-base">{config.icon}</span>
-                      <span>{config.label}</span>
-                      {isSelected && <span className="ml-1">✓</span>}
+                      {config.label}
                     </button>
                   );
                 })}
@@ -1125,9 +1061,10 @@ export default function ContentEditorModal({
               />
             )}
             {!fieldValue && (
-              <p className="mt-1 text-xs text-amber-600">⚠️ Valeur non renseignée</p>
+              <p className="mt-1 text-xs text-gray-400">Valeur non renseignée</p>
             )}
             <FieldValidationBlock fieldName={field.name} />
+            </div>
           </div>
         );
 
@@ -1155,14 +1092,14 @@ export default function ContentEditorModal({
         };
 
         return (
-          <div key={field.name} className="mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+          <div key={field.name} className="py-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-medium text-gray-700">
                 {field.label || field.name}
-                <span className="ml-2 text-xs font-normal text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-full">
-                  répétitif · {items.length}/{maxRep}
+                <span className="ml-2 text-xs font-normal text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                  {items.length}/{maxRep}
                 </span>
-              </label>
+              </p>
               {items.length < maxRep && (
                 <button
                   type="button"
@@ -1170,7 +1107,7 @@ export default function ContentEditorModal({
                     const blank = subFields.reduce((acc: Record<string, string>, sf) => { acc[sf.name] = ''; return acc; }, {});
                     updateItems([...items, blank]);
                   }}
-                  className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-rose-600 border border-rose-300 rounded-md hover:bg-rose-50"
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 border border-gray-200 rounded hover:bg-gray-50 transition-colors"
                 >
                   + Ajouter
                 </button>
@@ -1181,16 +1118,16 @@ export default function ContentEditorModal({
             )}
 
             {items.length === 0 ? (
-              <div className="text-center py-6 border-2 border-dashed border-rose-200 rounded-lg text-xs text-gray-400">
+              <div className="text-center py-6 border-2 border-dashed border-gray-200 rounded-lg text-xs text-gray-400">
                 Aucune entrée — génère le contenu par IA ou clique sur "+ Ajouter"
               </div>
             ) : (
               <div className="space-y-3">
                 {items.map((item, idx) => (
-                  <div key={idx} className="border border-rose-100 rounded-lg overflow-hidden">
+                  <div key={idx} className="border border-gray-200 rounded-lg overflow-hidden">
                     {/* Header de l'entrée */}
-                    <div className="flex items-center justify-between px-3 py-1.5 bg-rose-50 border-b border-rose-100">
-                      <span className="text-xs font-medium text-rose-700">Entrée {idx + 1}</span>
+                    <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 border-b border-gray-100">
+                      <span className="text-xs font-medium text-gray-500">Entrée {idx + 1}</span>
                       <button
                         type="button"
                         onClick={() => updateItems(items.filter((_, i) => i !== idx))}
@@ -1247,7 +1184,7 @@ export default function ContentEditorModal({
                                     setCurrentImageField(null);
                                     setShowImageSelector(true);
                                   }}
-                                  className="px-2 py-1.5 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-xs flex items-center gap-1 whitespace-nowrap shrink-0"
+                                  className="px-2 py-1.5 bg-[#191E55] text-white rounded-md hover:bg-[#151a47] text-xs flex items-center gap-1 whitespace-nowrap shrink-0"
                                   title="Choisir parmi les images analysées"
                                 >
                                   <PhotoIcon className="h-3.5 w-3.5" />
@@ -1500,75 +1437,6 @@ export default function ContentEditorModal({
         {/* ── Zone scrollable : résumé validation + formulaire ──────────────── */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-auto">
 
-          {/* ── Coordonnées GPS (pages POI uniquement) ──────────────────────── */}
-          {requiresUrlForGeneration && !isClusterPage && (
-            <div className="px-6 pt-5 max-w-3xl mx-auto">
-              <div className="rounded-lg border border-gray-200 bg-white">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-                  <span className="text-sm font-medium text-gray-700">Coordonnées GPS</span>
-                  {gpsNotApplicable ? (
-                    <span className="text-xs text-gray-400 italic">exclu du géocodage</span>
-                  ) : page.coordinates?.lat != null && page.coordinates?.lon != null ? (
-                    <a
-                      href={`https://www.google.com/maps?q=${page.coordinates.lat},${page.coordinates.lon}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-gray-400 hover:text-gray-600 underline decoration-dotted transition-colors"
-                    >
-                      Voir sur Maps
-                    </a>
-                  ) : null}
-                </div>
-                <div className="px-4 py-3">
-                  {gpsNotApplicable ? (
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-gray-500">
-                        Ce POI n'a pas de coordonnées — il sera exporté avec <code className="text-[11px] bg-gray-100 px-1 rounded">geometry: null</code>.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={restoreGpsApplicable}
-                        disabled={coordSaving}
-                        className="ml-4 shrink-0 text-xs text-gray-500 hover:text-gray-700 underline decoration-dotted disabled:opacity-50 transition-colors"
-                      >
-                        Réactiver
-                      </button>
-                    </div>
-                  ) : page.coordinates?.lat != null && page.coordinates?.lon != null ? (
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-mono text-gray-700">
-                        {page.coordinates.lat}, {page.coordinates.lon}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={markGpsNotApplicable}
-                        disabled={coordSaving}
-                        className="ml-4 shrink-0 px-2.5 py-1 text-xs font-medium rounded border border-gray-200 text-gray-500 hover:text-gray-700 hover:border-gray-300 bg-white transition-colors disabled:opacity-50"
-                      >
-                        Pas de GPS
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-gray-400">Non renseignées — à compléter à l'étape Carte</p>
-                      <button
-                        type="button"
-                        onClick={markGpsNotApplicable}
-                        disabled={coordSaving}
-                        className="ml-4 shrink-0 px-2.5 py-1 text-xs font-medium rounded border border-gray-200 text-gray-500 hover:text-gray-700 hover:border-gray-300 bg-white transition-colors disabled:opacity-50"
-                      >
-                        Pas de GPS
-                      </button>
-                    </div>
-                  )}
-                  {coordError && (
-                    <p className="mt-2 text-xs text-red-500">{coordError}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Panneau POI cards pour les pages inspiration */}
           {isInspirationPage && page.metadata?.inspiration_pois && page.metadata.inspiration_pois.length > 0 && (
             <div className="px-6 pt-5 max-w-3xl mx-auto">
@@ -1695,9 +1563,64 @@ export default function ContentEditorModal({
           )}
 
           {/* Champs du formulaire */}
-          <div className="px-6 py-6 max-w-3xl mx-auto">
-            {template.fields.map((field) => renderField(field))}
+          <div className="px-6 max-w-3xl mx-auto">
+            <div className="divide-y divide-gray-100 pt-2 pb-4">
+              {template.fields.map((field) => renderField(field))}
+            </div>
           </div>
+
+          {/* ── Coordonnées GPS — en bas, avec lien Maps ──────────────────────── */}
+          {requiresUrlForGeneration && !isClusterPage && (
+            <div className="px-6 pb-6 max-w-3xl mx-auto">
+              <div className="divide-y divide-gray-100 border-t border-gray-100">
+                <div className="grid grid-cols-[180px_1fr] gap-x-8 py-5 items-start">
+                  <div>
+                    <p className="text-sm font-medium text-gray-700">Coordonnées GPS</p>
+                    {page.coordinates?.lat != null && page.coordinates?.lon != null && !gpsNotApplicable && (
+                      <a
+                        href={`https://www.google.com/maps?q=${page.coordinates.lat},${page.coordinates.lon}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-gray-400 hover:text-gray-600 underline decoration-dotted transition-colors mt-1 block"
+                      >
+                        Voir sur Maps
+                      </a>
+                    )}
+                  </div>
+                  <div>
+                    {gpsNotApplicable ? (
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-gray-400 italic">
+                          Exclu du géocodage — exporté avec <code className="text-[11px] bg-gray-100 px-1 rounded">geometry: null</code>.
+                        </p>
+                        <button type="button" onClick={restoreGpsApplicable} disabled={coordSaving}
+                          className="ml-4 shrink-0 text-xs text-gray-500 hover:text-gray-700 underline decoration-dotted disabled:opacity-50">
+                          Réactiver
+                        </button>
+                      </div>
+                    ) : page.coordinates?.lat != null && page.coordinates?.lon != null ? (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-mono text-gray-700">{page.coordinates.lat}, {page.coordinates.lon}</span>
+                        <button type="button" onClick={markGpsNotApplicable} disabled={coordSaving}
+                          className="ml-4 shrink-0 px-2.5 py-1 text-xs rounded border border-gray-200 text-gray-500 hover:border-gray-300 bg-white transition-colors disabled:opacity-50">
+                          Pas de GPS
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-gray-400">Non renseignées — à compléter à l'étape Carte</p>
+                        <button type="button" onClick={markGpsNotApplicable} disabled={coordSaving}
+                          className="ml-4 shrink-0 px-2.5 py-1 text-xs rounded border border-gray-200 text-gray-500 hover:border-gray-300 bg-white transition-colors disabled:opacity-50">
+                          Pas de GPS
+                        </button>
+                      </div>
+                    )}
+                    {coordError && <p className="mt-2 text-xs text-red-500">{coordError}</p>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </form>
 
         {/* ── Footer ────────────────────────────────────────────────────────── */}

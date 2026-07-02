@@ -1,5 +1,6 @@
 'use client';
 
+import { Fragment } from 'react';
 import { CheckIcon, LockClosedIcon } from '@heroicons/react/24/solid';
 
 interface Step {
@@ -116,47 +117,47 @@ export default function WorkflowStepper({ currentStep, completedSteps, onStepCli
   };
 
   return (
-    <div className="bg-white border-b border-gray-200 px-6 py-3">
-      <div className="flex items-start overflow-x-auto">
+    <div className="bg-white border-b border-gray-200 px-8 py-5">
+      <div className="flex items-start w-full max-w-5xl mx-auto">
         {WORKFLOW_STEPS.map((step, index) => {
           const status = getStepStatus(step.id);
           const isClickable = status !== 'locked';
 
           return (
-            <div key={step.id} className="flex items-start flex-shrink-0">
+            <Fragment key={step.id}>
               {/* Étape */}
               <div
                 onClick={() => isClickable && onStepClick(step.id, step.tabId)}
-                className={`flex flex-col items-center gap-1.5 w-20 ${isClickable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                className={`flex flex-col items-center gap-2 flex-shrink-0 ${isClickable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                 title={step.description}
               >
                 <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm transition-colors ${circleClasses(status)}`}
+                  className={`w-12 h-12 rounded-full flex items-center justify-center font-semibold text-base transition-colors ${circleClasses(status)}`}
                 >
                   {status === 'completed' ? (
-                    <CheckIcon className="w-5 h-5" strokeWidth={2.5} />
+                    <CheckIcon className="w-6 h-6" strokeWidth={2.5} />
                   ) : status === 'locked' ? (
-                    <LockClosedIcon className="w-4 h-4" />
+                    <LockClosedIcon className="w-5 h-5" />
                   ) : (
                     step.id
                   )}
                 </div>
-                <div className={`text-xs text-center leading-tight ${labelClasses(status)}`}>
+                <div className={`text-sm text-center leading-tight whitespace-nowrap ${labelClasses(status)}`}>
                   {step.shortLabel}
                 </div>
               </div>
 
-              {/* Connecteur */}
+              {/* Connecteur — élastique pour occuper tout l'espace disponible */}
               {index < WORKFLOW_STEPS.length - 1 && (
-                <div className="flex items-center h-10 mt-5 -mx-1">
+                <div className="flex items-center h-12 flex-1 px-2">
                   <div
-                    className={`h-0.5 w-6 transition-colors ${
+                    className={`h-0.5 w-full transition-colors ${
                       completedSteps.has(step.id) ? 'bg-slate-800' : 'bg-gray-200'
                     }`}
                   />
                 </div>
               )}
-            </div>
+            </Fragment>
           );
         })}
       </div>

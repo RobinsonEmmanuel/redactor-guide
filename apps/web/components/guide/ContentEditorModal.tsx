@@ -609,12 +609,12 @@ export default function ContentEditorModal({
       ? 'border-l-red-400'
       : v.status === 'uncertain'
       ? 'border-l-amber-400'
-      : 'border-l-emerald-400';
+      : 'border-l-gray-300';
 
     const ARTICLE_CFG: Record<string, { label: string; color: string; bgColor: string }> = {
-      present: { label: 'Présent dans l\'article',  color: 'text-teal-700',  bgColor: 'bg-teal-50' },
-      partial: { label: 'Approximatif vs article',  color: 'text-purple-700', bgColor: 'bg-purple-50' },
-      absent:  { label: 'Absent de l\'article',     color: 'text-slate-600',  bgColor: 'bg-slate-50' },
+      present: { label: 'Présent dans l\'article',  color: 'text-gray-700',  bgColor: 'bg-gray-50' },
+      partial: { label: 'Approximatif vs article',  color: 'text-gray-600', bgColor: 'bg-gray-50' },
+      absent:  { label: 'Absent de l\'article',     color: 'text-gray-500',  bgColor: 'bg-gray-50' },
     };
 
     return (
@@ -643,7 +643,7 @@ export default function ContentEditorModal({
 
         {/* Points validés */}
         {hasValidated && v.validated_points!.map((p: any, i: number) => (
-          <div key={i} className="flex items-start gap-1.5 text-emerald-700 leading-snug">
+          <div key={i} className="flex items-start gap-1.5 text-gray-500 leading-snug">
             <span className="flex-shrink-0 font-bold mt-0.5">✓</span>
             <span>
               {p.point}
@@ -1377,12 +1377,12 @@ export default function ContentEditorModal({
       <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
 
         {/* ── Header compact ────────────────────────────────────────────────── */}
-        <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 text-white flex-shrink-0">
+        <div className="bg-[#1e2430] px-6 py-4 text-white flex-shrink-0">
           <div className="flex items-start justify-between gap-4">
             {/* Titre */}
             <div className="min-w-0">
               <h2 className="text-lg font-semibold leading-tight">Rédaction de la page</h2>
-              <p className="text-sm text-blue-100 mt-0.5 truncate">
+              <p className="text-sm text-gray-400 mt-0.5 truncate">
                 {page.titre} • Template : {template.name}
               </p>
             </div>
@@ -1440,7 +1440,7 @@ export default function ContentEditorModal({
                 onClick={handleValidateContent}
                 disabled={validating || Object.keys(formData).length === 0}
                 title={validating ? 'Vérification en cours…' : 'Contrôler le contenu'}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/80 hover:bg-emerald-500 border border-emerald-400/40 rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {validating
                   ? <><ArrowPathIcon className="h-4 w-4 animate-spin" /><span className="hidden sm:inline">Contrôle…</span></>
@@ -1467,17 +1467,17 @@ export default function ContentEditorModal({
           )}
           {/* Confirmation génération sans article source */}
           {showLlmKnowledgeConfirm && (
-            <div className="mt-2 px-3 py-2.5 rounded bg-amber-500/20 border border-amber-300/40 text-white text-xs">
+            <div className="mt-2 px-3 py-2.5 rounded bg-white/8 border border-white/15 text-white text-xs">
               <div className="flex items-start gap-2">
-                <BookOpenIcon className="h-4 w-4 mt-0.5 flex-shrink-0 text-amber-300" />
+                <BookOpenIcon className="h-4 w-4 mt-0.5 flex-shrink-0 text-white/50" />
                 <div className="flex-1">
                   <p className="font-semibold mb-1">Aucun article WordPress source associé à cette page.</p>
-                  <p className="text-white/80 mb-2.5">Vous pouvez renseigner une URL ci-dessus, ou générer depuis la <strong>base de connaissance du LLM</strong>.</p>
+                  <p className="text-white/70 mb-2.5">Vous pouvez renseigner une URL ci-dessus, ou générer depuis la <strong>base de connaissance du LLM</strong>.</p>
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={() => handleGenerateContent(true)}
-                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-white rounded font-medium transition-colors"
+                      className="px-3 py-1.5 bg-white text-gray-800 rounded font-medium transition-colors hover:bg-gray-100"
                     >
                       Générer sans article
                     </button>
@@ -1502,7 +1502,7 @@ export default function ContentEditorModal({
             if (poisSansUrl.length === 0) return null;
             const isBlocking = template?.info_source === 'inspiration_auto_match';
             return (
-              <div className={`mt-2 px-3 py-2 rounded text-xs border ${isBlocking ? 'bg-red-500/20 border-red-300/40 text-white' : 'bg-amber-500/20 border-amber-300/40 text-white/90'}`}>
+              <div className={`mt-2 px-3 py-2 rounded text-xs border ${isBlocking ? 'bg-red-900/30 border-red-500/30 text-white' : 'bg-white/5 border-white/15 text-white/80'}`}>
                 <p className="font-semibold mb-1">{isBlocking ? '🚫' : '⚠️'} {poisSansUrl.length} POI{poisSansUrl.length > 1 ? 's' : ''} sans article WordPress source :</p>
                 <ul className="space-y-0.5 pl-3">
                   {poisSansUrl.map((p: InspirationPoi) => (
@@ -1519,7 +1519,7 @@ export default function ContentEditorModal({
 
           {/* Erreur */}
           {error && (
-            <div className="mt-2 px-3 py-2 bg-red-500/20 border border-red-300/30 rounded text-xs text-white">
+            <div className="mt-2 px-3 py-2 bg-red-900/30 border border-red-500/20 rounded text-xs text-white">
               {error}
             </div>
           )}
@@ -1602,7 +1602,7 @@ export default function ContentEditorModal({
             <div className="px-6 pt-5 max-w-3xl mx-auto">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                  <span className="inline-block w-2 h-2 rounded-full bg-violet-400" />
+                  <span className="inline-block w-2 h-2 rounded-full bg-gray-300" />
                   {page.metadata.inspiration_pois.length} POI{page.metadata.inspiration_pois.length > 1 ? 's' : ''} de l'inspiration
                 </h3>
                 <button
@@ -1610,7 +1610,7 @@ export default function ContentEditorModal({
                   onClick={handleRefreshInspirationPois}
                   disabled={refreshingPois}
                   title="Ré-résoudre les POIs depuis le chemin de fer et recalculer les cartes"
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-violet-200 text-violet-700 bg-violet-50 hover:bg-violet-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {refreshingPois ? (
                     <>
@@ -1671,7 +1671,7 @@ export default function ContentEditorModal({
                       {/* Infos */}
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm text-gray-800 truncate">{poiNom}</p>
-                        {poiHashtag && <p className="text-xs text-violet-600 mt-0.5">{poiHashtag}</p>}
+                        {poiHashtag && <p className="text-xs text-gray-400 mt-0.5">{poiHashtag}</p>}
                         {!poiNom && !poiHashtag && (
                           <p className="text-xs text-gray-400 italic">Génération IA en attente</p>
                         )}
@@ -1684,7 +1684,7 @@ export default function ContentEditorModal({
                             target="_blank"
                             rel="noopener noreferrer"
                             title="Voir l'article"
-                            className="p-1.5 rounded text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                            className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
@@ -1697,7 +1697,7 @@ export default function ContentEditorModal({
                             target="_blank"
                             rel="noopener noreferrer"
                             title="Voir sur Google Maps"
-                            className="p-1.5 rounded text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+                            className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
@@ -1729,27 +1729,27 @@ export default function ContentEditorModal({
         </form>
 
         {/* ── Footer ────────────────────────────────────────────────────────── */}
-        <div className="border-t border-gray-200 px-6 py-4 flex gap-3 bg-gray-50 flex-shrink-0">
+        <div className="border-t border-gray-200 px-6 py-4 flex gap-3 bg-white flex-shrink-0">
           <button
             type="button"
             onClick={onClose}
-            className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors"
+            className="px-6 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors text-sm"
           >
             Annuler
           </button>
           <button
             onClick={handleSubmit}
-            className="flex-1 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            className="flex-1 px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-sm font-medium"
           >
             Enregistrer le contenu
           </button>
           <button
             type="button"
             onClick={handleValidatePage}
-            className="flex-1 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+            className="flex-1 px-6 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
             title="Enregistrer le contenu et marquer la page comme validée"
           >
-            ✓ Valider la page
+            Valider la page
           </button>
         </div>
       </div>

@@ -1250,7 +1250,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
             <div className="p-3 border-b border-gray-200 bg-white flex-shrink-0">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <div className="p-1 bg-[#191E55]/10 rounded">
+                  <div className="p-1 bg-gradient-to-br from-orange-100 to-[#191E55]/10 rounded">
                     <DocumentTextIcon className="w-4 h-4 text-[#191E55]" />
                   </div>
                   <h3 className="text-xs font-bold text-gray-900">Pages suggérées</h3>
@@ -1258,7 +1258,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                 <button
                   onClick={loadTemplateProposals}
                   disabled={loadingTemplateProposals}
-                  className="flex items-center gap-1 px-2 py-1 bg-[#191E55] text-white text-xs font-medium rounded hover:bg-[#151a47] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-orange-500 to-orange-600 text-white text-xs font-medium rounded hover:from-orange-600 hover:to-orange-700 disabled:from-gray-300 disabled:to-gray-300 disabled:cursor-not-allowed transition-colors shadow-sm"
                 >
                   <ArrowPathIcon className={`h-3 w-3 ${loadingTemplateProposals ? 'animate-spin' : ''}`} />
                   {loadingTemplateProposals ? '…' : 'Actualiser'}
@@ -1491,13 +1491,16 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
         {/* ZONE PRINCIPALE : Chemin de fer - Plus d'espace */}
         <div className="flex-1 flex flex-col overflow-hidden bg-white">
           {/* Header compact */}
-          <div className="px-4 py-2 border-b border-gray-200 bg-gray-50 flex-shrink-0">
+          <div className="px-4 py-2 border-b border-gray-200 bg-gradient-to-r from-orange-50 via-white to-[#191E55]/5 flex-shrink-0">
             <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-base font-bold text-gray-900">Chemin de fer</h2>
-                <p className="text-xs text-gray-500">
-                  {pages.length} page{pages.length !== 1 ? 's' : ''}
-                </p>
+              <div className="flex items-center gap-2.5">
+                <div className="w-1 h-8 rounded-full bg-gradient-to-b from-orange-500 to-[#191E55]" />
+                <div>
+                  <h2 className="text-base font-bold text-gray-900">Chemin de fer</h2>
+                  <p className="text-xs text-gray-500">
+                    {pages.length} page{pages.length !== 1 ? 's' : ''}
+                  </p>
+                </div>
               </div>
               <div className="flex items-center gap-3">
                 <div className="text-xs text-gray-500">
@@ -1539,7 +1542,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
               <div className="h-full flex items-center justify-center p-6">
                 <div className="w-full max-w-3xl">
                   <div className="text-center mb-8">
-                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[#191E55]/10 mb-4">
+                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-orange-100 to-[#191E55]/10 mb-4">
                       <DocumentTextIcon className="w-8 h-8 text-[#191E55]" />
                     </div>
                     <h3 className="text-xl font-bold text-gray-900 mb-1">
@@ -1558,14 +1561,15 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     {/* Option 1 — Générer depuis le template */}
-                    <div className="relative flex flex-col bg-white border-2 border-[#191E55]/20 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-[#191E55]/50 transition-all group">
+                    <div className="relative flex flex-col bg-white border-2 border-orange-200 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-orange-400 transition-all group overflow-hidden">
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-orange-200/40 to-transparent rounded-bl-full pointer-events-none" />
                       <div className="flex items-center gap-3 mb-3">
-                        <div className="w-10 h-10 rounded-xl bg-[#191E55] flex items-center justify-center flex-shrink-0">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-[#191E55] flex items-center justify-center flex-shrink-0 shadow-sm">
                           <SparklesIcon className="w-5 h-5 text-white" />
                         </div>
                         <div>
                           <div className="font-semibold text-gray-900">Depuis le template</div>
-                          <div className="text-xs text-[#191E55] font-medium">Recommandé</div>
+                          <div className="text-xs text-orange-600 font-medium">Recommandé</div>
                         </div>
                       </div>
                       <p className="text-sm text-gray-600 mb-5 flex-1">
@@ -1579,8 +1583,8 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                           { label: 'Saisons' },
                         ].map(({ label }) => (
                           <div key={label} className="flex items-center gap-1.5">
-                            <div className="w-4 h-4 rounded-full bg-[#191E55]/10 flex items-center justify-center flex-shrink-0">
-                              <span className="text-[#191E55] text-xs font-bold leading-none">✓</span>
+                            <div className="w-4 h-4 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
+                              <span className="text-orange-600 text-xs font-bold leading-none">✓</span>
                             </div>
                             <span className="text-xs text-gray-600">{label}</span>
                           </div>
@@ -1589,7 +1593,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                       <button
                         onClick={generateStructure}
                         disabled={generatingStructure}
-                        className="w-full py-2.5 bg-[#191E55] text-white text-sm font-semibold rounded-xl hover:bg-[#151a47] disabled:bg-gray-300 disabled:cursor-not-allowed transition-all shadow hover:shadow-md flex items-center justify-center gap-2"
+                        className="w-full py-2.5 bg-gradient-to-r from-orange-500 to-[#191E55] text-white text-sm font-semibold rounded-xl hover:from-orange-600 hover:to-[#151a47] disabled:bg-gray-300 disabled:bg-none disabled:cursor-not-allowed transition-all shadow hover:shadow-md flex items-center justify-center gap-2"
                       >
                         {generatingStructure ? (
                           <>
@@ -1901,17 +1905,17 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color, art
   });
 
   const colorClasses = {
-    blue: 'border-gray-200 hover:border-[#191E55]/30 bg-white',
-    green: 'border-gray-200 hover:border-[#191E55]/30 bg-white',
-    orange: 'border-gray-200 hover:border-[#191E55]/30 bg-white',
-    purple: 'border-gray-200 hover:border-[#191E55]/30 bg-white',
+    blue: 'border-blue-200 hover:border-blue-400 bg-blue-50/50',
+    green: 'border-emerald-200 hover:border-emerald-400 bg-emerald-50/50',
+    orange: 'border-orange-200 hover:border-orange-400 bg-orange-50/50',
+    purple: 'border-purple-200 hover:border-purple-400 bg-purple-50/50',
   };
 
   const iconColorClasses = {
-    blue: 'bg-gray-100 text-gray-500',
-    green: 'bg-gray-100 text-gray-500',
-    orange: 'bg-gray-100 text-gray-500',
-    purple: 'bg-gray-100 text-gray-500',
+    blue: 'bg-blue-100 text-blue-600',
+    green: 'bg-emerald-100 text-emerald-600',
+    orange: 'bg-orange-100 text-orange-600',
+    purple: 'bg-purple-100 text-purple-600',
   };
 
   const placedClass = isPlaced
@@ -2176,11 +2180,11 @@ function AddPagesCard({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="relative bg-white rounded-lg border-2 border-dashed border-gray-300 hover:border-[#191E55]/40 hover:bg-[#191E55]/5 transition-all cursor-pointer group"
+      className="relative bg-white rounded-lg border-2 border-dashed border-gray-300 hover:border-orange-400 hover:bg-orange-50/40 transition-all cursor-pointer group"
       style={{ minHeight: '180px' }}
     >
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-        <div className="w-12 h-12 rounded-full bg-[#191E55] group-hover:bg-[#151a47] flex items-center justify-center transition-colors shadow-md">
+        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-orange-500 to-[#191E55] group-hover:from-orange-600 group-hover:to-[#151a47] flex items-center justify-center transition-colors shadow-md">
           <PlusIcon className="w-7 h-7 text-white" />
         </div>
         <div className="text-sm font-semibold text-gray-600 group-hover:text-gray-800">

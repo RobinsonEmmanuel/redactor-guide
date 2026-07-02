@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment } from 'react';
-import { CheckIcon, LockClosedIcon } from '@heroicons/react/24/solid';
+import { LockClosedIcon } from '@heroicons/react/24/solid';
 
 interface Step {
   id: number;
@@ -134,9 +134,7 @@ export default function WorkflowStepper({ currentStep, completedSteps, onStepCli
                 <div
                   className={`w-12 h-12 rounded-full flex items-center justify-center font-semibold text-base transition-colors ${circleClasses(status)}`}
                 >
-                  {status === 'completed' ? (
-                    <CheckIcon className="w-6 h-6" strokeWidth={2.5} />
-                  ) : status === 'locked' ? (
+                  {status === 'locked' ? (
                     <LockClosedIcon className="w-5 h-5" />
                   ) : (
                     step.id

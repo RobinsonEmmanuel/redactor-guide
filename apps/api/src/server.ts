@@ -8,6 +8,7 @@ import { getArticlesDatabase } from './config/database.js';
 const ALLOWED_CORS_ORIGINS: Array<string | RegExp> = [
   'http://localhost:3000',
   'http://localhost:3001',
+  'http://localhost:5175',
   'https://redactor-guide-web.vercel.app',
   /^https:\/\/.*\.vercel\.app$/,
   /^https:\/\/.*\.up\.railway\.app$/,

@@ -264,6 +264,37 @@ export default function ContentEditorModal({
   const [coordSaving,  setCoordSaving]  = useState(false);
   const [coordError,   setCoordError]   = useState<string | null>(null);
   const [gpsNotApplicable, setGpsNotApplicable] = useState(page.gps_not_applicable === true);
+  const [localLat, setLocalLat] = useState<string>(page.coordinates?.lat != null ? String(page.coordinates.lat) : '');
+  const [localLon, setLocalLon] = useState<string>(page.coordinates?.lon != null ? String(page.coordinates.lon) : '');
+
+  const saveCoordinates = async () => {
+    const lat = parseFloat(localLat.replace(',', '.'));
+    const lon = parseFloat(localLon.replace(',', '.'));
+    if (isNaN(lat) || isNaN(lon)) { setCoordError('Latitude et longitude invalides'); return; }
+    setCoordSaving(true);
+    setCoordError(null);
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ coordinates: { lat, lon }, gps_not_applicable: false }),
+      });
+      if (!res.ok) throw new Error('Erreur lors de la mise à jour');
+      setGpsNotApplicable(false);
+      // Mise à jour auto du champ lien Google Maps si présent dans le template
+      const mapsField = template?.fields.find((f: any) =>
+        f.type === 'lien' && (f.label?.toLowerCase().includes('maps') || f.label?.toLowerCase().includes('google'))
+      );
+      if (mapsField) {
+        handleFieldChange(mapsField.name, JSON.stringify({ label: 'Voir sur Google Maps', url: `https://www.google.com/maps?q=${lat},${lon}` }));
+      }
+    } catch (err: any) {
+      setCoordError(err.message || 'Erreur réseau');
+    } finally {
+      setCoordSaving(false);
+    }
+  };
 
   const markGpsNotApplicable = async () => {
     setCoordSaving(true);
@@ -1576,9 +1607,9 @@ export default function ContentEditorModal({
                 <div className="grid grid-cols-[180px_1fr] gap-x-8 py-5 items-start">
                   <div>
                     <p className="text-sm font-medium text-gray-700">Coordonnées GPS</p>
-                    {page.coordinates?.lat != null && page.coordinates?.lon != null && !gpsNotApplicable && (
+                    {localLat && localLon && !gpsNotApplicable && (
                       <a
-                        href={`https://www.google.com/maps?q=${page.coordinates.lat},${page.coordinates.lon}`}
+                        href={`https://www.google.com/maps?q=${localLat.replace(',', '.')},${localLon.replace(',', '.')}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-xs text-gray-400 hover:text-gray-600 underline decoration-dotted transition-colors mt-1 block"
@@ -1598,24 +1629,35 @@ export default function ContentEditorModal({
                           Réactiver
                         </button>
                       </div>
-                    ) : page.coordinates?.lat != null && page.coordinates?.lon != null ? (
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-mono text-gray-700">{page.coordinates.lat}, {page.coordinates.lon}</span>
-                        <button type="button" onClick={markGpsNotApplicable} disabled={coordSaving}
-                          className="ml-4 shrink-0 px-2.5 py-1 text-xs rounded border border-gray-200 text-gray-500 hover:border-gray-300 bg-white transition-colors disabled:opacity-50">
-                          Pas de GPS
-                        </button>
-                      </div>
                     ) : (
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs text-gray-400">Non renseignées — à compléter à l'étape Carte</p>
-                        <button type="button" onClick={markGpsNotApplicable} disabled={coordSaving}
-                          className="ml-4 shrink-0 px-2.5 py-1 text-xs rounded border border-gray-200 text-gray-500 hover:border-gray-300 bg-white transition-colors disabled:opacity-50">
-                          Pas de GPS
-                        </button>
+                      <div className="space-y-2">
+                        <div className="flex gap-2">
+                          <input
+                            type="number" step="any"
+                            value={localLat}
+                            onChange={(e) => setLocalLat(e.target.value)}
+                            placeholder="Latitude (ex : 43.5643)"
+                            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                          />
+                          <input
+                            type="number" step="any"
+                            value={localLon}
+                            onChange={(e) => setLocalLon(e.target.value)}
+                            placeholder="Longitude (ex : 7.1327)"
+                            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                          />
+                          <button type="button" onClick={saveCoordinates} disabled={coordSaving || (!localLat && !localLon)}
+                            className="px-3 py-2 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap transition-colors">
+                            {coordSaving ? 'Enreg…' : 'Enregistrer'}
+                          </button>
+                          <button type="button" onClick={markGpsNotApplicable} disabled={coordSaving}
+                            className="px-2.5 py-2 text-xs border border-gray-200 rounded-lg text-gray-400 hover:border-gray-300 hover:text-gray-600 bg-white disabled:opacity-50 whitespace-nowrap transition-colors">
+                            Pas de GPS
+                          </button>
+                        </div>
+                        {coordError && <p className="text-xs text-red-500">{coordError}</p>}
                       </div>
                     )}
-                    {coordError && <p className="mt-2 text-xs text-red-500">{coordError}</p>}
                   </div>
                 </div>
               </div>

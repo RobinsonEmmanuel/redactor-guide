@@ -270,56 +270,13 @@ export default function ContentEditorModal({
   const [refreshingPois, setRefreshingPois]           = useState(false);
 
   // ── Coordonnées GPS ────────────────────────────────────────────────────────
-  const [localLat, setLocalLat] = useState<string>(
-    page.coordinates?.lat != null ? String(page.coordinates.lat) : ''
-  );
-  const [localLon, setLocalLon] = useState<string>(
-    page.coordinates?.lon != null ? String(page.coordinates.lon) : ''
-  );
   const [coordSaving,  setCoordSaving]  = useState(false);
-  const [coordSaved,   setCoordSaved]   = useState(false);
   const [coordError,   setCoordError]   = useState<string | null>(null);
   const [gpsNotApplicable, setGpsNotApplicable] = useState(page.gps_not_applicable === true);
-
-  const saveCoordinates = async () => {
-    const lat = parseFloat(localLat.replace(',', '.'));
-    const lon = parseFloat(localLon.replace(',', '.'));
-    if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-      setCoordError('Valeurs invalides — latitude : -90 à 90, longitude : -180 à 180');
-      return;
-    }
-    setCoordSaving(true);
-    setCoordError(null);
-    setCoordSaved(false);
-    try {
-      const payload = { coordinates: { lat, lon }, gps_not_applicable: false };
-      // 1. Sauvegarder sur la page
-      const res = await fetch(
-        `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}`,
-        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(payload) }
-      );
-      if (!res.ok) throw new Error('Erreur lors de la mise à jour de la page');
-      // 2. Synchroniser sur le POI dans pois_selection si poi_id disponible
-      const poiId = page.metadata?.poi_id;
-      if (poiId) {
-        await fetch(
-          `${apiUrl}/api/v1/guides/${guideId}/pois/${poiId}`,
-          { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ coordinates: { lat, lon } }) }
-        ).catch(() => { /* sync best-effort — pas bloquant */ });
-      }
-      setCoordSaved(true);
-      setTimeout(() => setCoordSaved(false), 3000);
-    } catch (err: any) {
-      setCoordError(err.message || 'Erreur réseau');
-    } finally {
-      setCoordSaving(false);
-    }
-  };
 
   const markGpsNotApplicable = async () => {
     setCoordSaving(true);
     setCoordError(null);
-    setCoordSaved(false);
     try {
       const res = await fetch(
         `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}`,
@@ -332,10 +289,6 @@ export default function ContentEditorModal({
       );
       if (!res.ok) throw new Error('Erreur lors de la mise à jour de la page');
       setGpsNotApplicable(true);
-      setLocalLat('');
-      setLocalLon('');
-      setCoordSaved(true);
-      setTimeout(() => setCoordSaved(false), 3000);
     } catch (err: any) {
       setCoordError(err.message || 'Erreur réseau');
     } finally {
@@ -346,7 +299,6 @@ export default function ContentEditorModal({
   const restoreGpsApplicable = async () => {
     setCoordSaving(true);
     setCoordError(null);
-    setCoordSaved(false);
     try {
       const res = await fetch(
         `${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/pages/${page._id}`,
@@ -1591,9 +1543,9 @@ export default function ContentEditorModal({
                       Sans GPS
                     </span>
                   )}
-                  {localLat && localLon && !coordSaving && !coordError && !gpsNotApplicable && (
+                  {page.coordinates?.lat != null && page.coordinates?.lon != null && !gpsNotApplicable && (
                     <a
-                      href={`https://www.google.com/maps?q=${localLat.replace(',', '.')},${localLon.replace(',', '.')}`}
+                      href={`https://www.google.com/maps?q=${page.coordinates.lat},${page.coordinates.lon}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="ml-auto text-xs text-emerald-600 hover:text-emerald-800 underline decoration-dotted flex items-center gap-1"
@@ -1620,62 +1572,37 @@ export default function ContentEditorModal({
                       Réactiver les coordonnées GPS
                     </button>
                   </div>
+                ) : page.coordinates?.lat != null && page.coordinates?.lon != null ? (
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-mono text-emerald-900">
+                      {page.coordinates.lat}, {page.coordinates.lon}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={markGpsNotApplicable}
+                      disabled={coordSaving}
+                      className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50 whitespace-nowrap"
+                    >
+                      Pas de GPS
+                    </button>
+                  </div>
                 ) : (
-                <>
-                <div className="flex items-end gap-3">
-                  <div className="flex-1">
-                    <label className="block text-xs font-medium text-emerald-700 mb-1">Latitude</label>
-                    <input
-                      type="number"
-                      step="any"
-                      value={localLat}
-                      onChange={(e) => { setLocalLat(e.target.value); setCoordSaved(false); setCoordError(null); }}
-                      placeholder="ex : 28.2052"
-                      className="w-full px-3 py-2 text-sm border border-emerald-300 rounded-lg bg-white focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label className="block text-xs font-medium text-emerald-700 mb-1">Longitude</label>
-                    <input
-                      type="number"
-                      step="any"
-                      value={localLon}
-                      onChange={(e) => { setLocalLon(e.target.value); setCoordSaved(false); setCoordError(null); }}
-                      placeholder="ex : -16.6099"
-                      className="w-full px-3 py-2 text-sm border border-emerald-300 rounded-lg bg-white focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={saveCoordinates}
-                    disabled={coordSaving || (!localLat && !localLon)}
-                    className="px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                  >
-                    {coordSaving ? (
-                      <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs text-amber-700 flex items-center gap-1.5">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                    ) : coordSaved ? (
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    ) : null}
-                    {coordSaving ? 'Sauvegarde…' : coordSaved ? 'Enregistré !' : 'Enregistrer'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={markGpsNotApplicable}
-                    disabled={coordSaving}
-                    className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-                  >
-                    Pas de GPS
-                  </button>
-                </div>
-                <p className="mt-2 text-[11px] text-gray-500">
-                  Utilisez « Pas de GPS » pour les exceptions (marché, zone non ponctuelle…).
-                </p>
-                </>
+                      Non renseignées — à compléter à l'étape Carte
+                    </p>
+                    <button
+                      type="button"
+                      onClick={markGpsNotApplicable}
+                      disabled={coordSaving}
+                      className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50 whitespace-nowrap"
+                    >
+                      Pas de GPS
+                    </button>
+                  </div>
                 )}
                 {coordError && (
                   <p className="mt-2 text-xs text-red-600 font-medium">{coordError}</p>

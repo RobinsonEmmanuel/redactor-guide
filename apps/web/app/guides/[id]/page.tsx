@@ -13,6 +13,18 @@ import ParametrageTab from '@/components/guide/ParametrageTab';
 import ExportTab from '@/components/guide/ExportTab';
 import CarteTab from '@/components/guide/CarteTab';
 
+// Source unique de vérité pour l'étape courante du stepper : dérivée de l'onglet actif,
+// plutôt qu'un état séparé qui pouvait diverger (ex: navigation via un bouton hors stepper).
+const TAB_TO_STEP: Record<string, number> = {
+  config: 1,
+  articles: 2,
+  'lieux-et-clusters': 3,
+  'lieux-et-inspirations': 4,
+  'chemin-de-fer': 5,
+  carte: 6,
+  export: 7,
+};
+
 export default function GuideDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -21,9 +33,9 @@ export default function GuideDetailPage() {
   const [guide, setGuide] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'config' | 'articles' | 'lieux-et-clusters' | 'lieux-et-inspirations' | 'chemin-de-fer' | 'carte' | 'export'>('articles');
+  const currentWorkflowStep = TAB_TO_STEP[activeTab];
   const [articlesCount, setArticlesCount] = useState<number>(0);
   const [hasCheckedArticles, setHasCheckedArticles] = useState(false);
-  const [currentWorkflowStep, setCurrentWorkflowStep] = useState<number>(2); // Commence à étape 2 (Articles)
   const [poisSelected, setPoisSelected] = useState(false); // Étape 3: POIs sélectionnés
   const [matchingGenerated, setMatchingGenerated] = useState(false); // Étape 3: Matching fait
   const [inspirationsGenerated, setInspirationsGenerated] = useState(false); // Étape 4: Inspirations générées
@@ -199,9 +211,7 @@ export default function GuideDetailPage() {
     // Vérifier si l'étape précédente est complétée
     const canAccess = stepId === 1 || completedSteps.has(stepId - 1);
     if (!canAccess) return;
-    
-    setCurrentWorkflowStep(stepId);
-    
+
     // Mapper stepId vers l'onglet correspondant
     if (tabId === 'config') setActiveTab('config');
     if (tabId === 'articles') setActiveTab('articles');
@@ -235,7 +245,6 @@ export default function GuideDetailPage() {
   // Callback pour rafraîchir les statuts après actions
   const handleArticlesImported = () => {
     checkArticles();
-    setCurrentWorkflowStep(3); // Passer à l'étape "Lieux"
   };
 
   const handlePoisUpdated = () => {

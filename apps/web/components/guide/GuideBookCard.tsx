@@ -6,21 +6,14 @@ interface GuideBookCardProps {
   guide: {
     _id: string;
     name: string;
-    destinations: string[];
+    destination?: string;
+    destinations?: string[];
     year: number;
+    version?: string;
     status: string;
     image_principale?: string;
   };
 }
-
-const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
-  draft: { bg: 'bg-gray-100', text: 'text-gray-700', dot: 'bg-gray-400' },
-  in_progress: { bg: 'bg-blue-100', text: 'text-blue-700', dot: 'bg-blue-500' },
-  review: { bg: 'bg-yellow-100', text: 'text-yellow-700', dot: 'bg-yellow-500' },
-  ready: { bg: 'bg-green-100', text: 'text-green-700', dot: 'bg-green-500' },
-  published: { bg: 'bg-purple-100', text: 'text-purple-700', dot: 'bg-purple-500' },
-  archived: { bg: 'bg-gray-100', text: 'text-gray-500', dot: 'bg-gray-300' },
-};
 
 const STATUS_LABELS: Record<string, string> = {
   draft: 'Brouillon',
@@ -31,80 +24,165 @@ const STATUS_LABELS: Record<string, string> = {
   archived: 'Archivé',
 };
 
+const STATUS_DOT: Record<string, string> = {
+  draft: 'bg-white/50',
+  in_progress: 'bg-blue-300',
+  review: 'bg-yellow-300',
+  ready: 'bg-green-300',
+  published: 'bg-emerald-300',
+  archived: 'bg-white/25',
+};
+
 export default function GuideBookCard({ guide }: GuideBookCardProps) {
-  const statusConfig = STATUS_COLORS[guide.status] || STATUS_COLORS.draft;
   const statusLabel = STATUS_LABELS[guide.status] || guide.status;
+  const statusDot = STATUS_DOT[guide.status] || STATUS_DOT.draft;
+  const title = (guide.destinations ?? []).filter(Boolean).join(', ') || guide.destination || guide.name;
+  const version = guide.version || '1.0.0';
 
   return (
-    <Link href={`/guides/${guide._id}`}>
-      <div className="group relative cursor-pointer transition-all duration-300 hover:scale-105">
-        {/* Ombre du livre (épaisseur) */}
-        <div className="absolute inset-0 bg-gradient-to-r from-gray-400 to-gray-500 rounded-r-lg transform translate-x-1 translate-y-2 opacity-40 group-hover:opacity-60 transition-opacity" />
-        
-        {/* Tranche du livre */}
-        <div className="absolute left-0 top-0 bottom-0 w-3 bg-gradient-to-r from-gray-300 to-gray-400 rounded-l-sm" />
-        
-        {/* Couverture du livre */}
-        <div 
-          className="relative bg-white rounded-lg overflow-hidden border-2 border-gray-200 group-hover:border-blue-400 transition-colors"
-          style={{
-            aspectRatio: '11/19', // Format livre
-            width: '220px',
-          }}
+    <Link href={`/guides/${guide._id}`} className="block" style={{ width: '200px' }}>
+      <div className="group relative cursor-pointer select-none" style={{ width: '200px' }}>
+
+        {/* Lift wrapper — book + page edges move together on hover */}
+        <div
+          className="relative transition-transform duration-300 ease-out group-hover:-translate-y-2"
         >
-          {/* Image de couverture */}
-          {guide.image_principale ? (
-            <div 
-              className="absolute inset-0 bg-cover bg-center"
-              style={{ backgroundImage: `url(${guide.image_principale})` }}
-            >
-              {/* Overlay gradient pour lisibilité */}
-              <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-black/20 to-black/60" />
-            </div>
-          ) : (
-            <div className="absolute inset-0 bg-gradient-to-br from-blue-500 via-blue-600 to-purple-600" />
-          )}
+          {/* Page edges — right side, outside the cover */}
+          <div
+            className="absolute top-2 bottom-2 rounded-r-[2px] pointer-events-none"
+            style={{
+              right: '-3px',
+              width: '3px',
+              background: 'linear-gradient(to right, #c9cdd4, #dde1e6)',
+            }}
+          />
+          <div
+            className="absolute top-3 bottom-3 rounded-r-[1px] pointer-events-none"
+            style={{
+              right: '-6px',
+              width: '2px',
+              background: '#eaecf0',
+            }}
+          />
 
-          {/* Contenu de la couverture */}
-          <div className="relative h-full flex flex-col justify-between p-4">
-            {/* Badge statut en haut */}
-            <div className="flex justify-end">
-              <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full ${statusConfig.bg} backdrop-blur-sm`}>
-                <div className={`w-2 h-2 rounded-full ${statusConfig.dot}`} />
-                <span className={`text-xs font-medium ${statusConfig.text}`}>
-                  {statusLabel}
-                </span>
+          {/* Cover */}
+          <div
+            className="relative overflow-hidden"
+            style={{
+              aspectRatio: '11 / 17',
+              borderRadius: '2px 5px 5px 2px',
+              boxShadow: '4px 6px 18px rgba(0,0,0,0.22), 1px 2px 5px rgba(0,0,0,0.12)',
+              transition: 'box-shadow 0.3s ease-out',
+            }}
+          >
+            {/* Background — image or fallback */}
+            {guide.image_principale ? (
+              <div
+                className="absolute inset-0 bg-cover bg-center"
+                style={{ backgroundImage: `url(${guide.image_principale})` }}
+              />
+            ) : (
+              <div
+                className="absolute inset-0"
+                style={{
+                  background: 'linear-gradient(160deg, #252d7e 0%, #191E55 40%, #0e1238 100%)',
+                }}
+              />
+            )}
+
+            {/* Gradient overlay for text legibility */}
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background:
+                  'linear-gradient(to bottom, rgba(0,0,0,0.38) 0%, rgba(0,0,0,0.04) 38%, rgba(0,0,0,0.62) 100%)',
+              }}
+            />
+
+            {/* Spine shadow — simulates binding fold on left edge */}
+            <div
+              className="absolute left-0 top-0 bottom-0 pointer-events-none"
+              style={{
+                width: '32px',
+                background:
+                  'linear-gradient(to right, rgba(0,0,0,0.30) 0%, rgba(0,0,0,0.07) 60%, transparent 100%)',
+              }}
+            />
+
+            {/* Right edge highlight */}
+            <div
+              className="absolute right-0 top-0 bottom-0 pointer-events-none"
+              style={{ width: '1px', background: 'rgba(255,255,255,0.12)' }}
+            />
+
+            {/* Content */}
+            <div className="relative z-10 h-full flex flex-col justify-between p-4">
+              {/* Status badge */}
+              <div className="flex justify-end">
+                <div
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full"
+                  style={{
+                    background: 'rgba(255,255,255,0.15)',
+                    backdropFilter: 'blur(6px)',
+                    WebkitBackdropFilter: 'blur(6px)',
+                  }}
+                >
+                  <div className={`w-1.5 h-1.5 rounded-full ${statusDot}`} />
+                  <span className="text-[11px] font-medium text-white leading-none">
+                    {statusLabel}
+                  </span>
+                </div>
+              </div>
+
+              {/* Title block */}
+              <div className="space-y-0.5">
+                <p
+                  className="text-[10px] font-semibold text-white/55 uppercase tracking-[0.14em] truncate"
+                  style={{ textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}
+                >
+                  {guide.name}
+                </p>
+                <h3
+                  className="font-bold text-[17px] text-white leading-tight"
+                  style={{ textShadow: '0 1px 6px rgba(0,0,0,0.5)' }}
+                >
+                  {title}
+                </h3>
+                <div className="flex items-end justify-between pt-1.5">
+                  <span
+                    className="text-sm font-semibold text-white/80"
+                    style={{ textShadow: '0 1px 3px rgba(0,0,0,0.4)' }}
+                  >
+                    {guide.year}
+                  </span>
+                  <span className="text-[10px] text-white/45 font-mono tracking-wide">
+                    v{version}
+                  </span>
+                </div>
               </div>
             </div>
 
-            {/* Titre du guide en bas */}
-            <div className="space-y-1.5">
-              {/* Nom du guide */}
-              <p className="text-xs font-medium text-white/70 tracking-wide uppercase drop-shadow">
-                {guide.name}
-              </p>
-              <h3 className="font-bold text-xl text-white drop-shadow-lg leading-tight">
-                {(guide.destinations ?? []).join(', ') || guide.name}
-              </h3>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-white/90 drop-shadow">
-                  {guide.year}
-                </span>
-                <span className="text-xs text-white/80 bg-black/30 px-2 py-0.5 rounded backdrop-blur-sm">
-                  v{guide.name.split('v')[1] || '1.0.0'}
-                </span>
-              </div>
-            </div>
+            {/* Hover sheen */}
+            <div
+              className="absolute inset-0 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-300"
+              style={{
+                background:
+                  'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 55%)',
+              }}
+            />
           </div>
-
-          {/* Effet de surbrillance au hover */}
-          <div className="absolute inset-0 bg-gradient-to-br from-white/0 via-white/0 to-white/20 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
         </div>
 
-        {/* Nombre de pages (petit badge) */}
-        <div className="absolute -bottom-3 -right-2 bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg z-10">
-          📄 Guide
-        </div>
+        {/* Ground shadow — stays in place while book lifts */}
+        <div
+          className="absolute left-3 right-6 opacity-20 group-hover:opacity-35 transition-opacity duration-300 pointer-events-none"
+          style={{
+            bottom: '-6px',
+            height: '12px',
+            background: 'radial-gradient(ellipse at center, rgba(0,0,0,0.7) 0%, transparent 70%)',
+            filter: 'blur(3px)',
+          }}
+        />
       </div>
     </Link>
   );

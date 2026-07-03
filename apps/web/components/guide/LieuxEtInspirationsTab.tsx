@@ -73,20 +73,19 @@ function DraggablePOI({ poi, inspirationsCount, apiUrl, guideId }: { poi: POI; i
       style={style}
       {...listeners}
       {...attributes}
-      className="bg-white p-2 rounded border border-gray-200 hover:border-blue-400 cursor-move transition-all"
+      className="bg-white p-2 rounded border border-gray-200 hover:border-[#191E55]/40 cursor-move transition-all"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-gray-900 truncate">{poi.nom}</div>
           <div className="text-xs text-gray-500">{poi.type}</div>
           {poi.cluster_name && (
-            <div className="text-xs text-blue-600 mt-0.5">📍 {poi.cluster_name}</div>
+            <div className="text-xs text-[#191E55]/60 mt-0.5">{poi.cluster_name}</div>
           )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           {inspirationsCount > 0 && (
-            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
-              <LightBulbIcon className="w-3 h-3" />
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-[#191E55]/10 text-[#191E55]">
               {inspirationsCount}
             </span>
           )}
@@ -97,7 +96,7 @@ function DraggablePOI({ poi, inspirationsCount, apiUrl, guideId }: { poi: POI; i
               onClick={handleOpenArticle}
               disabled={openingArticle}
               title="Ouvrir l'article source"
-              className="text-gray-400 hover:text-blue-600 disabled:opacity-40 transition-colors"
+              className="text-gray-400 hover:text-[#191E55] disabled:opacity-40 transition-colors"
             >
               <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
             </button>
@@ -134,7 +133,7 @@ function DroppableInspiration({
     <div
       ref={setNodeRef}
       className={`bg-white border rounded overflow-hidden transition-all ${
-        isOver ? 'ring-2 ring-purple-500 border-purple-500' : 'border-gray-200'
+        isOver ? 'ring-2 ring-[#191E55] border-[#191E55]' : 'border-gray-200'
       }`}
     >
       <div className="w-full px-2 py-2 flex items-center gap-1 hover:bg-gray-50 transition-colors">
@@ -143,7 +142,7 @@ function DroppableInspiration({
           onClick={onToggle}
           className="flex items-center gap-2 flex-1 min-w-0 text-left rounded px-1 py-0.5 -mx-1"
         >
-          <LightBulbIcon className="w-4 h-4 text-purple-600 flex-shrink-0" />
+          <LightBulbIcon className="w-4 h-4 text-[#191E55]/40 flex-shrink-0" />
           <div className="text-left flex-1 min-w-0">
             <div className="text-sm font-semibold text-gray-900 truncate">{inspiration.titre}</div>
             <div className="text-xs text-gray-500 truncate">{inspiration.angle_editorial}</div>
@@ -160,7 +159,7 @@ function DroppableInspiration({
               onEdit();
             }}
             title="Modifier titre et angle éditorial"
-            className="p-1.5 rounded text-gray-500 hover:text-purple-700 hover:bg-purple-50 transition-colors"
+            className="p-1.5 rounded text-gray-500 hover:text-[#191E55] hover:bg-[#191E55]/5 transition-colors"
           >
             <PencilSquareIcon className="w-4 h-4" />
           </button>
@@ -500,7 +499,7 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
             <button
               onClick={generateInspirations}
               disabled={generating}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#191E55] text-white rounded-md hover:bg-[#151a47] disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
             >
               {generating ? (
                 <>
@@ -539,7 +538,7 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
                   placeholder="Rechercher..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-[#191E55]/40 focus:border-transparent"
                 />
               </div>
             </div>
@@ -585,7 +584,7 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
                     setInspirationForm({ titre: '', angle_editorial: '' });
                     setShowInspirationModal(true);
                   }}
-                  className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 text-xs bg-[#191E55] text-white rounded hover:bg-[#151a47] transition-colors"
                 >
                   <PlusIcon className="w-3.5 h-3.5" />
                   Ajouter
@@ -622,7 +621,7 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
       {/* Drag Overlay */}
       <DragOverlay>
         {activePoi ? (
-          <div className="bg-white p-2 rounded border-2 border-purple-500 shadow-lg">
+          <div className="bg-white p-2 rounded border-2 border-[#191E55] shadow-lg">
             <div className="text-sm font-medium text-gray-900">{activePoi.nom}</div>
             <div className="text-xs text-gray-500">{activePoi.type}</div>
           </div>
@@ -679,7 +678,7 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
                 type="button"
                 onClick={inspirationModalMode === 'edit' ? updateInspiration : createInspiration}
                 disabled={!inspirationForm.titre.trim()}
-                className="flex-1 px-3 py-1.5 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+                className="flex-1 px-3 py-1.5 bg-[#191E55] text-white rounded hover:bg-[#151a47] disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
               >
                 {inspirationModalMode === 'edit' ? 'Enregistrer' : 'Créer'}
               </button>

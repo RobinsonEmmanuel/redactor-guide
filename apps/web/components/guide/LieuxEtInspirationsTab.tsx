@@ -80,7 +80,10 @@ function DraggablePOI({ poi, inspirationsCount, apiUrl, guideId }: { poi: POI; i
           <div className="text-sm font-medium text-gray-900 truncate">{poi.nom}</div>
           <div className="text-xs text-gray-500">{poi.type}</div>
           {poi.cluster_name && (
-            <div className="text-xs text-[#191E55]/60 mt-0.5">{poi.cluster_name}</div>
+            <div className="flex items-center gap-0.5 text-xs text-[#191E55]/60 mt-0.5">
+              <MapPinIcon className="w-3 h-3 flex-shrink-0" />
+              {poi.cluster_name}
+            </div>
           )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">

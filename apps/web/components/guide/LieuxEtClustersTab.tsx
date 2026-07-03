@@ -153,14 +153,17 @@ function DraggablePOI({ poi, apiUrl, guideId, onValidate }: { poi: POI; apiUrl: 
       style={style}
       {...listeners}
       {...attributes}
-      className="bg-white p-2 rounded border border-gray-200 hover:border-blue-400 cursor-move transition-all"
+      className="bg-white p-2 rounded border border-gray-200 hover:border-[#191E55]/40 cursor-move transition-all"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-gray-900 truncate">{poi.nom}</div>
           <div className="text-xs text-gray-500">{poi.type}</div>
           {poi.cluster_name && (
-            <div className="text-xs text-blue-600 mt-0.5">📍 {poi.cluster_name}</div>
+            <div className="flex items-center gap-0.5 text-xs text-[#191E55]/60 mt-0.5">
+              <MapPinIcon className="w-3 h-3 flex-shrink-0" />
+              {poi.cluster_name}
+            </div>
           )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
@@ -302,10 +305,8 @@ function DroppableCluster({
             }`}
           >
             <div className="flex items-center gap-2">
-              {isUnassigned ? (
-                <XCircleIcon className="w-4 h-4 text-red-600" />
-              ) : (
-                <MapPinIcon className="w-4 h-4 text-blue-600" />
+              {isUnassigned && (
+                <XCircleIcon className="w-4 h-4 text-red-500" />
               )}
               <span className="text-sm font-semibold text-gray-900">{clusterName}</span>
               <span className={`px-1.5 py-0.5 text-xs rounded-full ${
@@ -326,7 +327,7 @@ function DroppableCluster({
         {!isUnassigned && onRename && !editing && (
           <button
             onClick={startEdit}
-            className="px-2 py-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors border-l border-gray-200"
+            className="px-2 py-2 text-gray-400 hover:text-[#191E55] hover:bg-[#191E55]/5 transition-colors border-l border-gray-200"
             title="Renommer le cluster"
           >
             <PencilIcon className="w-4 h-4" />
@@ -1642,7 +1643,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             <button
               onClick={generatePoisFromArticles}
               disabled={generating || deduplicating}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
             >
               {generating ? (
                 <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Identification...</>
@@ -1657,9 +1658,9 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             {jobStatus === 'dedup_complete' && dedupPois.length > 0 && !generating && !deduplicating && (
               <button
                 onClick={() => { setValidationPois(dedupPois); setExcludedPoiIds(new Set()); setShowValidationModal(true); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 text-xs font-medium transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#191E55] text-white rounded-md hover:bg-[#151a47] text-xs font-medium transition-colors"
               >
-                ✅ Voir la sélection ({dedupPois.length})
+                Voir la sélection ({dedupPois.length})
               </button>
             )}
 
@@ -1670,7 +1671,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             <button
               onClick={launchMatching}
               disabled={matching || pois.length === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#191E55] text-white rounded-md hover:bg-[#151a47] disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
             >
               {matching ? (
                 <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Ventilation...</>
@@ -1715,7 +1716,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                 <div className="relative">
                   <button
                     onClick={() => setShowAddMenu(!showAddMenu)}
-                    className="flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                    className="flex items-center gap-1 px-2 py-1 text-xs bg-[#191E55] text-white rounded hover:bg-[#151a47] transition-colors"
                   >
                     <PlusIcon className="w-3.5 h-3.5" />
                     Ajouter
@@ -1835,7 +1836,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                 
                 <button
                   onClick={() => setShowClusterModal(true)}
-                  className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 text-xs bg-[#191E55] text-white rounded hover:bg-[#151a47] transition-colors"
                 >
                   <PlusIcon className="w-3.5 h-3.5" />
                   Ajouter

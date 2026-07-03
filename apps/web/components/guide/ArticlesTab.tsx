@@ -477,7 +477,7 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
                 {languages.map((lang: string) => (
                   <th key={lang} className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase">{lang.toUpperCase()}</th>
                 ))}
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -488,7 +488,7 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-xs text-gray-400 font-mono">{article.slug}</span>
                       {article.categories?.map(cat => (
-                        <span key={cat} className="px-1.5 py-0.5 text-xs bg-blue-50 text-blue-600 rounded">{cat}</span>
+                        <span key={cat} className="px-1.5 py-0.5 text-xs bg-[#191E55]/10 text-[#191E55]/60 rounded">{cat}</span>
                       ))}
                     </div>
                   </td>
@@ -503,8 +503,8 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
                       )}
                     </td>
                   ))}
-                  <td className="px-6 py-4 text-right">
-                    <button onClick={() => router.push(`/guides/${guideId}/articles/${article._id}`)} className="text-blue-600 hover:text-blue-800">
+                  <td className="px-6 py-4 text-center">
+                    <button onClick={() => router.push(`/guides/${guideId}/articles/${article._id}`)} className="text-orange-500 hover:text-orange-500/60 inline-flex justify-center transition-colors">
                       <EyeIcon className="h-5 w-5" />
                     </button>
                   </td>

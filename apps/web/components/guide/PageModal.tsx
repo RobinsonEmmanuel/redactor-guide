@@ -626,7 +626,7 @@ export default function PageModal({ page, onClose, onSave, apiUrl, guideId }: Pa
             </button>
             <button
               type="submit"
-              className="flex-1 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="flex-1 px-6 py-2 bg-[#191E55] text-white rounded-lg hover:bg-[#191E55]/60 transition-colors"
             >
               {page ? 'Mettre à jour' : 'Créer la page'}
             </button>

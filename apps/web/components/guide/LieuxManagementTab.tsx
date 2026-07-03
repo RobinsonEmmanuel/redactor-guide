@@ -331,7 +331,7 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
             <button
               onClick={generatePoisFromArticles}
               disabled={generating}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-500/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {generating ? (
                 <>
@@ -442,7 +442,7 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
           </div>
           <button
             onClick={() => setShowManualModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-[#191E55] text-white rounded-lg hover:bg-[#191E55]/60 transition-colors"
           >
             <PlusIcon className="w-5 h-5" />
             Créer un lieu manuellement
@@ -462,7 +462,7 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
           <button
             onClick={() => (showLibrary ? setShowLibrary(false) : loadLibrary())}
             disabled={loadingLibrary}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-[#191E55] text-white rounded-lg hover:bg-[#191E55]/60 disabled:opacity-50 transition-colors"
           >
             {loadingLibrary ? (
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -607,7 +607,7 @@ export default function LieuxManagementTab({ guideId, apiUrl, guide }: LieuxMana
               </button>
               <button
                 onClick={addManualPoi}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                className="flex-1 px-4 py-2 bg-[#191E55] text-white rounded-lg hover:bg-[#191E55]/60 transition-colors"
               >
                 Créer
               </button>

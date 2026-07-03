@@ -1258,7 +1258,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                 <button
                   onClick={loadTemplateProposals}
                   disabled={loadingTemplateProposals}
-                  className="flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-orange-500 to-orange-600 text-white text-xs font-medium rounded hover:from-orange-600 hover:to-orange-700 disabled:from-gray-300 disabled:to-gray-300 disabled:cursor-not-allowed transition-colors shadow-sm"
+                  className="flex items-center gap-1 px-2 py-1 bg-[#191E55] text-white text-xs font-medium rounded hover:bg-[#191E55]/60 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors shadow-sm"
                 >
                   <ArrowPathIcon className={`h-3 w-3 ${loadingTemplateProposals ? 'animate-spin' : ''}`} />
                   {loadingTemplateProposals ? '…' : 'Actualiser'}
@@ -1734,7 +1734,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                 <button
                   onClick={handleGenerateWithUrl}
                   disabled={!noUrlInput.trim() || noUrlSaving}
-                  className="px-4 py-2 bg-[#191E55] text-white text-sm font-medium rounded-lg hover:bg-[#151a47] transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed whitespace-nowrap"
+                  className="px-4 py-2 bg-[#191E55] text-white text-sm font-medium rounded-lg hover:bg-[#191E55]/60 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed whitespace-nowrap"
                 >
                   {noUrlSaving ? 'Enregistrement…' : 'Générer'}
                 </button>
@@ -1755,7 +1755,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
               </p>
               <button
                 onClick={handleGenerateWithLlm}
-                className="w-full px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg transition-colors"
+                className="w-full px-4 py-2 bg-orange-500 hover:bg-orange-500/60 text-white text-sm font-medium rounded-lg transition-colors"
               >
                 Générer depuis la base de connaissance
               </button>
@@ -1815,7 +1815,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
               <button
                 onClick={handleIngestAndGenerate}
                 disabled={articleIngestLoading}
-                className="w-full px-4 py-2 bg-[#191E55] hover:bg-[#151a47] text-white text-sm font-medium rounded-lg transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="w-full px-4 py-2 bg-[#191E55] hover:bg-[#191E55]/60 text-white text-sm font-medium rounded-lg transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {articleIngestLoading ? (
                   <>
@@ -1838,7 +1838,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
               <button
                 onClick={handleGenerateFromNotInDbWithLlm}
                 disabled={articleIngestLoading}
-                className="w-full px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                className="w-full px-4 py-2 bg-orange-500 hover:bg-orange-500/60 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
               >
                 Générer depuis la base de connaissance
               </button>
@@ -2258,7 +2258,7 @@ function AddPagesModal({
             </button>
             <button
               type="submit"
-              className="flex-1 px-6 py-2 bg-[#191E55] text-white rounded-lg hover:bg-[#151a47] transition-colors flex items-center justify-center gap-2"
+              className="flex-1 px-6 py-2 bg-[#191E55] text-white rounded-lg hover:bg-[#191E55]/60 transition-colors flex items-center justify-center gap-2"
             >
               <PlusIcon className="w-4 h-4" />
               Ajouter {count} case{count > 1 ? 's' : ''}

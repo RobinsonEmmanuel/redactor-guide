@@ -301,7 +301,7 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
             className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-all shadow-sm ${
               saved
                 ? 'bg-green-500 text-white'
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
+                : 'bg-[#191E55] hover:bg-[#191E55]/60 text-white'
             }`}
           >
             {saving ? (

@@ -339,7 +339,7 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
             <button
               onClick={launchIngestion}
               disabled={ingesting}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-500/60 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
             >
               <ArrowPathIcon className={`h-5 w-5 ${ingesting ? 'animate-spin' : ''}`} />
               {ingesting ? 'Sync en cours...' : pagination.total === 0 ? 'Récupérer les articles' : 'Sync WordPress'}
@@ -368,7 +368,7 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
                   <button
                     onClick={saveCategories}
                     disabled={savingCategories}
-                    className="ml-2 px-3 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                    className="ml-2 px-3 py-1 text-xs bg-orange-500 text-white rounded-lg hover:bg-orange-500/60 disabled:opacity-50"
                   >
                     {savingCategories ? 'Sauvegarde...' : 'Appliquer'}
                   </button>
@@ -437,7 +437,7 @@ export default function ArticlesTab({ guideId, guide, apiUrl, onArticlesImported
             <button
               type="submit"
               disabled={singleLoading || !singleUrl.trim()}
-              className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+              className="flex items-center gap-1.5 px-4 py-2 bg-[#191E55] text-white text-sm rounded-lg hover:bg-[#191E55]/60 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
             >
               <PlusIcon className={`h-4 w-4 ${singleLoading ? 'animate-spin' : ''}`} />
               {singleLoading ? 'Ajout...' : 'Ajouter'}

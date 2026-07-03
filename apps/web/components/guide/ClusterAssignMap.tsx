@@ -277,7 +277,7 @@ export default function ClusterAssignMap({ pois, clusters, apiUrl, guideId, onAs
           <button
             onClick={handleAssign}
             disabled={saving}
-            className="px-4 py-1.5 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-4 py-1.5 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-500/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {saving ? 'Enregistrement...' : 'Valider'}
           </button>

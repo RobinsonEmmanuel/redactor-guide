@@ -1218,7 +1218,7 @@ export default function ContentEditorModal({
                                     setCurrentImageField(null);
                                     setShowImageSelector(true);
                                   }}
-                                  className="px-2 py-1.5 bg-[#191E55] text-white rounded-md hover:bg-[#151a47] text-xs flex items-center gap-1 whitespace-nowrap shrink-0"
+                                  className="px-2 py-1.5 bg-[#191E55] text-white rounded-md hover:bg-[#191E55]/60 text-xs flex items-center gap-1 whitespace-nowrap shrink-0"
                                   title="Choisir parmi les images analysées"
                                 >
                                   <PhotoIcon className="h-3.5 w-3.5" />
@@ -1717,14 +1717,14 @@ export default function ContentEditorModal({
           </button>
           <button
             onClick={handleSubmit}
-            className="flex-1 px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-sm font-medium"
+            className="flex-1 px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-500/60 transition-colors text-sm font-medium"
           >
             Enregistrer le contenu
           </button>
           <button
             type="button"
             onClick={handleValidatePage}
-            className="flex-1 px-6 py-2 bg-[#191E55] text-white rounded-lg hover:bg-[#151a47] transition-colors text-sm font-medium"
+            className="flex-1 px-6 py-2 bg-[#191E55] text-white rounded-lg hover:bg-[#191E55]/60 transition-colors text-sm font-medium"
             title="Enregistrer le contenu et marquer la page comme validée"
           >
             Valider la page

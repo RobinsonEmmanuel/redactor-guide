@@ -506,7 +506,7 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
             <button
               onClick={generateInspirations}
               disabled={generating}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-500/60 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
             >
               {generating ? (
                 <>
@@ -607,7 +607,7 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
                     setInspirationForm({ titre: '', angle_editorial: '' });
                     setShowInspirationModal(true);
                   }}
-                  className="flex items-center gap-1 px-2 py-1 text-xs bg-[#191E55] text-white rounded hover:bg-[#151a47] transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 text-xs bg-[#191E55] text-white rounded hover:bg-[#191E55]/60 transition-colors"
                 >
                   <PlusIcon className="w-3.5 h-3.5" />
                   Ajouter
@@ -701,7 +701,7 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
                 type="button"
                 onClick={inspirationModalMode === 'edit' ? updateInspiration : createInspiration}
                 disabled={!inspirationForm.titre.trim()}
-                className="flex-1 px-3 py-1.5 bg-[#191E55] text-white rounded hover:bg-[#151a47] disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+                className="flex-1 px-3 py-1.5 bg-[#191E55] text-white rounded hover:bg-[#191E55]/60 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
               >
                 {inspirationModalMode === 'edit' ? 'Enregistrer' : 'Créer'}
               </button>

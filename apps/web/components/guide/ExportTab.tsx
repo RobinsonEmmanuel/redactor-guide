@@ -510,7 +510,7 @@ const [overflowsByLang, setOverflowsByLang] = useState<Record<string, OverflowWa
                 type="button"
                 onClick={() => downloadZip(fr.code)}
                 disabled={zipBusy}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium text-sm rounded-xl transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-orange-500 hover:bg-orange-500/60 disabled:opacity-50 text-white font-medium text-sm rounded-xl transition-colors"
               >
                 {zipBusy
                   ? <ArrowPathIcon className="w-5 h-5 animate-spin" />
@@ -602,7 +602,7 @@ const [overflowsByLang, setOverflowsByLang] = useState<Record<string, OverflowWa
                       onClick={() => downloadPackage(lang.code)}
                       disabled={!!downloadingPackage[lang.code] || langOverflows.length > 0}
                       title={langOverflows.length > 0 ? `Corrigez les ${langOverflows.length} dépassement(s) de calibre avant de télécharger` : undefined}
-                      className="flex items-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium rounded-lg transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-2 bg-orange-500 hover:bg-orange-500/60 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium rounded-lg transition-colors"
                     >
                       {downloadingPackage[lang.code]
                         ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
@@ -855,7 +855,7 @@ function OverflowCorrectionModal({
               <button
                 onClick={saveAllConform}
                 disabled={savingAll}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-orange-500 hover:bg-orange-500/60 disabled:opacity-50 text-white transition-colors"
               >
                 {savingAll
                   ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
@@ -938,7 +938,7 @@ function OverflowCorrectionModal({
                     <button
                       onClick={() => saveField(w)}
                       disabled={saving[k] || (over)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 bg-blue-600 hover:bg-blue-700 text-white disabled:cursor-not-allowed"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 bg-[#191E55] hover:bg-[#191E55]/60 text-white disabled:cursor-not-allowed"
                     >
                       {saving[k] ? (
                         <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />

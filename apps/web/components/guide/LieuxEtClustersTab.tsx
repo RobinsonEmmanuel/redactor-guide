@@ -1643,7 +1643,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             <button
               onClick={generatePoisFromArticles}
               disabled={generating || deduplicating}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-500/60 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
             >
               {generating ? (
                 <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Identification...</>
@@ -1658,7 +1658,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             {jobStatus === 'dedup_complete' && dedupPois.length > 0 && !generating && !deduplicating && (
               <button
                 onClick={() => { setValidationPois(dedupPois); setExcludedPoiIds(new Set()); setShowValidationModal(true); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#191E55] text-white rounded-md hover:bg-[#151a47] text-xs font-medium transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#191E55] text-white rounded-md hover:bg-[#191E55]/60 text-xs font-medium transition-colors"
               >
                 Voir la sélection ({dedupPois.length})
               </button>
@@ -1671,7 +1671,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             <button
               onClick={launchMatching}
               disabled={matching || pois.length === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#191E55] text-white rounded-md hover:bg-[#151a47] disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#191E55] text-white rounded-md hover:bg-[#191E55]/60 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
             >
               {matching ? (
                 <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Ventilation...</>
@@ -1687,7 +1687,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                 <button
                   onClick={geocodeMissingPois}
                   disabled={geocodingPois}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-500/60 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
                 >
                   {geocodingPois ? (
                     <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Géolocalisation...</>
@@ -1716,7 +1716,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                 <div className="relative">
                   <button
                     onClick={() => setShowAddMenu(!showAddMenu)}
-                    className="flex items-center gap-1 px-2 py-1 text-xs bg-[#191E55] text-white rounded hover:bg-[#151a47] transition-colors"
+                    className="flex items-center gap-1 px-2 py-1 text-xs bg-[#191E55] text-white rounded hover:bg-[#191E55]/60 transition-colors"
                   >
                     <PlusIcon className="w-3.5 h-3.5" />
                     Ajouter
@@ -1836,7 +1836,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                 
                 <button
                   onClick={() => setShowClusterModal(true)}
-                  className="flex items-center gap-1 px-2 py-1 text-xs bg-[#191E55] text-white rounded hover:bg-[#151a47] transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 text-xs bg-[#191E55] text-white rounded hover:bg-[#191E55]/60 transition-colors"
                 >
                   <PlusIcon className="w-3.5 h-3.5" />
                   Ajouter
@@ -2019,7 +2019,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               <button
                 onClick={editingPoi ? updatePoi : createManualPOI}
                 disabled={!manualForm.nom}
-                className="flex-1 px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+                className="flex-1 px-3 py-1.5 bg-[#191E55] text-white rounded hover:bg-[#191E55]/60 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
               >
                 {editingPoi ? 'Enregistrer' : 'Créer'}
               </button>
@@ -2097,7 +2097,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                             </div>
                             <button
                               onClick={() => addFromLibrary(poi)}
-                              className="ml-2 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                              className="ml-2 px-2 py-1 text-xs bg-[#191E55] text-white rounded hover:bg-[#191E55]/60 transition-colors"
                             >
                               Ajouter
                             </button>
@@ -2165,7 +2165,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               <button
                 onClick={createCluster}
                 disabled={!clusterForm.cluster_name.trim()}
-                className="flex-1 px-3 py-1.5 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+                className="flex-1 px-3 py-1.5 bg-[#191E55] text-white rounded hover:bg-[#191E55]/60 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
               >
                 Créer
               </button>
@@ -2329,7 +2329,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                 <button
                   onClick={() => launchDedup()}
                   disabled={deduplicating}
-                  className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="flex items-center gap-1.5 px-4 py-1.5 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-500/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {deduplicating ? (
                     <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Dédoublonnage...</>
@@ -2346,7 +2346,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                     setShowValidationModal(true);
                     setShowPreviewModal(false);
                   }}
-                  className="flex items-center gap-1.5 px-4 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
+                  className="flex items-center gap-1.5 px-4 py-1.5 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-500/60 transition-colors"
                 >
                   ✅ Valider la liste ({dedupPois.length} POIs)
                 </button>
@@ -2633,7 +2633,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                 <button
                   onClick={() => confirmSave(activePois)}
                   disabled={confirming || activePois.length === 0}
-                  className="flex items-center gap-2 px-5 py-2 bg-orange-500 text-white text-sm font-semibold rounded-lg hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                  className="flex items-center gap-2 px-5 py-2 bg-orange-500 text-white text-sm font-semibold rounded-lg hover:bg-orange-500/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
                 >
                   {confirming ? (
                     <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Sauvegarde…</>

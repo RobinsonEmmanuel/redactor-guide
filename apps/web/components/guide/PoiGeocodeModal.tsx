@@ -247,7 +247,7 @@ export default function PoiGeocodeModal({
                         type="button"
                         onClick={() => saveCoordinates(f)}
                         disabled={saving[f.page_id] || !entry.lat.trim() || !entry.lon.trim()}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 bg-blue-600 hover:bg-blue-700 text-white"
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 bg-[#191E55] hover:bg-[#191E55]/60 text-white"
                       >
                         {saving[f.page_id] ? (
                           <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
@@ -277,7 +277,7 @@ export default function PoiGeocodeModal({
             <button
               onClick={handleDownload}
               disabled={!allDone || downloading}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-orange-500 hover:bg-orange-500/60 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {downloading ? (
                 <ArrowPathIcon className="w-4 h-4 animate-spin" />

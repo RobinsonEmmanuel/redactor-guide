@@ -805,7 +805,7 @@ export default function ImageSelectorModal({
                   <button
                     onClick={handleUpload}
                     disabled={!uploadFile || uploadStep !== 'select'}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-orange-500 text-white rounded-lg hover:bg-orange-500/60 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium"
                   >
                     {uploadStep === 'uploading' && (
                       <><ArrowPathIcon className="h-4 w-4 animate-spin" /> Upload sur Cloudinary…</>
@@ -907,7 +907,7 @@ export default function ImageSelectorModal({
                         <button
                           onClick={handleTagPoi}
                           disabled={taggingPoi}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:bg-gray-300 text-sm font-medium"
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-[#191E55] text-white rounded-lg hover:bg-[#191E55]/60 transition-colors disabled:bg-gray-300 text-sm font-medium"
                         >
                           {taggingPoi
                             ? <><ArrowPathIcon className="h-4 w-4 animate-spin" /> Association…</>
@@ -949,7 +949,7 @@ export default function ImageSelectorModal({
                 <button
                   type="submit"
                   disabled={!driveSearchInput.trim() || driveSearchLoading}
-                  className="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed whitespace-nowrap"
+                  className="px-4 py-2 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-500/60 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed whitespace-nowrap"
                 >
                   {driveSearchLoading ? <ArrowPathIcon className="h-4 w-4 animate-spin" /> : 'Rechercher'}
                 </button>
@@ -993,7 +993,7 @@ export default function ImageSelectorModal({
                               <button
                                 onClick={() => handleImportDriveFile(file)}
                                 disabled={isImporting || importingFileId !== null}
-                                className="w-full flex items-center justify-center gap-1.5 px-2 py-1 bg-purple-600 text-white rounded text-xs hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                                className="w-full flex items-center justify-center gap-1.5 px-2 py-1 bg-orange-500 text-white rounded text-xs hover:bg-orange-500/60 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
                               >
                                 {isImporting ? <><ArrowPathIcon className="h-3 w-3 animate-spin" /> Import…</> : <><ArrowDownTrayIcon className="h-3 w-3" /> Importer</>}
                               </button>
@@ -1049,7 +1049,7 @@ export default function ImageSelectorModal({
                     <p className="text-sm text-gray-500">{driveError}</p>
                     <button
                       onClick={() => loadDriveFolder(driveContents?.current_folder_id)}
-                      className="mt-4 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 transition-colors"
+                      className="mt-4 px-4 py-2 bg-orange-500 text-white rounded-lg text-sm hover:bg-orange-500/60 transition-colors"
                     >
                       Réessayer
                     </button>
@@ -1130,7 +1130,7 @@ export default function ImageSelectorModal({
                                 <button
                                   onClick={() => handleImportDriveFile(file)}
                                   disabled={isImporting || importingFileId !== null}
-                                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1 bg-purple-600 text-white rounded text-xs hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1 bg-orange-500 text-white rounded text-xs hover:bg-orange-500/60 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
                                 >
                                   {isImporting ? (
                                     <><ArrowPathIcon className="h-3 w-3 animate-spin" /> Import…</>
@@ -1324,7 +1324,7 @@ export default function ImageSelectorModal({
           <button
             onClick={handleSelect}
             disabled={!selectedImage}
-            className="flex-1 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+            className="flex-1 px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-500/60 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
           >
             {selectedImage === currentImageUrl ? 'Conserver cette image' : 'Sélectionner'}
           </button>
@@ -1358,7 +1358,7 @@ export default function ImageSelectorModal({
               <button
                 onClick={() => { handleImportDriveFile(lightboxDriveFile); setLightboxUrl(null); }}
                 disabled={importingFileId !== null}
-                className="px-6 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium disabled:bg-gray-400"
+                className="px-6 py-2.5 bg-orange-500 text-white rounded-lg hover:bg-orange-500/60 transition-colors font-medium disabled:bg-gray-400"
               >
                 {importingFileId === lightboxDriveFile.id ? 'Import en cours…' : 'Importer cette image'}
               </button>
@@ -1366,7 +1366,7 @@ export default function ImageSelectorModal({
               /* Image analysée : bouton Sélectionner */
               <button
                 onClick={() => { setSelectedImage(lightboxUrl); setLightboxUrl(null); }}
-                className="px-6 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
+                className="px-6 py-2.5 bg-orange-500 text-white rounded-lg hover:bg-orange-500/60 transition-colors font-medium"
               >
                 ✓ Sélectionner cette image
               </button>

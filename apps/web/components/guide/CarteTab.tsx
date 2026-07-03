@@ -941,7 +941,7 @@ export default function CarteTab({
             <button
               type="button"
               onClick={() => setImageSelector({ pageId: page._id, lang })}
-              className="inline-flex items-center gap-1.5 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-xs w-fit transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-[#191E55] text-white rounded-lg hover:bg-[#191E55]/60 text-xs w-fit transition-colors"
             >
               <PhotoIcon className="h-4 w-4" />
               Choisir une image
@@ -1270,7 +1270,7 @@ export default function CarteTab({
                       type="button"
                       onClick={() => savePoiCoordinates(selectedPoi)}
                       disabled={savingCoordinates[selectedPoi.page_id]}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-[#191E55] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#191E55]/60 disabled:opacity-50"
                     >
                       {savingCoordinates[selectedPoi.page_id] ? (
                         <ArrowPathIcon className="h-3.5 w-3.5 animate-spin" />

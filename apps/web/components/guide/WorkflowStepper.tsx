@@ -79,8 +79,8 @@ const WORKFLOW_STEPS: Step[] = [
 
 export default function WorkflowStepper({ currentStep, completedSteps, onStepClick }: WorkflowStepperProps) {
   const getStepStatus = (stepId: number): 'completed' | 'current' | 'upcoming' | 'locked' => {
-    if (completedSteps.has(stepId)) return 'completed';
     if (stepId === currentStep) return 'current';
+    if (completedSteps.has(stepId)) return 'completed';
     if (stepId < currentStep) return 'completed';
 
     // Vérifier si l'étape précédente est complétée

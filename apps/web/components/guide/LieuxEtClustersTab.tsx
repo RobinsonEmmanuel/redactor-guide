@@ -69,12 +69,11 @@ interface LieuxEtClustersTabProps {
 }
 
 // Composant POI draggable
-function DraggablePOI({ poi, apiUrl, guideId, onValidate }: { poi: POI; apiUrl: string; guideId: string; onValidate: (poiId: string) => void }) {
+function DraggablePOI({ poi, apiUrl, guideId }: { poi: POI; apiUrl: string; guideId: string }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: poi.poi_id,
   });
   const [openingArticle, setOpeningArticle] = useState(false);
-  const [validating, setValidating] = useState(false);
 
   const handleOpenArticle = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -91,19 +90,6 @@ function DraggablePOI({ poi, apiUrl, guideId, onValidate }: { poi: POI; apiUrl: 
         if (url) window.open(url, '_blank', 'noopener');
       }
     } finally { setOpeningArticle(false); }
-  };
-
-  const handleValidate = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    if (!poi.cluster_id || validating) return;
-    setValidating(true);
-    try {
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/pois/${poi.poi_id}/validate`, {
-        method: 'PATCH', credentials: 'include',
-      });
-      if (res.ok) onValidate(poi.poi_id);
-    } finally { setValidating(false); }
   };
 
   const style = transform ? {
@@ -135,10 +121,24 @@ function DraggablePOI({ poi, apiUrl, guideId, onValidate }: { poi: POI; apiUrl: 
       {...attributes}
       className="bg-white p-2 rounded border border-gray-200 hover:border-[#191E55]/40 cursor-move transition-all"
     >
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-center justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-gray-900 truncate">{poi.nom}</div>
-          <div className="text-xs text-gray-500">{poi.type}</div>
+          <div className="flex items-center gap-1">
+            <span className="text-sm font-medium text-gray-900 truncate">{poi.nom}</span>
+            {poi.url_source && (
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={handleOpenArticle}
+                disabled={openingArticle}
+                title="Ouvrir l'article source"
+                className="text-gray-300 hover:text-[#191E55] disabled:opacity-40 transition-colors flex-shrink-0"
+              >
+                <ArrowTopRightOnSquareIcon className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+          <div className="text-xs text-gray-400">{poi.type}</div>
           {poi.cluster_name && (
             <div className="flex items-center gap-0.5 text-xs text-[#191E55]/60 mt-0.5">
               <MapPinIcon className="w-3 h-3 flex-shrink-0" />
@@ -146,32 +146,8 @@ function DraggablePOI({ poi, apiUrl, guideId, onValidate }: { poi: POI; apiUrl: 
             </div>
           )}
         </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
+        <div className="flex-shrink-0">
           {getStatusBadge()}
-          {poi.cluster_id && !poi.validated && (
-            <button
-              type="button"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={handleValidate}
-              disabled={validating}
-              title="Valider l'affectation (→ 100%)"
-              className="text-gray-300 hover:text-green-600 disabled:opacity-40 transition-colors"
-            >
-              <CheckCircleIcon className="w-3.5 h-3.5" />
-            </button>
-          )}
-          {poi.url_source && (
-            <button
-              type="button"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={handleOpenArticle}
-              disabled={openingArticle}
-              title="Ouvrir l'article source"
-              className="text-gray-400 hover:text-blue-600 disabled:opacity-40 transition-colors"
-            >
-              <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
-            </button>
-          )}
         </div>
       </div>
     </div>
@@ -652,13 +628,6 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   const [searchTerm, setSearchTerm] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'unassigned' | 'validated' | 'high' | 'medium' | 'low' | string>('all');
 
-  const handleValidatePoi = (poiId: string) => {
-    setPois(prev => prev.map(p => p.poi_id === poiId
-      ? { ...p, validated: true, confidence: 'high', score: 1.0, matched_automatically: false }
-      : p
-    ));
-  };
-  
   // États matching
   const [clustersMetadata, setClustersMetadata] = useState<ClusterMetadata[]>([]);
   const [matching, setMatching] = useState(false);
@@ -1803,7 +1772,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               )}
 
               {!loading && filteredPois.map((poi) => (
-                <DraggablePOI key={poi.poi_id} poi={poi} apiUrl={apiUrl} guideId={guideId} onValidate={handleValidatePoi} />
+                <DraggablePOI key={poi.poi_id} poi={poi} apiUrl={apiUrl} guideId={guideId} />
               ))}
             </div>
           </div>

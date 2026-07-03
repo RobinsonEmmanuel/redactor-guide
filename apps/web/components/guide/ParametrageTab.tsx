@@ -298,11 +298,7 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
           <button
             type="submit"
             disabled={saving}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-all shadow-sm ${
-              saved
-                ? 'bg-green-500 text-white'
-                : 'bg-[#191E55] hover:bg-[#191E55]/60 text-white'
-            }`}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-colors shadow-sm bg-[#191E55] hover:bg-[#191E55]/60 text-white"
           >
             {saving ? (
               <><ArrowPathIcon className="w-4 h-4 animate-spin" /> Enregistrement...</>

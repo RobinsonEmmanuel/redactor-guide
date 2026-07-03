@@ -2,7 +2,7 @@
 
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { PencilIcon, TrashIcon, Bars3Icon, DocumentTextIcon, XMarkIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { TrashIcon, DocumentTextIcon, XMarkIcon, ArrowPathIcon, MapPinIcon, RectangleStackIcon, LightBulbIcon, SparklesIcon } from '@heroicons/react/24/outline';
 
 interface Page {
   _id: string;
@@ -41,6 +41,18 @@ const STATUS_COLORS: Record<string, string> = {
   non_conforme: 'bg-red-100 text-red-700',
 };
 
+const STATUS_DOT_COLORS: Record<string, string> = {
+  draft: 'bg-gray-400',
+  generee_ia: 'bg-[#191E55]',
+  relue: 'bg-yellow-500',
+  validee: 'bg-green-500',
+  texte_coule: 'bg-gray-400',
+  visuels_montes: 'bg-gray-400',
+  texte_recu: 'bg-orange-500',
+  en_attente: 'bg-gray-400',
+  non_conforme: 'bg-red-500',
+};
+
 const STATUS_LABELS: Record<string, string> = {
   draft: 'Brouillon',
   generee_ia: 'Générée IA',
@@ -56,23 +68,33 @@ const STATUS_LABELS: Record<string, string> = {
 // ── Couleur par type de page ─────────────────────────────────────────────────
 const tplUpper = (tpl: string) => tpl.toUpperCase();
 
-function getPageTypeMeta(page: Page): { label: string; leftBorder: string; badgeClass: string; thumbBg: string; cardBg: string } {
+function getPageTypeMeta(page: Page): { leftBorder: string; thumbColor: string; cardBg: string } {
   const tpl = tplUpper(page.template_name || '');
   const type = (page.type_de_page || '').toLowerCase();
 
   if (type.startsWith('poi') || tpl.startsWith('POI') || tpl.match(/^[A-Z]-POI/)) {
-    return { label: 'POI', leftBorder: 'border-l-4 border-l-[#191E55]/50', badgeClass: 'bg-[#191E55]/10 text-[#191E55]', thumbBg: 'bg-gray-50', cardBg: 'bg-white' };
+    return { leftBorder: 'border-l-4 border-l-emerald-300', thumbColor: 'rgba(5, 150, 105, 0.20)', cardBg: 'bg-white' };
   }
   if (type === 'cluster' || tpl.includes('CLUSTER')) {
-    return { label: 'Cluster', leftBorder: 'border-l-4 border-l-emerald-400', badgeClass: 'bg-emerald-50 text-emerald-700', thumbBg: 'bg-emerald-50/60', cardBg: 'bg-emerald-50/40' };
+    return { leftBorder: 'border-l-4 border-l-emerald-500', thumbColor: '#059669', cardBg: 'bg-white' };
   }
   if (type === 'inspiration' || tpl.startsWith('INSPIRATION') || tpl.match(/^[A-Z]-INSPIRATION/)) {
-    return { label: 'Inspiration', leftBorder: 'border-l-4 border-l-orange-400', badgeClass: 'bg-orange-100 text-orange-700', thumbBg: 'bg-orange-50', cardBg: 'bg-white' };
+    return { leftBorder: 'border-l-4 border-l-orange-500', thumbColor: '#ea580c', cardBg: 'bg-white' };
   }
   if (tpl.startsWith('SAISON') || tpl.match(/^[A-Z]-SAISON/) || tpl.match(/^I-SAISON/)) {
-    return { label: 'Saison', leftBorder: 'border-l-4 border-l-gray-300', badgeClass: 'bg-gray-100 text-gray-600', thumbBg: 'bg-gray-50', cardBg: 'bg-white' };
+    return { leftBorder: 'border-l-4 border-l-amber-500', thumbColor: '#b45309', cardBg: 'bg-white' };
   }
-  return { label: '', leftBorder: 'border-l-4 border-l-gray-200', badgeClass: 'bg-gray-100 text-gray-600', thumbBg: 'bg-gray-100', cardBg: 'bg-white' };
+  return { leftBorder: 'border-l-4 border-l-gray-300', thumbColor: '#9ca3af', cardBg: 'bg-white' };
+}
+
+function getTypeIcon(page: Page) {
+  const tpl = tplUpper(page.template_name || '');
+  const type = (page.type_de_page || '').toLowerCase();
+  if (type.startsWith('poi') || tpl.startsWith('POI') || tpl.match(/^[A-Z]-POI/)) return MapPinIcon;
+  if (type === 'cluster' || tpl.includes('CLUSTER')) return RectangleStackIcon;
+  if (type === 'inspiration' || tpl.startsWith('INSPIRATION') || tpl.match(/^[A-Z]-INSPIRATION/)) return LightBulbIcon;
+  if (tpl.startsWith('SAISON') || tpl.match(/^[A-Z]-SAISON/) || tpl.match(/^I-SAISON/)) return SparklesIcon;
+  return DocumentTextIcon;
 }
 
 export default function PageCard({ page, onEdit, onDelete, onOpenContent, onReset }: PageCardProps) {
@@ -92,9 +114,11 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
   };
 
   const statusColor = STATUS_COLORS[page.statut_editorial || 'draft'];
+  const statusDot = STATUS_DOT_COLORS[page.statut_editorial || 'draft'];
   const statusLabel = STATUS_LABELS[page.statut_editorial || 'draft'];
-  
-  const { label: typeLabel, leftBorder, badgeClass, thumbBg, cardBg } = getPageTypeMeta(page);
+
+  const { leftBorder, thumbColor, cardBg } = getPageTypeMeta(page);
+  const TypeIcon = getTypeIcon(page);
 
   // Déterminer la bordure et l'effet selon le statut
   const isGenerating = page.statut_editorial === 'en_attente';
@@ -125,12 +149,13 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
       className={`${cardBg} rounded-lg border overflow-hidden hover:shadow-lg transition-all group ${cardBorderClass} ${cardExtraClass} ${leftBorder}`}
     >
       {/* Miniature avec image de fond si disponible - TOUTE LA ZONE EST DRAGGABLE */}
-      <div 
-        className={`h-32 relative flex items-center justify-center cursor-grab active:cursor-grabbing ${!page.image_url ? thumbBg : ''}`}
+      <div
+        className="h-32 relative flex items-center justify-center cursor-grab active:cursor-grabbing"
         style={{
           backgroundImage: page.image_url ? `url(${page.image_url})` : undefined,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
+          backgroundSize: page.image_url ? 'cover' : undefined,
+          backgroundPosition: page.image_url ? 'center' : undefined,
+          backgroundColor: page.image_url ? undefined : thumbColor,
         }}
         {...attributes}
         {...listeners}
@@ -155,19 +180,10 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
           <TrashIcon className="h-3.5 w-3.5" />
         </button>
         
-        {/* Icône drag (indicateur visuel au centre) */}
+        {/* Icône type (indicateur visuel au centre) */}
         <div className="pointer-events-none">
-          <Bars3Icon className={`h-8 w-8 ${page.image_url ? 'text-white/70 drop-shadow-md' : 'text-gray-300'}`} />
+          <TypeIcon className={`h-8 w-8 ${page.image_url ? 'text-white/70 drop-shadow-md' : 'text-white/25'}`} />
         </div>
-        
-        {/* Pastille de statut (bottom-left) */}
-        <div className={`absolute bottom-2 left-2 w-2.5 h-2.5 rounded-full border border-white shadow-md pointer-events-none ${
-          page.statut_editorial === 'validee' ? 'bg-green-500' :
-          page.statut_editorial === 'relue' ? 'bg-yellow-500' :
-          page.statut_editorial === 'generee_ia' ? 'bg-blue-500' :
-          page.statut_editorial === 'non_conforme' ? 'bg-red-500' :
-          'bg-gray-400'
-        }`} title={statusLabel} />
       </div>
 
       {/* Contenu */}
@@ -176,132 +192,76 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
           {page.titre}
         </h3>
 
-        {/* Type de page + Statut sur la même ligne */}
-        <div className="flex items-center gap-1.5 mb-3 flex-wrap">
-          {typeLabel && (
-            <span className={`inline-block px-2 py-0.5 text-[10px] font-semibold rounded-full uppercase tracking-wide ${badgeClass}`}>
-              {typeLabel}
-            </span>
-          )}
-          <span className={`inline-block px-2 py-0.5 text-[10px] font-medium rounded-full ${statusColor}`}>
+        {/* Statut avec code couleur pour lecture rapide */}
+        <div className="mb-3">
+          <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-medium rounded-full ${statusColor}`}>
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDot}`} />
             {statusLabel}
           </span>
         </div>
 
         {/* Actions */}
-        <div className="flex gap-2 pt-2 border-t border-gray-100">
-          {/* Bouton Rédiger avec état visuel selon statut */}
-          {(() => {
-            const isGenerating = page.statut_editorial === 'en_attente';
-            const isGenerated = page.statut_editorial === 'generee_ia';
-            const isNonConforme = page.statut_editorial === 'non_conforme';
-            const hasContent = isGenerated || isNonConforme || page.statut_editorial === 'relue' || page.statut_editorial === 'validee';
-            
-            if (isGenerating) {
-              return (
+        {(() => {
+          const isGenerating = page.statut_editorial === 'en_attente';
+          const hasContent = ['generee_ia', 'non_conforme', 'relue', 'validee'].includes(page.statut_editorial || '');
+          const isNonConforme = page.statut_editorial === 'non_conforme';
+
+          return (
+            <div className="flex gap-1.5 pt-2 border-t border-gray-100">
+              {isGenerating ? (
                 <>
                   <button
-                    onClick={onOpenContent}
                     disabled
-                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-[#191E55] bg-[#191E55]/5 rounded cursor-wait"
-                    title="Génération en cours..."
+                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-[#191E55]/50 bg-[#191E55]/5 rounded cursor-wait"
                   >
                     <svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
-                    Génération...
+                    Générer
                   </button>
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (confirm('Annuler la génération en cours ?')) {
-                        onReset();
-                      }
-                    }}
-                    className="flex items-center justify-center px-2 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 rounded transition-colors"
-                    title="Annuler la génération"
+                    onClick={(e) => { e.stopPropagation(); if (confirm('Annuler la génération en cours ?')) onReset(); }}
+                    className="flex items-center justify-center px-2 py-1.5 text-xs text-gray-400 hover:bg-gray-50 rounded transition-colors"
+                    title="Annuler"
                   >
                     <XMarkIcon className="h-3.5 w-3.5" />
                   </button>
                 </>
-              );
-            }
-            
-            if (isNonConforme) {
-              return (
+              ) : hasContent ? (
                 <>
                   <button
                     onClick={onOpenContent}
-                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 rounded transition-colors border border-red-200"
-                    title="Erreur de génération - Cliquez pour corriger"
-                  >
-                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                    Corriger
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (confirm('Réinitialiser cette page (supprime le contenu et passe en brouillon) ?')) {
-                        onReset();
-                      }
-                    }}
-                    className="flex items-center justify-center px-2 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 rounded transition-colors"
-                    title="Réinitialiser"
-                  >
-                    <ArrowPathIcon className="h-3.5 w-3.5" />
-                  </button>
-                </>
-              );
-            }
-            
-            if (hasContent) {
-              return (
-                <>
-                  <button
-                    onClick={onOpenContent}
-                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-[#191E55] hover:bg-[#191E55]/5 rounded transition-colors"
-                    title="Modifier le contenu généré"
+                    className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium rounded transition-colors ${isNonConforme ? 'text-red-600 hover:bg-red-50 border border-red-200' : 'text-[#191E55] hover:bg-[#191E55]/5'}`}
+                    title={isNonConforme ? 'Erreur de génération — cliquez pour corriger' : 'Modifier le contenu'}
                   >
                     <DocumentTextIcon className="h-3.5 w-3.5" />
                     Éditer
                   </button>
-                  <button
-                    onClick={onEdit}
-                    className="flex items-center justify-center px-2 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 rounded transition-colors"
-                    title="Modifier les paramètres"
-                  >
-                    <PencilIcon className="h-3.5 w-3.5" />
-                  </button>
+                  {isNonConforme && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); if (confirm('Réinitialiser cette page ?')) onReset(); }}
+                      className="flex items-center justify-center px-2 py-1.5 text-xs text-gray-400 hover:bg-gray-50 rounded transition-colors"
+                      title="Réinitialiser"
+                    >
+                      <ArrowPathIcon className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </>
-              );
-            }
-            
-            return (
-              <>
+              ) : (
                 <button
                   onClick={onOpenContent}
                   className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-[#191E55] hover:bg-[#191E55]/5 rounded transition-colors"
-                  title="Générer le contenu automatiquement"
                 >
                   <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                   Générer
                 </button>
-                <button
-                  onClick={onEdit}
-                  className="flex items-center justify-center px-2 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 rounded transition-colors"
-                  title="Modifier les paramètres"
-                >
-                  <PencilIcon className="h-3.5 w-3.5" />
-                </button>
-              </>
-            );
-          })()}
-        </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

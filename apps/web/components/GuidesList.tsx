@@ -52,19 +52,19 @@ export default function GuidesList({ onCreateGuide, onEditGuide }: GuidesListPro
   });
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-8">
+    <div className="min-h-screen bg-gray-50 p-8">
       {/* Header */}
       <div className="max-w-7xl mx-auto mb-8">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-4xl font-bold text-gray-900 mb-2">Guides touristiques</h1>
             <p className="text-gray-600">
-              {filteredGuides.length} guide{filteredGuides.length > 1 ? 's' : ''} • Triés par année
+              {filteredGuides.length} guide{filteredGuides.length > 1 ? 's' : ''} • Du plus récent au plus ancien
             </p>
           </div>
           <button
             onClick={onCreateGuide}
-            className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg hover:from-green-700 hover:to-green-800 transition-all shadow-lg hover:shadow-xl font-medium"
+            className="flex items-center gap-2 px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-500/60 transition-colors font-medium"
           >
             <PlusIcon className="w-5 h-5" />
             Ajouter un guide
@@ -79,7 +79,7 @@ export default function GuidesList({ onCreateGuide, onEditGuide }: GuidesListPro
             onClick={() => setFilter('all')}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               filter === 'all'
-                ? 'bg-blue-600 text-white shadow-md'
+                ? 'bg-orange-500 text-white'
                 : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
             }`}
           >
@@ -89,7 +89,7 @@ export default function GuidesList({ onCreateGuide, onEditGuide }: GuidesListPro
             onClick={() => setFilter('draft')}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               filter === 'draft'
-                ? 'bg-blue-600 text-white shadow-md'
+                ? 'bg-orange-500 text-white'
                 : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
             }`}
           >
@@ -99,7 +99,7 @@ export default function GuidesList({ onCreateGuide, onEditGuide }: GuidesListPro
             onClick={() => setFilter('in_progress')}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               filter === 'in_progress'
-                ? 'bg-blue-600 text-white shadow-md'
+                ? 'bg-orange-500 text-white'
                 : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
             }`}
           >
@@ -109,7 +109,7 @@ export default function GuidesList({ onCreateGuide, onEditGuide }: GuidesListPro
             onClick={() => setFilter('published')}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               filter === 'published'
-                ? 'bg-blue-600 text-white shadow-md'
+                ? 'bg-orange-500 text-white'
                 : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
             }`}
           >
@@ -122,11 +122,11 @@ export default function GuidesList({ onCreateGuide, onEditGuide }: GuidesListPro
       <div className="max-w-7xl mx-auto">
         {loading ? (
           <div className="text-center py-24">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-[#191E55]"></div>
             <p className="mt-4 text-gray-600">Chargement des guides...</p>
           </div>
         ) : filteredGuides.length === 0 ? (
-          <div className="text-center py-24 bg-white rounded-2xl shadow-lg border border-gray-200">
+          <div className="text-center py-24 bg-white rounded-2xl shadow-sm border border-gray-200">
             <BookOpenIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-gray-900 mb-2">
               {filter === 'all' ? 'Aucun guide' : 'Aucun guide dans cette catégorie'}
@@ -139,7 +139,7 @@ export default function GuidesList({ onCreateGuide, onEditGuide }: GuidesListPro
             {filter === 'all' && (
               <button
                 onClick={onCreateGuide}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg hover:from-green-700 hover:to-green-800 shadow-lg hover:shadow-xl transition-all font-medium"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-500/60 transition-colors font-medium"
               >
                 <PlusIcon className="w-5 h-5" />
                 Créer un guide

@@ -7,9 +7,9 @@ import { nanoid } from 'nanoid';
 import PageCard from './PageCard';
 import PageModal from './PageModal';
 import ContentEditorModal from './ContentEditorModal';
-import { 
-  DocumentTextIcon, 
-  SparklesIcon, 
+import {
+  DocumentTextIcon,
+  SparklesIcon,
   ArrowPathIcon,
   RectangleStackIcon,
   MapPinIcon,
@@ -562,6 +562,44 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
           }
         } catch (err) {
           console.warn('[url_source] Erreur fetch:', err);
+        }
+      }
+
+      // Résoudre url_source pour les pages cluster : chercher un article "Que faire à <cluster>"
+      if (templatePageData.type === 'cluster_intro') {
+        const clusterName = templatePageData.cluster_name || templatePageData.titre;
+        if (clusterName) {
+          try {
+            const searchRes = await fetch(
+              `${apiUrl}/api/v1/guides/${guideId}/articles?q=${encodeURIComponent(clusterName)}&limit=20`,
+              { credentials: 'include' }
+            );
+            if (searchRes.ok) {
+              const searchData = await searchRes.json();
+              const candidates: any[] = searchData.articles || [];
+              // Parmi les articles mentionnant le cluster, privilégier une page "Que faire à ..."
+              // plutôt qu'un article thématique (hôtel, restaurant...) qui contient aussi le nom du cluster
+              const isQueFaire = (a: any) =>
+                /que.?faire/i.test(a.slug || '') || /que faire/i.test(a.title || a.titre || '');
+              // Exclure les déclinaisons saisonnières (été, hiver, vacances...) au profit de la page générique
+              const seasonalRegex = /hiver|ete|été|printemps|automne|noel|noël|vacances|week-?end/i;
+              const isSeasonal = (a: any) => seasonalRegex.test(a.slug || '') || seasonalRegex.test(a.title || a.titre || '');
+
+              const queFaireCandidates = candidates.filter(isQueFaire);
+              const genericQueFaire = queFaireCandidates.filter((a) => !isSeasonal(a));
+              // Parmi les candidats retenus, préférer le slug le plus court (plus proche du générique)
+              const shortest = (arr: any[]) =>
+                arr.slice().sort((a, b) => (a.slug || '').length - (b.slug || '').length)[0];
+              const article = shortest(genericQueFaire) || shortest(queFaireCandidates) || candidates[0];
+              if (article) {
+                const urlsMap = article.urls_by_lang ?? article.urls ?? {};
+                url_source = urlsMap['fr'] || urlsMap['en'] || article.url_francais || undefined;
+                if (url_source) console.log(`🔗 URL cluster résolue pour "${clusterName}": ${url_source}`);
+              }
+            }
+          } catch (err) {
+            console.warn('[cluster url_source] Erreur lors de la résolution:', err);
+          }
         }
       }
 
@@ -1247,40 +1285,26 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
         <div className="w-72 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
           {/* Section Pages suggérées du template */}
           <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="p-3 border-b border-gray-200 bg-white flex-shrink-0">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <div className="p-1 bg-gradient-to-br from-orange-100 to-[#191E55]/10 rounded">
-                    <DocumentTextIcon className="w-4 h-4 text-[#191E55]" />
-                  </div>
-                  <h3 className="text-xs font-bold text-gray-900">Pages suggérées</h3>
-                </div>
+            <div className="px-3 pt-3 pb-2 border-b border-gray-200 bg-white flex-shrink-0">
+              <h3 className="text-xs font-bold text-gray-900 mb-2">Plan du template</h3>
+              <div className="grid grid-cols-2 gap-1.5">
                 <button
                   onClick={loadTemplateProposals}
                   disabled={loadingTemplateProposals}
-                  className="flex items-center gap-1 px-2 py-1 bg-[#191E55] text-white text-xs font-medium rounded hover:bg-[#191E55]/60 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors shadow-sm"
+                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 bg-[#191E55] text-white text-xs font-medium rounded hover:bg-[#191E55]/60 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                 >
                   <ArrowPathIcon className={`h-3 w-3 ${loadingTemplateProposals ? 'animate-spin' : ''}`} />
-                  {loadingTemplateProposals ? '…' : 'Actualiser'}
+                  {loadingTemplateProposals ? 'Chargement…' : 'Recalculer toutes les pages'}
                 </button>
-              </div>
-              {pages.length > 0 && (
                 <button
                   onClick={rebuildInspirations}
                   disabled={rebuildingInspirations}
-                  className="w-full mb-2 flex items-center justify-center gap-1.5 px-2 py-1.5 bg-orange-50 text-orange-700 text-xs font-medium rounded border border-orange-200 hover:bg-orange-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  title="Recalcule le nombre de pages inspiration et redistribue les POIs selon l'étape 4"
+                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 bg-[#191E55] text-white text-xs font-medium rounded hover:bg-[#191E55]/60 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                 >
                   <ArrowPathIcon className={`h-3 w-3 ${rebuildingInspirations ? 'animate-spin' : ''}`} />
-                  {rebuildingInspirations ? 'Sync en cours...' : '⟳ Sync. pages inspiration'}
+                  {rebuildingInspirations ? 'Recalcul en cours…' : 'Recalculer les pages inspiration'}
                 </button>
-              )}
-
-              {templateProposals && (
-                <div className="text-xs text-gray-600">
-                  📋 {templateProposals.template_name} • {templateProposals.stats?.total || 0} pages
-                </div>
-              )}
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 space-y-3">
@@ -1412,7 +1436,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                                       title={poi.titre}
                                       description="POI"
                                       icon={MapPinIcon}
-                                      color="navy"
+                                      color="poi"
                                       templatePage={poi}
                                       apiUrl={apiUrl}
                                       guideId={guideId}
@@ -1491,10 +1515,10 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
         {/* ZONE PRINCIPALE : Chemin de fer - Plus d'espace */}
         <div className="flex-1 flex flex-col overflow-hidden bg-white">
           {/* Header compact */}
-          <div className="px-4 py-2 border-b border-gray-200 bg-gradient-to-r from-orange-50 via-white to-[#191E55]/5 flex-shrink-0">
+          <div className="px-4 py-2 border-b border-gray-200 bg-white flex-shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="w-1 h-8 rounded-full bg-gradient-to-b from-orange-500 to-[#191E55]" />
+                <div className="w-1 h-8 rounded-full bg-orange-500" />
                 <div>
                   <h2 className="text-base font-bold text-gray-900">Chemin de fer</h2>
                   <p className="text-xs text-gray-500">
@@ -1503,9 +1527,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <div className="text-xs text-gray-500">
-                  💡 Glissez depuis la palette
-                </div>
                 {pages.length > 0 && (
                   <button
                     onClick={handleClearAllPages}
@@ -1542,7 +1563,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
               <div className="h-full flex items-center justify-center p-6">
                 <div className="w-full max-w-3xl">
                   <div className="text-center mb-8">
-                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-orange-100 to-[#191E55]/10 mb-4">
+                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[#191E55]/10 mb-4">
                       <DocumentTextIcon className="w-8 h-8 text-[#191E55]" />
                     </div>
                     <h3 className="text-xl font-bold text-gray-900 mb-1">
@@ -1562,9 +1583,8 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     {/* Option 1 — Générer depuis le template */}
                     <div className="relative flex flex-col bg-white border-2 border-orange-200 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-orange-400 transition-all group overflow-hidden">
-                      <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-orange-200/40 to-transparent rounded-bl-full pointer-events-none" />
                       <div className="flex items-center gap-3 mb-3">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-[#191E55] flex items-center justify-center flex-shrink-0 shadow-sm">
+                        <div className="w-10 h-10 rounded-xl bg-orange-500 flex items-center justify-center flex-shrink-0">
                           <SparklesIcon className="w-5 h-5 text-white" />
                         </div>
                         <div>
@@ -1593,7 +1613,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                       <button
                         onClick={generateStructure}
                         disabled={generatingStructure}
-                        className="w-full py-2.5 bg-gradient-to-r from-orange-500 to-[#191E55] text-white text-sm font-semibold rounded-xl hover:from-orange-600 hover:to-[#151a47] disabled:bg-gray-300 disabled:bg-none disabled:cursor-not-allowed transition-all shadow hover:shadow-md flex items-center justify-center gap-2"
+                        className="w-full py-2.5 bg-orange-500 hover:bg-orange-500/60 text-white text-sm font-semibold rounded-xl disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
                       >
                         {generatingStructure ? (
                           <>
@@ -1905,19 +1925,21 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color, art
   });
 
   const colorClasses = {
-    navy: 'border-[#191E55]/20 hover:border-[#191E55]/40 bg-[#191E55]/5',
-    blue: 'border-[#191E55]/20 hover:border-[#191E55]/40 bg-[#191E55]/5',
-    green: 'border-emerald-200 hover:border-emerald-400 bg-emerald-50/60',
+    navy:   'border-[#191E55]/20 hover:border-[#191E55]/40 bg-[#191E55]/5',
+    blue:   'border-[#191E55]/20 hover:border-[#191E55]/40 bg-[#191E55]/5',
+    poi:    'border-emerald-100 hover:border-emerald-300 bg-emerald-50/30',
+    green:  'border-emerald-500 hover:border-emerald-600 bg-emerald-100',
     orange: 'border-orange-200 hover:border-orange-400 bg-orange-50/50',
-    purple: 'border-orange-200 hover:border-orange-400 bg-orange-50/50',
+    purple: 'border-amber-200 hover:border-amber-400 bg-amber-50/50',
   };
 
   const iconColorClasses = {
-    navy: 'bg-[#191E55]/10 text-[#191E55]',
-    blue: 'bg-[#191E55]/10 text-[#191E55]',
-    green: 'bg-emerald-100 text-emerald-600',
+    navy:   'bg-[#191E55]/10 text-[#191E55]',
+    blue:   'bg-[#191E55]/10 text-[#191E55]',
+    poi:    'bg-emerald-50 text-emerald-500',
+    green:  'bg-emerald-500 text-white',
     orange: 'bg-orange-100 text-orange-600',
-    purple: 'bg-orange-100 text-orange-600',
+    purple: 'bg-amber-100 text-amber-700',
   };
 
   const placedClass = isPlaced
@@ -2097,31 +2119,26 @@ function CheminDeFerGrid({
             strategy={rectSortingStrategy}
           >
           <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3">
-            {slots.map((slot: any, idx: number) => {
-              const isFilledSlot = !slot.isEmpty;
-              // Afficher le bouton d'insertion uniquement entre deux pages remplies consécutives,
-              // ou après une page remplie si la suivante est vide/inexistante.
-              // On le place comme overlay sur le bord droit de la carte.
+            {slots.map((slot: any) => {
               if (slot.isEmpty) {
                 return (
-                  <EmptySlot 
-                    key={`empty-${slot.ordre}`} 
+                  <EmptySlot
+                    key={`empty-${slot.ordre}`}
                     ordre={slot.ordre}
                     isGlobalOver={isOver}
                   />
                 );
-              } else {
-                return (
-                  <PageCard
-                    key={slot._id}
-                    page={slot}
-                    onEdit={() => onEdit(slot)}
-                    onDelete={() => onDelete(slot._id)}
-                    onOpenContent={() => onOpenContent(slot)}
-                    onReset={() => onReset(slot._id)}
-                  />
-                );
               }
+              return (
+                <PageCard
+                  key={slot._id}
+                  page={slot}
+                  onEdit={() => onEdit(slot)}
+                  onDelete={() => onDelete(slot._id)}
+                  onOpenContent={() => onOpenContent(slot)}
+                  onReset={() => onReset(slot._id)}
+                />
+              );
             })}
             
             {/* Carte + pour ajouter plusieurs pages */}

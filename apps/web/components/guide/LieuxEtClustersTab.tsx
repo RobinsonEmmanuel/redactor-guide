@@ -29,6 +29,7 @@ interface POI {
   type: string;
   article_source?: string;
   url_source?: string;
+  anchor_source?: string;
   autres_articles_mentions?: string[];
   raison_selection?: string;
   coordinates?: {
@@ -626,7 +627,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterMode, setFilterMode] = useState<'all' | 'unassigned' | 'validated' | 'high' | 'medium' | 'low' | string>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'unassigned' | 'high' | 'medium' | 'low' | string>('all');
 
   // États matching
   const [clustersMetadata, setClustersMetadata] = useState<ClusterMetadata[]>([]);
@@ -701,6 +702,22 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     checkForPendingJob();
     loadReuseCandidates();
   }, [guideId]);
+
+  // Resynchronise l'état du job dès que l'onglet redevient actif : évite d'afficher
+  // une progression figée si le polling s'est arrêté pendant que l'onglet était en arrière-plan.
+  useEffect(() => {
+    const resync = () => {
+      if (document.visibilityState === 'visible' && (generating || deduplicating)) {
+        checkForPendingJob();
+      }
+    };
+    document.addEventListener('visibilitychange', resync);
+    window.addEventListener('focus', resync);
+    return () => {
+      document.removeEventListener('visibilitychange', resync);
+      window.removeEventListener('focus', resync);
+    };
+  }, [generating, deduplicating]);
 
   const loadPois = async () => {
     setLoading(true);
@@ -1439,7 +1456,6 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
   // Compteurs par couleur pour les filtres
   const colorCounts = {
-    validated: pois.filter(p => p.cluster_id && p.validated).length,
     high:      pois.filter(p => p.cluster_id && !p.validated && p.matched_automatically && p.confidence === 'high').length,
     medium:    pois.filter(p => p.cluster_id && !p.validated && p.matched_automatically && p.confidence === 'medium').length,
     low:       pois.filter(p => p.cluster_id && !p.validated && p.matched_automatically && p.confidence === 'low').length,
@@ -1453,7 +1469,6 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     if (!matchesSearch) return false;
     if (filterMode === 'all') return true;
     if (filterMode === 'unassigned') return !poi.cluster_id;
-    if (filterMode === 'validated') return !!poi.cluster_id && !!poi.validated;
     if (filterMode === 'high') return !!poi.cluster_id && !poi.validated && poi.matched_automatically && poi.confidence === 'high';
     if (filterMode === 'medium') return !!poi.cluster_id && !poi.validated && poi.matched_automatically && poi.confidence === 'medium';
     if (filterMode === 'low') return !!poi.cluster_id && !poi.validated && (poi.matched_automatically && poi.confidence === 'low');
@@ -1722,7 +1737,6 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               <div className="flex flex-wrap gap-1 mb-1">
                 {([
                   { key: 'all',       label: 'Tous',      count: pois.length,            cls: 'bg-gray-100 text-gray-700 border-gray-300' },
-                  { key: 'validated', label: '✓ Validés', count: colorCounts.validated,   cls: 'bg-green-100 text-green-800 border-green-300' },
                   { key: 'high',      label: '≥80%',      count: colorCounts.high,        cls: 'bg-green-50 text-green-700 border-green-200' },
                   { key: 'medium',    label: '50–79%',    count: colorCounts.medium,      cls: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
                   { key: 'low',       label: '<50%',      count: colorCounts.low,         cls: 'bg-orange-100 text-orange-800 border-orange-300' },
@@ -1740,7 +1754,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               {/* Filtre par cluster */}
               <div>
                 <select
-                  value={['all','validated','high','medium','low','unassigned'].includes(filterMode) ? 'all' : filterMode}
+                  value={['all','high','medium','low','unassigned'].includes(filterMode) ? 'all' : filterMode}
                   onChange={(e) => setFilterMode(e.target.value)}
                   className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                 >
@@ -1782,14 +1796,26 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             <div className="p-3 border-b border-gray-200 bg-white">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-semibold text-gray-900">Clusters ({displayClusters.length + 1})</div>
-                
-                <button
-                  onClick={() => setShowClusterModal(true)}
-                  className="flex items-center gap-1 px-2 py-1 text-xs bg-[#191E55] text-white rounded hover:bg-[#191E55]/60 transition-colors"
-                >
-                  <PlusIcon className="w-3.5 h-3.5" />
-                  Ajouter
-                </button>
+
+                <div className="flex items-center gap-1.5">
+                  {pois.length > 0 && (
+                    <button
+                      onClick={() => setShowAssignMap(true)}
+                      className="flex items-center gap-1 px-2 py-1 text-xs bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+                      title="Afficher la carte d'aide à l'affectation"
+                    >
+                      <MapPinIcon className="w-3.5 h-3.5" />
+                      Carte
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setShowClusterModal(true)}
+                    className="flex items-center gap-1 px-2 py-1 text-xs bg-[#191E55] text-white rounded hover:bg-[#191E55]/60 transition-colors"
+                  >
+                    <PlusIcon className="w-3.5 h-3.5" />
+                    Ajouter
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1828,19 +1854,23 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
           </div>
         </div>
 
-        {/* Carte d'aide à l'affectation — repliable, pour ne pas gêner l'usage courant */}
-        {pois.length > 0 && (
-          <div className="flex-shrink-0 border-t border-gray-200 bg-gray-50 px-4 py-2">
-            <button
-              onClick={() => setShowAssignMap(v => !v)}
-              className="flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              <MapPinIcon className="w-3.5 h-3.5" />
-              {showAssignMap ? 'Masquer la carte' : "Afficher la carte d'aide à l'affectation"}
-              <ChevronDownIcon className={`w-3 h-3 transition-transform ${showAssignMap ? 'rotate-180' : ''}`} />
-            </button>
-            {showAssignMap && (
-              <div className="mt-2">
+        {/* Modale carte d'aide à l'affectation */}
+        {showAssignMap && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-6">
+            <div className="bg-white rounded-lg w-full max-w-5xl max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                <div className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+                  <MapPinIcon className="w-4 h-4" />
+                  Carte d'aide à l'affectation
+                </div>
+                <button
+                  onClick={() => setShowAssignMap(false)}
+                  className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <XMarkIcon className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4">
                 <ClusterAssignMap
                   pois={pois}
                   clusters={displayClusters.map(c => ({ cluster_id: c.cluster_id, cluster_name: c.cluster_name }))}
@@ -1851,7 +1881,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                   }}
                 />
               </div>
-            )}
+            </div>
           </div>
         )}
       </div>
@@ -2354,14 +2384,15 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
       const openPoiArticle = async (poi: any) => {
         if (!poi.url_source) return;
-        if (poi.url_source.startsWith('http')) { window.open(poi.url_source, '_blank', 'noopener'); return; }
+        const anchorSuffix = poi.anchor_source ? `#${poi.anchor_source}` : '';
+        if (poi.url_source.startsWith('http')) { window.open(`${poi.url_source}${anchorSuffix}`, '_blank', 'noopener'); return; }
         try {
           const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/articles?slug=${encodeURIComponent(poi.url_source)}`, { credentials: 'include' });
           if (res.ok) {
             const data = await res.json();
             const article = Array.isArray(data) ? data[0] : data.articles?.[0] ?? data;
             const url = article?.urls_by_lang?.fr || article?.urls_by_lang?.en;
-            if (url) window.open(url, '_blank', 'noopener');
+            if (url) window.open(`${url}${anchorSuffix}`, '_blank', 'noopener');
           }
         } catch (err) {
           console.error('Erreur ouverture article:', err);
@@ -2525,6 +2556,20 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                               <span className="text-gray-500 truncate max-w-xs block" title={poi.article_source}>
                                 {poi.article_source || '—'}
                               </span>
+                            )}
+                            {poi.url_source && (
+                              <div className="text-[10px] text-gray-400 font-mono truncate max-w-xs" title={poi.url_source}>
+                                {poi.url_source}
+                              </div>
+                            )}
+                            {poi.anchor_source ? (
+                              <div className="text-[10px] text-emerald-600 font-mono truncate max-w-xs" title={`Ancre : #${poi.anchor_source}`}>
+                                #{poi.anchor_source}
+                              </div>
+                            ) : poi._extraction_mode === 'multi' && (
+                              <div className="text-[10px] text-amber-500 truncate max-w-xs" title="Article multi-POI sans ancre résolue">
+                                ⚠ pas d'ancre
+                              </div>
                             )}
                           </td>
                           <td className="px-4 py-2">

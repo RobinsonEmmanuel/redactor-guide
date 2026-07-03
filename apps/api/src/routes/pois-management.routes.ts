@@ -387,6 +387,7 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
           source: 'article',
           article_source: poi.article_source,
           url_source: poi.url_source || '',
+          anchor_source: poi.anchor_source || undefined,
           mentions: poi.mentions || 'secondaire',
           raison_selection: poi.raison_selection,
           autres_articles_mentions: poi.autres_articles_mentions || [],

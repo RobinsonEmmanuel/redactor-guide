@@ -48,7 +48,7 @@ export async function guidesRoutes(fastify: FastifyInstance) {
   // Liste des guides
   fastify.get('/guides', async (request) => {
     const db = request.server.container.db;
-    const guides = await db.collection(COLLECTIONS.guides).find().sort({ year: -1 }).toArray();
+    const guides = await db.collection(COLLECTIONS.guides).find().sort({ createdAt: -1, _id: -1 }).toArray();
     return { guides };
   });
 

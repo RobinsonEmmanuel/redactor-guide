@@ -169,7 +169,8 @@ export default function ParametrageTab({ guide, guideId, apiUrl, onGuideUpdated 
           credentials: 'include',
           body: JSON.stringify({ availableLanguages: data.languages }),
         });
-        if (saved.ok) onGuideUpdated();
+        // Ne pas appeler onGuideUpdated() ici — cela réinitialiserait formData
+        // et écraserait les saisies en cours de l'utilisateur.
       }
     } catch {
       // non bloquant

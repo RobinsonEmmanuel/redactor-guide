@@ -1509,7 +1509,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     if (filterMode === 'medium') return !!poi.cluster_id && !poi.validated && poi.matched_automatically && poi.confidence === 'medium';
     if (filterMode === 'low') return !!poi.cluster_id && !poi.validated && (poi.matched_automatically && poi.confidence === 'low');
     return poi.cluster_id === filterMode;
-  });
+  }).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
 
   // Groupement pour la colonne de droite
   const unassignedPois = pois.filter(p => !p.cluster_id);

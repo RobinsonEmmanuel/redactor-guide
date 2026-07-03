@@ -1671,7 +1671,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             <button
               onClick={launchMatching}
               disabled={matching || pois.length === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#191E55] text-white rounded-md hover:bg-[#191E55]/60 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-500/60 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
             >
               {matching ? (
                 <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Ventilation...</>

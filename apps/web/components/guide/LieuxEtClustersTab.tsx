@@ -146,7 +146,7 @@ function DraggablePOI({ poi, apiUrl, guideId }: { poi: POI; apiUrl: string; guid
             </div>
           )}
         </div>
-        <div className="flex-shrink-0">
+        <div className="flex items-center flex-shrink-0">
           {getStatusBadge()}
         </div>
       </div>

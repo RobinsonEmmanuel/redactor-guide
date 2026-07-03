@@ -145,7 +145,6 @@ function DroppableInspiration({
           onClick={onToggle}
           className="flex items-center gap-2 flex-1 min-w-0 text-left rounded px-1 py-0.5 -mx-1"
         >
-          <LightBulbIcon className="w-4 h-4 text-[#191E55]/40 flex-shrink-0" />
           <div className="text-left flex-1 min-w-0">
             <div className="text-sm font-semibold text-gray-900 truncate">{inspiration.titre}</div>
             <div className="text-xs text-gray-500 truncate">{inspiration.angle_editorial}</div>

@@ -56,23 +56,23 @@ const STATUS_LABELS: Record<string, string> = {
 // ── Couleur par type de page ─────────────────────────────────────────────────
 const tplUpper = (tpl: string) => tpl.toUpperCase();
 
-function getPageTypeMeta(page: Page): { label: string; leftBorder: string; badgeClass: string; thumbBg: string } {
+function getPageTypeMeta(page: Page): { label: string; leftBorder: string; badgeClass: string; thumbBg: string; cardBg: string } {
   const tpl = tplUpper(page.template_name || '');
   const type = (page.type_de_page || '').toLowerCase();
 
   if (type.startsWith('poi') || tpl.startsWith('POI') || tpl.match(/^[A-Z]-POI/)) {
-    return { label: 'POI', leftBorder: 'border-l-4 border-l-[#191E55]/50', badgeClass: 'bg-[#191E55]/10 text-[#191E55]', thumbBg: 'bg-gray-50' };
+    return { label: 'POI', leftBorder: 'border-l-4 border-l-[#191E55]/50', badgeClass: 'bg-[#191E55]/10 text-[#191E55]', thumbBg: 'bg-gray-50', cardBg: 'bg-white' };
   }
   if (type === 'cluster' || tpl.includes('CLUSTER')) {
-    return { label: 'Cluster', leftBorder: 'border-l-4 border-l-gray-400', badgeClass: 'bg-gray-100 text-gray-600', thumbBg: 'bg-gray-50' };
+    return { label: 'Cluster', leftBorder: 'border-l-4 border-l-emerald-400', badgeClass: 'bg-emerald-50 text-emerald-700', thumbBg: 'bg-emerald-50/60', cardBg: 'bg-emerald-50/40' };
   }
   if (type === 'inspiration' || tpl.startsWith('INSPIRATION') || tpl.match(/^[A-Z]-INSPIRATION/)) {
-    return { label: 'Inspiration', leftBorder: 'border-l-4 border-l-orange-400', badgeClass: 'bg-orange-100 text-orange-700', thumbBg: 'bg-orange-50' };
+    return { label: 'Inspiration', leftBorder: 'border-l-4 border-l-orange-400', badgeClass: 'bg-orange-100 text-orange-700', thumbBg: 'bg-orange-50', cardBg: 'bg-white' };
   }
   if (tpl.startsWith('SAISON') || tpl.match(/^[A-Z]-SAISON/) || tpl.match(/^I-SAISON/)) {
-    return { label: 'Saison', leftBorder: 'border-l-4 border-l-gray-400', badgeClass: 'bg-gray-100 text-gray-600', thumbBg: 'bg-gray-50' };
+    return { label: 'Saison', leftBorder: 'border-l-4 border-l-gray-300', badgeClass: 'bg-gray-100 text-gray-600', thumbBg: 'bg-gray-50', cardBg: 'bg-white' };
   }
-  return { label: '', leftBorder: 'border-l-4 border-l-gray-200', badgeClass: 'bg-gray-100 text-gray-600', thumbBg: 'bg-gray-100' };
+  return { label: '', leftBorder: 'border-l-4 border-l-gray-200', badgeClass: 'bg-gray-100 text-gray-600', thumbBg: 'bg-gray-100', cardBg: 'bg-white' };
 }
 
 export default function PageCard({ page, onEdit, onDelete, onOpenContent, onReset }: PageCardProps) {
@@ -94,7 +94,7 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
   const statusColor = STATUS_COLORS[page.statut_editorial || 'draft'];
   const statusLabel = STATUS_LABELS[page.statut_editorial || 'draft'];
   
-  const { label: typeLabel, leftBorder, badgeClass, thumbBg } = getPageTypeMeta(page);
+  const { label: typeLabel, leftBorder, badgeClass, thumbBg, cardBg } = getPageTypeMeta(page);
 
   // Déterminer la bordure et l'effet selon le statut
   const isGenerating = page.statut_editorial === 'en_attente';
@@ -122,7 +122,7 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
     <div
       ref={setNodeRef}
       style={style}
-      className={`bg-white rounded-lg border overflow-hidden hover:shadow-lg transition-all group ${cardBorderClass} ${cardExtraClass} ${leftBorder}`}
+      className={`${cardBg} rounded-lg border overflow-hidden hover:shadow-lg transition-all group ${cardBorderClass} ${cardExtraClass} ${leftBorder}`}
     >
       {/* Miniature avec image de fond si disponible - TOUTE LA ZONE EST DRAGGABLE */}
       <div 
@@ -187,16 +187,6 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
             {statusLabel}
           </span>
         </div>
-
-        {/* Coordonnées GPS */}
-        {page.coordinates && (
-          <div className="text-[10px] text-gray-400 font-mono mb-3 flex items-center gap-1">
-            <span>📍</span>
-            <span title={page.coordinates.display_name || 'Coordonnées GPS'}>
-              {page.coordinates.lat.toFixed(5)}, {page.coordinates.lon.toFixed(5)}
-            </span>
-          </div>
-        )}
 
         {/* Actions */}
         <div className="flex gap-2 pt-2 border-t border-gray-100">

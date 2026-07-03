@@ -1412,7 +1412,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                                       title={poi.titre}
                                       description="POI"
                                       icon={MapPinIcon}
-                                      color="green"
+                                      color="navy"
                                       templatePage={poi}
                                       apiUrl={apiUrl}
                                       guideId={guideId}
@@ -1905,17 +1905,19 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color, art
   });
 
   const colorClasses = {
-    blue: 'border-blue-200 hover:border-blue-400 bg-blue-50/50',
-    green: 'border-emerald-200 hover:border-emerald-400 bg-emerald-50/50',
+    navy: 'border-[#191E55]/20 hover:border-[#191E55]/40 bg-[#191E55]/5',
+    blue: 'border-[#191E55]/20 hover:border-[#191E55]/40 bg-[#191E55]/5',
+    green: 'border-emerald-200 hover:border-emerald-400 bg-emerald-50/60',
     orange: 'border-orange-200 hover:border-orange-400 bg-orange-50/50',
-    purple: 'border-purple-200 hover:border-purple-400 bg-purple-50/50',
+    purple: 'border-orange-200 hover:border-orange-400 bg-orange-50/50',
   };
 
   const iconColorClasses = {
-    blue: 'bg-blue-100 text-blue-600',
+    navy: 'bg-[#191E55]/10 text-[#191E55]',
+    blue: 'bg-[#191E55]/10 text-[#191E55]',
     green: 'bg-emerald-100 text-emerald-600',
     orange: 'bg-orange-100 text-orange-600',
-    purple: 'bg-purple-100 text-purple-600',
+    purple: 'bg-orange-100 text-orange-600',
   };
 
   const placedClass = isPlaced

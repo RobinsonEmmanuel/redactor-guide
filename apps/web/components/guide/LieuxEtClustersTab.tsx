@@ -113,35 +113,18 @@ function DraggablePOI({ poi, apiUrl, guideId, onValidate }: { poi: POI; apiUrl: 
 
   const getStatusBadge = () => {
     if (!poi.cluster_id) {
-      return (
-        <span className="inline-flex items-center gap-0.5 text-[11px] text-gray-300 font-medium">
-          <XCircleIcon className="w-3 h-3" />
-          non aff.
-        </span>
-      );
+      return <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" title="Non affecté" />;
     }
     if (poi.validated) {
-      return (
-        <span className="inline-flex items-center gap-0.5 text-[11px] text-[#191E55]/50 font-medium">
-          <CheckCircleSolid className="w-3 h-3" />
-          100%
-        </span>
-      );
+      return <span className="w-2 h-2 rounded-full bg-[#191E55] flex-shrink-0" title="Validé" />;
     }
     if (poi.matched_automatically) {
-      return (
-        <span className="inline-flex items-center gap-0.5 text-[11px] text-gray-400 font-mono">
-          <SparklesIcon className="w-3 h-3" />
-          {poi.score ? `${Math.round(poi.score * 100)}%` : 'auto'}
-        </span>
-      );
+      const color = poi.confidence === 'high' ? 'bg-green-400' :
+                    poi.confidence === 'medium' ? 'bg-amber-400' : 'bg-orange-400';
+      const score = poi.score ? `${Math.round(poi.score * 100)}%` : 'Auto';
+      return <span className={`w-2 h-2 rounded-full flex-shrink-0 ${color}`} title={score} />;
     }
-    return (
-      <span className="inline-flex items-center gap-0.5 text-[11px] text-gray-400 font-medium">
-        <CheckCircleIcon className="w-3 h-3" />
-        manuel
-      </span>
-    );
+    return <span className="w-2 h-2 rounded-full bg-[#191E55]/40 flex-shrink-0" title="Manuel" />;
   };
 
   return (

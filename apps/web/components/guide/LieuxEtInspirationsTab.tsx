@@ -85,7 +85,7 @@ function DraggablePOI({ poi, inspirationsCount, apiUrl, guideId }: { poi: POI; i
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           {inspirationsCount > 0 && (
-            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-[#191E55]/10 text-[#191E55]">
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-600">
               {inspirationsCount}
             </span>
           )}
@@ -462,9 +462,14 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
   };
 
   // Filtrage POIs
-  const filteredPois = pois.filter(poi =>
-    poi.nom.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredPois = pois
+    .filter(poi => poi.nom.toLowerCase().includes(searchTerm.toLowerCase()))
+    .sort((a, b) => {
+      const typeA = (a.type || '').toLowerCase();
+      const typeB = (b.type || '').toLowerCase();
+      if (typeA !== typeB) return typeA.localeCompare(typeB, 'fr');
+      return a.nom.localeCompare(b.nom, 'fr');
+    });
 
   // Compter combien de fois chaque POI apparaît dans les inspirations
   const poiInspirationsCount: Record<string, number> = {};
@@ -499,7 +504,7 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
             <button
               onClick={generateInspirations}
               disabled={generating}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#191E55] text-white rounded-md hover:bg-[#151a47] disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
             >
               {generating ? (
                 <>

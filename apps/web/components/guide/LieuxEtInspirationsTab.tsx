@@ -564,15 +564,31 @@ export default function LieuxEtInspirationsTab({ guideId, apiUrl }: LieuxEtInspi
                 </div>
               )}
 
-              {!loading && filteredPois.map((poi) => (
-                <DraggablePOI
-                  key={poi.poi_id}
-                  poi={poi}
-                  inspirationsCount={poiInspirationsCount[poi.poi_id] || 0}
-                  apiUrl={apiUrl}
-                  guideId={guideId}
-                />
-              ))}
+              {!loading && (() => {
+                const items: React.ReactNode[] = [];
+                let lastType: string | null = null;
+                filteredPois.forEach((poi) => {
+                  const type = poi.type || '—';
+                  if (type !== lastType) {
+                    lastType = type;
+                    items.push(
+                      <div key={`header-${type}`} className="pt-2 pb-1 first:pt-0">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{type}</span>
+                      </div>
+                    );
+                  }
+                  items.push(
+                    <DraggablePOI
+                      key={poi.poi_id}
+                      poi={poi}
+                      inspirationsCount={poiInspirationsCount[poi.poi_id] || 0}
+                      apiUrl={apiUrl}
+                      guideId={guideId}
+                    />
+                  );
+                });
+                return items;
+              })()}
             </div>
           </div>
 

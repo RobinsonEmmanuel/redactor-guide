@@ -99,6 +99,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
 
   // États pour la reconstruction des inspirations
   const [rebuildingInspirations, setRebuildingInspirations] = useState(false);
+  const [resyncingAnchors, setResyncingAnchors] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -260,6 +261,7 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
   };
 
   const loadTemplateProposals = async () => {
+    console.log('🔄 [Recalculer toutes les pages] Requête envoyée...');
     setLoadingTemplateProposals(true);
     try {
       const token = document.cookie
@@ -274,9 +276,17 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
         credentials: 'include',
       });
 
+      console.log('🔄 [Recalculer toutes les pages] Réponse reçue, status:', res.status);
+
       if (res.ok) {
         const data = await res.json();
+        const poiPages = data?.proposals?.poi_pages || [];
+        const withAnchor = poiPages.filter((p: any) => p.anchor_source);
+        console.log(`🔄 [Recalculer toutes les pages] ${poiPages.length} pages POI reçues, dont ${withAnchor.length} avec anchor_source`);
+        if (poiPages.length > 0) console.log('🔄 [Recalculer toutes les pages] Exemple:', poiPages[0]);
         setTemplateProposals(data);
+      } else {
+        console.error('❌ [Recalculer toutes les pages] Échec HTTP', res.status);
       }
     } catch (err) {
       console.error('Erreur chargement propositions:', err);
@@ -1200,6 +1210,27 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
     }
   };
 
+  // "Recalculer toutes les pages" ne rafraîchit que les suggestions de la colonne de gauche —
+  // les pages déjà placées dans le chemin de fer ne sont jamais retouchées. Cette action reporte
+  // directement l'ancre (anchor_source) des POI vers l'url_source des pages déjà créées.
+  const resyncPoiAnchors = async () => {
+    setResyncingAnchors(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/resync-poi-anchors`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur');
+      await loadPages();
+      alert(`✅ ${data.updated}/${data.checked} page(s) POI mise(s) à jour avec leur ancre.`);
+    } catch (error: any) {
+      alert(`❌ Erreur : ${error.message}`);
+    } finally {
+      setResyncingAnchors(false);
+    }
+  };
+
   const startEmptyStructure = (count = 100) => {
     // Affiche N emplacements vides dans la grille.
     // Aucune page n'est créée en base — l'utilisateur glisse les templates dessus.
@@ -1304,6 +1335,15 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                 >
                   <ArrowPathIcon className={`h-3 w-3 ${rebuildingInspirations ? 'animate-spin' : ''}`} />
                   {rebuildingInspirations ? 'Recalcul en cours…' : 'Recalculer les pages inspiration'}
+                </button>
+                <button
+                  onClick={resyncPoiAnchors}
+                  disabled={resyncingAnchors}
+                  title="Met à jour l'url_source des pages POI déjà créées avec leur ancre — sans recréer les pages"
+                  className="col-span-2 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 bg-white text-[#191E55] border border-[#191E55]/30 text-xs font-medium rounded hover:bg-[#191E55]/5 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ArrowPathIcon className={`h-3 w-3 ${resyncingAnchors ? 'animate-spin' : ''}`} />
+                  {resyncingAnchors ? 'Resynchronisation…' : 'Resynchroniser les ancres POI'}
                 </button>
               </div>
             </div>
@@ -1888,13 +1928,15 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color, art
   const [openingArticle, setOpeningArticle] = useState(false);
 
   const slug = articleSlug || templatePage?.url_source || null;
+  const anchorSuffix = templatePage?.anchor_source ? `#${templatePage.anchor_source}` : '';
 
   const handleOpenArticle = async (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
     if (!slug) return;
+    console.log('[ProposalCardMini] Ouverture source', { slug, anchor_source: templatePage?.anchor_source });
     // Si c'est déjà une URL complète
-    if (slug.startsWith('http')) { window.open(slug, '_blank', 'noopener'); return; }
+    if (slug.startsWith('http')) { window.open(`${slug}${anchorSuffix}`, '_blank', 'noopener'); return; }
     setOpeningArticle(true);
     try {
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/articles?slug=${encodeURIComponent(slug)}`, { credentials: 'include' });
@@ -1902,7 +1944,7 @@ function ProposalCardMini({ id, type, title, description, icon: Icon, color, art
         const data = await res.json();
         const article = Array.isArray(data) ? data[0] : data.articles?.[0] ?? data;
         const url = article?.urls_by_lang?.fr || article?.urls_by_lang?.en;
-        if (url) { window.open(url, '_blank', 'noopener'); }
+        if (url) { window.open(`${url}${anchorSuffix}`, '_blank', 'noopener'); }
       }
     } finally {
       setOpeningArticle(false);

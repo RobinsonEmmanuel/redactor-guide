@@ -184,7 +184,8 @@ export default async function cheminDeFerProposalsRoutes(fastify: FastifyInstanc
           },
         };
 
-        console.log(`✅ [Proposals] ${stats.total} propositions générées`);
+        const poiWithAnchor = proposals.poi_pages.filter((p: any) => p.anchor_source).length;
+        console.log(`✅ [Proposals] ${stats.total} propositions générées (${poiWithAnchor}/${proposals.poi_pages.length} pages POI avec anchor_source)`);
 
         return reply.send({
           template_name: guideTemplate.name,

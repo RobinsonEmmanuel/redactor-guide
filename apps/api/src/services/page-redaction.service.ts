@@ -1114,7 +1114,25 @@ INSTRUCTIONS STRICTES :
         );
 
         if (poi) {
-          const poiUrl: string | null = poi.url_source?.startsWith('http') ? poi.url_source : null;
+          // poi.url_source est presque toujours un slug (ex: "plus-beaux-jardins-menton"),
+          // jamais une URL complète — il faut donc résoudre l'article correspondant pour
+          // obtenir son urls_by_lang, faute de quoi ce fallback ne se déclenche jamais.
+          let poiUrl: string | null = null;
+          let poiArticleDoc: any = null;
+          if (poi.url_source) {
+            if (poi.url_source.startsWith('http')) {
+              poiUrl = poi.url_source;
+            } else {
+              poiArticleDoc = await getArticlesDatabase().collection(COLLECTIONS.articles_raw).findOne(
+                { slug: poi.url_source },
+                { projection: { urls_by_lang: 1, html_brut: 1 } }
+              );
+              poiUrl = poiArticleDoc?.urls_by_lang?.fr
+                ?? poiArticleDoc?.urls_by_lang?.en
+                ?? Object.values(poiArticleDoc?.urls_by_lang ?? {})[0] as string | undefined
+                ?? null;
+            }
+          }
 
           // Chercher un meilleur article dans autres_articles_mentions
           const mentions: string[] = poi.autres_articles_mentions || [];
@@ -1139,9 +1157,12 @@ INSTRUCTIONS STRICTES :
             }
           }
 
-          // Fallback : url_source du POI (article liste) → chercher l'ancre dedans
+          // Fallback : url_source du POI (article liste) → ancre déjà résolue à l'extraction
+          // (anchor_source), sinon recherche heuristique dans le html_brut de l'article.
           if (poiUrl) {
-            const urlWithAnchor = await buildUrlWithAnchor(poiUrl);
+            const urlWithAnchor = poi.anchor_source
+              ? `${poiUrl}#${poi.anchor_source}`
+              : await buildUrlWithAnchor(poiUrl, poiArticleDoc);
             console.log(`📄 [resolvePoiArticleUrl] url_source pois_selection pour "${poiName}" → ${urlWithAnchor}`);
             return urlWithAnchor;
           }

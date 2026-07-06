@@ -846,24 +846,50 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
       const jobId = data.jobId;
       setCurrentJobId(jobId);
 
+      // Polling léger (?light=1) : ne rapatrie que statut/progression/compteurs.
+      // Les gros tableaux (preview_pois, deduplicated_pois…) sont chargés une seule
+      // fois, à l'état terminal — évite ~1 Mo transférés + re-render toutes les 3s.
+      let inFlight = false;          // garde anti-chevauchement des ticks
+      let lastUpdatedAt: string | null = null;
+      let stalledSince: number | null = null;
+      const STALL_LIMIT_MS = 5 * 60 * 1000; // stop uniquement si aucune progression pendant 5 min
+
       const pollInterval = setInterval(async () => {
+        if (inFlight) return;
+        inFlight = true;
         try {
-          const checkRes = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/job-status/${jobId}`);
+          const checkRes = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/job-status/${jobId}?light=1`);
           if (checkRes.ok) {
             const status = await checkRes.json();
 
             if (status.progress) setGeneratingProgress(status.progress);
-            if (status.preview_pois?.length) setPreviewPois(status.preview_pois);
-            if (status.preview_batches?.length) setPreviewBatches(status.preview_batches);
-            if (status.classification_log?.length) setClassificationLog(status.classification_log);
             if (status.mono_count !== null) setMonoCount(status.mono_count);
             if (status.multi_count !== null) setMultiCount(status.multi_count);
             if (status.excluded_count !== null) setExcludedCount(status.excluded_count);
             setJobStatus(status.status);
 
+            // Détection d'inactivité : on ne coupe que si le job ne progresse VRAIMENT plus
+            // (updated_at figé pendant 5 min), au lieu d'un couperet absolu qui abandonnait
+            // les gros guides légitimement longs (ex: 86 batches ≈ 16 min).
+            const upd: string | null = status.updated_at ?? null;
+            if (upd && upd === lastUpdatedAt) {
+              if (stalledSince === null) stalledSince = Date.now();
+              else if (Date.now() - stalledSince > STALL_LIMIT_MS) {
+                clearInterval(pollInterval);
+                setGenerating(false);
+                setGeneratingProgress(null);
+                alert("⚠️ L'extraction semble bloquée (aucune progression depuis 5 min). Vous pouvez relancer les batches manquants.");
+                return;
+              }
+            } else {
+              stalledSince = null;
+              lastUpdatedAt = upd;
+            }
+
             if (status.status === 'dedup_complete') {
               clearInterval(pollInterval);
-              const finalPois = dedupeByPoiId(status.deduplicated_pois || []);
+              const full = await (await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/job-status/${jobId}`)).json();
+              const finalPois = dedupeByPoiId(full.deduplicated_pois || []);
               if (finalPois.length) {
                 setDedupPois(finalPois);
                 setValidationPois(finalPois);
@@ -895,14 +921,10 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
           }
         } catch (pollErr) {
           console.error('Erreur polling:', pollErr);
+        } finally {
+          inFlight = false;
         }
       }, 3000);
-
-      setTimeout(() => {
-        clearInterval(pollInterval);
-        setGenerating(false);
-        setGeneratingProgress(null);
-      }, 10 * 60 * 1000);
 
     } catch (err) {
       console.error('Erreur génération:', err);
@@ -972,11 +994,18 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         return;
       }
 
-      // Polling dédié — indépendant du polling d'extraction
+      // Polling dédié — indépendant du polling d'extraction (léger + anti-chevauchement)
+      let dedupInFlight = false;
+      let dedupLastUpdatedAt: string | null = null;
+      let dedupStalledSince: number | null = null;
+      const DEDUP_STALL_LIMIT_MS = 5 * 60 * 1000;
+
       const dedupPoll = setInterval(async () => {
+        if (dedupInFlight) return;
+        dedupInFlight = true;
         try {
           const checkRes = await authFetch(
-            `${apiUrl}/api/v1/guides/${guideId}/pois/job-status/${jobId}`
+            `${apiUrl}/api/v1/guides/${guideId}/pois/job-status/${jobId}?light=1`
           );
           if (!checkRes.ok) return;
           const status = await checkRes.json();
@@ -984,7 +1013,8 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
 
           if (status.status === 'dedup_complete') {
             clearInterval(dedupPoll);
-            const finalPois = dedupeByPoiId(status.deduplicated_pois || []);
+            const full = await (await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/job-status/${jobId}`)).json();
+            const finalPois = dedupeByPoiId(full.deduplicated_pois || []);
             if (finalPois.length) {
               setDedupPois(finalPois);
               setValidationPois(finalPois);
@@ -1000,20 +1030,27 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
             clearInterval(dedupPoll);
             setDeduplicating(false);
             alert(`❌ Dédoublonnage échoué: ${status.error || 'Erreur inconnue'}`);
+          } else {
+            // Détection d'inactivité (aucune progression pendant 5 min)
+            const upd: string | null = status.updated_at ?? null;
+            if (upd && upd === dedupLastUpdatedAt) {
+              if (dedupStalledSince === null) dedupStalledSince = Date.now();
+              else if (Date.now() - dedupStalledSince > DEDUP_STALL_LIMIT_MS) {
+                clearInterval(dedupPoll);
+                setDeduplicating(false);
+                alert('⏱️ Dédoublonnage bloqué (aucune progression depuis 5 min) — vérifiez les logs Railway et rechargez la page.');
+              }
+            } else {
+              dedupStalledSince = null;
+              dedupLastUpdatedAt = upd;
+            }
           }
         } catch (pollErr) {
           console.error('Erreur polling dédup:', pollErr);
+        } finally {
+          dedupInFlight = false;
         }
       }, 3000);
-
-      // Timeout de sécurité : 10 minutes
-      setTimeout(() => {
-        clearInterval(dedupPoll);
-        if (deduplicating) {
-          setDeduplicating(false);
-          alert('⏱️ Timeout dédoublonnage — vérifiez les logs Railway et rechargez la page.');
-        }
-      }, 10 * 60 * 1000);
 
     } catch (err) {
       console.error('Erreur dédup:', err);

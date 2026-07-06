@@ -99,7 +99,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
 
   // États pour la reconstruction des inspirations
   const [rebuildingInspirations, setRebuildingInspirations] = useState(false);
-  const [resyncingAnchors, setResyncingAnchors] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -1210,27 +1209,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
     }
   };
 
-  // "Recalculer toutes les pages" ne rafraîchit que les suggestions de la colonne de gauche —
-  // les pages déjà placées dans le chemin de fer ne sont jamais retouchées. Cette action reporte
-  // directement l'ancre (anchor_source) des POI vers l'url_source des pages déjà créées.
-  const resyncPoiAnchors = async () => {
-    setResyncingAnchors(true);
-    try {
-      const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/chemin-de-fer/resync-poi-anchors`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erreur');
-      await loadPages();
-      alert(`✅ ${data.updated}/${data.checked} page(s) POI mise(s) à jour avec leur ancre.`);
-    } catch (error: any) {
-      alert(`❌ Erreur : ${error.message}`);
-    } finally {
-      setResyncingAnchors(false);
-    }
-  };
-
   const startEmptyStructure = (count = 100) => {
     // Affiche N emplacements vides dans la grille.
     // Aucune page n'est créée en base — l'utilisateur glisse les templates dessus.
@@ -1335,15 +1313,6 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                 >
                   <ArrowPathIcon className={`h-3 w-3 ${rebuildingInspirations ? 'animate-spin' : ''}`} />
                   {rebuildingInspirations ? 'Recalcul en cours…' : 'Recalculer les pages inspiration'}
-                </button>
-                <button
-                  onClick={resyncPoiAnchors}
-                  disabled={resyncingAnchors}
-                  title="Met à jour l'url_source des pages POI déjà créées avec leur ancre — sans recréer les pages"
-                  className="col-span-2 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 bg-white text-[#191E55] border border-[#191E55]/30 text-xs font-medium rounded hover:bg-[#191E55]/5 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ArrowPathIcon className={`h-3 w-3 ${resyncingAnchors ? 'animate-spin' : ''}`} />
-                  {resyncingAnchors ? 'Resynchronisation…' : 'Resynchroniser les ancres POI'}
                 </button>
               </div>
             </div>

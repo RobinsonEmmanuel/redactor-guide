@@ -465,55 +465,6 @@ export async function cheminDeFerRoutes(fastify: FastifyInstance) {
   );
 
   /**
-   * POST /guides/:guideId/chemin-de-fer/resync-poi-anchors
-   * Reporte l'ancre (anchor_source) des POI de pois_selection vers l'url_source des pages
-   * déjà créées dans le chemin de fer. Nécessaire car "Recalculer toutes les pages" ne fait
-   * que rafraîchir les suggestions — il ne touche jamais les pages déjà placées.
-   */
-  fastify.post<{ Params: { guideId: string } }>(
-    '/guides/:guideId/chemin-de-fer/resync-poi-anchors',
-    async (request, reply) => {
-      try {
-        const db = request.server.container.db;
-        const { guideId } = request.params;
-
-        const selection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
-        const anchorByPoiId = new Map<string, string>();
-        for (const poi of selection?.pois || []) {
-          if (poi.poi_id && poi.anchor_source) anchorByPoiId.set(poi.poi_id, poi.anchor_source);
-        }
-
-        const poiPages = await db.collection(COLLECTIONS.pages)
-          .find({ guide_id: guideId, type_de_page: 'poi', 'metadata.poi_id': { $exists: true } })
-          .toArray();
-
-        let updated = 0;
-        const now = new Date().toISOString();
-        for (const page of poiPages) {
-          const poiId = page.metadata?.poi_id;
-          const anchor = poiId ? anchorByPoiId.get(String(poiId)) : undefined;
-          if (!anchor || !page.url_source) continue;
-
-          const baseUrl = String(page.url_source).split('#')[0];
-          const newUrl = `${baseUrl}#${anchor}`;
-          if (newUrl === page.url_source) continue;
-
-          await db.collection(COLLECTIONS.pages).updateOne(
-            { _id: page._id },
-            { $set: { url_source: newUrl, updated_at: now } }
-          );
-          updated++;
-        }
-
-        return reply.send({ checked: poiPages.length, updated });
-      } catch (error: any) {
-        request.log.error(error);
-        return reply.status(500).send({ error: 'Erreur lors de la resynchronisation des ancres' });
-      }
-    }
-  );
-
-  /**
    * DELETE /guides/:guideId/chemin-de-fer/pages
    * Supprime toutes les pages du chemin de fer en une seule requête
    */

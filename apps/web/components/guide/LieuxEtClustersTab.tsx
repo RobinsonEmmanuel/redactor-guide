@@ -80,7 +80,8 @@ function DraggablePOI({ poi, apiUrl, guideId }: { poi: POI; apiUrl: string; guid
     e.stopPropagation();
     e.preventDefault();
     if (!poi.url_source) return;
-    if (poi.url_source.startsWith('http')) { window.open(poi.url_source, '_blank', 'noopener'); return; }
+    const anchorSuffix = poi.anchor_source ? `#${poi.anchor_source}` : '';
+    if (poi.url_source.startsWith('http')) { window.open(`${poi.url_source}${anchorSuffix}`, '_blank', 'noopener'); return; }
     setOpeningArticle(true);
     try {
       const res = await fetch(`${apiUrl}/api/v1/guides/${guideId}/articles?slug=${encodeURIComponent(poi.url_source)}`, { credentials: 'include' });
@@ -88,7 +89,7 @@ function DraggablePOI({ poi, apiUrl, guideId }: { poi: POI; apiUrl: string; guid
         const data = await res.json();
         const article = Array.isArray(data) ? data[0] : data.articles?.[0] ?? data;
         const url = article?.urls_by_lang?.fr || article?.urls_by_lang?.en;
-        if (url) window.open(url, '_blank', 'noopener');
+        if (url) window.open(`${url}${anchorSuffix}`, '_blank', 'noopener');
       }
     } finally { setOpeningArticle(false); }
   };

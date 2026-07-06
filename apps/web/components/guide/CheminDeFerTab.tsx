@@ -557,7 +557,8 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
             const article = articleData.articles?.[0];
             if (article) {
               const urlsMap = article.urls_by_lang ?? article.urls ?? {};
-              url_source = urlsMap['fr'] || urlsMap['en'] || article.url_francais || undefined;
+              const baseUrl = urlsMap['fr'] || urlsMap['en'] || article.url_francais || undefined;
+              url_source = baseUrl && templatePageData.anchor_source ? `${baseUrl}#${templatePageData.anchor_source}` : baseUrl;
             }
           }
         } catch (err) {

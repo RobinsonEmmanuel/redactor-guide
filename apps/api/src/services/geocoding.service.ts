@@ -395,7 +395,10 @@ export class GeocodingService {
    * par rapport au repli générique "France entière" (voir plus bas).
    */
   private readonly FRENCH_REGION_BOUNDS: Record<string, GeoBounds> = {
-    'côte d\'azur':    { minLat: 43.10, maxLat: 43.95, minLon: 6.40, maxLon: 7.75 },
+    // Élargi pour couvrir toute la région PACA : les guides "Côte d'Azur" incluent en
+    // pratique l'arrière-pays provençal (Avignon, Luberon, Alpilles, Camargue, Arles...),
+    // pas seulement la bande côtière — une bbox trop étroite rejetait ces POIs à tort.
+    'côte d\'azur':    { minLat: 42.90, maxLat: 44.50, minLon: 4.00, maxLon: 7.75 },
     'provence':        { minLat: 43.10, maxLat: 44.40, minLon: 4.20, maxLon: 6.90 },
     'corse':           { minLat: 41.35, maxLat: 43.05, minLon: 8.50, maxLon: 9.60 },
     'bretagne':        { minLat: 47.25, maxLat: 48.90, minLon: -5.20, maxLon: -1.00 },

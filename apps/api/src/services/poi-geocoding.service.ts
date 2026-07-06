@@ -486,14 +486,15 @@ export async function geocodeMissingPoisInSelection(
       (payload.place_identity.local_name ? ` (${payload.place_identity.local_name})` : '')
     );
 
-    if (i < updatedPois.length - 1) await sleep(PHOTON_RATE_LIMIT_MS);
-  }
-
-  if (geocoded > 0) {
+    // Sauvegarde immédiate : un lot de 80+ POIs peut prendre plusieurs minutes (rate-limit
+    // Photon + Nominatim) — si la requête est coupée en route (timeout proxy/serveur), on ne
+    // veut pas perdre tout le travail déjà fait en écrivant une seule fois à la fin.
     await db.collection(COLLECTIONS.pois_selection).updateOne(
       { guide_id: guideId },
-      { $set: { pois: updatedPois, updated_at: new Date() } }
+      { $set: { [`pois.${i}`]: updatedPois[i], updated_at: new Date() } }
     );
+
+    if (i < updatedPois.length - 1) await sleep(PHOTON_RATE_LIMIT_MS);
   }
 
   console.log(

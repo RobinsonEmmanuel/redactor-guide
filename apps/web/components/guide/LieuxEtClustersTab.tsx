@@ -1116,15 +1116,33 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   };
 
   const [geocodingPois, setGeocodingPois] = useState(false);
+  const [showGeocodeReviewModal, setShowGeocodeReviewModal] = useState(false);
+  const [geocodeReviewPois, setGeocodeReviewPois] = useState<POI[]>([]);
+  const [geocodeReviewCoords, setGeocodeReviewCoords] = useState<Record<string, { lat: string; lon: string }>>({});
+  const [savingGeocodeReview, setSavingGeocodeReview] = useState(false);
 
-  const geocodeMissingPois = async () => {
+  // Ouvre la modale immédiatement avec la liste actuelle des POIs sans coordonnées.
+  // La recherche automatique est déclenchée séparément depuis la modale (bouton dédié)
+  // pour ne jamais laisser l'utilisateur sans retour visuel pendant un géocodage long
+  // (jusqu'à ~1-2 min pour de gros lots, en série avec limitation de débit Photon).
+  const openGeocodeReviewModal = () => {
+    setGeocodeReviewPois(pois.filter(p => !p.coordinates));
+    setGeocodeReviewCoords({});
+    setShowGeocodeReviewModal(true);
+  };
+
+  const runAutoGeocode = async () => {
     setGeocodingPois(true);
     try {
       const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/geocode-missing`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
-        alert(`✅ ${data.geocoded}/${data.missing_before} POI(s) géolocalisé(s)${data.failed > 0 ? ` — ${data.failed} échec(s)` : ''} (${data.already_had_coords} déjà OK)`);
-        await loadPois();
+        const freshRes = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois`);
+        const freshData = freshRes.ok ? await freshRes.json() : { pois: [] };
+        const freshPois: POI[] = freshData.pois || [];
+        setPois(freshPois);
+        setGeocodeReviewPois(freshPois.filter(p => !p.coordinates));
+        setGeocodeReviewCoords({});
       } else {
         alert(`❌ ${data.error || 'Erreur inconnue'}`);
       }
@@ -1133,6 +1151,31 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
       alert('❌ Erreur lors du géocodage des POIs');
     } finally {
       setGeocodingPois(false);
+    }
+  };
+
+  const saveGeocodeReviewAndMatch = async () => {
+    setSavingGeocodeReview(true);
+    try {
+      const entries = Object.entries(geocodeReviewCoords).filter(([, v]) => v.lat.trim() && v.lon.trim());
+      await Promise.all(entries.map(async ([poiId, { lat, lon }]) => {
+        const latNum = parseFloat(lat.replace(',', '.'));
+        const lonNum = parseFloat(lon.replace(',', '.'));
+        if (Number.isNaN(latNum) || Number.isNaN(lonNum)) return;
+        await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/${encodeURIComponent(poiId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ coordinates: { lat: latNum, lon: lonNum } }),
+        });
+      }));
+      setShowGeocodeReviewModal(false);
+      await loadPois();
+      await launchMatching();
+    } catch (err) {
+      console.error('Erreur sauvegarde coordonnées manuelles:', err);
+      alert('❌ Erreur lors de la sauvegarde des coordonnées');
+    } finally {
+      setSavingGeocodeReview(false);
     }
   };
 
@@ -1686,8 +1729,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               <>
                 <div className="w-px h-5 bg-gray-200" />
                 <button
-                  onClick={geocodeMissingPois}
-                  disabled={geocodingPois}
+                  onClick={openGeocodeReviewModal}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-500/60 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
                 >
                   {geocodingPois ? (
@@ -1932,6 +1974,101 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
           </div>
         ) : null}
       </DragOverlay>
+
+      {/* Modal révision géolocalisation manquante */}
+      {showGeocodeReviewModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-6">
+          <div className="bg-white rounded-lg w-full max-w-3xl max-h-[85vh] flex flex-col">
+            <div className="px-4 py-3 border-b border-gray-200">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+                    <MapPinIcon className="w-4 h-4 text-orange-500" />
+                    {geocodeReviewPois.length} POI(s) non géolocalisé(s)
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Lancez la recherche automatique, puis complétez manuellement les coordonnées restantes.
+                    Elles seront utilisées lors de la ventilation dans les clusters.
+                  </p>
+                </div>
+                <button
+                  onClick={runAutoGeocode}
+                  disabled={geocodingPois || geocodeReviewPois.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#191E55] text-white text-xs font-medium rounded-md hover:bg-[#191E55]/60 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+                >
+                  {geocodingPois ? (
+                    <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Recherche en cours...</>
+                  ) : (
+                    <><MapPinIcon className="w-3.5 h-3.5" />Rechercher les coordonnées GPS</>
+                  )}
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {geocodeReviewPois.length === 0 && (
+                <div className="text-center py-8 text-sm text-gray-500">
+                  ✅ Tous les POI ont désormais des coordonnées.
+                </div>
+              )}
+              {geocodeReviewPois.map((poi) => (
+                <div key={poi.poi_id} className="flex items-center gap-3 p-2 border border-gray-200 rounded-md">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-900 truncate">{poi.nom}</div>
+                    <div className="text-xs text-gray-500 truncate">{poi.article_source || poi.type}</div>
+                  </div>
+                  <a
+                    href={`https://www.google.com/maps/search/${encodeURIComponent(`${poi.nom} ${poi.article_source || ''}`)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-orange-600 hover:underline whitespace-nowrap flex-shrink-0"
+                  >
+                    Chercher sur Maps
+                  </a>
+                  <input
+                    type="text"
+                    placeholder="Latitude"
+                    value={geocodeReviewCoords[poi.poi_id]?.lat || ''}
+                    onChange={(e) => setGeocodeReviewCoords(prev => ({
+                      ...prev,
+                      [poi.poi_id]: { lat: e.target.value, lon: prev[poi.poi_id]?.lon || '' },
+                    }))}
+                    className="w-28 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-orange-500 focus:border-transparent flex-shrink-0"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Longitude"
+                    value={geocodeReviewCoords[poi.poi_id]?.lon || ''}
+                    onChange={(e) => setGeocodeReviewCoords(prev => ({
+                      ...prev,
+                      [poi.poi_id]: { lat: prev[poi.poi_id]?.lat || '', lon: e.target.value },
+                    }))}
+                    className="w-28 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-orange-500 focus:border-transparent flex-shrink-0"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-200">
+              <button
+                onClick={() => setShowGeocodeReviewModal(false)}
+                className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 rounded-md transition-colors"
+              >
+                Fermer
+              </button>
+              <button
+                onClick={saveGeocodeReviewAndMatch}
+                disabled={savingGeocodeReview}
+                className="flex items-center gap-1.5 px-4 py-1.5 bg-orange-500 text-white text-xs font-medium rounded-md hover:bg-orange-500/60 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+              >
+                {savingGeocodeReview ? (
+                  <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Enregistrement...</>
+                ) : (
+                  <><CheckIcon className="w-3.5 h-3.5" />Enregistrer et ventiler dans les clusters</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal création manuelle */}
       {showManualModal && (

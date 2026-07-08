@@ -180,17 +180,26 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         }, {}),
       };
 
+      // Préserver les clusters créés manuellement (is_manual) : le poi-service ne connaît que
+      // les clusters officiels Region Lovers, et son résultat ne doit pas les faire disparaître.
+      const existingAssignment = await db.collection(COLLECTIONS.cluster_assignments).findOne({ guide_id: guideId });
+      const newClusterIds = new Set((data.clusters_metadata || []).map((c: any) => c.cluster_id));
+      const manualClusters = (existingAssignment?.clusters_metadata || []).filter(
+        (c: any) => c.is_manual && !newClusterIds.has(c.cluster_id)
+      );
+      const mergedClustersMetadata = [...(data.clusters_metadata || []), ...manualClusters];
+
       const now = new Date();
       await db.collection(COLLECTIONS.cluster_assignments).updateOne(
         { guide_id: guideId },
-        { $set: { guide_id: guideId, assignment: data.assignment, stats: finalStats, clusters_metadata: data.clusters_metadata, matched_at: now, updated_at: now } },
+        { $set: { guide_id: guideId, assignment: data.assignment, stats: finalStats, clusters_metadata: mergedClustersMetadata, matched_at: now, updated_at: now } },
         { upsert: true }
       );
       if (updatedPois.length > 0) {
         await db.collection(COLLECTIONS.pois_selection).updateOne({ guide_id: guideId }, { $set: { pois: updatedPois, updated_at: now } });
       }
 
-      return reply.send({ assignment: data.assignment, stats: finalStats, clusters_metadata: data.clusters_metadata });
+      return reply.send({ assignment: data.assignment, stats: finalStats, clusters_metadata: mergedClustersMetadata });
     } catch (error: any) {
       fastify.log.error({ error: error.message }, 'Erreur matching');
       return reply.status(502).send({ error: 'Erreur de communication avec le POI service', details: error.message });
@@ -248,6 +257,40 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
       return reply.send({ success: true, cluster: newCluster });
     } catch (error: any) {
       fastify.log.error({ error: error.message }, 'Erreur création cluster manuel');
+      return reply.code(500).send({ error: error.message });
+    }
+  });
+
+  /**
+   * PATCH /guides/:guideId/clusters/:clusterId
+   * Renomme un cluster. Met à jour clusters_metadata ET le cluster_name dénormalisé
+   * sur chaque POI affecté à ce cluster dans pois_selection.
+   */
+  fastify.patch(`${guideParam}/clusters/:clusterId`, async (request: any, reply: any) => {
+    const { guideId, clusterId } = request.params as { guideId: string; clusterId: string };
+    const { cluster_name } = (request.body || {}) as { cluster_name?: string };
+    if (!cluster_name?.trim()) return reply.code(400).send({ error: 'Le nom du cluster est requis' });
+
+    try {
+      const db = request.server.container.db;
+      const trimmedName = cluster_name.trim();
+      const now = new Date();
+
+      const result = await db.collection(COLLECTIONS.cluster_assignments).updateOne(
+        { guide_id: guideId, 'clusters_metadata.cluster_id': clusterId },
+        { $set: { 'clusters_metadata.$.cluster_name': trimmedName, updated_at: now } }
+      );
+      if (result.matchedCount === 0) return reply.code(404).send({ error: 'Cluster non trouvé' });
+
+      await db.collection(COLLECTIONS.pois_selection).updateOne(
+        { guide_id: guideId },
+        { $set: { 'pois.$[poi].cluster_name': trimmedName, updated_at: now } },
+        { arrayFilters: [{ 'poi.cluster_id': clusterId }] }
+      );
+
+      return reply.send({ success: true, cluster_id: clusterId, cluster_name: trimmedName });
+    } catch (error: any) {
+      fastify.log.error({ error: error.message }, 'Erreur renommage cluster');
       return reply.code(500).send({ error: error.message });
     }
   });

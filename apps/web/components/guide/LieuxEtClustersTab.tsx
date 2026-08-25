@@ -811,6 +811,18 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
   };
 
   const generatePoisFromArticles = async () => {
+    // "Générer les POIs" repart d'une extraction IA complète et REMPLACE intégralement la
+    // sélection existante (contrairement à "Ventiler dans les clusters", qui préserve désormais
+    // les POI réaffectés/validés à la main) — aucune notion de "POI existant" à conserver ici,
+    // donc pas de garde-fou possible côté serveur. On bloque au moins le clic accidentel.
+    if (pois.length > 0) {
+      const manuallyEditedCount = pois.filter(p => p.matched_automatically === false || p.validated === true).length;
+      const warning = manuallyEditedCount > 0
+        ? `⚠️ ${pois.length} POI existent déjà pour ce guide, dont ${manuallyEditedCount} réaffecté(s)/validé(s) manuellement.\n\nRelancer une génération va TOUT remplacer par une nouvelle extraction et effacera définitivement ce travail manuel.\n\nContinuer quand même ?`
+        : `⚠️ ${pois.length} POI existent déjà pour ce guide.\n\nRelancer une génération va TOUT remplacer par une nouvelle extraction.\n\nContinuer quand même ?`;
+      if (!confirm(warning)) return;
+    }
+
     setGenerating(true);
     setPreviewPois([]);
     setPreviewBatches([]);

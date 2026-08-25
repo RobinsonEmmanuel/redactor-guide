@@ -1747,7 +1747,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
               className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-500/60 disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-medium transition-colors"
             >
               {matching ? (
-                <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Ventilation...</>
+                <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />Ventilation... (peut prendre plusieurs minutes)</>
               ) : (
                 <><ArrowPathIcon className="w-3.5 h-3.5" />2. Ventiler dans les clusters</>
               )}

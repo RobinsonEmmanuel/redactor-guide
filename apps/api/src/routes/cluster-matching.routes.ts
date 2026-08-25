@@ -130,12 +130,17 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         const country = destination ? geocodingService.getCountryFromDestination(destination) : undefined;
         const geoBias = destination ? geocodingService.getBiasFromDestination(destination) : undefined;
 
-        // ── Passe 1 : valide les matchs par nom de confiance < high via géocodage Photon ──
-        // Un match "low"/"medium" peut être une coïncidence de texte (ex: "Quais du Rhône" vs
-        // "Camping du Pylône" à 47%) — on géocode le POI et on vérifie qu'il est bien proche de
-        // la place instance matchée. Sinon, on le repasse "non affecté" en gardant les coordonnées
-        // Photon fraîchement obtenues, réutilisables par la passe 2.
-        const toValidate = updatedPois.filter(p => p.matched_automatically && p.confidence !== 'high');
+        // ── Passe 1 : valide TOUS les matchs par nom via géocodage Photon ──
+        // Un match textuellement "high" peut quand même pointer vers le mauvais lieu : deux
+        // communes homonymes (ex: "Roquebrune-Cap-Martin" près de Menton vs "Roquebrune-sur-Argens"
+        // près de Fréjus, à 80km) ont un nom quasi identique donc un score de similarité élevé,
+        // sans rapport avec la distance réelle. On géocode donc systématiquement, y compris les
+        // matchs "high", et on vérifie la proximité avec la place instance matchée. Sinon, on
+        // repasse le POI "non affecté" en gardant les coordonnées Photon fraîchement obtenues,
+        // réutilisables par la passe 2.
+        // Coût : géocode ~tous les POI auto-matchés (pas seulement low/medium) à chaque appel,
+        // donc un "Ventiler" plus long sur un guide avec beaucoup de POI (throttle Photon à 300ms/appel).
+        const toValidate = updatedPois.filter(p => p.matched_automatically);
         for (let i = 0; i < toValidate.length; i++) {
           const poi = toValidate[i];
           try {

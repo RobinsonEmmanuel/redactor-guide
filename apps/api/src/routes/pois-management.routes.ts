@@ -801,47 +801,41 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       try {
         console.log(`🔄 [POI] Réaffectation POI ${poiId} → cluster ${cluster_id || 'unassigned'}`);
 
-        // 1. Récupérer le document pois_selection
-        const poisSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
-        
-        if (!poisSelection) {
-          return reply.code(404).send({ error: 'Aucune sélection de POIs trouvée pour ce guide' });
-        }
-
-        // 2. Trouver et mettre à jour le POI
-        const poiIndex = poisSelection.pois.findIndex((p: any) => p.poi_id === poiId);
-        
-        if (poiIndex === -1) {
-          return reply.code(404).send({ error: 'POI non trouvé dans la sélection' });
-        }
-
-        // 3. Mettre à jour le POI avec le nouveau cluster
-        const updatedPoi = {
-          ...poisSelection.pois[poiIndex],
+        // Mise à jour atomique d'un seul élément du tableau via arrayFilters — évite le
+        // read-modify-write sur le tableau entier (findOne + pois[i]=... + updateOne(pois complet)),
+        // qui pouvait perdre silencieusement la réaffectation d'un autre POI si deux requêtes
+        // PATCH se chevauchaient (chacune écrasant le tableau lu par l'autre avant sa propre écriture).
+        const now = new Date();
+        const updatedFields = {
           cluster_id: cluster_id || null,
           cluster_name: cluster_name || null,
           matched_automatically: false, // C'est une réaffectation manuelle
-          updated_at: new Date(),
+          updated_at: now,
         };
 
-        poisSelection.pois[poiIndex] = updatedPoi;
-
-        // 4. Sauvegarder dans MongoDB
-        await db.collection(COLLECTIONS.pois_selection).updateOne(
-          { guide_id: guideId },
+        const result = await db.collection(COLLECTIONS.pois_selection).updateOne(
+          { guide_id: guideId, 'pois.poi_id': poiId },
           {
             $set: {
-              pois: poisSelection.pois,
-              updated_at: new Date(),
+              'pois.$[elem].cluster_id': updatedFields.cluster_id,
+              'pois.$[elem].cluster_name': updatedFields.cluster_name,
+              'pois.$[elem].matched_automatically': updatedFields.matched_automatically,
+              'pois.$[elem].updated_at': updatedFields.updated_at,
+              updated_at: now,
             },
-          }
+          },
+          { arrayFilters: [{ 'elem.poi_id': poiId }] }
         );
+
+        if (result.matchedCount === 0) {
+          return reply.code(404).send({ error: 'POI ou sélection non trouvé(e)' });
+        }
 
         console.log(`✅ [POI] POI ${poiId} réaffecté avec succès`);
 
         return reply.send({
           success: true,
-          poi: updatedPoi,
+          poi: updatedFields,
         });
 
       } catch (error: any) {
@@ -874,28 +868,31 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       const { nom, type, coordinates, article_source, url_source } = request.body;
 
       try {
-        const poisSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
-        if (!poisSelection) return reply.code(404).send({ error: 'Sélection introuvable' });
-
-        const poiIndex = poisSelection.pois.findIndex((p: any) => p.poi_id === poiId);
-        if (poiIndex === -1) return reply.code(404).send({ error: 'POI introuvable' });
-
-        const patch: Record<string, any> = { updated_at: new Date() };
+        // Mise à jour atomique par arrayFilters (cf. PATCH /pois/:poiId/cluster ci-dessus) —
+        // évite qu'une édition concurrente d'un autre POI n'écrase celle-ci.
+        const now = new Date();
+        const patch: Record<string, any> = { updated_at: now };
         if (nom !== undefined) patch.nom = nom.trim();
         if (type !== undefined) patch.type = type;
         if (coordinates !== undefined) patch.coordinates = coordinates;
         if (article_source !== undefined) patch.article_source = article_source;
         if (url_source !== undefined) patch.url_source = url_source;
 
-        poisSelection.pois[poiIndex] = { ...poisSelection.pois[poiIndex], ...patch };
+        const setFields: Record<string, any> = { updated_at: now };
+        for (const [key, value] of Object.entries(patch)) {
+          setFields[`pois.$[elem].${key}`] = value;
+        }
 
-        await db.collection(COLLECTIONS.pois_selection).updateOne(
-          { guide_id: guideId },
-          { $set: { pois: poisSelection.pois, updated_at: new Date() } }
+        const result = await db.collection(COLLECTIONS.pois_selection).updateOne(
+          { guide_id: guideId, 'pois.poi_id': poiId },
+          { $set: setFields },
+          { arrayFilters: [{ 'elem.poi_id': poiId }] }
         );
 
+        if (result.matchedCount === 0) return reply.code(404).send({ error: 'Sélection ou POI introuvable' });
+
         console.log(`✏️ [POI] Mise à jour ${poiId}: ${JSON.stringify(patch)}`);
-        return reply.send({ success: true, poi: poisSelection.pois[poiIndex] });
+        return reply.send({ success: true, poi: patch });
       } catch (error: any) {
         return reply.code(500).send({ error: error.message });
       }
@@ -912,27 +909,34 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       const { guideId, poiId } = request.params;
 
       try {
-        const poisSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
-        if (!poisSelection) return reply.code(404).send({ error: 'Sélection introuvable' });
-
-        const poiIndex = poisSelection.pois.findIndex((p: any) => p.poi_id === poiId);
-        if (poiIndex === -1) return reply.code(404).send({ error: 'POI introuvable' });
-
-        poisSelection.pois[poiIndex] = {
-          ...poisSelection.pois[poiIndex],
+        // Mise à jour atomique par arrayFilters (cf. PATCH /pois/:poiId/cluster plus haut).
+        const now = new Date();
+        const patch = {
           validated: true,
           confidence: 'high',
           score: 1.0,
           matched_automatically: false,
-          updated_at: new Date(),
+          updated_at: now,
         };
 
-        await db.collection(COLLECTIONS.pois_selection).updateOne(
-          { guide_id: guideId },
-          { $set: { pois: poisSelection.pois, updated_at: new Date() } }
+        const result = await db.collection(COLLECTIONS.pois_selection).updateOne(
+          { guide_id: guideId, 'pois.poi_id': poiId },
+          {
+            $set: {
+              'pois.$[elem].validated': patch.validated,
+              'pois.$[elem].confidence': patch.confidence,
+              'pois.$[elem].score': patch.score,
+              'pois.$[elem].matched_automatically': patch.matched_automatically,
+              'pois.$[elem].updated_at': patch.updated_at,
+              updated_at: now,
+            },
+          },
+          { arrayFilters: [{ 'elem.poi_id': poiId }] }
         );
 
-        return reply.send({ success: true, poi: poisSelection.pois[poiIndex] });
+        if (result.matchedCount === 0) return reply.code(404).send({ error: 'Sélection ou POI introuvable' });
+
+        return reply.send({ success: true, poi: patch });
       } catch (error: any) {
         return reply.code(500).send({ error: error.message });
       }

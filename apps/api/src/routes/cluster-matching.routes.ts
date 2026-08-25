@@ -104,6 +104,27 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
       let updatedPois: any[] = Array.isArray(data.updated_pois) ? data.updated_pois : [];
       const placeInstances: any[] = Array.isArray(data.place_instances) ? data.place_instances : [];
 
+      // Le poi-service recalcule le matching de TOUS les POIs à chaque appel, par similarité de
+      // nom, sans savoir qu'un POI a déjà été réaffecté/validé à la main (il ne reçoit que
+      // poi_id/nom/type/article_source, cf. matching.routes.ts). Sans ce garde-fou, relancer
+      // "Ventiler dans les clusters" écrasait silencieusement tout travail manuel précédent
+      // (cluster_id, coordonnées, confiance) par un résultat recalculé à l'instant T.
+      // On restaure donc tel quel tout POI marqué manuel avant les passes géo ci-dessous.
+      const isManuallyProtected = (p: any) => Boolean(p) && (p.matched_automatically === false || p.validated === true);
+      const originalByPoiId = new Map((poisSelection.pois || []).map((p: any) => [p.poi_id, p]));
+      const protectedPoiIds = new Set(
+        (poisSelection.pois || []).filter(isManuallyProtected).map((p: any) => p.poi_id)
+      );
+      if (protectedPoiIds.size > 0) {
+        updatedPois = updatedPois.map((p: any) =>
+          protectedPoiIds.has(p.poi_id) ? originalByPoiId.get(p.poi_id) : p
+        );
+        fastify.log.info(
+          { guideId, count: protectedPoiIds.size },
+          '[MATCHING] POI(s) manuel(s) préservé(s) du recalcul automatique'
+        );
+      }
+
       if (updatedPois.length > 0) {
         const destination = getGuideDestination(guide);
         const country = destination ? geocodingService.getCountryFromDestination(destination) : undefined;
@@ -143,7 +164,9 @@ export default async function clusterMatchingRoutes(fastify: FastifyInstance) {
         // géolocalisés (via le bouton "3. Géolocaliser" ou rétrogradés à la passe 1) ──
         const placeInstancesWithCoords = placeInstances.filter(pi => pi.coordinates);
         for (const poi of updatedPois) {
-          if (poi.cluster_id || !poi.coordinates) continue;
+          // Ne pas réaffecter un POI volontairement désaffecté à la main (protégé plus haut) —
+          // sinon la restauration ci-dessus serait défaite par cette passe.
+          if (poi.cluster_id || !poi.coordinates || protectedPoiIds.has(poi.poi_id)) continue;
 
           let nearest: any = null;
           let nearestDistanceKm = Infinity;

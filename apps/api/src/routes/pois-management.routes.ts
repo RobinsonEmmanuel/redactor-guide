@@ -8,12 +8,59 @@ import { getDatabase } from '../config/database';
 const ManualPOISchema = z.object({
   nom: z.string().min(1),
   url_source: z.string().optional(),
+  force: z.boolean().optional(),
 });
 
 const ReusePoisSchema = z.object({
   sourceGuideId: z.string().min(1),
   includeMatching: z.boolean().optional().default(true),
 });
+
+function normalizePoiName(s: string): string {
+  return (s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const d: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  );
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      d[i][j] = a[i - 1] === b[j - 1] ? d[i - 1][j - 1] : 1 + Math.min(d[i - 1][j], d[i][j - 1], d[i - 1][j - 1]);
+    }
+  }
+  return d[m][n];
+}
+
+/**
+ * Même règle que le dédoublonnage automatique appliqué à l'extraction (poi-service,
+ * deduplicateAlgorithmically) : noms quasi identiques, ou même premier mot significatif +
+ * inclusion. Les ajouts manuels/bibliothèque ne passent jamais par ce dédoublonnage — c'est
+ * la seule voie qui pouvait encore créer des doublons une fois la génération protégée.
+ */
+function findNameDuplicate(nom: string, existingPois: any[]): any | null {
+  const norm = normalizePoiName(nom);
+  if (!norm) return null;
+  for (const poi of existingPois) {
+    const otherNorm = normalizePoiName(poi.nom);
+    if (!otherNorm) continue;
+    if (norm === otherNorm) return poi;
+    const maxLen = Math.max(norm.length, otherNorm.length);
+    const threshold = maxLen <= 10 ? 1 : 2;
+    if (levenshteinDistance(norm, otherNorm) <= threshold) return poi;
+    const firstWordA = norm.split(' ').find(w => w.length >= 4) ?? '';
+    const firstWordB = otherNorm.split(' ').find(w => w.length >= 4) ?? '';
+    if (firstWordA && firstWordA === firstWordB && (norm.includes(otherNorm) || otherNorm.includes(norm))) return poi;
+  }
+  return null;
+}
 
 function normalizeGuideSiteUrl(guide: any): string | null {
   const siteUrl = guide?.wpConfig?.siteUrl;
@@ -523,7 +570,19 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
 
       try {
         const data = ManualPOISchema.parse(request.body);
-        
+
+        if (!data.force) {
+          const poisSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
+          const duplicate = findNameDuplicate(data.nom, poisSelection?.pois || []);
+          if (duplicate) {
+            return reply.code(409).send({
+              error: 'duplicate_name',
+              message: `Un POI similaire existe déjà : "${duplicate.nom}"${duplicate.cluster_name ? ` (${duplicate.cluster_name})` : ''}.`,
+              duplicate: { poi_id: duplicate.poi_id, nom: duplicate.nom, cluster_name: duplicate.cluster_name || null },
+            });
+          }
+        }
+
         // Générer un ID unique
         const poi_id = `manual_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -573,10 +632,22 @@ export default async function poisManagementRoutes(fastify: FastifyInstance) {
       const { guideId } = request.params;
 
       try {
-        const { region_lovers_id, nom, type, coordinates, cluster_id } = request.body as any;
+        const { region_lovers_id, nom, type, coordinates, cluster_id, force } = request.body as any;
 
         if (!region_lovers_id || !nom) {
           return reply.code(400).send({ error: 'region_lovers_id et nom requis' });
+        }
+
+        if (!force) {
+          const poisSelection = await db.collection(COLLECTIONS.pois_selection).findOne({ guide_id: guideId });
+          const duplicate = findNameDuplicate(nom, poisSelection?.pois || []);
+          if (duplicate) {
+            return reply.code(409).send({
+              error: 'duplicate_name',
+              message: `Un POI similaire existe déjà : "${duplicate.nom}"${duplicate.cluster_name ? ` (${duplicate.cluster_name})` : ''}.`,
+              duplicate: { poi_id: duplicate.poi_id, nom: duplicate.nom, cluster_name: duplicate.cluster_name || null },
+            });
+          }
         }
 
         const poi_id = `library_${region_lovers_id}`;

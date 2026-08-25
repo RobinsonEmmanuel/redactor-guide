@@ -1260,7 +1260,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     }
   };
 
-  const createManualPOI = async () => {
+  const createManualPOI = async (force = false) => {
     try {
       const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/add-manual`, {
         method: 'POST',
@@ -1275,6 +1275,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
           article_source: manualForm.article_source || undefined,
           url_source: manualForm.url_source || undefined,
           origine: 'manuel',
+          force,
         }),
       });
 
@@ -1285,6 +1286,13 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         alert('✅ Lieu créé !');
       } else {
         const errorData = await res.json();
+        if (res.status === 409 && errorData.error === 'duplicate_name') {
+          if (confirm(`${errorData.message}\n\nAjouter quand même ce nouveau lieu ?`)) {
+            await createManualPOI(true);
+            return;
+          }
+          return;
+        }
         alert(`❌ Erreur: ${errorData.error}`);
       }
     } catch (err) {
@@ -1356,7 +1364,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     }
   };
 
-  const addFromLibrary = async (libraryPoi: any) => {
+  const addFromLibrary = async (libraryPoi: any, force = false) => {
     try {
       const res = await authFetch(`${apiUrl}/api/v1/guides/${guideId}/pois/add-from-library`, {
         method: 'POST',
@@ -1369,6 +1377,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
           cluster_id: libraryPoi.cluster_id !== 'non_affecte' ? libraryPoi.cluster_id : null,
           cluster_name: libraryPoi.cluster_name !== 'Non affecté' ? libraryPoi.cluster_name : null,
           origine: 'bibliotheque',
+          force,
         }),
       });
 
@@ -1377,6 +1386,13 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
         alert('✅ Lieu ajouté depuis la bibliothèque !');
       } else {
         const errorData = await res.json();
+        if (res.status === 409 && errorData.error === 'duplicate_name') {
+          if (confirm(`${errorData.message}\n\nAjouter quand même ce nouveau lieu ?`)) {
+            await addFromLibrary(libraryPoi, true);
+            return;
+          }
+          return;
+        }
         alert(`❌ Erreur: ${errorData.error}`);
       }
     } catch (err) {
@@ -2183,7 +2199,7 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                 Annuler
               </button>
               <button
-                onClick={editingPoi ? updatePoi : createManualPOI}
+                onClick={() => (editingPoi ? updatePoi() : createManualPOI())}
                 disabled={!manualForm.nom}
                 className="flex-1 px-3 py-1.5 bg-[#191E55] text-white rounded hover:bg-[#191E55]/60 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
               >

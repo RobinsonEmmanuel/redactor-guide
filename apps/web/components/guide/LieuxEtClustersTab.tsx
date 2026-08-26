@@ -1597,6 +1597,9 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
     }
     poisByCluster[clusterId].push(poi);
   });
+  for (const clusterId in poisByCluster) {
+    poisByCluster[clusterId].sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+  }
 
   // Afficher tous les clusters (y compris vides, pour pouvoir y glisser des POIs)
   const displayClusters: ClusterMetadata[] = clustersMetadata;

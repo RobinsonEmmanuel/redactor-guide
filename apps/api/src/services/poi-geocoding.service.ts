@@ -489,9 +489,20 @@ export async function geocodeMissingPoisInSelection(
     // Sauvegarde immédiate : un lot de 80+ POIs peut prendre plusieurs minutes (rate-limit
     // Photon + Nominatim) — si la requête est coupée en route (timeout proxy/serveur), on ne
     // veut pas perdre tout le travail déjà fait en écrivant une seule fois à la fin.
+    // Écriture par poi_id (arrayFilters), jamais par index : ce géocodage tourne plusieurs
+    // minutes sur un gros lot, largement assez pour qu'un POI soit ajouté/supprimé entre-temps
+    // (édition manuelle, doublon nettoyé...) et décale les positions — un `pois.${i}` figé au
+    // début de la boucle finirait alors par écraser un POI totalement différent.
     await db.collection(COLLECTIONS.pois_selection).updateOne(
-      { guide_id: guideId },
-      { $set: { [`pois.${i}`]: updatedPois[i], updated_at: new Date() } }
+      { guide_id: guideId, 'pois.poi_id': poi.poi_id },
+      {
+        $set: {
+          'pois.$[elem].coordinates': updatedPois[i].coordinates,
+          'pois.$[elem].place_identity': updatedPois[i].place_identity,
+          updated_at: new Date(),
+        },
+      },
+      { arrayFilters: [{ 'elem.poi_id': poi.poi_id }] }
     );
 
     if (i < updatedPois.length - 1) await sleep(PHOTON_RATE_LIMIT_MS);

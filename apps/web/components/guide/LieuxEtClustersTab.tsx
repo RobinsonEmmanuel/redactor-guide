@@ -1988,7 +1988,10 @@ export default function LieuxEtClustersTab({ guideId, apiUrl, guide }: LieuxEtCl
                   apiUrl={apiUrl}
                   guideId={guideId}
                   onAssigned={(poiId, clusterId, clusterName) => {
-                    setPois(prev => prev.map(p => p.poi_id === poiId ? { ...p, cluster_id: clusterId, cluster_name: clusterName ?? undefined } : p));
+                    setPois(prev => prev.map(p => p.poi_id === poiId
+                      ? { ...p, cluster_id: clusterId, cluster_name: clusterName ?? undefined, matched_automatically: false }
+                      : p
+                    ));
                   }}
                 />
               </div>

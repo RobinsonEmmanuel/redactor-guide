@@ -1415,9 +1415,9 @@ export default function CheminDeFerTab({ guideId, cheminDeFer, apiUrl, googleDri
                       <div className="space-y-2">
                         {templateProposals.proposals.cluster_pages.map((clusterPage: any) => {
                           // Trouver les POIs de ce cluster
-                          const clusterPois = templateProposals.proposals.poi_pages?.filter(
+                          const clusterPois = (templateProposals.proposals.poi_pages?.filter(
                             (poi: any) => poi.cluster_id === clusterPage.cluster_id
-                          ) || [];
+                          ) || []).sort((a: any, b: any) => (a.titre || '').localeCompare(b.titre || '', 'fr'));
                           
                           return (
                             <div key={clusterPage.page_id} className="border border-gray-100 rounded-md bg-gray-50/30 p-2">

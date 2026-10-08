@@ -14,6 +14,7 @@ interface Page {
   statut_editorial?: string;
   url_source?: string;
   image_url?: string; // Image de l'article WordPress
+  content?: Record<string, any>; // Contenu généré/édité (champs du template)
   coordinates?: {
     lat: number;
     lon: number;
@@ -97,6 +98,20 @@ function getTypeIcon(page: Page) {
   return DocumentTextIcon;
 }
 
+const IMAGE_KEYS = ['photo_principale', 'photo', 'image_principale', 'image', 'visuel'];
+const IMAGE_EXT_RE = /\.(jpg|jpeg|png|webp|gif|avif)(\?|$)/i;
+
+/** Première photo sélectionnée dans le contenu de la page (champs image du template). */
+function getContentImage(content?: Record<string, any>): string | undefined {
+  if (!content) return undefined;
+  const entries = Object.entries(content).filter(
+    ([, v]) => typeof v === 'string' && v.startsWith('http')
+  ) as [string, string][];
+  const byKey = entries.find(([k]) => IMAGE_KEYS.some((ik) => k.toLowerCase().includes(ik)));
+  if (byKey) return byKey[1];
+  return entries.find(([, v]) => IMAGE_EXT_RE.test(v))?.[1];
+}
+
 export default function PageCard({ page, onEdit, onDelete, onOpenContent, onReset }: PageCardProps) {
   const {
     attributes,
@@ -118,6 +133,11 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
   const statusLabel = STATUS_LABELS[page.statut_editorial || 'draft'];
 
   const { leftBorder, thumbColor, cardBg } = getPageTypeMeta(page);
+  // Page validée : la miniature affiche une des photos sélectionnées dans le détail de la page
+  const thumbImage =
+    page.statut_editorial === 'validee'
+      ? getContentImage(page.content) || page.image_url
+      : page.image_url;
   const TypeIcon = getTypeIcon(page);
 
   // Déterminer la bordure et l'effet selon le statut
@@ -152,16 +172,16 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
       <div
         className="h-32 relative flex items-center justify-center cursor-grab active:cursor-grabbing"
         style={{
-          backgroundImage: page.image_url ? `url(${page.image_url})` : undefined,
-          backgroundSize: page.image_url ? 'cover' : undefined,
-          backgroundPosition: page.image_url ? 'center' : undefined,
-          backgroundColor: page.image_url ? undefined : thumbColor,
+          backgroundImage: thumbImage ? `url(${thumbImage})` : undefined,
+          backgroundSize: thumbImage ? 'cover' : undefined,
+          backgroundPosition: thumbImage ? 'center' : undefined,
+          backgroundColor: thumbImage ? undefined : thumbColor,
         }}
         {...attributes}
         {...listeners}
       >
         {/* Overlay sombre pour lisibilité */}
-        {page.image_url && <div className="absolute inset-0 bg-black/20 pointer-events-none" />}
+        {thumbImage && <div className="absolute inset-0 bg-black/20 pointer-events-none" />}
         
         {/* Numéro de page */}
         <div className="absolute top-2 left-2 bg-white/95 backdrop-blur rounded px-2 py-1 text-xs font-bold text-gray-700 shadow-sm z-10 pointer-events-none">
@@ -182,7 +202,7 @@ export default function PageCard({ page, onEdit, onDelete, onOpenContent, onRese
         
         {/* Icône type (indicateur visuel au centre) */}
         <div className="pointer-events-none">
-          <TypeIcon className={`h-8 w-8 ${page.image_url ? 'text-white/70 drop-shadow-md' : 'text-white/25'}`} />
+          <TypeIcon className={`h-8 w-8 ${thumbImage ? 'text-white/70 drop-shadow-md' : 'text-white/25'}`} />
         </div>
       </div>
 
